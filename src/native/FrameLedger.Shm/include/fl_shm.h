@@ -37,9 +37,9 @@
 #define FL_SHM_LAYOUT_VERSION 2u
 
 #define FL_SHM_HANDSHAKE_OFFSET 0x00u
-#define FL_SHM_WRITER_OFFSET    0x40u
-#define FL_SHM_CONTROL_OFFSET   0x80u
-#define FL_SHM_RING_OFFSET      0xC0u
+#define FL_SHM_WRITER_OFFSET 0x40u
+#define FL_SHM_CONTROL_OFFSET 0x80u
+#define FL_SHM_RING_OFFSET 0xC0u
 
 #define FL_SHM_DEFAULT_CAPACITY 8192u    // 8192 * 64 B = 512 KiB, ~16 s at 500 fps
 
@@ -47,40 +47,40 @@ namespace fl {
 
 // status values published in FlWriterState::status
 enum FlStatus : uint32_t {
-    FL_STATUS_INIT          = 0,
-    FL_STATUS_READY         = 1,
+    FL_STATUS_INIT = 0,
+    FL_STATUS_READY = 1,
     FL_STATUS_SELF_DISABLED = 2,    // 3 hook faults; see 17_HOOK_ENGINE §Fault policy
-    FL_STATUS_UNHOOKED      = 3,
+    FL_STATUS_UNHOOKED = 3,
 };
 
 // bits in FlWriterState::apiMask and FlFrameRecord::api
 enum FlApi : uint8_t {
     FL_API_UNKNOWN = 0,
-    FL_API_D3D11   = 1,
-    FL_API_D3D12   = 2,
-    FL_API_VULKAN  = 3,
-    FL_API_OPENGL  = 4,
+    FL_API_D3D11 = 1,
+    FL_API_D3D12 = 2,
+    FL_API_VULKAN = 3,
+    FL_API_OPENGL = 4,
     // No D3D9: those titles are almost entirely 32-bit and the Overlay is
     // x64-only, so they are Tier 2 in v1 (docs/20_OPEN_QUESTIONS.md §Scope).
 };
 
 enum FlUpscaler : uint8_t {
-    FL_UPSCALER_NONE    = 0,
-    FL_UPSCALER_DLSS    = 1,
+    FL_UPSCALER_NONE = 0,
+    FL_UPSCALER_DLSS = 1,
     FL_UPSCALER_DLSS_RR = 2,
-    FL_UPSCALER_FSR2    = 3,
-    FL_UPSCALER_FSR3    = 4,
-    FL_UPSCALER_FSR4    = 5,
-    FL_UPSCALER_XESS    = 6,
-    FL_UPSCALER_NIS     = 7,
+    FL_UPSCALER_FSR2 = 3,
+    FL_UPSCALER_FSR3 = 4,
+    FL_UPSCALER_FSR4 = 5,
+    FL_UPSCALER_XESS = 6,
+    FL_UPSCALER_NIS = 7,
     FL_UPSCALER_UNKNOWN = 0xFF,
 };
 
 enum FlFgMode : uint8_t {
-    FL_FG_NONE    = 0,
-    FL_FG_DLSS_G  = 1,
-    FL_FG_FSR_FG  = 2,
-    FL_FG_XEFG    = 3,
+    FL_FG_NONE = 0,
+    FL_FG_DLSS_G = 1,
+    FL_FG_FSR_FG = 2,
+    FL_FG_XEFG = 3,
     FL_FG_UNKNOWN = 0xFF,
     // No AFMF: driver-side frame generation happens after present and is
     // invisible to an in-process hook (docs/03_METRICS.md §Frame Generation).
@@ -88,9 +88,9 @@ enum FlFgMode : uint8_t {
 
 // bits in FlFrameRecord::rtFlags
 enum FlRtFlags : uint8_t {
-    FL_RT_AS_BUILD      = 1u << 0,    // catches inline RayQuery, which DispatchRays misses
+    FL_RT_AS_BUILD = 1u << 0,    // catches inline RayQuery, which DispatchRays misses
     FL_RT_DISPATCH_RAYS = 1u << 1,
-    FL_RT_PSO_ALIVE     = 1u << 2,
+    FL_RT_PSO_ALIVE = 1u << 2,
 };
 
 // ---------------------------------------------------------------------------
@@ -116,12 +116,12 @@ struct alignas(64) FlShmHandshake {
 // atomic_ref's alignment requirement (4 for uint32_t, 8 for uint64_t).
 // ---------------------------------------------------------------------------
 struct alignas(64) FlWriterState {
-    uint64_t writeIndex;       // @0   monotonic; release-store
-    uint32_t status;           // @8   FlStatus
-    uint32_t apiMask;          // @12  which graphics APIs got hooked
-    uint32_t faultCount;       // @16  17_HOOK_ENGINE §Fault policy
-    uint32_t vramBudgetMb;     // @20  IDXGIAdapter3 Budget, refreshed at 1 Hz
-    uint32_t reserved[10];     // @24..63  must be zero; room for additive fields
+    uint64_t writeIndex;      // @0   monotonic; release-store
+    uint32_t status;          // @8   FlStatus
+    uint32_t apiMask;         // @12  which graphics APIs got hooked
+    uint32_t faultCount;      // @16  17_HOOK_ENGINE §Fault policy
+    uint32_t vramBudgetMb;    // @20  IDXGIAdapter3 Budget, refreshed at 1 Hz
+    uint32_t reserved[10];    // @24..63  must be zero; room for additive fields
 
     // NOTE: there is deliberately no droppedRecords here. The writer has no
     // reader index and cannot know whether the slot it overwrites was ever
@@ -133,52 +133,52 @@ struct alignas(64) FlWriterState {
 // Region 3 — Agent-written.
 // ---------------------------------------------------------------------------
 struct alignas(64) FlControlBlock {
-    uint32_t pauseRequested;   // @0
-    uint32_t unhookRequested;  // @4   set when the guard fires mid-session
-    uint32_t overlayEnabled;   // @8   in-game overlay draw toggle (v1.1)
-    uint32_t agentHeartbeat;   // @12  Agent bumps every second
-    uint32_t reserved[12];     // @16..63  must be zero
+    uint32_t pauseRequested;     // @0
+    uint32_t unhookRequested;    // @4   set when the guard fires mid-session
+    uint32_t overlayEnabled;     // @8   in-game overlay draw toggle (v1.1)
+    uint32_t agentHeartbeat;     // @12  Agent bumps every second
+    uint32_t reserved[12];       // @16..63  must be zero
 };
 
 // ---------------------------------------------------------------------------
 // Region 4 — the ring. 64 bytes exactly, no implicit padding.
 // ---------------------------------------------------------------------------
 struct alignas(64) FlFrameRecord {
-    uint64_t qpc;                       // @0   present entry timestamp
-    uint32_t frameIndex;                // @8
-    uint32_t presentFlags;              // @12
-    uint16_t syncInterval;              // @16
-    uint16_t renderW;                   // @18  0 = unknown
-    uint16_t renderH;                   // @20
-    uint16_t outputW;                   // @22
-    uint16_t outputH;                   // @24
-    uint8_t  api;                       // @26  FlApi
-    uint8_t  upscaler;                  // @27  FlUpscaler
-    uint8_t  upscalerQuality;           // @28  vendor enum, 0xFF unknown
-    uint8_t  fgMode;                    // @29  FlFgMode
-    uint8_t  rtFlags;                   // @30  FlRtFlags
-    uint8_t  hdr;                       // @31
+    uint64_t qpc;                // @0   present entry timestamp
+    uint32_t frameIndex;         // @8
+    uint32_t presentFlags;       // @12
+    uint16_t syncInterval;       // @16
+    uint16_t renderW;            // @18  0 = unknown
+    uint16_t renderH;            // @20
+    uint16_t outputW;            // @22
+    uint16_t outputH;            // @24
+    uint8_t  api;                // @26  FlApi
+    uint8_t  upscaler;           // @27  FlUpscaler
+    uint8_t  upscalerQuality;    // @28  vendor enum, 0xFF unknown
+    uint8_t  fgMode;             // @29  FlFgMode
+    uint8_t  rtFlags;            // @30  FlRtFlags
+    uint8_t  hdr;                // @31
 
     // Volume, not a call count, and 32-bit for a reason: one 3840x2160
     // primary-ray dispatch is 8,294,400 rays — 126x a uint16's range. A
     // narrower counter saturates on every RT title at 1080p or above, which
     // is exactly the regime the path-tracing heuristic reads.
-    uint32_t dispatchRaysVolume;        // @32  sum of W*H*D this frame
+    uint32_t dispatchRaysVolume;    // @32  sum of W*H*D this frame
 
     uint16_t psoCreatedThisFrame;       // @36  compile COUNT, not a flag
     uint8_t  maxTraceRecursionDepth;    // @38  from the live RT PSO config
     uint8_t  _pad0;                     // @39  explicit: keeps the next field 8-aligned
 
-    uint64_t vramUsedBytes;             // @40
-    uint32_t reflexLatencyUs;           // @48  0 = unavailable
-    uint32_t fgEvaluations;             // @52  FG feature evaluations this frame
+    uint64_t vramUsedBytes;      // @40
+    uint32_t reflexLatencyUs;    // @48  0 = unavailable
+    uint32_t fgEvaluations;      // @52  FG feature evaluations this frame
 
     // Seqlock counter. Monotonic per slot and NEVER reset, so a full lap of
     // the ring always changes it — otherwise a reader stalled exactly one lap
     // would validate a different frame as unchanged. The payload write must
     // cover [0,56) and [60,64) and must never touch this field.
-    uint32_t seq;                       // @56
-    uint32_t _pad1;                     // @60  explicit
+    uint32_t seq;      // @56
+    uint32_t _pad1;    // @60  explicit
 };
 
 // ---------------------------------------------------------------------------

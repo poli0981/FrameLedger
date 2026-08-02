@@ -4,7 +4,8 @@
 #
 # The record and header layout contract needs no test framework — it is enforced
 # by static_assert in fl_shm.h, so simply compiling this target proves it.
-include(CTest)
+# enable_testing() is called by the top-level CMakeLists; calling it here
+# instead configures fine and then finds no tests at ctest time.
 
 add_executable(fl_shm_layout_test layout_test.cpp)
 target_link_libraries(fl_shm_layout_test PRIVATE FrameLedger.Shm fl_native_flags)

@@ -51,19 +51,94 @@ function Invoke-Checked([string]$What, [scriptblock]$Body) {
     if ($LASTEXITCODE -ne 0) { throw "$What failed (exit $LASTEXITCODE)" }
 }
 
+<#
+Import the MSVC x64 environment into this process so the native build works
+from an ordinary shell, not only from a Developer Command Prompt.
+
+Two things this has to get right:
+
+1. Finding the install. vswhere's -requires filter for the C++ workload does
+   not match every VS edition/channel — it silently returned nothing on a
+   machine that had the tools installed — so fall back to probing for
+   vcvars64.bat directly.
+
+2. PATH hygiene. vcvars64 PREPENDS to whatever PATH it inherits. On a machine
+   with msys2/MinGW on PATH, CMake then discovers MinGW's `ld.exe` as the
+   linker (MSVC ships `link.exe`, so there is nothing to shadow it) and the
+   build dies with "cannot find /nologo: No such file or directory" — a
+   confusing failure a long way from its cause. Starting from a minimal PATH
+   is what a Developer Command Prompt effectively gives you.
+#>
+function Import-MsvcEnvironment {
+    if (Get-Command cl -ErrorAction SilentlyContinue) { return $true }
+
+    $vcvars = $null
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $root = & $vswhere -latest -prerelease -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath 2>$null | Select-Object -First 1
+        if ($root) { $vcvars = Join-Path $root 'VC\Auxiliary\Build\vcvars64.bat' }
+    }
+    if (-not $vcvars -or -not (Test-Path $vcvars)) {
+        $vcvars = Get-ChildItem 'C:\Program Files*\Microsoft Visual Studio' -Recurse -Filter 'vcvars64.bat' `
+            -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    }
+    if (-not $vcvars -or -not (Test-Path $vcvars)) { return $false }
+
+    # Drop only the MinGW/msys2 entries — keeping everything else means dotnet,
+    # git and cmake survive. Replacing PATH wholesale would remove them and the
+    # managed gates would then fail for a reason that has nothing to do with C++.
+    $basePath = ($env:PATH -split ';' |
+        Where-Object { $_ -and $_ -notmatch 'msys64|mingw(32|64)|Git\\usr\\bin' }) -join ';'
+
+    $dump = cmd /c "set `"PATH=$basePath`" && call `"$vcvars`" >nul 2>&1 && set"
+    if ($LASTEXITCODE -ne 0) { return $false }
+
+    foreach ($line in $dump) {
+        if ($line -match '^([^=]+)=(.*)$') {
+            Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2] -ErrorAction SilentlyContinue
+        }
+    }
+
+    # vcvars sets Platform=x64 for vcxproj builds. We have none, and MSBuild
+    # reads it as a SOLUTION platform — so `dotnet build FrameLedger.slnx`
+    # then fails with MSB4126 "solution configuration Release|x64 is invalid",
+    # a failure with no visible connection to having set up a C++ toolchain.
+    # Project-level x64 comes from Directory.Build.props, not from here.
+    Remove-Item Env:Platform -ErrorAction SilentlyContinue
+
+    # Ninja and clang-format both ship inside VS but neither is on the vcvars
+    # PATH. Adding them here means a contributor with the C++ workload gets the
+    # native build AND the formatting gate without installing anything extra.
+    # vcvars64.bat lives at <VSRoot>\VC\Auxiliary\Build\ — four levels down.
+    $vsRoot = Split-Path (Split-Path (Split-Path (Split-Path $vcvars -Parent) -Parent) -Parent) -Parent
+    $ninja = Get-ChildItem $vsRoot -Recurse -Filter 'ninja.exe' -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($ninja) { $env:PATH = "$($ninja.DirectoryName);$env:PATH" }
+
+    if (-not (Get-Command clang-format -ErrorAction SilentlyContinue)) {
+        $cf = Join-Path $vsRoot 'VC\Tools\Llvm\x64\bin\clang-format.exe'
+        if (Test-Path $cf) { $env:PATH = "$(Split-Path $cf -Parent);$env:PATH" }
+    }
+
+    return [bool](Get-Command cl -ErrorAction SilentlyContinue)
+}
+
 # --- 1-3. Native ------------------------------------------------------------
-function Invoke-Native {
+function Invoke-Native([bool]$FixFormat = $false) {
     Write-Step 'Native build (C++ /W4 /WX)'
     if ($SkipNative) { Skip-Gate 'native build' '-SkipNative'; return }
     if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
         Skip-Gate 'native build' 'cmake not on PATH'; return
     }
-    if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
+    if (-not (Import-MsvcEnvironment)) {
         # Do not fall back to another compiler: the Overlay's whole point is
         # the MSVC build profile (/MT, /GS, /guard:cf, /Qspectre).
-        Skip-Gate 'native build' 'cl.exe not on PATH — run from a Developer prompt or use ilammy/msvc-dev-cmd'
+        Skip-Gate 'native build' 'MSVC not found — install the "Desktop development with C++" workload'
         return
     }
+    Write-Host "MSVC: $((Get-Command cl).Source)" -ForegroundColor DarkGray
 
     $preset = if ($Configuration -eq 'Debug') { 'x64-debug' } else { 'x64-release' }
     Push-Location $nativeDir
@@ -76,14 +151,25 @@ function Invoke-Native {
     }
     finally { Pop-Location }
 
+    Invoke-ClangFormat $FixFormat
+}
+
+function Invoke-ClangFormat([bool]$Fix) {
     Write-Step 'clang-format'
     if (-not (Get-Command clang-format -ErrorAction SilentlyContinue)) {
-        Skip-Gate 'clang-format' 'clang-format not on PATH'; return
+        Skip-Gate 'clang-format' 'clang-format not found (ships with the VS C++ workload)'; return
     }
-    $sources = Get-ChildItem $nativeDir -Recurse -Include *.cpp, *.h |
+    $sources = Get-ChildItem $nativeDir -Recurse -Include *.cpp, *.h -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -notmatch 'third_party|[\\/]build[\\/]' }
-    if ($sources) {
-        Invoke-Checked 'clang-format' { clang-format --dry-run -Werror @($sources.FullName) }
+    if (-not $sources) { return }
+
+    if ($Fix) {
+        Invoke-Checked 'clang-format -i' { clang-format -i --style=file @($sources.FullName) }
+        Write-Host "formatted $($sources.Count) native file(s)" -ForegroundColor Green
+    }
+    else {
+        Invoke-Checked 'clang-format' { clang-format --dry-run -Werror --style=file @($sources.FullName) }
+        Write-Host "OK — $($sources.Count) native file(s)" -ForegroundColor Green
     }
 }
 
@@ -153,11 +239,11 @@ function Invoke-ProjectGates {
 # --- Entry point ------------------------------------------------------------
 $sw = [Diagnostics.Stopwatch]::StartNew()
 switch ($Task) {
-    'native' { Invoke-Native }
+    'native' { Invoke-Native $false }
     'managed' { Invoke-Managed $false }
-    'format' { Invoke-Managed $true }
+    'format' { Invoke-Native $true; Invoke-Managed $true }
     'check' {
-        Invoke-Native            # native first: the managed build copies its output
+        Invoke-Native $false     # native first: the managed build copies its output
         Invoke-Managed $false
         Invoke-ProjectGates
     }

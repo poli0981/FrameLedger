@@ -17,14 +17,40 @@ Rules:
 
 ## Environment
 
+Recorded 2026-08-02. Toolchain rows are **verified** — the native layer builds
+and its tests pass on this machine. Everything below the toolchain is context
+for the measurements that have not been taken yet.
+
 | | |
 |---|---|
-| Machine | *(CPU / RAM / OS build)* |
-| GPU | *(model, driver version, date)* |
-| Other GPUs tested | *(AMD / Intel, or "none — untested")* |
-| .NET SDK | *(from `global.json`)* |
-| MSVC / Windows SDK | |
-| Vulkan SDK | |
+| CPU | Intel Core i7-14700KF |
+| GPU | NVIDIA GeForce RTX 5080, driver 32.0.16.1088 |
+| RAM | 32 GB DDR5 |
+| Motherboard | Gigabyte Z790M AORUS ELITE AX |
+| Display | MSI MAG 274QF X24 — 2560×1440, 240 Hz |
+| OS | Windows 11 Pro Insider Preview, build 26300.9032 |
+| .NET SDK | 10.0.302 (pinned by `global.json`) — ✅ verified |
+| MSVC | 19.51.36252, toolset 14.51.36231, VS 2026 Insiders — ✅ verified |
+| Windows SDK | 10.0.22621.0 and 10.0.26100.0 installed — ✅ matches the TFM |
+| CMake / Ninja | CMake 4.4.0, Ninja from the VS CMake component — ✅ verified |
+| Vulkan SDK | not installed — needed before `FrameLedger.VkLayer` has real content |
+| Launchers installed | Steam, Epic, itch.io |
+
+**Coverage gaps to state plainly rather than discover later:**
+
+- **No AMD or Intel GPU.** The `18_GPU_VENDOR_APIS` §Capability matrix cannot be
+  filled for those vendors here, and that matrix drives what the UI advertises
+  as available. Mark them "untested", never `?`. AFMF (§9) is likewise
+  unreachable — it is an AMD driver-side feature.
+- **No integrated GPU** (the `KF` suffix means no iGPU) and exactly one adapter.
+  Multi-GPU adapter-LUID selection — the `adapterLuid` field in the shm
+  handshake, and the PDH instance filtering in `18_GPU_VENDOR_APIS` §L1 — cannot
+  be exercised on this machine.
+- **GOG Galaxy is not installed,** so the GOG detection path in `05_DETECTION`
+  §Platform signatures has no local fixture. Steam, Epic and itch do.
+- **240 Hz display.** Useful to know when reading the ring-sizing argument in
+  `04_CAPTURE`: 8192 records is ~16 s at 500 fps, so ~34 s at this refresh rate.
+  Hook-overhead runs should uncap the frame rate rather than sit at 240.
 
 ---
 
@@ -73,9 +99,22 @@ layer, and neither needs a GPU.
 
 ## 3 · Hook viability on `hook-harness` only
 
+**Already settled — the shared-memory layout.** ✅ `fl_shm.h` compiles under
+MSVC 19.51 with `/W4 /WX`, every `static_assert` holds, and `fl-layout-dump`
+output is **byte-identical between MSVC and gcc** across all four structs and
+39 field offsets. All four regions are exactly 64 bytes with no implicit
+padding, and the mapping is 512 KiB + 192 B of header at the default capacity.
+This is what the corrected `07_IPC` layout was worth checking twice: the
+earlier design put `FlControlBlock` at an offset that overlapped the header.
+
+Still open:
+
 - Vtable indices observed (§H4):
-- CFG / `__fastfail` behaviour with MinHook trampolines (§H1):
-- `-D_HAS_EXCEPTIONS=0` + `<atomic>` compiles (§H3):
+- CFG / `__fastfail` behaviour with MinHook trampolines (§H1) — **not yet
+  exercised: `/guard:cf` is deliberately not applied to the Overlay target
+  until this is answered**:
+- `-D_HAS_EXCEPTIONS=0` + `<atomic>` compiles (§H3) — same, the define is not
+  applied yet:
 - Deferred hook install from the `LoadLibrary` hook, no deadlock (§H2):
 - Per-present cost, hooked vs unhooked (QPC around the call site):
 
