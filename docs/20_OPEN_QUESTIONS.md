@@ -216,28 +216,29 @@ lazily, which is the case the hook exists for. Until then, keep the rule and do
 not let anyone "simplify" it back to an inline install on the grounds that the
 probe never showed a deadlock.
 
-### H4 · Vtable index verification
+### H5 ◐ · Proxy swapchains defeat the dummy-vtable assumption
 
-`17_HOOK_ENGINE` now records why "verified at runtime against the dummy object"
-is not implementable — a vtable slot is a bare function pointer with no identity.
-What remains open is what to do instead. The `hook-harness` test on a known
-runtime is the honest answer, but note `14_TESTING` expects the probe to run **on
-the CI runner**, and a headless GitHub runner has no GPU, no DXGI output and no
-Vulkan ICD. Decide whether CI uses WARP, whether the test is local-only, or
-whether the assertion is compile-time against the SDK headers.
+**Partly answered, and the news is better than expected.** `hook-harness
+--probe-proxy` builds a real forwarding `IDXGISwapChain` wrapper — what
+`sl.interposer` and ReShade hand the application — and presents through it with
+our hook on the **real** vtable. The hook still fires: the proxy forwards via
+`real_->Present(...)`, an ordinary virtual dispatch, so patching the real vtable
+catches it one layer down. A proxy having its own vtable does *not* by itself
+make us miss the present.
 
-### H5 · Proxy swapchains defeat the dummy-vtable assumption
+**What still has to be measured on a real title:**
 
-Streamline, ReShade and similar wrap `IDXGISwapChain` in their own COM object.
-Our dummy-object probe reads the vtable of a *real* swapchain we created, then
-patches that vtable — but the game may be presenting through a proxy whose vtable
-we never touched, or the proxy may sit above us and see different calls. This
-bites hardest on **DLSS-G titles**, which is exactly the population this rewrite
-targets, since Streamline is the common integration path.
+1. A forwarding proxy is the easy case. DLSS-G presents *interpolated* frames
+   the application never submitted — whether those reach a real-vtable hook is
+   what actually matters for the FG counting in `03_METRICS` §Frame Generation,
+   and the harness cannot simulate it.
+2. We observe the post-proxy call, so parameters the proxy rewrote are what we
+   see, not what the game passed.
+3. A proxy that owns a *different* swapchain, rather than wrapping ours, would
+   still be invisible.
 
-**P0 must measure this on a real Streamline title** before P1 commits to the
-vtable-swap strategy — and on a machine with RTSS and the Steam overlay active,
-which is the realistic case rather than the clean-room one.
+Needs a real Streamline/DLSS-G title, ideally with RTSS and the Steam overlay
+also active (`spike-notes.md` §Environment — that machine already has both).
 
 ### H6 · D3D12 command-list hooks count recorded, not executed, work
 
@@ -280,11 +281,6 @@ installs a vectored exception handler that runs first. NFR-3 says the Overlay
 **Needs:** reword NFR-3 to what is actually guaranteed (faults in our code are
 contained and self-disable after three), and keep the absolute promise out of
 user-facing text.
-
-### H9 · `SetColorSpace1` is on `IDXGISwapChain3`
-
-`17_HOOK_ENGINE` §Hook inventory attributes it to `IDXGISwapChain4`. Minor, but
-it is a hook index — wrong interface, wrong vtable length assumption.
 
 ### H10 · Per-process VRAM thread inside the game process
 

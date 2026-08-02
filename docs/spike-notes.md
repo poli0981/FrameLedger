@@ -240,9 +240,68 @@ inside the `LoadLibrary` hook rests on the documented mechanism — suspending a
 thread that holds the loader lock — and remains an argument, not a measurement.
 H2 stays open in `20_OPEN_QUESTIONS` for that reason.
 
+### ✅ H4 · Vtable indices — **all three proved, and CI can prove them too**
+
+`hook-harness --probe-vtable`, ctest `fl_vtable_indices`.
+
+A vtable slot carries no identity, so "check that slot 8 is Present" is not a
+question the runtime can answer — which is why the old "verified at runtime
+against the dummy object" wording was unimplementable. What *is* answerable is
+behaviour: patch the slot, call the method, see whether the detour ran.
+
+| Slot | Claim | Result |
+|---|---|---|
+| 8 | `IDXGISwapChain::Present` | ✅ detour ran on `Present()` |
+| 13 | `IDXGISwapChain::ResizeBuffers` | ✅ detour ran on `ResizeBuffers()` |
+| 22 | `IDXGISwapChain1::Present1` | ✅ detour ran on `Present1()` |
+
+Also confirmed: `IDXGISwapChain` and `IDXGISwapChain1` return the **same vtable
+pointer** — one concrete object with the table extended past the base
+interface — so slot 22 is reachable from either interface pointer. And slot 8
+resolves inside a mapped image, with `dxgi.dll` loaded at the expected base.
+
+**The CI half of §H4 is answered too.** The worry was that a hosted runner has
+no GPU, no DXGI output and no interactive window station, so index probing
+would be dev-machine-only and the test would have to be skipped. Two choices
+remove that: **WARP** (software rasteriser, no adapter needed) and
+**`CreateSwapChainForComposition`** (no `HWND` at all). Feature level `0xB000`
+obtained headless. These run as ordinary ctests.
+
+### ◐ H5 · Proxy swapchains — **less dangerous than assumed, not yet cleared**
+
+`hook-harness --probe-proxy`, ctest `fl_proxy_swapchain`. The harness builds a
+real forwarding `IDXGISwapChain` wrapper — what `sl.interposer` and ReShade
+hand the application — and presents through it while our hook sits on the
+**real** vtable.
+
+```
+real vtable  00007FFE3C87C688
+proxy vtable 00007FF701716F20   (different, as expected — we never patched it)
+proxy saw 1 present;  hook on the REAL vtable saw 1
+```
+
+**The hook still fires.** The proxy forwards with `real_->Present(...)`, an
+ordinary virtual dispatch through the real vtable, so patching the real vtable
+catches it one layer down. The naive fear — "a proxy has its own vtable, so we
+miss the present entirely" — does not hold for a forwarding wrapper.
+
+Why this is not yet a clearance for §H5:
+
+1. **A forwarding proxy is the easy case.** DLSS-G does not merely forward; it
+   presents *interpolated* frames the application never submitted. Whether
+   those reach a real-vtable hook at all is the question that matters for the
+   FG counting in `03_METRICS`, and this harness cannot answer it.
+2. **We see the post-proxy call.** Parameters the proxy rewrote are what we
+   observe, not what the game passed.
+3. **A proxy that owns a different swapchain** — rather than wrapping ours —
+   would still be invisible.
+
+So: layering does not inherently break the strategy, which is genuinely good
+news for the vtable approach. A real Streamline/DLSS-G title is still required
+before §H5 closes.
+
 ### Still open
 
-- Vtable indices observed (§H4) — needs the D3D harness:
 - Per-present cost, hooked vs unhooked (QPC around the call site):
 
 ## 4 · Vendor symbol reality check
