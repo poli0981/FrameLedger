@@ -18,7 +18,7 @@
                                         (lock-free SPSC) │
 ┌────────────────────────────────────────────────────────┴──────────────────┐
 │ GAME PROCESS                                                              │
-│  FrameLedger.Overlay.dll (C++20, injected)   or   VK_LAYER_frameledger_*  │
+│  FrameLedger.Overlay.dll (C++20, injected)   or   VK_LAYER_FRAMELEDGER_*    │
 │   ├ present hooks: DXGI (D3D11/12) / OpenGL  (Vulkan: implicit layer)     │
 │   ├ upscaler hooks: NGX · Streamline · FFX · XeSS                         │
 │   ├ RT hooks: CreateStateObject · DispatchRays · BuildRaytracingAS        │
