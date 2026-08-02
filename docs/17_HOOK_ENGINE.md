@@ -48,17 +48,33 @@ MH_CreateHook(vtbl[kPresentIndex], &Hook_Present, reinterpret_cast<void**>(&Orig
 
 Index constants (`IDXGISwapChain::Present = 8`, `Present1 = 22` on `IDXGISwapChain1`, `ResizeBuffers = 13`) live in `HookIndices.h`.
 
-> ⚠ **"Verified at runtime against the dummy object" is not implementable as
-> stated, and must not be relied on.** A vtable slot holds a bare function
-> pointer; it carries no name, no signature, and nothing that identifies which
-> method it is. Reading `vtbl[8]` tells you an address, not that the address is
-> `Present`. The only checks actually available are structural — the pointer is
-> non-null, lies inside the module that exports the interface, and the vtable has
-> at least the expected number of entries — none of which distinguish slot 8 from
-> slot 9. What genuinely validates the indices is the `hook-harness` integration
-> test on a known runtime plus the D3D headers themselves, not a runtime probe.
-> Treat the constants as compile-time facts covered by tests (`20_OPEN_QUESTIONS`
-> §H4). Release the dummy objects immediately after reading vtables.
+> ⚠ **"Verified at runtime against the dummy object" is not implementable, and
+> must not be reintroduced.** A vtable slot holds a bare function pointer: no
+> name, no signature, nothing identifying which method it is. Reading `vtbl[8]`
+> tells you an address, not that the address is `Present`. The only runtime
+> checks available are structural — non-null, inside a mapped image, table long
+> enough — and none of them distinguishes slot 8 from slot 9.
+>
+> **What validates the indices is behaviour, and it is now a test.** `hook-harness
+> --probe-vtable` (ctest `fl_vtable_indices`) patches each slot, calls the
+> method, and asserts the detour ran. Verified on MSVC 19.51 / Windows 11
+> 26300: **slot 8 = `Present`, slot 13 = `ResizeBuffers`, slot 22 = `Present1`**.
+> `IDXGISwapChain` and `IDXGISwapChain1` return the same vtable pointer, so slot
+> 22 is reachable from either interface pointer.
+>
+> The harness runs **headless on a GPU-less CI runner** — WARP for the device
+> and `CreateSwapChainForComposition` so no `HWND` or interactive window station
+> is needed. That was the obstacle `20_OPEN_QUESTIONS` §H4 raised to testing
+> this anywhere but a dev machine, and it is closed.
+>
+> Release the dummy objects immediately after reading vtables.
+
+> **Patching a vtable entry patches every instance.** The table lives in
+> `dxgi.dll`'s read-only data and is shared by all objects of that concrete
+> class, so `VirtualProtect` + write affects the whole process. That is *why*
+> the dummy-object technique works at all — and it is also why §H7's
+> restore-only-if-unchanged rule matters, since another overlay may have
+> patched the same shared slot after us.
 
 Prefer hooking the **vtable entry** over inline-patching for COM methods (cleaner uninstall, no trampoline hazards); use MinHook inline hooks for flat C exports (`wglSwapBuffers`, NGX/FFX/XeSS entry points).
 
@@ -72,7 +88,7 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 | `IDXGISwapChain::Present`, `Present1` | Frame boundary, QPC, sync interval, present flags |
 | `IDXGISwapChain::ResizeBuffers`, `ResizeTarget` | Output resolution changes mid-session |
 | `IDXGISwapChain::SetFullscreenState` | Fullscreen ↔ borderless transitions |
-| `IDXGISwapChain4::SetColorSpace1` | HDR output detection |
+| `IDXGISwapChain3::SetColorSpace1` | HDR output detection. **`IDXGISwapChain3`, not 4** — 4 adds only `SetHDRMetaData` (`20_OPEN_QUESTIONS` §H9) |
 | `IDXGIFactory::CreateSwapChain*` | Capture swapchain desc (format, buffer count, swap effect, flags) at creation |
 | `wglSwapBuffers` | OpenGL titles |
 | Vulkan `vkQueuePresentKHR` | via layer, not hook (below) |
@@ -248,4 +264,14 @@ No logging in hook bodies. A small fixed-size in-memory ring of structured event
 
 ## Test harness
 
-`tools/hook-harness` — a minimal D3D11 / D3D12 / Vulkan / OpenGL app that presents at a controlled rate, optionally creates RT PSOs and dispatches rays, and can simulate an upscaler by calling stub exports with the same names. It lets CI and local dev exercise every hook path with **no game and no anti-cheat surface at all** (`14_TESTING`).
+`src/native/tools/hook-harness` — a minimal D3D11 app that presents at a controlled rate. It lets CI and local dev exercise hook paths with **no game and no anti-cheat surface at all** (`14_TESTING`).
+
+Two choices make it run on a hosted CI runner, which is what made vtable-index
+verification a dev-machine-only affair before:
+
+- **WARP** (`D3D_DRIVER_TYPE_WARP`) — a software rasteriser, so no adapter is required.
+- **`CreateSwapChainForComposition`** — no `HWND`, so no dependency on a window station or an interactive session.
+
+Current modes: `--probe-vtable` (§H4, ctest `fl_vtable_indices`), `--probe-proxy` (§H5, ctest `fl_proxy_swapchain`), `--present N`.
+
+Still to add as the hook layer grows: D3D12 and Vulkan devices, RT PSO creation and ray dispatch, stub upscaler exports with the real vendor names, a PSO-compile spike generator, and a fault-injecting hook body for the self-disable path (`14_TESTING` §Integration tests).

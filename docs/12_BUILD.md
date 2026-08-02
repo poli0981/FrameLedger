@@ -24,7 +24,8 @@ Targets:
 - `FrameLedger.VkLayer` → `FrameLedger.VkLayer.dll` + `VkLayer_FRAMELEDGER_overlay.json`
 - `FrameLedger.Injector` → static lib + `FrameLedger.Injector.exe` (thin CLI used by the Agent and for manual testing)
 - `FrameLedger.Overlay.Tests` → Catch2 unit tests (ring buffer, record layout, fault filter, seqlock)
-- `hook-harness` → the dummy D3D11/D3D12/Vulkan/OpenGL app (`17_HOOK_ENGINE` §Test harness)
+- `hook-harness` → the dummy D3D11 app, WARP + composition swapchain so it runs headless on CI (`17_HOOK_ENGINE` §Test harness). D3D12/Vulkan/OpenGL modes to follow as those hooks land.
+- `fl-probe-hookprofile` → build-profile probes for `/guard:cf` and `-D_HAS_EXCEPTIONS=0` (`20_OPEN_QUESTIONS` §H1/§H3)
 
 Compiler/linker flags (enforced in CMake, not per-target ad hoc): `/std:c++20 /MT /O2 /GS /guard:cf /Qspectre /GR- /W4 /WX`, `-D_HAS_EXCEPTIONS=0` for the Overlay target. Link `/DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA`.
 
