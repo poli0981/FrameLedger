@@ -1,0 +1,100 @@
+# ---------------------------------------------------------------------------
+# FrameLedger — repository ignore rules
+# ---------------------------------------------------------------------------
+
+# --- .NET / MSBuild --------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Xx]64/
+[Ll]og/
+[Ll]ogs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.binlog
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+out/
+TestResults/
+BenchmarkDotNet.Artifacts/
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+*.coveragexml
+
+# --- Native / CMake / MSVC -------------------------------------------------
+build/
+[Bb]uild[0-9]*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+CMakeUserPresets.json
+cmake_install.cmake
+compile_commands.json
+*.dir/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.tlog
+*.ipch
+*.aps
+*.ncb
+*.opendb
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+ipch/
+.vs/
+Testing/
+
+# --- Vendored third-party sources (fetched, not committed) -----------------
+# NVAPI headers + import lib ARE committed (12_BUILD.md §NVAPI SDK).
+# MinHook is a submodule / FetchContent — its build output is not.
+src/native/third_party/**/build/
+_deps/
+
+# NOTE: assets/native/PresentMon.exe is deliberately NOT ignored. 12_BUILD.md
+# calls it "bundled ... pinned, SHA-256 verified at build"; whether it is
+# committed or fetched is an open question (docs/20_OPEN_QUESTIONS.md).
+# Ignoring it here would silently prevent committing it.
+
+# --- Velopack / packaging --------------------------------------------------
+Releases/
+packages/
+*.vpk
+
+# --- Tooling / editors -----------------------------------------------------
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.swp
+*~
+
+# --- OS --------------------------------------------------------------------
+[Tt]humbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# --- Local-only ------------------------------------------------------------
+# Never commit captured game data, real session databases, or crash dumps.
+*.db
+*.db-wal
+*.db-shm
+*.dmp
+local/
+scratch/
+
+# Claude Code worktrees live inside the repo but are separate checkouts.
+.claude/worktrees/
