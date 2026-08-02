@@ -448,9 +448,63 @@ probe mis-computed the path offset by two bytes (`INDOWS\system32\...`), which i
 exactly the class of error that must fail closed rather than silently match
 nothing. Assert the struct offsets; treat any parse failure as *refuse*.
 
-### Still open
+### ✅ H7 · Unhook does not clobber a later hooker — **closed**
 
-- Per-present cost, hooked vs unhooked (QPC around the call site):
+`hook-harness --probe-unhook`, ctest `fl_unhook_preserves_foreign`. The foreign
+hooker is simulated rather than depending on RTSS being installed, so the test
+is deterministic and runs on CI instead of only on this machine.
+
+```
+[PASS] the foreign hook chained through ours (it saved our detour as its original)
+[PASS] our unhook DECLINED to restore, because the slot is no longer ours
+[PASS] the foreign hook is still installed - we did not silently remove it
+[PASS] the foreign hook still fires after our unhook
+[PASS] with the slot untouched, our unhook DOES restore
+[PASS] the slot holds the pristine entry again
+```
+
+The mechanism is the interesting part: a later hooker saves **our detour** as
+*its* original and chains through it, so an unconditional restore does not
+"clean up after ourselves" — it deletes their hook, silently, and their overlay
+stops working with no error anywhere. `17_HOOK_ENGINE`'s "cleaner uninstall"
+claim was backwards and is corrected.
+
+Both halves are asserted deliberately. A compare-and-restore that never restores
+would pass a one-sided test and leave our detour permanently in every process.
+
+### ✅ Per-present cost — **8.4 ns, against a 1,000 ns budget**
+
+`hook-harness --probe-cost`. 20,000 presents × 5 runs, hooked and unhooked runs
+**interleaved** so scheduler or thermal drift during the run is not attributed
+to the hook, medians compared.
+
+| | ns / present |
+|---|---|
+| unhooked | 317.9 |
+| hooked | 326.3 |
+| **delta** | **8.4** (budget 1,000 — NFR-1, `14_TESTING` §Hook overhead item 1) |
+
+**Read this narrowly.** The detour is an atomic increment plus a call through the
+saved pointer, i.e. the *floor* for any vtable hook — it bounds the mechanism,
+not the product. The Overlay's real per-present cost is `14_TESTING` item 2,
+measured on a real game, and that number is not this one.
+
+Not registered as a ctest: a timing threshold on a shared CI runner fails for
+reasons that have nothing to do with the code. Run it deliberately.
+
+### Still open in §3
+
+Both remaining items need something this harness cannot synthesise:
+
+- **§H2** — the deferred `LoadLibrary` install pattern is verified against heavy
+  loader contention, but the case against the naive inline install still rests
+  on the mechanism, not a measurement. Exercising it needs a real game that
+  loads D3D12 lazily.
+- **§H5** — a forwarding proxy does not defeat a real-vtable hook. DLSS-G
+  presenting *interpolated* frames the application never submitted is the case
+  that matters for FG counting, and it needs a real Streamline title.
+
+Everything else in §3 is answered: H1, H3, H4, H7 and the per-present cost.
 
 ## 4 · Vendor symbol reality check
 

@@ -57,6 +57,29 @@ GitHub release body, so a missing section means an empty release note.
   binary — including the NVIDIA display driver — carries
   `CN='Microsoft Windows Hardware Compatibility Publisher'`, so a `CN` match
   would make the whole driver stack read as untrusted.
+- **`hook-harness --probe-unhook`** (ctest `fl_unhook_preserves_foreign`) —
+  **closes §H7**. A later hooker saves *our detour* as its original, so an
+  unconditional vtable restore deletes their hook silently. Compare-and-restore
+  now, with both halves asserted: we decline when the slot changed and we do
+  restore when it did not. Simulated rather than depending on RTSS, so it is
+  deterministic and runs on CI.
+- **`hook-harness --probe-cost`** — the last open bullet under `spike-notes` §3.
+  A vtable detour costs **8.4 ns/present** against NFR-1's 1,000 ns budget
+  (20,000 presents × 5 interleaved runs, medians). This bounds the *mechanism*,
+  not the product; the Overlay's real cost is `14_TESTING` item 2 on a real
+  game. Not a ctest — a timing threshold on a shared runner fails for reasons
+  unrelated to the code.
+- **`tools/coverage-gate.ps1`** — `14_TESTING`'s ≥80% / ≥95% thresholds were
+  called PR-failing while the cobertura reports had been produced and ignored
+  since the repository was scaffolded. The gate is **self-arming**: it reports
+  emptiness today and starts enforcing on the first `.cs` file in Domain or
+  Application, so the number is never negotiated against code that already
+  exists. Five failure modes proven red.
+- **`tools/versioninfo-check.ps1`** and a real `version.rc` for the Overlay and
+  the Vulkan layer. `19_SAFETY` requires every shipped native binary to identify
+  itself — being visible to anti-cheat is the design principle — and the Overlay
+  CMakeLists asserted "CI fails the build without it" directly above a TODO to
+  add it, with no `.rc` file anywhere in the repository and nothing checking.
 
 ### Verified
 - **NVAPI is MIT including `nvapi64.lib`** — the import libraries are tracked
@@ -96,6 +119,21 @@ GitHub release body, so a missing section means an empty release note.
   `blockedStoreIds` are both empty, so it matches nothing. Recorded in the data,
   beside the check, and as `20_OPEN_QUESTIONS` §S14, rather than being
   inferable only from two empty arrays.
+- **Coverage reports accumulated and were never pruned** — 24 after a handful of
+  builds. Any gate reading "the coverage reports" would have read mostly
+  history, and taking the best rate across them means a project that once scored
+  95% and now scores 10% still passes. `build.ps1` clears `TestResults` before
+  each run, and the gate takes only the newest report per test project.
+- **An empty assembly reported as 100% covered.** Coverlet emits `line-rate=1`
+  for an assembly with no coverable lines; taken at face value that is a vacuous
+  pass, and it is what the coverage gate printed on its first run. It now counts
+  `<line>` elements so "fully covered" and "nothing to cover" stay distinct.
+- `17_HOOK_ENGINE` called vtable swapping a "cleaner uninstall" than inline
+  patching. In the multi-overlay case — the normal state of a gamer's machine —
+  that is backwards (§H7).
+- `14_TESTING` still required runtime hook-index verification in a form §H4
+  proved unimplementable: a vtable slot carries no identity, so slot identity is
+  provable only by behaviour.
 - `CMakePresets.json` had no `x64-debug` test preset.
 - Shared-memory layout was arithmetically impossible: the header was 88 bytes
   while the control block was mapped to `0x0040`. In code `unhookRequested`

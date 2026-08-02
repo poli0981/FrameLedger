@@ -13,3 +13,14 @@ target_compile_definitions(hook-harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 # was the obstacle to verifying vtable indices anywhere but a dev machine.
 add_test(NAME fl_vtable_indices COMMAND hook-harness --probe-vtable)
 add_test(NAME fl_proxy_swapchain COMMAND hook-harness --probe-proxy)
+
+# §H7 — our unhook must not silently remove an overlay that hooked the same
+# slot after us. Simulated rather than depending on RTSS being installed, so it
+# is deterministic and runs on CI; the dev machine can then confirm against the
+# real thing (spike-notes.md §Environment lists six resident overlays).
+add_test(NAME fl_unhook_preserves_foreign COMMAND hook-harness --probe-unhook)
+
+# NFR-1 per-present cost. Not registered as a ctest: it is a MEASUREMENT, and a
+# timing threshold on a shared CI runner fails for reasons that have nothing to
+# do with the code. Run it deliberately: hook-harness --probe-cost
+

@@ -431,22 +431,22 @@ present is the obvious one) and an explicit statement that RT activity means
 "recorded this frame", with the accuracy budget in `03_METRICS` adjusted to say
 so.
 
-### H7 · Vtable restore on unhook clobbers later hookers
+### H7 ✅ · Vtable restore on unhook clobbers later hookers — **closed**
 
-`17_HOOK_ENGINE` §Unhooking restores the original vtable entries. If another
-overlay (RTSS, Discord, Steam) hooked the same slot *after* us, restoring the
-original silently removes their hook. The doc's claim that vtable swapping gives
-a "cleaner uninstall" is backwards in the multi-overlay case, which is the common
-case on a gamer's machine.
+Fixed and specified in `17_HOOK_ENGINE` §Compare-and-restore, never
+unconditional restore. Verified by `hook-harness --probe-unhook`, ctest
+`fl_unhook_preserves_foreign`.
 
-**Needs:** compare-and-restore-only-if-unchanged, and a documented behaviour when
-the slot has changed (leave it, go dormant — we already stay loaded).
+The "cleaner uninstall" claim was backwards: a later hooker saves **our detour**
+as its original and chains through it, so writing the pristine address back
+removes their hook silently. Both halves of the contract are asserted — we
+decline to restore when the slot changed, **and** we do restore when it did not,
+because a compare-and-restore that never restores is not a fix.
 
-> **Testable today.** The dev machine already runs RTSS, OBS, Steam Overlay,
-> Steam Fossilize, EOS Overlay and GOG Galaxy Overlay (`spike-notes.md`
-> §Environment). RTSS and the Steam overlay both hook D3D presentation
-> in-process, so the "someone else hooked after us" case does not need to be
-> simulated — it is the default state of that machine.
+Simulated rather than depending on RTSS being installed, so it is deterministic
+and runs on CI. Confirming against the six overlays actually resident on the dev
+machine (`spike-notes.md` §Environment) is still worth doing once the Overlay has
+real hooks, but the mechanism no longer rests on that.
 
 ### H8 ✅ · "Never crash the game" — **closed**
 

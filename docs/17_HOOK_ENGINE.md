@@ -285,7 +285,38 @@ Every hook body is wrapped:
 
 ## Unhooking
 
-`FlRequestUnhook()` (or the control flag) ⇒ `MH_DisableHook(MH_ALL_HOOKS)`, restore vtable entries, flush the ring, set status. **The DLL is not `FreeLibrary`'d from the live process** — a thread could still be inside a trampoline. It goes dormant and unloads with the process. This is deliberate and documented.
+`FlRequestUnhook()` (or the control flag) ⇒ `MH_DisableHook(MH_ALL_HOOKS)`, restore vtable entries **only where they are still ours**, flush the ring, set status. **The DLL is not `FreeLibrary`'d from the live process** — a thread could still be inside a trampoline. It goes dormant and unloads with the process. This is deliberate and documented.
+
+### Compare-and-restore, never unconditional restore
+
+This section used to call vtable swapping a "cleaner uninstall" than inline
+patching. **In the multi-overlay case that is backwards** (`20_OPEN_QUESTIONS`
+§H7), and the multi-overlay case is the normal state of a gamer's machine — the
+dev box alone has RTSS, OBS, Steam Overlay, Steam Fossilize, EOS and GOG Galaxy
+resident (`spike-notes.md` §Environment).
+
+If another overlay hooked the same slot *after* us, it saved **our detour** as
+its original and chains through it. Writing the pristine address back then
+removes their hook silently: their overlay stops working, with no error
+anywhere, and we caused it.
+
+So the rule is **compare-and-restore**:
+
+```
+if (slot != our_detour) -> leave it alone, go dormant
+else                    -> restore the original
+```
+
+Re-check the comparison *under* the `VirtualProtect` write window, not only
+before it. And when the slot has changed, going dormant costs nothing: we stay
+loaded anyway, and our detour remains in someone else's chain doing nothing
+harmful.
+
+Verified by `hook-harness --probe-unhook` (ctest `fl_unhook_preserves_foreign`),
+which simulates the foreign hooker rather than depending on RTSS being
+installed, so it is deterministic and runs on CI. Both halves are asserted: we
+decline when the slot changed, **and** we do restore when it did not — a
+compare-and-restore that never restores is not a fix.
 
 ## Native logging
 
