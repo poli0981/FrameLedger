@@ -27,7 +27,7 @@ A C++ DLL (`FrameLedger.Overlay.dll`) is injected into games the user explicitly
 | Managed runtime | .NET 10 (LTS, pinned via `global.json`), C# 14, TFM `net10.0-windows10.0.22621.0` with `SupportedOSPlatformVersion=10.0.19045.0` (Win10 22H2 floor, NFR-8), x64 only — `docs/12_BUILD.md` |
 | Native | **C++20, MSVC v143+, `/MT` static CRT, `/GS`, `/guard:cf`, no RTTI, no C++ exceptions in hook paths** |
 | Hooking | **MinHook** (BSD-2-Clause) for inline hooks; direct vtable-entry swap for COM interfaces |
-| Vulkan | **Implicit Vulkan layer** (`VK_LAYER_frameledger_overlay`), not hooking — `17_HOOK_ENGINE` §Vulkan |
+| Vulkan | **Implicit Vulkan layer** (`VK_LAYER_FRAMELEDGER_overlay`), not hooking — `17_HOOK_ENGINE` §Vulkan |
 | UI | WPF + WPF UI (`WPF-UI` pinned = 4.3.0) + CommunityToolkit.Mvvm — `docs/16_WPFUI_SYNTAX.md` |
 | App composition | .NET Generic Host + DI in `FrameLedger.App` |
 | Charts | ScottPlot 5 |

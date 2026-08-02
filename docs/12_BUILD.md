@@ -21,7 +21,7 @@ cmake --build --preset x64-release
 
 Targets:
 - `FrameLedger.Overlay` → `FrameLedger.Overlay.dll`
-- `FrameLedger.VkLayer` → `FrameLedger.VkLayer.dll` + `VkLayer_frameledger_overlay.json`
+- `FrameLedger.VkLayer` → `FrameLedger.VkLayer.dll` + `VkLayer_FRAMELEDGER_overlay.json`
 - `FrameLedger.Injector` → static lib + `FrameLedger.Injector.exe` (thin CLI used by the Agent and for manual testing)
 - `FrameLedger.Overlay.Tests` → Catch2 unit tests (ring buffer, record layout, fault filter, seqlock)
 - `hook-harness` → the dummy D3D11/D3D12/Vulkan/OpenGL app (`17_HOOK_ENGINE` §Test harness)

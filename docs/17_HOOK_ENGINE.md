@@ -113,7 +113,33 @@ Input APIs, file I/O, network, memory allocators, window messages beyond what th
 Vulkan gets an **implicit layer** (`FrameLedger.VkLayer`), not injection — it is the mechanism Khronos supports, it is far more robust than hooking dispatch tables, and it is how OBS and RTSS do it.
 
 - Manifest JSON registered under `HKCU\SOFTWARE\Khronos\Vulkan\ImplicitLayers` (per-user, no admin).
-- Layer name `VK_LAYER_frameledger_overlay`, with `disable_environment` so a user can turn it off with an env var — and so it is well-behaved by Vulkan convention.
+- Layer name **`VK_LAYER_FRAMELEDGER_overlay`** — uppercase vendor tag, per the
+  loader's `VK_LAYER_<VENDOR>_<name>` convention. This is not pedantry: a
+  non-conforming name makes the Vulkan loader emit a policy warning
+  (`LLP_LAYER_3`) into every Vulkan application's log on the machine. Observed
+  on the dev box, where GOG Galaxy's `GalaxyOverlayVkLayer` does exactly that
+  and gets named in the warning three times. `19_SAFETY` requires us to be
+  plainly identifiable and well behaved; a layer that announces itself as
+  malformed is the wrong kind of visible. Every conforming layer on that
+  machine uses an uppercase tag — `VK_LAYER_KHRONOS_*`, `VK_LAYER_LUNARG_*`,
+  `VK_LAYER_NV_*`, `VK_LAYER_VALVE_*`, `VK_LAYER_OBS_HOOK`, `VK_LAYER_RTSS`.
+- Declare an API version at least as high as the applications we expect to
+  layer. The same machine shows the loader warning that `VK_LAYER_OBS_HOOK` and
+  `VK_LAYER_RTSS` declare 1.3 against a 1.4 application, "may cause issues".
+- `disable_environment` so a user can turn it off with an env var — and so it is
+  well-behaved by Vulkan convention. (`20_OPEN_QUESTIONS` §S2 proposes moving to
+  `enable_environment`, which is a stronger gate; that decision is open.)
+
+> **We will not be the only layer, and probably not the only present hook.** A
+> representative dev machine carries six machine-wide implicit layers already:
+> Steam Overlay, Steam Fossilize, EOS Overlay, GOG Galaxy Overlay, OBS, and
+> RTSS. RTSS and the Steam overlay also hook D3D presentation in-process. Design
+> for coexistence, not for an empty process — see `20_OPEN_QUESTIONS` §H5 and
+> §H7, both of which are testable on such a machine today.
+>
+> Note also that all six of those register under **HKLM** and therefore needed
+> admin. Registering under HKCU (below) is the less common choice and the better
+> one: no elevation, and per-user scope.
 - Intercepts `vkQueuePresentKHR`, `vkCreateSwapchainKHR`, `vkCmdTraceRaysKHR`, `vkCmdBuildAccelerationStructuresKHR`, `vkCreateGraphicsPipelines`.
 - The layer respects the same guard: on init it checks the enable-list written by the Agent (a small per-user config the Agent maintains) and stays fully passthrough for any process not opted in. **A layer is machine-wide by nature — this check is mandatory, not optional.**
 - Registered only while at least one Vulkan game has hooking enabled; unregistered on uninstall (Velopack hook) and when the last such game is disabled.

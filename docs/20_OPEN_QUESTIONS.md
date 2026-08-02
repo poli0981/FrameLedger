@@ -238,7 +238,8 @@ bites hardest on **DLSS-G titles**, which is exactly the population this rewrite
 targets, since Streamline is the common integration path.
 
 **P0 must measure this on a real Streamline title** before P1 commits to the
-vtable-swap strategy.
+vtable-swap strategy — and on a machine with RTSS and the Steam overlay active,
+which is the realistic case rather than the clean-room one.
 
 ### H6 · D3D12 command-list hooks count recorded, not executed, work
 
@@ -264,6 +265,12 @@ case on a gamer's machine.
 
 **Needs:** compare-and-restore-only-if-unchanged, and a documented behaviour when
 the slot has changed (leave it, go dormant — we already stay loaded).
+
+> **Testable today.** The dev machine already runs RTSS, OBS, Steam Overlay,
+> Steam Fossilize, EOS Overlay and GOG Galaxy Overlay (`spike-notes.md`
+> §Environment). RTSS and the Steam overlay both hook D3D presentation
+> in-process, so the "someone else hooked after us" case does not need to be
+> simulated — it is the default state of that machine.
 
 ### H8 · "Never crash the game" is over-promised
 
