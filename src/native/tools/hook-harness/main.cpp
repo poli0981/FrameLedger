@@ -233,12 +233,18 @@ bool ProbeH4_VtableIndices(Gfx& g) {
     g.swapChain1->Present1(0, DXGI_PRESENT_TEST, &params);
     Check(g_present1Hits.load(std::memory_order_relaxed) == p1before + 1, "slot 22 IS IDXGISwapChain1::Present1");
 
-    // Restore before leaving so later probes see a clean object.
+    // Restore before leaving so later probes see a clean object, then PROVE the
+    // restore. Asserting Check(true) here would report "slots restored" even if
+    // VirtualProtect had failed and the object were left detoured — the next
+    // probe would then measure our own hook and call it a finding.
     void* dummy = nullptr;
     PatchSlot(vtbl, kPresentIndex, reinterpret_cast<void*>(g_origPresent), &dummy);
     PatchSlot(vtbl, kResizeBuffersIndex, reinterpret_cast<void*>(g_origResize), &dummy);
     PatchSlot(vtbl1, kPresent1Index, reinterpret_cast<void*>(g_origPresent1), &dummy);
-    Check(true, "slots restored");
+    Check(vtbl[kPresentIndex] == reinterpret_cast<void*>(g_origPresent) &&
+              vtbl[kResizeBuffersIndex] == reinterpret_cast<void*>(g_origResize) &&
+              vtbl1[kPresent1Index] == reinterpret_cast<void*>(g_origPresent1),
+          "all three slots hold their original entries again");
     return true;
 }
 
@@ -275,13 +281,22 @@ bool ProbeH5_ProxySwapChain(Gfx& g) {
     std::printf("  proxy saw %u present(s); our hook on the REAL vtable saw %d\n",
                 proxy->proxyPresentCount.load(std::memory_order_relaxed), after - before);
 
-    // This is the finding, whichever way it lands.
     if (after > before) {
         std::printf("  => the proxy forwards via the real interface, so the hook still fires\n");
     } else {
         std::printf("  => the present did NOT reach our hook: proxies defeat real-vtable patching\n");
     }
-    Check(true, "observation recorded (see docs/spike-notes.md)");
+
+    // This was an open observation once. It is now a RECORDED FINDING
+    // (docs/spike-notes.md §H5, CHANGELOG "H2/H5 partly answered"), so this
+    // probe's job changed from "report whatever happens" to "keep it true".
+    //
+    // It previously read Check(true, "observation recorded"), which cannot fail
+    // — ctest fl_proxy_swapchain was green by construction and would have
+    // stayed green if a forwarding proxy ever stopped reaching our hook. That
+    // is the same shape as the EnumDeviceDrivers fail-open: a check that
+    // succeeds while telling you nothing.
+    Check(after > before, "a forwarding proxy's Present reaches our hook on the REAL vtable");
 
     void* dummy = nullptr;
     PatchSlot(realVtbl, kPresentIndex, reinterpret_cast<void*>(g_origPresent), &dummy);
@@ -308,24 +323,34 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    // Probe return values are propagated, not discarded. Today every early
+    // return is preceded by a Check(false, ...) so g_failures would catch it
+    // anyway — but relying on that makes the exit code depend on each probe
+    // remembering to log its own failure. A probe that returns false must fail
+    // the ctest whether or not it said so.
+    bool ok = true;
     bool ranSomething = false;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--probe-vtable") == 0) {
-            ProbeH4_VtableIndices(g);
+            ok = ProbeH4_VtableIndices(g) && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-proxy") == 0) {
-            ProbeH5_ProxySwapChain(g);
+            ok = ProbeH5_ProxySwapChain(g) && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--present") == 0 && i + 1 < argc) {
-            PresentLoop(g, std::atoi(argv[++i]));
+            ok = PresentLoop(g, std::atoi(argv[++i])) == 0 && ok;
             ranSomething = true;
+        } else {
+            std::printf("FAILED: unrecognised argument '%s'\n", argv[i]);
+            return 2;
         }
     }
     if (!ranSomething) {
-        ProbeH4_VtableIndices(g);
-        ProbeH5_ProxySwapChain(g);
+        ok = ProbeH4_VtableIndices(g) && ok;
+        ok = ProbeH5_ProxySwapChain(g) && ok;
     }
 
-    std::printf("\n%s (%d failure(s))\n", g_failures == 0 ? "HARNESS OK" : "HARNESS FAILURES", g_failures);
-    return g_failures == 0 ? 0 : 1;
+    const bool passed = ok && g_failures == 0;
+    std::printf("\n%s (%d failure(s))\n", passed ? "HARNESS OK" : "HARNESS FAILURES", g_failures);
+    return passed ? 0 : 1;
 }

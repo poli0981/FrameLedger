@@ -326,9 +326,13 @@
       "$comment": "19_SAFETY: 'Unknown-but-suspicious modules (filename containing anticheat, antitamper, guard, protect + unsigned-by-known-vendor) produce a warn-and-refuse'. The flat `suspiciousNameFragments` string array the seed used to carry can express only the first half of that AND. `trustedSigners` is the allowlist of publishers whose signature SUPPRESSES the heuristic; a module whose signature is absent, invalid, or simply could not be checked is untrusted and refuses. Getting a signer string wrong therefore fails closed. `action` is a const, not an enum, so 'allow' and 'warn' are unrepresentable.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["nameFragments", "trustedSigners", "action"],
+      "required": ["signerField", "nameFragments", "trustedSigners", "action"],
       "properties": {
         "$comment": { "$ref": "#/$defs/commentBlock" },
+        "signerField": {
+          "const": "O",
+          "$comment": "Which certificate subject field trustedSigners is compared against. A const, not an enum, because the choice is safety-relevant and measured: on Windows 11 26300 every WHQL-signed binary - including the NVIDIA display driver - carries CN='Microsoft Windows Hardware Compatibility Publisher', which is not a vendor name. Matching CN would make the whole driver stack read as untrusted and, combined with the 'guard'/'protect' nameFragments, refuse titles for no reason. O= survives WHQL re-signing. Changing this requires editing the schema, which is a reviewed act."
+        },
         "nameFragments": {
           "type": "array",
           "minItems": 1,
@@ -352,7 +356,7 @@
             "minLength": 3,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 .,'&()/+-]*[A-Za-z0-9.,')])?(?![\\s\\S])",
-            "$comment": "Certificate subject CN, compared in full and case-insensitively - never as a prefix or substring, because a substring signer rule is a forgery surface ('NVIDIA Corporation Ltd' would match 'NVIDIA Corporation')."
+            "$comment": "The certificate subject field named by `signerField` (O=), compared in full and case-insensitively - never as a prefix or substring, because a substring signer rule is a forgery surface ('NVIDIA Corporation Ltd' would match 'NVIDIA Corporation'). This previously said CN, which measurement showed to be the wrong field."
           }
         },
         "action": { "const": "warn_and_refuse" }

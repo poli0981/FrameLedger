@@ -37,6 +37,26 @@ GitHub release body, so a missing section means an empty release note.
 - MinHook (BSD-2-Clause), fetched by CMake and pinned to the commit behind
   `v1.3.4`. Licence texts for MinHook, NVAPI, MPL-2.0 and Apache-2.0 now ship in
   `legal/licenses/`.
+- **`fl-probe-guard`** (ctest `fl_guard_apis`) — measures the Windows APIs the
+  anti-cheat guard is built on, unelevated, which is the default Agent under
+  ADR-9. It is not the guard and takes no injection rights. Fills
+  `docs/spike-notes.md` §1 and **closes §S7**.
+  - **§S1 is sharper than documented:** `EnumProcessModulesEx` against a
+    `CREATE_SUSPENDED` target does not return an empty list, it *fails* with
+    `ERROR_PARTIAL_COPY`. An error cannot be mistaken for a clean scan the way
+    an empty success can, so the guard rule is "any failure means REFUSE".
+  - **`LIST_MODULES_ALL` is mandatory:** on a live 32-bit target the default
+    filter returned 7 of 15 modules *as a success*.
+  - Driver-scan assertions check path **content**, not count — "266 distinct
+    strings" is what the historical two-byte offset bug also produced. A canary
+    re-parses the same buffer with that skew every build and must be rejected.
+  - Records what it could **not** measure: a service query returning
+    `ACCESS_DENIED` is not producible unelevated against stock services.
+- Signer matching for the unknown-but-suspicious heuristic uses the certificate
+  subject's **`O=`** field, now a schema `const`. Measured: every WHQL-signed
+  binary — including the NVIDIA display driver — carries
+  `CN='Microsoft Windows Hardware Compatibility Publisher'`, so a `CN` match
+  would make the whole driver stack read as untrusted.
 
 ### Verified
 - **NVAPI is MIT including `nvapi64.lib`** — the import libraries are tracked
@@ -47,6 +67,36 @@ GitHub release body, so a missing section means an empty release note.
   pinned 0.9.6 package, not just the repository.
 
 ### Fixed
+- **A ctest that could never go red.** `fl_proxy_swapchain` ended in
+  `Check(true, "observation recorded")`, so the H5 regression net was green by
+  construction and would have stayed green if a forwarding proxy ever stopped
+  reaching our hook. Now asserts the recorded finding; proven red by breaking
+  the proxy's forward, then green again. The H4 probe had the same shape in its
+  "slots restored" check, which now verifies the restore.
+- **Deleting an anti-cheat family passed CI.** `rules-publish.yml` reported
+  removals with `::warning::` and exited 0; it also compared only
+  `modules`+`drivers`, and its `paths:` filter meant a change to the schema or
+  the validator never triggered it at all. Removals now fail the job, all five
+  family-bearing groups are compared, per-title lists are checked for shrinkage,
+  and an unobtainable base version fails closed instead of reporting success.
+- **Two of the three imperative checks §S5 was closed on did not exist.**
+  `rules-validate.ps1` had only the required-family floor. Added:
+  case-insensitive duplicate values, and a prefix floor that rejects both
+  too-short prefixes and any prefix shadowing a system module. The family floor
+  is now group-aware — it previously unioned `modules`+`drivers`, so moving
+  Riot Vanguard out of `drivers` satisfied it while the machine-wide driver gate
+  lost its only entry.
+- **`19_SAFETY` §Blocklist seed published glob syntax the schema rejects**
+  (`EasyAntiCheat*.dll`, `pb*.dll`). A maintainer copying those created entries
+  matched literally, which never fire. The table now shows literal tokens with
+  their group and match kind, and `rules-validate.ps1` cross-checks it against
+  the data so the two cannot drift. Activision Ricochet and Valve VAC are kept
+  as explicit "no data yet" rows rather than dropped.
+- Pre-injection check 3 is **inert** — `blockedExecutables` and
+  `blockedStoreIds` are both empty, so it matches nothing. Recorded in the data,
+  beside the check, and as `20_OPEN_QUESTIONS` §S14, rather than being
+  inferable only from two empty arrays.
+- `CMakePresets.json` had no `x64-debug` test preset.
 - Shared-memory layout was arithmetically impossible: the header was 88 bytes
   while the control block was mapped to `0x0040`. In code `unhookRequested`
   would have aliased `faultCount`, firing the safety stop on any hook fault.

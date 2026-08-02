@@ -31,6 +31,20 @@ Implemented in `FrameLedger.Injector` and re-checked by the Agent. Runs **before
 ### Pre-injection checks (all must pass)
 
 1. **Target module scan** — enumerate loaded modules of the target process (`EnumProcessModulesEx`, read-only handle: `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ`). Match against the blocklist below by filename.
+
+   > **`LIST_MODULES_ALL` is mandatory, not a preference.** Measured 2026-08-02
+   > unelevated against a live 32-bit target from this x64 process
+   > (`spike-notes.md` §1): `ALL` returns 15 modules, `LIST_MODULES_DEFAULT`
+   > returns **7** — and returns them as a *success*. A guard using the default
+   > would scan a 32-bit title, see under half its modules, find no anti-cheat
+   > among them and report clean.
+   >
+   > **Every failure of this call means REFUSE.** Two specific cases, both
+   > measured: `OpenProcess` returning `ERROR_ACCESS_DENIED (5)` on a protected
+   > target, and `EnumProcessModulesEx` returning `ERROR_PARTIAL_COPY (299)`
+   > against a suspended target (§S1). Neither is "no modules found". The read
+   > handle rights above are confirmed sufficient for every target this call can
+   > legitimately reach.
 2. **System driver scan** — enumerate loaded kernel drivers for always-on anti-cheat drivers that gate the whole machine (e.g. Vanguard's `vgk`). Present → refuse for **all** titles while it is running, not just the matching game.
 
    > 🔴 **`EnumDeviceDrivers` cannot do this unelevated, and it fails *open*.**
@@ -63,31 +77,72 @@ Implemented in `FrameLedger.Injector` and re-checked by the Agent. Runs **before
    > offsets must be asserted, not assumed. Treat a parse failure as *refuse*,
    > never as *clean*. `20_OPEN_QUESTIONS` §S7 tracks the remaining work.
 3. **Rules blocklist** — `detection-rules.json` carries `anticheat.blockedExecutables` (exe names) and `anticheat.blockedStoreIds` (Steam appids etc.) for known competitive/online titles, updatable independently of app releases (`05_DETECTION` §Rules updates).
+
+   > ⚠ **Both arrays are empty today, so this check matches nothing.** The gate
+   > is not weakened — checks 1, 2 and 4 still run, and every family in the seed
+   > below is caught by a module, driver or directory signal — but the per-title
+   > layer this bullet describes does not exist yet. Which titles to list, and
+   > what an *unresolvable* store id means (it must read **unknown**, never
+   > *clean*), are decisions tracked as `20_OPEN_QUESTIONS` §S14. Stated here so
+   > that "check 3 passed" is not read as "the title is not a known online
+   > title".
 4. **Multiplayer heuristic** — if the pre-launch file scan finds an anti-cheat SDK shipped alongside the game (e.g. EOS anti-cheat binaries, `EasyAntiCheat/` directory) even when not currently loaded → refuse and explain.
 
 Any check failing ⇒ **injection is refused**. The UI shows which check fired and offers Tier-2 (ETW) capture instead, which requires no injection — but does require an elevated Agent, so the offer must state that plainly and fall through to Tier 3 rather than appearing to succeed and recording nothing (`04_CAPTURE` §Frame source abstraction).
 
 > There is no override. No hidden setting, no config-file flag, no CLI switch, no "advanced users" escape hatch. If a user disagrees with a specific entry, the path is a GitHub issue against the rules file, reviewed in public — not a local bypass.
 
-### Blocklist seed (`anticheat.modules`)
+### Blocklist seed
 
-Matched case-insensitively on module filename, prefix match where noted:
+Matching is case-insensitive. **This table shows the literal tokens the data
+carries, not glob patterns** — `rules/detection-rules.schema.json` rejects `*`
+in a token outright, so a maintainer copying `EasyAntiCheat*.dll` out of an
+earlier version of this table produced an entry that was matched *literally* and
+therefore never fired. A silent hole in the blocklist, created by its own
+normative documentation. Write tokens here exactly as the data must hold them.
 
-| Family | Signals |
-|---|---|
-| Easy Anti-Cheat | `EasyAntiCheat*.dll`, `EasyAntiCheat_EOS*.dll`, `EasyAntiCheat/` dir, EAC service |
-| BattlEye | `BEClient*.dll`, `BEService*`, `BattlEye/` dir |
-| Riot Vanguard | `vgk.sys` driver loaded (machine-wide refusal), `vgc` service |
-| Denuvo Anti-Cheat | `denuvo*`, anti-tamper + AC variants |
-| Activision Ricochet | associated driver/service present |
-| nProtect GameGuard | `GameGuard*`, `npgg*`, `GameMon*` |
-| Xigncode3 | `xhunter*`, `x3.xem` |
-| mhyprot / anti-cheat drivers of gacha titles | `mhyprot*.sys` |
-| Valve VAC | `steamservice`-loaded VAC modules — VAC titles are treated as **online** (refuse) |
-| FACEIT / ESEA | `faceit*`, `esea*` drivers or services |
-| PunkBuster | `pb*.dll`, `PnkBstr*` |
+| Family | Group | Match | Tokens |
+|---|---|---|---|
+| Easy Anti-Cheat | `modules` | prefix | `EasyAntiCheat`, `EasyAntiCheat_EOS` |
+| Easy Anti-Cheat | `directories` | name | `EasyAntiCheat` |
+| Easy Anti-Cheat | `services` | name | `EasyAntiCheat`, `EasyAntiCheat_EOS` |
+| BattlEye | `modules` | prefix | `BEClient`, `BEService` |
+| BattlEye | `directories` | name | `BattlEye` |
+| Riot Vanguard | `drivers` | exact | `vgk.sys` — **machine-wide refusal** (check 2) |
+| Riot Vanguard | `services` | name | `vgc` |
+| Denuvo Anti-Cheat | `modules` | prefix | `denuvo` |
+| nProtect GameGuard | `modules` | prefix | `GameGuard`, `npgg`, `GameMon` |
+| Xigncode3 | `modules` | prefix | `xhunter` |
+| Xigncode3 | `files` | name | `x3.xem` |
+| mihoyo protect | `drivers` | prefix | `mhyprot` |
+| FACEIT | `modules` | prefix | `faceit` |
+| ESEA | `modules` | prefix | `esea` |
+| PunkBuster | `modules` | prefix | `PnkBstr`, `pbcl`, `pbsv` |
+| **Activision Ricochet** | — | — | **No data yet** — driver and service names unconfirmed (`20_OPEN_QUESTIONS` §S5) |
+| **Valve VAC** | — | — | **No data yet** — needs `blockedStoreIds`; VAC titles are treated as **online** (refuse) |
+
+The two "no data yet" rows are deliberately kept rather than deleted. An
+admitted gap is reviewable; a deleted row is invisible.
+
+> **A prefix must be at least 4 characters and must not shadow a system module.**
+> This table used to write PunkBuster as `pb*.dll`; the data correctly narrows
+> it to `PnkBstr`/`pbcl`/`pbsv`, and `tools/rules-validate.ps1` now makes the
+> narrow form mandatory. A too-short prefix does not fail open — it refuses
+> *every* title, which is how a user ends up hunting for the override that
+> CLAUDE.md rule 2 says does not exist.
 
 The list is data, versioned in `detection-rules.json`, expandable without a release. Unknown-but-suspicious modules (filename containing `anticheat`, `antitamper`, `guard`, `protect` + unsigned-by-known-vendor) produce a **warn-and-refuse** with a "report this to us" link rather than silently allowing.
+
+**The signer comparison uses the certificate subject's `O=` field, not `CN=`**
+(`anticheat.heuristic.signerField`, a schema `const`). Measured 2026-08-02 on
+Windows 11 26300: every WHQL-signed binary on the machine — *including the
+NVIDIA display driver itself* — carries
+`CN='Microsoft Windows Hardware Compatibility Publisher'`, which is not a vendor
+name, while `O='Microsoft Corporation'`. Matching on `CN` would therefore make
+the entire driver stack read as untrusted, and combined with the `guard` and
+`protect` name fragments above that is a live false-refusal path, not a
+theoretical one. A signature that is absent, invalid, or simply could not be
+checked stays untrusted and refuses — that direction is deliberate.
 
 ### During a session
 

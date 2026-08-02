@@ -42,11 +42,28 @@ pre-injection check (`19_SAFETY` §Pre-injection checks item 1) is a no-op in th
 *preferred* path. Anti-cheat that would have been caught in attach mode sails
 through in launch mode.
 
+> **Measured 2026-08-02** (`spike-notes.md` §1, ctest `fl_guard_apis`), and the
+> result is sharper than this entry assumed. `EnumProcessModulesEx` against a
+> `CREATE_SUSPENDED` target does **not** return an empty list — it *fails*, with
+> `ERROR_PARTIAL_COPY (299)`. That is the safer of the two shapes: an error
+> cannot be mistaken for a clean scan the way an empty success can. The rule
+> ("any failure means REFUSE") is now in `19_SAFETY` item 1.
+>
+> So the *hazard* in this entry is downgraded — launch mode cannot silently
+> pass a blind scan — but the *constraint* is confirmed: check 1 genuinely
+> cannot run before the target's loader has. The decision below is still open.
+
 **Proposed:** treat the static pre-scan and the driver scan as the gates that run
 while suspended; resume, then re-run the module scan and only install hooks once
 it passes and the first present is observed. This costs the early-init upscaler
 data launch mode exists to capture — quantify that loss in P0 before accepting
 it. Decide whether the answer is "inject late" or "no launch mode at all".
+
+**Why the loss is still unquantified.** It needs a title that loads a
+presentation runtime lazily. The local fixtures are `hook-harness` (creates D3D
+at startup) and a 2D GOG prologue; a number from either would not generalise,
+which is worse than recording it unmeasured. This is the one input §S13(c)
+still lacks.
 
 ### S2 · The Vulkan layer has no guard and no mid-session unhook
 
@@ -151,6 +168,29 @@ the target has mapped a presentation runtime (`dxgi.dll` plus `d3d11`/`d3d12`, o
 `opengl32`, or `vulkan-1`) *and* the scan passes *and* the blocklist is clean.
 Decide whether that is acceptable, or whether launch-mode injection is dropped.
 
+### S14 · Pre-injection check 3 is inert, and has no "cannot determine" state
+
+Found 2026-08-02 while hardening the rules toolchain. `19_SAFETY` §Pre-injection
+checks lists a per-title blocklist as check 3, but `anticheat.blockedExecutables`
+and `anticheat.blockedStoreIds` are **both empty arrays**, so the check matches
+nothing. The gate is not currently weakened — checks 1, 2 and 4 run, and every
+family in the seed is caught by a module, driver or directory signal — but a
+documented check that does nothing will read as "this title is not a known
+online title" to the next person who trusts it.
+
+Two decisions, both the owner's:
+
+1. **Which titles.** Seeding a list of competitive/online games is a product
+   decision with false-refusal consequences, not a mechanical fill-in.
+2. **What "unknown" means.** A title the user added by exe path has no store id,
+   and store metadata is opt-in (CLAUDE.md rule 8). "No store id" must not read
+   as "not blocked", and a renamed exe defeats `blockedExecutables` the same
+   way. Whatever ships, an unresolvable identity has to land on *unknown*, and
+   the doc must say where unknown goes — which today it does not.
+
+Until both are answered the inertness is recorded in the data's own `$comment`
+and beside check 3, rather than being inferable only from two empty arrays.
+
 ### S6 · The 30 s scan window is the weakest part of the most important behavior
 
 Now disclosed honestly in the Disclaimer and README. The open question is whether
@@ -165,14 +205,23 @@ acceptable in that hook under the no-allocation rule (it should be), and a
 decision on whether it supplements or replaces the poll. Supplements — the poll
 also catches modules loaded before we hooked.
 
-### S7 · Guard handle rights and WOW64
+### S7 ✅ · Guard handle rights and WOW64 — **closed**
 
-`19_SAFETY` specifies `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ` for
-the module scan. Verify this is sufficient for `EnumProcessModulesEx` on the
-targets we care about. Separately, **enumerating a 32-bit process from a 64-bit
-one requires `LIST_MODULES_ALL`** or the list comes back empty — and an empty
-module list must never read as "clean". `14_TESTING` already requires a
-partial-module-list test to fail closed; add the WOW64 case explicitly.
+Measured unelevated 2026-08-02 by `src/native/tools/fl-probe-guard` (ctest
+`fl_guard_apis`); evidence in `spike-notes.md` §1, rule now written into
+`19_SAFETY` §Pre-injection checks item 1.
+
+The read handle rights are sufficient. `LIST_MODULES_ALL` is mandatory: on a
+live 32-bit target the default filter returned **7 of 15** modules *as a
+success*, which is the under-report that would read as clean. And every failure
+of the call — `ERROR_ACCESS_DENIED (5)` on a protected target,
+`ERROR_PARTIAL_COPY (299)` on a suspended one — means REFUSE, never "no modules
+found".
+
+The one branch that could **not** be measured here is a service query returning
+`ACCESS_DENIED`: a standard user holds `SERVICE_QUERY_STATUS` on the stock
+service set, so it has to be driven from a unit-test fake. Recorded in
+`spike-notes.md` §1 rather than left to look covered.
 
 ### S8 · The absence-of-override test design does not work as described
 

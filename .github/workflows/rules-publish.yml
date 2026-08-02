@@ -7,12 +7,27 @@
 
 name: Rules
 
+# The path filter must cover everything the gate DEPENDS on, not just the data.
+# Filtering on the data file alone left three ways to weaken the blocklist
+# without ever running this job: edit the schema (its `contains` blocks are what
+# make Vanguard-in-drivers mandatory), edit the validator, or edit this file.
+#
+# Written out twice rather than with a YAML anchor: the Actions workflow parser
+# does not expand anchors, so `paths: *alias` would silently become no filter.
 on:
   push:
     branches: [main]
-    paths: ['rules/detection-rules.json']
+    paths:
+      - 'rules/detection-rules.json'
+      - 'rules/detection-rules.schema.json'
+      - 'tools/rules-validate.ps1'
+      - '.github/workflows/rules-publish.yml'
   pull_request:
-    paths: ['rules/detection-rules.json']
+    paths:
+      - 'rules/detection-rules.json'
+      - 'rules/detection-rules.schema.json'
+      - 'tools/rules-validate.ps1'
+      - '.github/workflows/rules-publish.yml'
 
 permissions:
   contents: read
@@ -25,28 +40,60 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
+          fetch-depth: 0    # the removal check needs the base commit, not a shallow tip
 
       - name: Validate schema and anticheat block
         shell: pwsh
         run: ./tools/rules-validate.ps1
 
       # Removing a blocklist entry is a safety change and requires the same
-      # review as a security fix. This surfaces removals so a reviewer has to
-      # look at them rather than scrolling past a large diff.
-      - name: Report anticheat removals
+      # review as a security fix — so it FAILS the job. It previously emitted
+      # ::warning:: and exited 0, which meant a PR deleting BattlEye went green
+      # and shipped to every user on their next rules check. A warning nobody is
+      # forced to read is the same fail-open shape as a check that succeeds
+      # while telling you nothing (docs/spike-notes.md §Guard).
+      - name: Fail on anticheat removals
         if: github.event_name == 'pull_request'
         shell: pwsh
         run: |
-          $base = git show "origin/${{ github.base_ref }}:rules/detection-rules.json" 2>$null
-          if (-not $base) { Write-Host 'No base version to compare.'; exit 0 }
+          $ErrorActionPreference = 'Stop'
+          $baseRef = "origin/${{ github.base_ref }}"
+          $base = git show "${baseRef}:rules/detection-rules.json" 2>$null
+          if ($LASTEXITCODE -ne 0 -or -not $base) {
+            # Fail closed. "Could not compare" must never read as "nothing was
+            # removed" — that is the branch this job exists to cover.
+            Write-Host "::error::Cannot read rules/detection-rules.json at $baseRef, so removals cannot be detected. Refusing rather than reporting success."
+            exit 1
+          }
           $old = ($base | ConvertFrom-Json).anticheat
           $new = (Get-Content rules/detection-rules.json -Raw | ConvertFrom-Json).anticheat
-          $oldFams = @($old.modules + $old.drivers | ForEach-Object { $_.family })
-          $newFams = @($new.modules + $new.drivers | ForEach-Object { $_.family })
-          $removed = $oldFams | Where-Object { $_ -notin $newFams }
-          if ($removed) {
-            Write-Host "::warning::Anti-cheat families removed: $($removed -join ', '). This is a SAFETY change — the PR body must justify each removal."
-          } else {
-            Write-Host 'No anti-cheat families removed.'
+
+          # Every family-bearing group, not just modules+drivers. Gutting
+          # services, directories or files removes real signals that
+          # 19_SAFETY pre-injection checks 2 and 4 depend on.
+          $groups = 'modules', 'drivers', 'directories', 'services', 'files'
+          function Get-Families($ac) {
+            $out = @()
+            foreach ($g in $groups) {
+              if ($null -ne $ac.PSObject.Properties[$g]) {
+                $out += @($ac.$g | ForEach-Object { "$g/$($_.family)" })
+              }
+            }
+            return $out
           }
+          $removed = @(Get-Families $old | Where-Object { $_ -notin (Get-Families $new) })
+
+          # Per-title lists carry no family, so compare them by count.
+          $shrunk = @()
+          foreach ($k in 'blockedExecutables', 'blockedStoreIds') {
+            $o = @($old.$k).Count; $n = @($new.$k).Count
+            if ($n -lt $o) { $shrunk += "$k ($o -> $n)" }
+          }
+
+          if ($removed.Count -gt 0 -or $shrunk.Count -gt 0) {
+            if ($removed.Count -gt 0) { Write-Host "::error::Anti-cheat families removed: $($removed -join ', ')" }
+            if ($shrunk.Count -gt 0) { Write-Host "::error::Anti-cheat block shrank: $($shrunk -join ', ')" }
+            Write-Host 'This is a SAFETY change. It is gated deliberately: removing a blocklist entry is reviewed like a security fix (docs/19_SAFETY_AND_ANTICHEAT.md), in public, not waved through with a warning.'
+            exit 1
+          }
+          Write-Host 'No anti-cheat families removed and no per-title list shrank.'

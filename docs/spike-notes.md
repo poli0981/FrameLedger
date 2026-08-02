@@ -148,11 +148,129 @@ Two things this turned up that are *not* blockers but are now known:
 
 ## 1 · Guard *(moved to first — `20_OPEN_QUESTIONS` §R1)*
 
-- Module enumeration on a suspended process (§S1) — what is actually visible:
-- WOW64 / `LIST_MODULES_ALL` behaviour (§S7):
-- Fail-closed behaviour on each error path:
-- Driver enumeration for machine-wide blockers:
-- **Decision on launch-mode injection timing:**
+Measured 2026-08-02, Windows 11 Pro Insider Preview 26300.9032, **unelevated**
+(the default Agent under ADR-9). Probe: `src/native/tools/fl-probe-guard`,
+running as ctest `fl_guard_apis`, so these are re-checked on every build rather
+than being a one-off. It opens processes only with
+`PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ` — the rights `19_SAFETY`
+specifies — and never with `CREATE_THREAD | VM_OPERATION | VM_WRITE`.
+
+### ✅ §S1 · Module enumeration on a suspended process — **it fails, it does not return empty**
+
+```
+suspended:          opened=1  enumerated=0  modules=0  enumErr=299 (ERROR_PARTIAL_COPY)
+after ResumeThread: opened=1  enumerated=1  modules=9   (kernel32.dll present)
+```
+
+S1 predicted `EnumProcessModulesEx` "returns essentially nothing". **Measured, it
+is sharper than that, and the difference is the whole point:** the call *fails*
+with `ERROR_PARTIAL_COPY (299)`. It does not hand back a plausible empty success.
+
+That is the good version of this news. An empty success is the dangerous shape —
+it is exactly what `EnumDeviceDrivers` does, and it is what a guard reads as
+"clean". An outright error cannot be mistaken for a clean scan by any caller that
+checks the return value. So the guard's obligation here is narrow and explicit:
+
+> **`ERROR_PARTIAL_COPY` means CANNOT DETERMINE, which means REFUSE.** Never
+> "no modules found".
+
+The blindness is the suspension and not our handle rights — the same target with
+the same rights enumerates normally once resumed. §S1 is confirmed as a real
+constraint on launch mode; what to *do* about it is still §S13(c).
+
+### ✅ §S7 · WOW64 — the wrong filter under-reports, and silently
+
+Live 32-bit target (`SysWOW64\cmd.exe`) enumerated from this x64 process:
+
+| Filter | Modules |
+|---|---|
+| `LIST_MODULES_ALL` | **15** |
+| `LIST_MODULES_DEFAULT` | 7 |
+| `LIST_MODULES_32BIT` | 9 |
+| `LIST_MODULES_64BIT` | 6 |
+
+The default filter returns **less than half** the list, and returns it as a
+*success*. A guard using the default would scan a 32-bit title, see 7 modules,
+find no anti-cheat among them and report clean. `LIST_MODULES_ALL` is mandatory,
+not a preference.
+
+### ✅ Fail-closed inputs — "cannot inspect" is a distinguishable state
+
+- **Protected process:** `OpenProcess` with the guard's own rights returns
+  `ERROR_ACCESS_DENIED (5)` for at least one process on this machine. So
+  "I could not look" and "I looked and it was clean" are genuinely different
+  values, and `19_SAFETY` §Elevated / protected targets is implementable.
+- **Absent service:** `OpenServiceW` on a non-existent name returns
+  `ERROR_SERVICE_DOES_NOT_EXIST (1060)` **specifically**, not a generic failure —
+  which is the discrimination `19_SAFETY` relies on.
+- **NOT MEASURED — the DENIED service branch.** A standard user holds
+  `SERVICE_QUERY_STATUS` on the stock service set, so `ACCESS_DENIED` is not
+  producible against real services here. It has to be driven from a unit-test
+  fake. Recorded rather than implied: A5 does **not** cover it.
+
+### ✅ Driver enumeration — the replacement measured against the fail-open
+
+```
+EnumDeviceDrivers                 ok=1  count=266  non-null bases=0  recoverable names=0
+NtQuerySystemInformation(11)      STATUS_SUCCESS  78,744 bytes
+                                  parsed=266  well-formed=266  resolvable-on-disk=257  ntoskrnl=yes
+```
+
+`EnumDeviceDrivers` reproduces its documented fail-open exactly: 266 drivers
+reported, **zero** usable base addresses, **zero** recoverable names. The `Nt*`
+route returns 266 real native paths.
+
+**The assertions here check content, not count — deliberately.** "266 distinct
+non-empty strings" is *not* discriminating: the earlier two-byte offset bug
+produced exactly that, and every string was garbage. So the probe asserts that
+`ntoskrnl.exe` is present, that **every** path is a native path (`\SystemRoot\`
+or `\??\`), and that 257 of them name files that actually exist on disk.
+
+**Canary, run every build:** the same buffer is re-parsed with the historical
+two-byte skew and the validator must reject it —
+`well-formed=0, ntoskrnl=NO`, first entry `ystemRoot\system32\ntoskrnl.exe`.
+A count check passes that. This one does not.
+
+### Still open
+
+- **§S13(c) — decision on launch-mode injection timing.** The measurement above
+  makes the constraint precise but does not make the decision. Deliberately not
+  taken here: quantifying the early-init data actually lost needs a title that
+  loads a presentation runtime lazily, and the only local fixtures are
+  `hook-harness` (creates D3D at startup) and a 2D GOG prologue. A number from
+  those would not generalise, which is worse than recording it as unmeasured.
+
+### ✅ Signer field for the unknown-but-suspicious heuristic — **`O=`, not `CN=`**
+
+Measured 2026-08-02, Windows 11 26300, unelevated, via
+`Get-AuthenticodeSignature` on real binaries present on this machine.
+
+| Binary | `CN=` | `O=` |
+|---|---|---|
+| `kernel32.dll` | Microsoft Windows | Microsoft Corporation |
+| `win32u.dll` | Microsoft Windows | Microsoft Corporation |
+| `nvapi64.dll` | **Microsoft Windows Hardware Compatibility Publisher** | Microsoft Corporation |
+| `nvlddmkm.sys` (the display driver) | **Microsoft Windows Hardware Compatibility Publisher** | Microsoft Corporation |
+| `nvrla.exe` | NVIDIA Corporation | NVIDIA Corporation |
+| `steam.exe` | Valve Corp. | Valve Corp. |
+
+The `trustedSigners` list was a guess marked UNVERIFIED, and the schema's own
+comment said the comparison was against **CN**. Measurement says that is the
+wrong field: **WHQL re-signing replaces the CN with a Microsoft publisher
+string**, so NVIDIA's own kernel driver does not present as NVIDIA. Under a
+CN comparison the whole driver stack reads as untrusted, and paired with the
+`guard`/`protect` name fragments that is a false-refusal path — the failure
+direction that is safe for the user's account but destroys trust in the gate,
+which is how someone ends up asking for the override CLAUDE.md rule 2 says does
+not exist.
+
+`signerField` is now a schema **`const": "O"`**, so switching it back requires
+editing the schema. `"Microsoft Windows"` was dropped from `trustedSigners` — it
+is a CN value and matches nothing under `O=`.
+
+**Still untested:** `Intel Corporation` and `Advanced Micro Devices, Inc.` — no
+AMD or Intel GPU and no iGPU on this machine (§Environment). Marked untested in
+the data, not silently kept as if measured.
 
 ## 2 · Vulkan layer passthrough *(moved earlier — §R2)*
 
