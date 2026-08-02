@@ -120,6 +120,14 @@ GitHub release body, so a missing section means an empty release note.
     app, no game and no anti-cheat surface — and assert both directions: a
     passing verdict really loads the DLL, and a **refused** verdict leaves the
     target untouched.
+- **`GuardSupervisor` — the Agent half of §S2 part three.** Publishes
+  `guardTicks`, and the load-bearing property is what it counts: **completed
+  guard evaluations, never seconds**. The field was specified as "Agent bumps
+  every second"; a timer attests the Agent *process* is alive while the guard
+  loop can be dead — a swallowed exception, a blocked service query, a stall on
+  one unreadable process in the §S16 scan set — and the capture side would keep
+  observing *because* the thing supervising it had stopped. Seven tests force
+  each of those and assert the tick does not move. A refusal latches.
 - **§S2's second half — the Vulkan layer's blocklist self-scan.** The layer
   scans its OWN process at init and goes fully passthrough on any hit, using the
   **same matcher and the same rules file as the injection guard**
@@ -227,6 +235,31 @@ GitHub release body, so a missing section means an empty release note.
   `blockedStoreIds` are both empty, so it matches nothing. Recorded in the data,
   beside the check, and as `20_OPEN_QUESTIONS` §S14, rather than being
   inferable only from two empty arrays.
+- **Two comments in `layer.cpp` documented designs that were measured to be
+  wrong** — the more dangerous kind of stale, because a reader designs a gate
+  around them. One claimed the Vulkan loader "checks that the variable EXISTS
+  rather than comparing its value", the opposite of `spike-notes` §2. The other
+  said returning non-`VK_SUCCESS` from negotiation is "a documented, supported
+  way to be absent, and what we use when the process was not opted in" — the
+  exact design that access-violates every Vulkan application on the machine —
+  sitting directly above the text correcting it.
+- **The 30 s guard re-scan was scoped to injection**, so it was not specified to
+  run for Vulkan at all: `19_SAFETY` said "during a hooked session" / "after
+  injection", and `04_CAPTURE`'s state machine reaches `Capturing` only through
+  `Injecting`, which a layered session never enters. Rescoped to every Tier-1
+  session, with the Vulkan path spelled out.
+- **`07_IPC` said the Overlay "keeps writing (harmless)"** when the Agent's
+  heartbeat stops — describing an *unsupervised hooked process* as harmless,
+  when the 30 s re-scan is exactly what has stopped in that state. Supervision
+  loss now means stop observing, for both hosts.
+- **`DISCLAIMER` and `README` promised FrameLedger "unhooks"** on detection.
+  True for Direct3D/OpenGL; false for Vulkan, where a layer cannot leave a
+  running game's loader chain — attempting to leave crashes the application.
+  Both now say what actually happens, in legally reviewed text.
+- **`fl-probe-vklayer` step 3 was a bare `printf`** with no assertion, in the
+  file this project cites as its assert-both-directions exemplar. It now checks
+  that the self-scan does not latch, and polls for the unload rather than
+  sleeping a fixed interval.
 - **A test harness that kept a stale copy of the thing under test.**
   `fl-probe-vklayer` loaded the layer from a copy placed beside it by a CMake
   `POST_BUILD` command — which runs only when the *probe* relinks, so editing

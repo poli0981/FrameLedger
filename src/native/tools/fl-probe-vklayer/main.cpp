@@ -190,17 +190,35 @@ int main() {
     const bool inertWhenBlocked = selfScan() != 0;
     Check(inertWhenBlocked, "the self-scan now says STAY INERT — a blocklisted module was found");
 
-    // --- 3. And it goes back once the module is gone ------------------------
-    // A scan that latches on would disable the layer for the rest of the
-    // process even after the reason went away. Not a safety problem, but it
-    // would make the result untrustworthy as evidence.
+    // --- 3. The scan must not LATCH -----------------------------------------
+    //
+    // A scan that stayed inert after the module was gone would disable the
+    // layer for the rest of the process. Not a safety problem — inert is the
+    // safe direction — but it would make every later reading of this scan
+    // meaningless, including the "clean" case above.
+    //
+    // This step used to be a bare printf with no assertion, in the file this
+    // project cites as its assert-both-directions exemplar. A step that reports
+    // and never fails is a gate that cannot go red; it is now checked.
     if (planted != nullptr) {
         FreeLibrary(planted);
     }
-    // The loader keeps the image mapped until the last reference goes; give it
-    // a moment, then re-ask. If it is still mapped this correctly stays inert.
-    Sleep(100);
-    std::printf("  after unload the scan says: %s\n", selfScan() != 0 ? "stay inert" : "may observe");
+    // FreeLibrary only drops a reference. Poll rather than sleeping a fixed
+    // interval: if the loader has not unmapped it yet, "still inert" is the
+    // correct answer and asserting too early would make this flaky.
+    bool unmapped = false;
+    for (int i = 0; i < 50 && !unmapped; ++i) {
+        Sleep(20);
+        unmapped = GetModuleHandleW(plantedPath) == nullptr;
+    }
+    if (unmapped) {
+        Check(selfScan() == 0,
+              "with the planted module unloaded, the scan reports observable again (it does not latch)");
+    } else {
+        // Reported, not skipped silently: the assertion genuinely does not
+        // apply while the image is still mapped.
+        std::printf("  NOT CHECKED: the loader still has the planted image mapped, so inert remains correct\n");
+    }
 
     FreeLibrary(layer);
     DeleteFileW(plantedPath);

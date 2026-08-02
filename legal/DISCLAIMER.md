@@ -21,7 +21,16 @@ None of this information is obtainable from outside the process, which is why th
 FrameLedger is designed to reduce that risk substantially:
 
 - Injection is **off by default** and must be enabled by you **per game**.
-- Before injecting, and every 30 seconds afterwards, FrameLedger scans for known anti-cheat and anti-tamper components. **If it finds one, it refuses to inject; if a session is already running, it stops at the next scan.** There is no setting to override this. Because the scan runs every 30 seconds rather than continuously, anti-cheat that loads mid-session may be present for **up to 30 seconds** before FrameLedger detects it and unhooks.
+- Before injecting, and every 30 seconds afterwards, FrameLedger scans for known anti-cheat and anti-tamper components. **If it finds one, it refuses to inject; if a session is already running, it stops at the next scan.** There is no setting to override this. Because the scan runs every 30 seconds rather than continuously, anti-cheat that loads mid-session may be present for **up to 30 seconds** before FrameLedger detects it and stops.
+
+- **What "stops" means differs by graphics API, and the difference is worth
+  stating plainly.** For Direct3D and OpenGL titles FrameLedger injects a
+  library and genuinely removes its hooks. Vulkan titles use a Khronos *layer*
+  instead, and a layer cannot remove itself from the loader's chain while the
+  game is running — attempting to leave crashes the application. There,
+  "stops" means FrameLedger stops observing and passes every call through
+  untouched. It records nothing further, but its library remains loaded until
+  the game exits.
 - FrameLedger contains **no evasion techniques of any kind** — it does not hide, rename, obfuscate, or disguise itself. It is intended to be plainly identifiable to any security software that looks.
 - A no-injection measurement mode is the default for anything the software is unsure about. It relies on Windows event tracing, which requires the FrameLedger agent to run with administrator rights; without that, measurement falls back to session duration and hardware sensors only. FrameLedger tells you which mode produced each session.
 

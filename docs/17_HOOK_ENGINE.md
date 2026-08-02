@@ -289,7 +289,7 @@ Field notes — each of these was a defect in an earlier revision:
 - Header: three separate 64-byte lines before the ring — `FlShmHandshake` (write-once),
   `FlWriterState` (Overlay-written: `writeIndex`, `status`, `apiMask`, `faultCount`),
   and `FlControlBlock` (**Agent**-written: `pauseRequested`, `unhookRequested`,
-  `overlayEnabled`, `agentHeartbeat`). The control flags are *not* in the Overlay's
+  `overlayEnabled`, `guardTicks`). The control flags are *not* in the Overlay's
   header — they are written by the other process, and mixing them into an
   Overlay-written line reintroduces exactly the false sharing the split exists to
   prevent. Layout is normative in `07_IPC` §A + B.

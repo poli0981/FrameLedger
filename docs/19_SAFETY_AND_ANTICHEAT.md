@@ -26,7 +26,12 @@ The DLL ships with its real filename, a populated VERSIONINFO block (`CompanyNam
 
 ## The anti-cheat guard (hard gate)
 
-Implemented in `FrameLedger.Injector` and re-checked by the Agent. Runs **before every injection**, and again periodically during a hooked session.
+Implemented in `FrameLedger.Injector` and reached from managed code through a thin P/Invoke facade — one implementation, never two (`20_OPEN_QUESTIONS` §S15). Runs **before every injection**, and again periodically for **every Tier-1 session**, injected or layered.
+
+> "During a hooked session" was the original wording, and it excluded Vulkan by
+> accident: those titles are captured by a Khronos layer and nothing is ever
+> injected into them. The periodic re-scan is scoped to the *tier*, not to the
+> mechanism.
 
 ### Pre-injection checks (all must pass)
 
@@ -195,7 +200,22 @@ checked stays untrusted and refuses — that direction is deliberate.
 
 ### During a session
 
-Re-run **both the module scan and the driver scan** every 30 s. Anti-cheat loading *after* injection (some titles load it late, or the user launched a multiplayer mode from a single-player menu) ⇒ **clean unhook on detection**, session finalized as `exit_status = unhooked_safety`, prominent UI notice. This is the single most important runtime behavior in the whole capture layer.
+Re-run **both the module scan and the driver scan** every 30 s, for **every
+Tier-1 session — injected or layered**.
+
+> **Scoping this to "hooked" sessions was a real gap.** Everything about the
+> re-scan was written as "during a hooked session" / "loading *after*
+> injection", and `04_CAPTURE` §Session recorder reaches `Capturing` only
+> through `Injecting` — a state a Vulkan session never enters, because the
+> layer is loaded by the Vulkan loader and nothing is injected. Read literally,
+> the most important runtime behaviour in the capture layer was not specified
+> to run at all for Vulkan titles. It applies to any session capturing at
+> Tier 1.
+>
+> **The Agent publishes proof it ran**, not proof it is alive. `guardTicks`
+> counts *completed evaluations* (`07_IPC` §Protocol rules); a capture side that
+> sees it stop advancing stops observing. A timer-driven heartbeat would have
+> let the capture side keep going precisely because the guard loop had died. Anti-cheat loading *after* injection (some titles load it late, or the user launched a multiplayer mode from a single-player menu) ⇒ **clean unhook on detection**, session finalized as `exit_status = unhooked_safety`, prominent UI notice. This is the single most important runtime behavior in the whole capture layer.
 
 > **The driver scan is not optional here, and it used to be missing.** This
 > section said "the module scan" only. But a machine-wide anti-cheat driver can

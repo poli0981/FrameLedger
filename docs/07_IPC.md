@@ -51,7 +51,7 @@ struct alignas(64) FlControlBlock {  // Agent-written
     uint32_t pauseRequested;     // @0
     uint32_t unhookRequested;    // @4  19_SAFETY: set when the guard fires mid-session
     uint32_t overlayEnabled;     // @8  in-game overlay draw toggle (v1.1)
-    uint32_t agentHeartbeat;     // @12 Agent bumps every second
+    uint32_t guardTicks;         // @12 completed guard evaluations, NOT a timer
     uint32_t reserved[12];       // @16..63 must be zero
 };
 
@@ -126,7 +126,31 @@ same class of bug as record drift.
   then resumes at `writeIndex - capacity`. This keeps the hot path free of an
   extra atomic and puts the accounting where the information actually exists.
 - Version handshake: Agent compares `layoutVersion` + `recordSize` + `buildId` against its own. **Mismatch → refuse to attach**, tell the user to restart the game (this happens when the app updates while a game is running).
-- Heartbeat: if `agentHeartbeat` stops advancing for 60 s, the Overlay keeps writing (harmless) but stops any overlay drawing and flushes its native log — the Agent may have crashed.
+- **`guardTicks` counts completed guard evaluations, not seconds.** It was
+  specified as "Agent bumps every second", and a timer-driven tick is the wrong
+  signal: it attests that the Agent *process* is alive, while the guard loop can
+  be dead — a swallowed exception, or blocked in a service query, or stalled on
+  one unreadable process in the §S16 scan set. A consumer reading "supervised"
+  would then keep observing *because* the thing supervising it had stopped. The
+  Agent increments it at exactly one site, after `Evaluate` returns a verdict.
+  A refusal counts too, and also sets `unhookRequested`, so no consumer has to
+  infer a verdict from a counter.
+- **Supervision loss means stop observing.** If `guardTicks` has not advanced
+  within the deadline, the capture side stops recording. This used to read "the
+  Overlay keeps writing (harmless)" — which described an *unsupervised hooked
+  process* as harmless, and the 30 s re-scan `19_SAFETY` calls the most
+  important runtime behaviour is exactly what has stopped in that state.
+  One field cannot mean opposite things in two hosts, so the Overlay and the
+  Vulkan layer share this rule.
+
+  > The two are not equally exposed and the asymmetry is worth stating rather
+  > than hiding: the Overlay entered a process that passed a full pre-injection
+  > guard, the layer never did. That argues for the layer being *stricter*, not
+  > for the Overlay being laxer.
+
+  "Never advanced" and "stopped advancing" are the same state. The clock starts
+  when the mapping is published, so a capture side that is never adopted by an
+  Agent is inert from the beginning rather than enjoying a grace window.
 - If `unhookRequested` is set, the Overlay disables hooks within one frame and sets `status = unhooked`. This path must be the fastest, most-tested code in the DLL: it is the safety stop.
 
 ## C — command pipe (`\\.\pipe\FrameLedger.v2`)
