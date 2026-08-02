@@ -84,7 +84,19 @@ $licenceDir = Join-Path $RepoRoot 'legal/licenses'
 # CMake declaration instead of a path that will never exist.
 $fetched = @(
     @{ Marker = 'src/native/third_party/CMakeLists.txt'; Needle = 'minhook'
-       Licence = 'minhook-BSD-2-Clause.txt'; Name = 'MinHook' }
+       Licence = 'minhook-BSD-2-Clause.txt'; Name = 'MinHook' },
+
+    # jsmn is compiled into FrameLedger.Injector, which the Agent links and we
+    # ship — so MIT's notice requirement travels with the binary, same as
+    # MinHook's.
+    @{ Marker = 'src/native/third_party/CMakeLists.txt'; Needle = 'jsmn'
+       Licence = 'jsmn-MIT.txt'; Name = 'jsmn' },
+
+    # Catch2 is test-only and never shipped. Listed anyway: BSL-1.0 costs
+    # nothing to honour, and a dependency that is "not shipped today" is one
+    # refactor away from being shipped tomorrow.
+    @{ Marker = 'src/native/third_party/CMakeLists.txt'; Needle = 'catch2'
+       Licence = 'catch2-BSL-1.0.txt'; Name = 'Catch2' }
 )
 foreach ($f in $fetched) {
     $marker = Join-Path $RepoRoot $f.Marker

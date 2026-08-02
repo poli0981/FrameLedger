@@ -75,6 +75,36 @@ GitHub release body, so a missing section means an empty release note.
   emptiness today and starts enforcing on the first `.cs` file in Domain or
   Application, so the number is never negotiated against code that already
   exists. Five failure modes proven red.
+- **The anti-cheat guard** (`FrameLedger.Injector`) — P0 item 0, the component
+  `19_SAFETY` calls the one where a bug can cost someone an account. Native, per
+  §S13(a).
+  - **The guard owns the chokepoint.** There is no `Check()` that hands a
+    verdict to a caller who might ignore it: the injection primitive has
+    internal linkage inside `fl_guard.cpp`, so no other translation unit has a
+    symbol to call. `tools/chokepoint-check.ps1` enforces it, and also fails on
+    the Win32 calls that *constitute* injection — someone writing a second
+    injector elsewhere would never touch the first name.
+  - **Every evidence source is a seam**, so each failure `14_TESTING` requires
+    is forced rather than hoped for: enumeration failure, a partial module list,
+    an unreadable process, an empty scan set, a denied service query, and five
+    ways for the rules file itself to be unusable. 24 cases, 132 assertions.
+  - **Every collector returns a tri-state, never a bare list.** `kOk` /
+    `kFailed` / `kIncomplete` exist because an empty list is the exact ambiguity
+    that produced this project's worst defect — it reads as "nothing found" when
+    it may mean "could not look".
+  - **§S16 implemented**: the scan set is the injection target, its descendants,
+    and its ancestors up to but excluding the first platform launcher.
+  - The rules parser re-checks the required-family floor **and group**. CI
+    already enforces that, but rules ship as updatable data, so CI is not in the
+    loop at injection time.
+  - `InjectViaLoadLibrary` is deliberately still a stub. CLAUDE.md rule 2 orders
+    the guard before the first real injection, and this is what that looks like
+    from the inside.
+- **Catch2 and jsmn**, both pinned by commit (§S15 items 2 and 3). jsmn was
+  chosen for what it does *not* do: no allocation, no exceptions, failure as a
+  return code. `/EHsc` is on the test binary only — a throw crossing the guard
+  would be an unstructured exit from the one function that must always reach a
+  verdict.
 - **Khronos Vulkan headers vendored** (`Apache-2.0 OR MIT`) at
   `src/native/third_party/vulkan-headers`, copied from SDK 1.4.357.0 rather than
   fetched: CI must not need a ~1 GB SDK install, and these are the exact headers

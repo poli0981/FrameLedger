@@ -1,0 +1,116 @@
+#Requires -Version 7.0
+<#
+.SYNOPSIS
+    Asserts that no code path can inject without passing the anti-cheat guard.
+
+.DESCRIPTION
+    CLAUDE.md rule 2: "The anti-cheat guard is a hard gate, not a warning...
+    There is no override switch." docs/14_TESTING.md calls for a test that
+    asserts no code path reaches the injection primitive without a passing
+    guard result, and 20_OPEN_QUESTIONS §S8 records that the mechanism
+    originally proposed for it — a `sealed` token type only the guard can
+    produce — does not work: a token that escapes can simply be IGNORED, because
+    a caller can decline to ask for one.
+
+    §S13(b) settled on the stronger shape: the guard OWNS THE CHOKEPOINT. The
+    injection primitive has internal linkage inside fl_guard.cpp, so no other
+    translation unit has a symbol to call. This script is what keeps that true.
+
+    Two checks, because the first alone is easy to route around:
+
+      1. The primitive's name appears in exactly one file.
+      2. The Win32 calls that CONSTITUTE injection — VirtualAllocEx,
+         WriteProcessMemory, CreateRemoteThread, and the manual-mapping and
+         evasion primitives 19_SAFETY forbids outright — appear nowhere in the
+         native tree except that same file.
+
+    Check 2 is the one that matters. Somebody writing a second injector
+    elsewhere would never touch the first name, and a reviewer scanning a large
+    diff would not necessarily notice.
+#>
+[CmdletBinding()]
+param(
+    [string]$Root = (Split-Path $PSScriptRoot -Parent)
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+# The one file allowed to contain any of this, relative to the native tree.
+$chokepoint = 'FrameLedger.Injector/src/fl_guard.cpp'
+$nativeRoot = Join-Path $Root 'src/native'
+
+$violations = [System.Collections.Generic.List[string]]::new()
+
+if (-not (Test-Path (Join-Path $nativeRoot $chokepoint))) {
+    Write-Host "CHOKEPOINT CHECK FAILED: $chokepoint does not exist." -ForegroundColor Red
+    Write-Host '  The guard is the thing this check exists to protect. If it moved, this' -ForegroundColor Red
+    Write-Host '  script must move with it — refusing rather than silently checking nothing.' -ForegroundColor Red
+    exit 1
+}
+
+# Sources only. Third-party code is consumed unmodified and is not ours to gate;
+# MinHook legitimately contains process-manipulation primitives.
+$sources = @(Get-ChildItem $nativeRoot -Recurse -File -Include '*.cpp', '*.h', '*.hpp' |
+        Where-Object { $_.FullName -notmatch '\\(third_party|_deps|build)\\' })
+
+if ($sources.Count -eq 0) {
+    Write-Host 'CHOKEPOINT CHECK FAILED: no native sources found — the check would pass vacuously.' -ForegroundColor Red
+    exit 1
+}
+
+# The primitive itself, plus the Win32 calls that constitute injection, plus the
+# evasion techniques 19_SAFETY §What we will never build rules out permanently.
+$forbidden = @(
+    @{ Pattern = 'InjectViaLoadLibrary'; Why = 'the injection primitive' },
+    @{ Pattern = 'CreateRemoteThread'; Why = 'remote thread creation' },
+    @{ Pattern = 'WriteProcessMemory'; Why = 'writing another process''s memory' },
+    @{ Pattern = 'VirtualAllocEx'; Why = 'allocating in another process' },
+    @{ Pattern = 'NtCreateThreadEx'; Why = 'undocumented remote thread creation' },
+    @{ Pattern = 'RtlCreateUserThread'; Why = 'undocumented remote thread creation' },
+    @{ Pattern = 'SetWindowsHookEx'; Why = 'hook-based injection' },
+    @{ Pattern = 'QueueUserAPC'; Why = 'APC injection' },
+    @{ Pattern = 'ThreadHideFromDebugger'; Why = 'thread hiding — evasion, permanently out of scope' },
+    @{ Pattern = 'ZwSetInformationThread'; Why = 'thread hiding — evasion, permanently out of scope' }
+)
+
+$checkedFile = $false
+foreach ($src in $sources) {
+    $rel = [IO.Path]::GetRelativePath($nativeRoot, $src.FullName) -replace '\\', '/'
+    $isChokepoint = $rel -eq $chokepoint
+    if ($isChokepoint) { $checkedFile = $true }
+
+    foreach ($rule in $forbidden) {
+        # Skip comments: this file, and the guard, describe these APIs at length
+        # on purpose. A rule that fired on prose would be turned off within a week.
+        $hits = @(Select-String -Path $src.FullName -Pattern $rule.Pattern -SimpleMatch |
+                Where-Object { $_.Line.TrimStart() -notmatch '^(//|\*|/\*|;)' })
+        if ($hits.Count -eq 0) { continue }
+
+        if ($isChokepoint) {
+            # Allowed here — but only here, and only for the primitive itself.
+            continue
+        }
+        foreach ($h in $hits) {
+            $violations.Add("$rel`:$($h.LineNumber) uses $($rule.Pattern) — $($rule.Why)")
+        }
+    }
+}
+
+if (-not $checkedFile) {
+    Write-Host 'CHOKEPOINT CHECK FAILED: the chokepoint file was never examined.' -ForegroundColor Red
+    exit 1
+}
+
+if ($violations.Count -gt 0) {
+    Write-Host 'CHOKEPOINT CHECK FAILED' -ForegroundColor Red
+    $violations | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+    Write-Host ''
+    Write-Host '  Injection happens in exactly one place, behind the guard' -ForegroundColor Red
+    Write-Host "  ($chokepoint). CLAUDE.md rule 2: the guard is a hard gate," -ForegroundColor Red
+    Write-Host '  and a second path into a game process is an override by another name.' -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "chokepoint OK — $($sources.Count) native source(s); injection confined to $chokepoint" -ForegroundColor Green
+exit 0

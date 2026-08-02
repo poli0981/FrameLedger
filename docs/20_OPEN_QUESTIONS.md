@@ -197,10 +197,36 @@ actually costs. It needs a title that loads a presentation runtime lazily; the
 local fixtures (`hook-harness`, which creates D3D at startup, and a 2D GOG
 prologue) cannot produce a figure that generalises.
 
-### S15 · The four consequences of putting the guard in C++ (§S13(a))
+### S15 ◐ · The four consequences of putting the guard in C++ (§S13(a))
 
-None of these is a question — they are commitments the §S13(a) decision creates,
-recorded so the guard is not written without them.
+Not questions — commitments the §S13(a) decision creates. **Three of four are
+done; item 1 is the one still open.**
+
+- **1 — one matcher, not two: STILL OPEN.** The native guard exists
+  (`FrameLedger.Injector/src/fl_guard.cpp`), but `04_CAPTURE` §The guard still
+  writes `AntiCheatGuard.Check(pid)` and `01_ARCHITECTURE` still draws the guard
+  inside the Agent box. Nothing managed exists yet, so nothing is *wrong* today
+  — but the moment `Infrastructure` gains a guard type that is anything other
+  than a thin P/Invoke facade over `fl::guard::GuardedInject`, there are two
+  blocklist matchers that can disagree, which is a fail-open by construction.
+- **2 — Catch2: DONE.** `src/native/tests/guard_test.cpp`, ctest `fl_guard`.
+  The seams are `fl::guard::Sources`, plain function pointers so the guard
+  allocates nothing, and every failure in `14_TESTING`'s matrix is forced
+  through a fake rather than hoped for.
+- **3 — C++ JSON: DONE.** jsmn, pinned by commit. Chosen for what it does not
+  do: no allocation, no exceptions, no recursion beyond a token array we own,
+  and failure reported as a return code. Every parse failure is a REFUSE with a
+  distinct reason.
+- **4 — the override mechanism: DONE, and now enforced.** `14_TESTING` is
+  rewritten, and `tools/chokepoint-check.ps1` fails the build if any translation
+  unit other than the guard's names the injection primitive *or* the Win32 calls
+  that constitute injection. Proven red both ways.
+
+> **The injection primitive itself is deliberately still a stub.** The guard and
+> its matrix exist; `InjectViaLoadLibrary` returns false and does not open a
+> process. CLAUDE.md rule 2 and `15_ROADMAP` both order the guard before the
+> first real injection, and this is what that ordering looks like from the
+> inside.
 
 1. **One matcher, not two.** `04_CAPTURE` §The guard writes
    `AntiCheatGuard.Check(pid)` and `01_ARCHITECTURE` draws the guard inside the
@@ -224,7 +250,24 @@ recorded so the guard is not written without them.
    The replacement is (b) above plus a build-time check that no translation unit
    other than the guard's references the injection primitive.
 
-### S16 · *Which* process does the guard scan? — nobody has said
+### S16 ✅ · *Which* process does the guard scan? — **closed: the game's own subtree**
+
+Decided 2026-08-02, specified in `19_SAFETY` §Pre-injection checks item 1.
+
+**The injection target, its descendants, and its ancestors up to but excluding
+the first known platform launcher.** Neither obvious reading survived: the
+presenter alone misses a game launcher that initialises anti-cheat before
+spawning the renderer, and unbounded ancestors would scan `steam.exe` — which
+loads VAC modules — and so refuse every Steam title. A gate that refuses
+everything is not a strict gate but a broken one, and it is how a user ends up
+looking for the override CLAUDE.md rule 2 says does not exist.
+
+A hit anywhere in the set refuses; a process in the set that cannot be inspected
+refuses too. Sibling *services* are covered by name via the rules data rather
+than by tree walking, which is more reliable. The runtime re-scan recomputes the
+set rather than caching it.
+
+<details><summary>The question as originally recorded</summary>
 
 Found 2026-08-02. Not previously recorded anywhere, and it changes the guard's
 own signature, so it belongs before the guard is written rather than after.
@@ -256,6 +299,8 @@ exotic one.
 Also unspecified: what the guard does when the tree changes mid-session
 (level-transition relaunches re-elect the presenting pid — `04_CAPTURE`
 §Process watcher), and whether a newly appearing sibling is re-scanned.
+
+</details>
 
 ### S14 · Pre-injection check 3 is inert, and has no "cannot determine" state
 
