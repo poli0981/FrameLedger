@@ -75,6 +75,24 @@ GitHub release body, so a missing section means an empty release note.
   emptiness today and starts enforcing on the first `.cs` file in Domain or
   Application, so the number is never negotiated against code that already
   exists. Five failure modes proven red.
+- **Khronos Vulkan headers vendored** (`Apache-2.0 OR MIT`) at
+  `src/native/third_party/vulkan-headers`, copied from SDK 1.4.357.0 rather than
+  fetched: CI must not need a ~1 GB SDK install, and these are the exact headers
+  matching the loader the blast-radius test runs against. Only the C closure a
+  Windows layer needs; the C++ bindings are excluded because they allocate and
+  throw, which CLAUDE.md forbids in the layer.
+- **The Vulkan layer is real**: loader ABI (`vkNegotiateLoaderLayerInterfaceVersion`,
+  instance/device chain walking), the enable-list from
+  `17_HOOK_ENGINE` §The enable-list, exports by name via a `.def` file, and the
+  manifest JSON that `12_BUILD` had listed as a build output since the start but
+  which existed nowhere. **It still intercepts nothing** — §S2's in-layer
+  blocklist scan has to land before `vkQueuePresentKHR` is hooked.
+- **`tools/vklayer-blastradius.ps1`** — answers `spike-notes` §2 and closes the
+  first half of §S2. `enable_environment` verified against loader 1.4.357: with
+  the variable unset the loader locates the manifest and **never maps the DLL**,
+  and it compares the variable's *value*, so a stray `=0` does not enable us.
+  Vulkan Tier 1 is therefore **launch-mode-only**. The script is the only place
+  the layer is registered and unregisters in a `finally`.
 - **`tools/versioninfo-check.ps1`** and a real `version.rc` for the Overlay and
   the Vulkan layer. `19_SAFETY` requires every shipped native binary to identify
   itself — being visible to anti-cheat is the design principle — and the Overlay
@@ -119,6 +137,21 @@ GitHub release body, so a missing section means an empty release note.
   `blockedStoreIds` are both empty, so it matches nothing. Recorded in the data,
   beside the check, and as `20_OPEN_QUESTIONS` §S14, rather than being
   inferable only from two empty arrays.
+- **A Vulkan layer that declined to load would have crashed the host.** Found by
+  the blast-radius test, in code written the same day. Returning
+  `VK_ERROR_INITIALIZATION_FAILED` from `vkNegotiateLoaderLayerInterfaceVersion`
+  — the obvious way to say "this process did not opt in, skip me" — does not
+  make loader 1.4.357 skip the layer; it access-violates the application. Every
+  Vulkan program on the machine outside our enable-list would have crashed,
+  which is a far larger blast radius than the one §S2 exists to reduce. The
+  layer now always accepts negotiation and always forwards; the enable-list
+  decides what we *intercept*, never whether we *load*.
+- **Two false positives in the blast-radius test itself**, both of which would
+  have reported a working gate as broken: the loader prints the manifest path
+  during discovery (which contains `FrameLedger.VkLayer`), and `vulkaninfo`
+  lists the layer as *available* by name. Neither means the DLL was mapped. The
+  test now matches only the loader's `Insert instance layer` / `Inserted device
+  layer` lines.
 - **Coverage reports accumulated and were never pruned** — 24 after a handful of
   builds. Any gate reading "the coverage reports" would have read mostly
   history, and taking the best rate across them means a project that once scored

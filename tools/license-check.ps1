@@ -68,7 +68,12 @@ if ($scanRoots) {
 # Keyed by the directory that would exist if the component were vendored, so a
 # missing licence is only reported once the component is actually present.
 $vendored = @(
-    @{ Path = 'src/native/third_party/nvapi'; Licence = 'nvapi-MIT.txt'; Name = 'NVIDIA NVAPI SDK' }
+    @{ Path = 'src/native/third_party/nvapi'; Licence = 'nvapi-MIT.txt'; Name = 'NVIDIA NVAPI SDK' },
+
+    # Khronos Vulkan headers, copied from SDK 1.4.357.0 rather than fetched, so
+    # CI needs no ~1 GB SDK install and we compile against the same revision the
+    # blast-radius test runs against. Apache-2.0 OR MIT; we ship the Apache text.
+    @{ Path = 'src/native/third_party/vulkan-headers'; Licence = 'apache-2.0.txt'; Name = 'Khronos Vulkan headers' }
 )
 
 $licenceDir = Join-Path $RepoRoot 'legal/licenses'

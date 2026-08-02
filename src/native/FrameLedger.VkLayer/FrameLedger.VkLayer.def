@@ -1,0 +1,18 @@
+; Exports for the Vulkan implicit layer.
+;
+; A .def file rather than __declspec(dllexport) on the definitions: the Vulkan
+; headers already declare vkGetInstanceProcAddr and vkGetDeviceProcAddr without
+; dllexport, so redefining them with it is a linkage conflict (C2375). This is
+; also the conventional way Khronos' own layers export on Windows.
+;
+; NAMES, NOT ORDINALS. docs/19_SAFETY_AND_ANTICHEAT.md: the DLL ships with its
+; real filename and real exports, because an anti-cheat vendor or a loader log
+; must be able to say what this is. Exporting by ordinal to be tidier would be
+; a step towards being harder to identify, which CLAUDE.md rule 3 rejects.
+LIBRARY FrameLedger.VkLayer
+EXPORTS
+    vkNegotiateLoaderLayerInterfaceVersion
+    vkGetInstanceProcAddr
+    vkGetDeviceProcAddr
+    FlVkLayerName
+    FlVkLayerWouldActivate

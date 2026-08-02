@@ -153,9 +153,36 @@ Vulkan gets an **implicit layer** (`FrameLedger.VkLayer`), not injection — it 
 - Declare an API version at least as high as the applications we expect to
   layer. The same machine shows the loader warning that `VK_LAYER_OBS_HOOK` and
   `VK_LAYER_RTSS` declare 1.3 against a 1.4 application, "may cause issues".
-- `disable_environment` so a user can turn it off with an env var — and so it is
-  well-behaved by Vulkan convention. (`20_OPEN_QUESTIONS` §S2 proposes moving to
-  `enable_environment`, which is a stronger gate; that decision is open.)
+- **`enable_environment` (`FRAMELEDGER_ENABLE_VK_LAYER=1`)**, plus
+  `disable_environment` so a user can force us off — the latter is Vulkan
+  convention and stays. Measured against loader 1.4.357 (`spike-notes.md` §2):
+  with the variable unset the loader locates our manifest and **never maps the
+  DLL**, and it compares the variable's **value**, so a stray
+  `FRAMELEDGER_ENABLE_VK_LAYER=0` does not enable us. **This makes Vulkan
+  Tier 1 launch-mode-only** — the Agent sets the variable when it starts an
+  opted-in game, so a Vulkan title launched from Steam or GOG is not hooked.
+  It is a *loading* gate, not a security gate: anything running as the user can
+  set the variable.
+
+### Never decline to load — accept, then be inert
+
+> **Measured, and it would have been catastrophic.** Returning
+> `VK_ERROR_INITIALIZATION_FAILED` from
+> `vkNegotiateLoaderLayerInterfaceVersion` — the obvious way to say "this
+> process did not opt in, skip me" — does **not** make loader 1.4.357 skip the
+> layer. It **access-violates the application** (`spike-notes.md` §2,
+> reproduced every time). Every Vulkan application on the machine outside our
+> enable-list would have crashed: a far larger blast radius than the one we
+> were reducing, inflicted on programs with nothing to do with FrameLedger.
+
+So the layer **always accepts negotiation and always forwards**. Returning
+`nullptr` from `vkGetInstanceProcAddr` as a way to opt out is the same class of
+failure and is equally forbidden — handing the loader a null `vkCreateInstance`
+breaks the application just as thoroughly.
+
+The enable-list decides **what we intercept**, never **whether we load**. Being
+present and inert costs a pointer forward per call; being absent by erroring out
+is not something this loader supports.
 
 > **We will not be the only layer, and probably not the only present hook.** A
 > representative dev machine carries six machine-wide implicit layers already:

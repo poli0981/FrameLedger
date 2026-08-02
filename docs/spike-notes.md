@@ -282,10 +282,77 @@ presented as measured.
 
 ## 2 · Vulkan layer passthrough *(moved earlier — §R2)*
 
-- `enable_environment` behaviour with the loader:
-- Confirmed passthrough for non-enabled processes:
-- **Blast-radius check:** layer registered, unrelated Vulkan app run, nothing of
-  ours loaded/executed:
+Measured 2026-08-02 against **Vulkan loader 1.4.357** on Windows 11 26300,
+unelevated, with `tools/vklayer-blastradius.ps1`. That script is the **only**
+place the layer is registered; it registers under `HKCU`, runs `vulkaninfo`, and
+unregisters in a `finally` block including on failure. Verified clean afterwards.
+
+### ✅ `enable_environment` works, and it compares the VALUE
+
+| Condition | Result |
+|---|---|
+| `FRAMELEDGER_ENABLE_VK_LAYER` unset | loader locates the manifest, **never maps the DLL** |
+| set to `1` (the manifest's value) | `Insert instance layer` / `Inserted device layer` — mapped |
+| set to `0` (non-matching) | **not** enabled — the loader compares the value, not mere existence |
+
+The value comparison is the better of the two possible answers and was not
+safe to assume: had the loader merely checked existence, a stray
+`FRAMELEDGER_ENABLE_VK_LAYER=0` anywhere in a user's environment would have
+enabled us machine-wide.
+
+**Still a loading gate, not a security gate.** Anything running as the user can
+set the variable. It shrinks the default blast radius from "every Vulkan process
+on the machine" to "processes the Agent launched"; it does not authorise.
+
+### 🔴 Declining `vkNegotiateLoaderLayerInterfaceVersion` CRASHES the host
+
+The single most valuable thing this test found, and it was in code written the
+same afternoon. The obvious-looking gate — "if this process is not in the
+enable-list, return `VK_ERROR_INITIALIZATION_FAILED` from negotiation so the
+loader skips us" — does **not** make loader 1.4.357 skip the layer. It
+access-violates the application. Reproduced every time, with and without
+`VK_LOADER_DEBUG`:
+
+| Enable-list state (variable set) | `vulkaninfo` exit |
+|---|---|
+| file absent | `0xC0000005` |
+| file present, this process not listed | `0xC0000005` |
+| file present, this process listed | ok |
+
+So that design would have crashed **every Vulkan application on the machine
+outside our enable-list** — a far larger blast radius than the one §S2 exists to
+reduce, and inflicted on applications that have nothing to do with FrameLedger.
+
+**The rule that follows:** the layer always accepts negotiation and always
+forwards. The enable-list decides what we *intercept*, never whether we *load*.
+Being present and inert is cheap; being absent by erroring out is not something
+this loader supports.
+
+### Two false positives in the test itself, both corrected
+
+Recorded because each would have reported a working gate as broken, and both are
+the same shape as defects found elsewhere in this project:
+
+1. **Discovery is not loading.** With the variable unset the loader still prints
+   `Located json file "...\FrameLedger.VkLayer\VkLayer_..._overlay.json"`. A
+   match on `FrameLedger.VkLayer.dll` hit that *path* — the manifest sits in a
+   directory of that name.
+2. **Availability is not loading.** `vulkaninfo`'s own report lists the layer by
+   name, read from the manifest. That is the tool describing the system, not the
+   loader mapping anything.
+
+The unambiguous signal is the loader printing `Insert instance layer` /
+`Inserted device layer` with our name and DLL path.
+
+### Not yet done
+
+- **The in-layer blocklist scan** — §S2's second half. The layer intercepts
+  nothing today, which is why that gap is not yet dangerous, but §S2 must not be
+  closed until it lands.
+- **Passthrough under a real Vulkan game**, alongside the six implicit layers
+  already resident on this machine (§Environment). `vulkaninfo` proves
+  load/no-load; it does not prove a real title still renders correctly with us
+  in the chain.
 
 ## 3 · Hook viability on `hook-harness` only
 

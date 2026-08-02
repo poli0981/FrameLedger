@@ -65,21 +65,39 @@ at startup) and a 2D GOG prologue; a number from either would not generalise,
 which is worse than recording it unmeasured. This is the one input §S13(c)
 still lacks.
 
-### S2 · The Vulkan layer has no guard and no mid-session unhook
+### S2 ◐ · The Vulkan layer has no guard — **first half done, second half open**
 
-An implicit layer is machine-wide and loads **before** anything of ours runs.
-`17_HOOK_ENGINE` §Vulkan gives it an opt-in enable-list check, but that is not
-the guard: no module scan, no driver scan, no blocklist, no multiplayer
-heuristic. And `19_SAFETY` §During a session — "the single most important runtime
-behavior in the whole capture layer" — is Agent-driven and Overlay-targeted; with
-the Agent not running there is no runtime guard inside a layered process at all.
+An implicit layer is machine-wide and loads **before** anything of ours runs, so
+the injection guard cannot cover it: no module scan, no driver scan, no
+blocklist, no multiplayer heuristic. And `19_SAFETY` §During a session — "the
+single most important runtime behavior in the whole capture layer" — is
+Agent-driven and Overlay-targeted; with the Agent not running there is no
+runtime guard inside a layered process at all.
 
-**Proposed:** use `enable_environment` in the layer manifest so the Vulkan loader
-does not map the layer unless the Agent sets the variable when launching the
-game. That closes the hole properly, at the cost of making **Vulkan Tier 1
-launch-mode-only**. Additionally, the layer must run the blocklist module scan on
-its own process at init and go passthrough on any hit. Also specify the
-enable-list file itself (S5).
+**✅ Half one, done and measured** (`spike-notes.md` §2, `17_HOOK_ENGINE`
+§Vulkan). `enable_environment` is in the manifest and verified against loader
+1.4.357: with the variable unset, the loader locates the manifest and never maps
+the DLL — and it compares the variable's *value*, so a stray `=0` does not
+enable us. The cost is accepted: **Vulkan Tier 1 is now launch-mode-only.**
+`tools/vklayer-blastradius.ps1` runs the check and unregisters in a `finally`.
+
+> **The measurement also killed the design that looked obvious.** Declining
+> `vkNegotiateLoaderLayerInterfaceVersion` for a process that did not opt in
+> does *not* make the loader skip the layer — it access-violates the host
+> application. That would have crashed every Vulkan program on the machine
+> outside our enable-list. The layer now always accepts and always forwards;
+> the enable-list decides what we *intercept*, never whether we *load*.
+
+**◐ Half two, still open: the in-layer blocklist scan.** The layer must scan its
+own process at init and go fully passthrough on any blocklist hit. Not built.
+It is not yet dangerous — the layer intercepts nothing at all today — but S2
+does not close until it lands, and it must land before `vkQueuePresentKHR` is
+hooked.
+
+**Also still open: mid-session unhook inside a layered process.** With no Agent
+running there is nothing to drive the 30 s re-scan that `19_SAFETY` calls the
+most important runtime behaviour. The layer needs its own answer, and does not
+have one.
 
 ### S3 ✅ · `UpdateRules { path }` — **closed, and it was not alone**
 

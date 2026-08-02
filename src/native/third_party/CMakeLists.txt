@@ -27,3 +27,27 @@ FetchContent_MakeAvailable(minhook)
 if(TARGET minhook)
     set_target_properties(minhook PROPERTIES FOLDER "third_party")
 endif()
+
+# ---------------------------------------------------------------------------
+# Vulkan headers (Apache-2.0 OR MIT) — VENDORED, not fetched.
+#
+# Deliberately the opposite choice from MinHook above, for two reasons:
+#
+#   1. CI must not need the Vulkan SDK. FrameLedger.VkLayer cannot compile
+#      without these, and the alternative was a ~1 GB SDK install on every run.
+#   2. These are the exact headers matching the loader the blast-radius test
+#      runs against (instance 1.4.357, docs/spike-notes.md §Environment).
+#      Fetching a different revision would mean compiling against one contract
+#      and testing against another.
+#
+# Only the C closure a Windows layer needs; the C++ bindings are excluded
+# because they allocate and throw, which CLAUDE.md forbids in the layer.
+# See third_party/vulkan-headers/README.md for provenance.
+# ---------------------------------------------------------------------------
+add_library(fl_vulkan_headers INTERFACE)
+target_include_directories(fl_vulkan_headers SYSTEM INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/vulkan-headers/include"
+)
+# SYSTEM: these are consumed unmodified, so /W4 /WX must not fail our build on
+# somebody else's warnings. Patching a vendored header would drag it out of
+# "consumed unmodified" and into modification territory for no benefit.
