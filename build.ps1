@@ -52,6 +52,29 @@ function Invoke-Checked([string]$What, [scriptblock]$Body) {
 }
 
 <#
+Clear an ambient Platform variable before any MSBuild invocation.
+
+Anything that sets up MSVC exports Platform=x64 for .vcxproj builds — vcvars64
+does, and so does ilammy/msvc-dev-cmd on CI. We have no vcxproj, and MSBuild
+reads the variable as a SOLUTION platform, so `dotnet build FrameLedger.slnx`
+fails with:
+
+    MSB4126: The specified solution configuration "Release|x64" is invalid
+
+which has no visible connection to having set up a C++ toolchain. Project-level
+x64 comes from Directory.Build.props.
+
+This is deliberately its own function, called unconditionally before the managed
+build, rather than living at the end of Import-MsvcEnvironment. That function
+returns early when cl.exe is already on PATH — which is exactly the CI case,
+because the MSVC action ran first. Local runs passed and CI failed on precisely
+that difference.
+#>
+function Clear-VcxprojPlatform {
+    Remove-Item Env:Platform -ErrorAction SilentlyContinue
+}
+
+<#
 Import the MSVC x64 environment into this process so the native build works
 from an ordinary shell, not only from a Developer Command Prompt.
 
@@ -71,6 +94,8 @@ Two things this has to get right:
 #>
 function Import-MsvcEnvironment {
     if (Get-Command cl -ErrorAction SilentlyContinue) { return $true }
+    # NOTE: this early return is why Clear-VcxprojPlatform is called separately
+    # rather than only from the bottom of this function.
 
     $vcvars = $null
     $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -101,12 +126,7 @@ function Import-MsvcEnvironment {
         }
     }
 
-    # vcvars sets Platform=x64 for vcxproj builds. We have none, and MSBuild
-    # reads it as a SOLUTION platform — so `dotnet build FrameLedger.slnx`
-    # then fails with MSB4126 "solution configuration Release|x64 is invalid",
-    # a failure with no visible connection to having set up a C++ toolchain.
-    # Project-level x64 comes from Directory.Build.props, not from here.
-    Remove-Item Env:Platform -ErrorAction SilentlyContinue
+    Clear-VcxprojPlatform
 
     # Ninja and clang-format both ship inside VS but neither is on the vcvars
     # PATH. Adding them here means a contributor with the C++ workload gets the
@@ -176,6 +196,7 @@ function Invoke-ClangFormat([bool]$Fix) {
 # --- 4-6. Managed -----------------------------------------------------------
 function Invoke-Managed([bool]$FixFormat) {
     Write-Step 'Managed restore + build (warnings as errors)'
+    Clear-VcxprojPlatform
     Invoke-Checked 'dotnet build' { dotnet build $solution -c $Configuration }
 
     Write-Step 'dotnet format'
