@@ -183,6 +183,14 @@ function Invoke-ClangFormat([bool]$Fix) {
         Where-Object { $_.FullName -notmatch 'third_party|[\\/]build[\\/]' }
     if (-not $sources) { return }
 
+    # ALWAYS REPORT THE VERSION. clang-format's output is version-dependent —
+    # alignment behaviour in particular — so a formatting gate that passes here
+    # and fails on CI is a TOOL mismatch, not a code problem. 12_BUILD promises
+    # CI runs the identical script; the script was identical and the binary was
+    # not, and the failure gave no hint of that. It cost a CI round trip to see.
+    $cfVersion = (clang-format --version) -join ' '
+    Write-Host "  $cfVersion" -ForegroundColor DarkGray
+
     if ($Fix) {
         Invoke-Checked 'clang-format -i' { clang-format -i --style=file @($sources.FullName) }
         Write-Host "formatted $($sources.Count) native file(s)" -ForegroundColor Green
