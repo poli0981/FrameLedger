@@ -96,6 +96,22 @@ enum class ParseResult : std::uint8_t {
 [[nodiscard]] bool HasSuspiciousFragment(const Rules& rules, const char* moduleName) noexcept;
 [[nodiscard]] bool IsTrustedSigner(const Rules& rules, const char* signerOrganisation) noexcept;
 
+// The ONE location rules are read from, shared by the injection guard and the
+// Vulkan layer.
+//
+// Not a parameter anywhere (§S3: letting a caller name the rules path is a
+// documented override of the hard gate), and not duplicated as a literal in two
+// files either — the layer reading a different file from the guard would be a
+// second blocklist by accident, which is the same defect as a second matcher.
+//
+// Writes `%LOCALAPPDATA%\FrameLedger\rules\detection-rules.json` into `out`.
+// Returns false if it does not fit or LOCALAPPDATA is unavailable.
+[[nodiscard]] bool RulesFilePath(char* out, std::size_t cap) noexcept;
+
+// Read the rules file into a caller-owned buffer. Returns bytes read, or
+// SIZE_MAX on any failure — absent, unreadable, or larger than `cap`.
+[[nodiscard]] std::size_t ReadRulesFile(char* buffer, std::size_t cap) noexcept;
+
 }    // namespace fl::guard
 
 #endif    // FL_AC_RULES_H

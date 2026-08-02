@@ -1,17 +1,27 @@
 # Vulkan implicit layer. Vulkan titles use this INSTEAD of injection — it is the
 # mechanism Khronos supports and far more robust than hooking dispatch tables.
 #
-# A layer is machine-wide by nature, so docs/20_OPEN_QUESTIONS.md §S2 still
-# gates what this may DO: the loader ABI is implemented and gated, but nothing
-# is intercepted, because §S2's second half — an in-layer blocklist scan of our
-# own process at init — has not landed. Passthrough is the correct state.
-add_library(FrameLedger.VkLayer SHARED src/layer.cpp FrameLedger.VkLayer.def)
+# A layer is machine-wide by nature, so it carries its own gate: the enable
+# variable and enable-list decide whether it may observe anything, and the §S2
+# blocklist self-scan below decides whether it must stay inert regardless.
+# Nothing is intercepted yet either way — presentation hooks are P1.
+#
+# fl_ac_rules.cpp is compiled IN, not linked from FrameLedger.Injector: the
+# layer must not drag the injection primitive into a game process. Same source
+# file, so the layer and the guard share ONE matcher and ONE rules path — a
+# layer with its own blocklist would be a second matcher that can disagree.
+add_library(FrameLedger.VkLayer SHARED
+    src/layer.cpp
+    ../FrameLedger.Injector/src/fl_ac_rules.cpp
+    FrameLedger.VkLayer.def
+)
+target_include_directories(FrameLedger.VkLayer PRIVATE ../FrameLedger.Injector/include)
 
 # Vendored headers, not the SDK: CI must not need a ~1 GB install, and these are
 # the exact headers matching the loader the blast-radius test runs against.
 # See src/native/third_party/vulkan-headers/README.md.
 target_link_libraries(FrameLedger.VkLayer PRIVATE
-    FrameLedger.Shm fl_native_flags fl_hostile_env_flags fl_vulkan_headers)
+    FrameLedger.Shm fl_native_flags fl_hostile_env_flags fl_vulkan_headers fl_jsmn)
 set_target_properties(FrameLedger.VkLayer PROPERTIES OUTPUT_NAME "FrameLedger.VkLayer")
 
 # Same requirement as the Overlay, and arguably sharper here: an implicit layer

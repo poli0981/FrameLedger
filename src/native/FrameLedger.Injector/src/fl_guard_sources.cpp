@@ -18,6 +18,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <fl_ac_rules.h>
 #include <fl_guard.h>
 #include <psapi.h>
 #include <tlhelp32.h>
@@ -302,37 +303,10 @@ Collected EnumerateScanSetImpl(std::uint32_t targetPid, bool (*sink)(void*, std:
 }
 
 std::size_t ReadRulesFileImpl(char* buffer, std::size_t cap) noexcept {
-    if (buffer == nullptr || cap == 0) {
-        return static_cast<std::size_t>(-1);
-    }
-    // ONE location, never a parameter. 20_OPEN_QUESTIONS §S3: letting a caller
-    // name the rules path is a documented override of the hard gate.
-    char*  base = nullptr;
-    size_t len = 0;
-    if (_dupenv_s(&base, &len, "LOCALAPPDATA") != 0 || base == nullptr) {
-        return static_cast<std::size_t>(-1);
-    }
-    char      path[MAX_PATH]{};
-    const int written =
-        _snprintf_s(path, sizeof(path), _TRUNCATE, "%s\\FrameLedger\\rules\\detection-rules.json", base);
-    free(base);
-    if (written <= 0) {
-        return static_cast<std::size_t>(-1);
-    }
-
-    HANDLE h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        return static_cast<std::size_t>(-1);
-    }
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(h, &size) || size.QuadPart <= 0 || static_cast<std::size_t>(size.QuadPart) >= cap) {
-        CloseHandle(h);
-        return static_cast<std::size_t>(-1);
-    }
-    DWORD      read = 0;
-    const BOOL ok = ReadFile(h, buffer, static_cast<DWORD>(size.QuadPart), &read, nullptr);
-    CloseHandle(h);
-    return ok ? read : static_cast<std::size_t>(-1);
+    // Delegates to fl_ac_rules.cpp so the guard and the Vulkan layer read the
+    // SAME file. This used to be a second copy of the path logic; two readers
+    // pointing at different files would be a second blocklist by accident.
+    return ReadRulesFile(buffer, cap);
 }
 
 }    // namespace

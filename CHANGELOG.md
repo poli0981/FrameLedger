@@ -120,6 +120,25 @@ GitHub release body, so a missing section means an empty release note.
     app, no game and no anti-cheat surface — and assert both directions: a
     passing verdict really loads the DLL, and a **refused** verdict leaves the
     target untouched.
+- **§S2's second half — the Vulkan layer's blocklist self-scan.** The layer
+  scans its OWN process at init and goes fully passthrough on any hit, using the
+  **same matcher and the same rules file as the injection guard**
+  (`fl_ac_rules.h`, compiled into both). A layer with its own blocklist would be
+  a second matcher that can disagree with the first.
+  - Every uncertainty resolves to inert: rules unreadable, malformed or
+    incomplete, enumeration failed, a truncated list, a module that could not be
+    named, or an actual hit. Opposite *polarity* from the injection guard —
+    where an unknown means refuse to inject — same principle: leave the host
+    alone.
+  - `fl-probe-vklayer` (ctest `fl_vklayer_selfscan`) asserts **both**
+    directions: a clean process is not forced inert, and one carrying a planted
+    module is. The planted module is our own DLL under a blocklisted name, per
+    `14_TESTING`; no real anti-cheat software is shipped, downloaded or run.
+  - The probe installs the repository seed rules when none exist and removes
+    them afterwards. Without that it skipped on any machine that had not run the
+    product — and a ctest that always skips is a gate that cannot fail. There is
+    deliberately no way to point the layer at a different rules file (§S3), so
+    installing them is the only honest option.
 - **The managed guard facade — §S15 item 1, and the first real managed code.**
   `FrameLedger.Guard.dll` exposes a C ABI; `Infrastructure`'s
   `NativeAntiCheatGuard` is a thin P/Invoke facade over it, and
@@ -208,6 +227,13 @@ GitHub release body, so a missing section means an empty release note.
   `blockedStoreIds` are both empty, so it matches nothing. Recorded in the data,
   beside the check, and as `20_OPEN_QUESTIONS` §S14, rather than being
   inferable only from two empty arrays.
+- **A test harness that kept a stale copy of the thing under test.**
+  `fl-probe-vklayer` loaded the layer from a copy placed beside it by a CMake
+  `POST_BUILD` command — which runs only when the *probe* relinks, so editing
+  only the layer left the old DLL in place. A red-green canary left the broken
+  layer behind and every later run kept failing against it. The same mechanism
+  could just as easily have kept a *working* copy and reported a broken layer as
+  passing. The probe now loads the layer's real build output.
 - `FrameLedger.App` could not compile once `FrameLedger.Application` existed:
   a sibling namespace beats a `using`, so the bare name `Application` resolved
   to the namespace rather than the WPF type. The `App` class now says

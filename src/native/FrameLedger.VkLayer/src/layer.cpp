@@ -31,11 +31,15 @@
 //      what we INTERCEPT once mapped — not whether we load. That distinction is
 //      not stylistic: declining to load crashes the host, measured below.
 //
-// STILL MISSING, and why this layer intercepts nothing yet: §S2's other
-// requirement is an in-layer blocklist scan of our own process at init, going
-// passthrough on any hit. Until that lands, this layer stays in the dispatch
-// chain and forwards every call unchanged. vkQueuePresentKHR is deliberately
-// NOT hooked. Passthrough is the correct state, not an unfinished one.
+// §S2's second half is now here: an in-layer blocklist scan of our OWN process
+// at init, going fully passthrough on any hit. It uses the SAME matcher and the
+// SAME rules file as the injection guard (fl_ac_rules.h) — a layer with its own
+// blocklist would be a second matcher that can disagree with the first, which
+// is the defect the managed facade was built to avoid.
+//
+// vkQueuePresentKHR is still deliberately NOT hooked: presentation
+// interception is P1. Passthrough remains the correct state, not an unfinished
+// one — but the gate that will protect it is in place and tested first.
 
 #include <windows.h>
 
@@ -45,7 +49,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fl_ac_rules.h>
 #include <fl_shm.h>
+#include <psapi.h>
 
 namespace fl::vklayer {
 
@@ -166,6 +172,80 @@ bool ThisProcessIsEnabled() {
 }
 
 // ---------------------------------------------------------------------------
+// §S2 second half — the in-layer blocklist scan.
+//
+// An implicit layer is mapped into a process before anything of ours runs, so
+// the injection guard structurally cannot cover it. This is the layer's own
+// version of pre-injection check 1, run against ITSELF.
+//
+// EVERY uncertainty resolves to "blocked", i.e. to passthrough. That is the
+// opposite polarity from the injection guard, where an unknown means refuse to
+// inject — but it is the same principle: do the thing that leaves the host
+// alone. Rules unreadable, malformed, incomplete, module enumeration failed,
+// or an actual hit — all of them mean we observe nothing.
+//
+// Reuses fl::guard::ParseRules and fl::guard::MatchName. Not a copy: a layer
+// with its own matcher would be a second blocklist that can disagree with the
+// guard's, and the day they diverge one is wrong with nothing to say which.
+// ---------------------------------------------------------------------------
+bool RunSelfScan() noexcept {
+    using namespace fl::guard;
+
+    // Heap, not static. This runs once at init inside a process we do not own,
+    // and 17_HOOK_ENGINE budgets 8 MB resident for everything of ours in a
+    // game — so the ~1 MiB of rules text and ~155 KB of parsed rules are
+    // released the moment the verdict is known. Init is not a hook path, so
+    // allocating here breaks no rule; keeping it resident would waste budget
+    // on data we never look at again.
+    auto* text = static_cast<char*>(HeapAlloc(GetProcessHeap(), 0, kMaxRulesBytes));
+    if (text == nullptr) {
+        return true;
+    }
+    auto* rules = static_cast<Rules*>(HeapAlloc(GetProcessHeap(), 0, sizeof(Rules)));
+    if (rules == nullptr) {
+        HeapFree(GetProcessHeap(), 0, text);
+        return true;
+    }
+
+    bool              inert = true;
+    const std::size_t n = ReadRulesFile(text, kMaxRulesBytes);
+    if (n != static_cast<std::size_t>(-1) && n != 0 && ParseRules(text, n, *rules) == ParseResult::kOk) {
+        HMODULE mods[1024]{};
+        DWORD   needed = 0;
+        // Our own process, so no OpenProcess and no rights question — but
+        // LIST_MODULES_ALL all the same, for the same reason the guard uses it.
+        if (EnumProcessModulesEx(GetCurrentProcess(), mods, sizeof(mods), &needed, LIST_MODULES_ALL)) {
+            const bool   truncated = needed > sizeof(mods);
+            const size_t count = (truncated ? sizeof(mods) : needed) / sizeof(HMODULE);
+            bool         hit = truncated;    // a partial list is not a clean one
+            for (size_t i = 0; i < count && !hit; ++i) {
+                char name[MAX_PATH]{};
+                if (GetModuleBaseNameA(GetCurrentProcess(), mods[i], name, MAX_PATH) == 0) {
+                    hit = true;    // a module we could not name is one we could not check
+                    break;
+                }
+                if (MatchName(*rules, Group::kModules, name) != nullptr) {
+                    hit = true;
+                }
+            }
+            inert = hit;
+        }
+    }
+
+    HeapFree(GetProcessHeap(), 0, rules);
+    HeapFree(GetProcessHeap(), 0, text);
+    return inert;
+}
+
+// Evaluated once. The answer cannot change usefully within a process lifetime:
+// anti-cheat that loads AFTER us is the mid-session case, which needs the
+// runtime unhook §S2 still lists as open, not a re-read here.
+bool MustStayInert() noexcept {
+    static const bool inert = RunSelfScan();
+    return inert;
+}
+
+// ---------------------------------------------------------------------------
 // Loader interface. Everything forwards; nothing is observed.
 // ---------------------------------------------------------------------------
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance, const char* pName);
@@ -244,7 +324,7 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance
     // vkCreateInstance and vkCreateDevice are the exception: we must return our
     // own for those regardless, because that is how the chain is walked and
     // g_next* get populated. They forward unconditionally and inspect nothing.
-    if (!ThisProcessIsEnabledCached() && std::strcmp(pName, "vkCreateInstance") != 0 &&
+    if ((!ThisProcessIsEnabledCached() || MustStayInert()) && std::strcmp(pName, "vkCreateInstance") != 0 &&
         std::strcmp(pName, "vkCreateDevice") != 0 && std::strcmp(pName, "vkGetInstanceProcAddr") != 0) {
         return (g_nextGetInstanceProcAddr != nullptr) ? g_nextGetInstanceProcAddr(instance, pName) : nullptr;
     }
@@ -345,7 +425,14 @@ const char* FlVkLayerName() {
 }
 
 int FlVkLayerWouldActivate() {
-    return fl::vklayer::ThisProcessIsEnabledCached() ? 1 : 0;
+    return (fl::vklayer::ThisProcessIsEnabledCached() && !fl::vklayer::MustStayInert()) ? 1 : 0;
+}
+
+// Diagnostics for the §S2 test: runs the blocklist self-scan and reports
+// whether this process would be left alone. Uncached, so a test can plant a
+// module and see the answer change.
+int FlVkLayerSelfScanSaysPassthrough() {
+    return fl::vklayer::RunSelfScan() ? 1 : 0;
 }
 
 }    // extern "C"

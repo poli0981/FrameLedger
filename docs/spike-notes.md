@@ -362,11 +362,35 @@ the same shape as defects found elsewhere in this project:
 The unambiguous signal is the loader printing `Insert instance layer` /
 `Inserted device layer` with our name and DLL path.
 
-### Not yet done
+### ✅ The in-layer blocklist scan — §S2's second half
 
-- **The in-layer blocklist scan** — §S2's second half. The layer intercepts
-  nothing today, which is why that gap is not yet dangerous, but §S2 must not be
-  closed until it lands.
+The layer scans its own process at init and goes fully passthrough on any hit,
+using the same matcher and the same rules file as the injection guard. Verified
+by `fl-probe-vklayer` (ctest `fl_vklayer_selfscan`), both directions:
+
+```
+[PASS] a clean process is NOT forced inert (so the blocked case below can mean something)
+[PASS] the planted module is loaded into this process
+[PASS] the self-scan now says STAY INERT - a blocklisted module was found
+       after unload the scan says: may observe
+```
+
+The planted module is our own DLL copied under a blocklisted name
+(`14_TESTING` §Integration tests: "a renamed harmless DLL, not real anti-cheat
+software"). Proven red by making the matcher stop matching.
+
+Two things worth keeping:
+
+- **Both directions are asserted.** A self-scan that always answered "stay
+  inert" would pass a one-sided test while silently disabling the layer
+  everywhere — and would look exactly like a working gate.
+- **The probe installs the seed rules when none exist**, then removes them.
+  Without that it skipped on any machine that had not run the product, and a
+  ctest that always skips is a gate that cannot fail. Installing them is the
+  only option: there is deliberately no way to point the layer at a different
+  rules file (§S3).
+
+### Not yet done
 - **Passthrough under a real Vulkan game**, alongside the six implicit layers
   already resident on this machine (§Environment). `vulkaninfo` proves
   load/no-load; it does not prove a real title still renders correctly with us
