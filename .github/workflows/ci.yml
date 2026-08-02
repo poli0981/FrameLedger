@@ -54,9 +54,16 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', 'global.json') }}
           restore-keys: nuget-${{ runner.os }}-
 
-      # TODO: cache the Vulkan SDK once FrameLedger.VkLayer has real content.
-      # It is a large download and the layer target currently intercepts
-      # nothing (blocked on docs/20_OPEN_QUESTIONS.md §S2).
+      # No Vulkan SDK step, and there will not be one. The Khronos headers are
+      # vendored at src/native/third_party/vulkan-headers (Apache-2.0 OR MIT),
+      # so FrameLedger.VkLayer compiles here with nothing extra installed. That
+      # was the reason for vendoring rather than fetching: the alternative was a
+      # ~1 GB SDK download on every run. See that directory's README.md.
+      #
+      # The SDK is still needed to RUN tools/vklayer-blastradius.ps1, which
+      # registers the layer and inspects loader behaviour. That is deliberately
+      # not part of `build.ps1 check`: it mutates HKCU, and a CI runner is the
+      # wrong place to be registering machine-wide Vulkan layers.
 
       - name: Quality gate
         shell: pwsh

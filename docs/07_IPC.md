@@ -144,12 +144,12 @@ Unchanged in spirit from v1, bumped to `v2` for the new message set.
 |---|---|---|
 | `Hello` | UI→A | `{ appVersion, protocol: 2 }` → `HelloAck { agentVersion, protocol, elevated, overlayBuildId, vulkanLayerRegistered, telemetrySource /* composite, e.g. l1+lhm+nvapi */, cpuTempAvailable, etwAvailable }` |
 | `GetStatus` | UI→A | → `StatusAck { state, activeSession?, tier? }` |
-| `SetWatchlist` | UI→A | `{ entries: [{ gameId, exePath, hookEnabled }] }` — full replace; UI re-sends on connect |
+| `SetWatchlist` | UI→A | `{ entries: [{ gameId, exePath }] }` — full replace; UI re-sends on connect. **Carries no hooking state** (see §The pipe is not a trust boundary) |
 | `LaunchGame` | UI→A | `{ gameId }` → suspended-launch + inject path (`04_CAPTURE` §Launch mode) |
-| `SetHookEnabled` | UI→A | `{ gameId, enabled, consentAt }` — Agent re-runs the static AC pre-scan and may reply `Refused` |
+| `SetHookEnabled` | UI→A | `{ gameId, enabled }` — Agent re-runs the static AC pre-scan and may reply `Refused`. **The Agent stamps the consent timestamp itself** |
 | `PauseCapture` / `ResumeCapture` | UI→A | global |
 | `StopSession` | UI→A | `{ sessionGuid }` — graceful unhook + finalize |
-| `UpdateRules` | UI→A | `{ path }` — hot-reload detection + anticheat rules |
+| `UpdateRules` | UI→A | **no payload** — a trigger, not a source. The Agent re-reads only its own `%LOCALAPPDATA%\FrameLedger\rules\` copy |
 | `Shutdown` | UI→A | graceful stop |
 | `SessionStarted` | A→UI | `{ sessionGuid, gameId, pid, tier, startedAt }` |
 | `SessionProgress` | A→UI | 1 Hz: `{ elapsedS, nativeFps5s, displayedFps5s, fgFactor?, fgMode, upscaler, upscalerQuality, renderW/H, outputW/H, rtActive, gpuTempC?, cpuTempC?, vramProcMb, latencyUs? }` |
@@ -159,6 +159,42 @@ Unchanged in spirit from v1, bumped to `v2` for the new message set.
 | `SafetyUnhook` | A→UI | `{ sessionGuid, signal }` — anti-cheat appeared mid-session; prominent UI notice |
 | `CaptureError` | A→UI | `{ code, message }` — `InjectFailed`, `RingVersionMismatch`, `EtwAccessDenied`, `PresentMonMissing`, `TelemetryUnavailable`, `DbWriteFailed` |
 | `Ping`/`Pong` | both | 15 s keepalive |
+
+## The pipe is not a trust boundary
+
+The ACL restricts the pipe to the current user, and that is worth having — but
+it is not a guarantee, because **everything the user runs is also the user**.
+The gate must therefore survive a hostile client on this pipe, and three
+messages were written as though it would not have to. All three are corrected
+above; the reasoning is recorded here so they are not reintroduced as
+conveniences.
+
+**`UpdateRules { path }` was a documented override of the hard gate (§S3).** It
+let any client hand the Agent an arbitrary filesystem path to load detection
+*and anti-cheat* rules from — i.e. replace the blocklist with an empty one.
+That is precisely the config-file flag `19_SAFETY` §The anti-cheat guard says
+does not exist. It is now a bare trigger; the rules **source** is not a
+parameter.
+
+**`SetHookEnabled` took `consentAt` from the client.** The per-game informed
+consent that FR-2.1 and `19_SAFETY` §User-facing consent make the basis of every
+injection was therefore client-asserted, and a forged timestamp would have made
+a game look consented-to that the user never saw a dialog for. The Agent stamps
+`games.hook_consent_at` from its own clock when it accepts the enable, or
+refuses. A client can *request*; it cannot *attest*.
+
+**`SetWatchlist` carried `hookEnabled` and re-sent it on every connect.** The
+adjacent `SetHookEnabled` re-runs the static anti-cheat pre-scan and may reply
+`Refused`; `SetWatchlist` did not, while setting the same state in bulk. That
+asymmetry is a bypass — and a self-healing one, because the UI re-sends the full
+list on reconnect, so a value forced once would be re-asserted forever.
+`SetWatchlist` now carries identity only. Enabling hooking has exactly one
+message, and that message always re-scans.
+
+> The general rule: **no inbound message may assert a safety fact.** It may ask
+> for a state change, and the Agent then establishes the fact itself. Any new
+> message that carries a verdict, a clearance, a consent record or a rules
+> source is the same bug in a new costume.
 
 ## Client behavior (UI)
 

@@ -42,50 +42,101 @@ pre-injection check (`19_SAFETY` §Pre-injection checks item 1) is a no-op in th
 *preferred* path. Anti-cheat that would have been caught in attach mode sails
 through in launch mode.
 
+> **Measured 2026-08-02** (`spike-notes.md` §1, ctest `fl_guard_apis`), and the
+> result is sharper than this entry assumed. `EnumProcessModulesEx` against a
+> `CREATE_SUSPENDED` target does **not** return an empty list — it *fails*, with
+> `ERROR_PARTIAL_COPY (299)`. That is the safer of the two shapes: an error
+> cannot be mistaken for a clean scan the way an empty success can. The rule
+> ("any failure means REFUSE") is now in `19_SAFETY` item 1.
+>
+> So the *hazard* in this entry is downgraded — launch mode cannot silently
+> pass a blind scan — but the *constraint* is confirmed: check 1 genuinely
+> cannot run before the target's loader has. The decision below is still open.
+
 **Proposed:** treat the static pre-scan and the driver scan as the gates that run
 while suspended; resume, then re-run the module scan and only install hooks once
 it passes and the first present is observed. This costs the early-init upscaler
 data launch mode exists to capture — quantify that loss in P0 before accepting
 it. Decide whether the answer is "inject late" or "no launch mode at all".
 
-### S2 · The Vulkan layer has no guard and no mid-session unhook
+**Why the loss is still unquantified.** It needs a title that loads a
+presentation runtime lazily. The local fixtures are `hook-harness` (creates D3D
+at startup) and a 2D GOG prologue; a number from either would not generalise,
+which is worse than recording it unmeasured. This is the one input §S13(c)
+still lacks.
 
-An implicit layer is machine-wide and loads **before** anything of ours runs.
-`17_HOOK_ENGINE` §Vulkan gives it an opt-in enable-list check, but that is not
-the guard: no module scan, no driver scan, no blocklist, no multiplayer
-heuristic. And `19_SAFETY` §During a session — "the single most important runtime
-behavior in the whole capture layer" — is Agent-driven and Overlay-targeted; with
-the Agent not running there is no runtime guard inside a layered process at all.
+### S2 ◐ · The Vulkan layer has no guard — **first half done, second half open**
 
-**Proposed:** use `enable_environment` in the layer manifest so the Vulkan loader
-does not map the layer unless the Agent sets the variable when launching the
-game. That closes the hole properly, at the cost of making **Vulkan Tier 1
-launch-mode-only**. Additionally, the layer must run the blocklist module scan on
-its own process at init and go passthrough on any hit. Also specify the
-enable-list file itself (S5).
+An implicit layer is machine-wide and loads **before** anything of ours runs, so
+the injection guard cannot cover it: no module scan, no driver scan, no
+blocklist, no multiplayer heuristic. And `19_SAFETY` §During a session — "the
+single most important runtime behavior in the whole capture layer" — is
+Agent-driven and Overlay-targeted; with the Agent not running there is no
+runtime guard inside a layered process at all.
 
-### S3 · `UpdateRules { path }` is a documented override of the hard gate
+**✅ Half one, done and measured** (`spike-notes.md` §2, `17_HOOK_ENGINE`
+§Vulkan). `enable_environment` is in the manifest and verified against loader
+1.4.357: with the variable unset, the loader locates the manifest and never maps
+the DLL — and it compares the variable's *value*, so a stray `=0` does not
+enable us. The cost is accepted: **Vulkan Tier 1 is now launch-mode-only.**
+`tools/vklayer-blastradius.ps1` runs the check and unregisters in a `finally`.
 
-`07_IPC` §Messages lets the UI hand the Agent an arbitrary filesystem path to
-load detection **and anti-cheat** rules from. Anything that can send on that pipe
-can therefore replace the blocklist with an empty one. That is precisely the
-"config-file flag" `19_SAFETY` says does not exist.
+> **The measurement also killed the design that looked obvious.** Declining
+> `vkNegotiateLoaderLayerInterfaceVersion` for a process that did not opt in
+> does *not* make the loader skip the layer — it access-violates the host
+> application. That would have crashed every Vulkan program on the machine
+> outside our enable-list. The layer now always accepts and always forwards;
+> the enable-list decides what we *intercept*, never whether we *load*.
 
-**Fix:** remove the `path` parameter. `UpdateRules` becomes a no-payload trigger;
-the Agent reads only from its own `%LOCALAPPDATA%\FrameLedger\rules\` copy.
+**◐ Half two, still open: the in-layer blocklist scan.** The layer must scan its
+own process at init and go fully passthrough on any blocklist hit. Not built.
+It is not yet dangerous — the layer intercepts nothing at all today — but S2
+does not close until it lands, and it must land before `vkQueuePresentKHR` is
+hooked.
 
-### S4 · The enable-list, and the rules feed generally, have no trust model
+**Also still open: mid-session unhook inside a layered process.** With no Agent
+running there is nothing to drive the 30 s re-scan that `19_SAFETY` calls the
+most important runtime behaviour. The layer needs its own answer, and does not
+have one.
 
-Three related gaps: the Vulkan opt-in list is referenced but never specified
-(location, format, ACL, who writes it); `detection-rules.json` is fetched over
-HTTPS from a raw GitHub URL with no signature and no staleness bound; and no doc
-says what happens when the local rules file is older than some threshold. A gate
-whose data can go stale indefinitely, silently, is a gate with an expiry date
-nobody sees.
+### S3 ✅ · `UpdateRules { path }` — **closed, and it was not alone**
 
-**Needs:** a specified file format and ACL for the enable-list; a decision on
-signing the rules file; and a staleness policy — most likely "warn in the UI past
-N days, never auto-disable the blocklist".
+Fixed in `07_IPC` §Messages, with the reasoning kept in a new §The pipe is not a
+trust boundary so the conveniences are not reintroduced.
+
+`UpdateRules` is now a bare trigger — the rules *source* is no longer a
+parameter. Auditing the rest of the message table for the same shape found two
+more, neither previously recorded:
+
+- **`SetHookEnabled` took `consentAt` from the client.** The per-game informed
+  consent FR-2.1 and `19_SAFETY` make the basis of every injection was
+  client-asserted and forgeable. The Agent now stamps it.
+- **`SetWatchlist` carried `hookEnabled` with no pre-scan**, while the adjacent
+  `SetHookEnabled` re-scans and may reply `Refused` — and the UI re-sends the
+  full watchlist on every connect, so a value forced once would be re-asserted
+  forever. It now carries identity only.
+
+The rule that generalises them, now written down: **no inbound message may
+assert a safety fact.** It may request a state change; the Agent establishes the
+fact itself.
+
+### S4 ◐ · Trust model for the enable-list and the rules feed — **two of three closed**
+
+**Enable-list: specified** (`17_HOOK_ENGINE` §The enable-list) — location,
+format, bounds, exact case-insensitive image-name matching, sole writer, ACL,
+and the rule that *every* failure is passthrough. Written down with it: the ACL
+is not strong (anything running as the user can append a line), but a line there
+only causes us to observe a Vulkan process, grants no injection, and cannot
+disable the layer's own blocklist scan.
+
+**Staleness: specified** (`05_DETECTION` §Trust and staleness of the rules feed)
+— one read location, replace-only-if-valid with the last valid copy kept, and
+staleness that *warns* and never disables. An expiry that weakens a gate is an
+override with a timer on it.
+
+**Signing: still open, and deliberately not dismissed.** HTTPS authenticates the
+host, not the content. The rules above let a compromised feed be *rejected* but
+not a genuine one *proven*. Residual risk, recorded rather than closed.
 
 ### S5 ✅ · `detection-rules.json` schema — **closed**
 
@@ -111,45 +162,123 @@ and service names unconfirmed) and Valve VAC (needs `blockedStoreIds`). Recorded
 in the seed's own `$comment`. The `heuristic.trustedSigners` list is a guess and
 is marked UNVERIFIED.
 
-### S13 · Where the guard lives, and whether a clearance ever escapes it
+### S13(c) · Is launch-mode injection salvageable?
 
-Three coupled decisions surfaced by the guard design work (2026-08-02). All need
-the owner: each contradicts something already written down.
+> **(a) and (b) are decided (2026-08-02) and no longer open.**
+>
+> **(a) The guard stays in the C++ `FrameLedger.Injector`,** as `19_SAFETY` §The
+> anti-cheat guard and CLAUDE.md §Solution layout always said. The managed
+> proposal is rejected. Four consequences travel with that choice and are
+> tracked as §S15 rather than left implicit — each is a fail-open or a dead test
+> if forgotten.
+>
+> **(b) No clearance escapes the guard.** The guard **owns the chokepoint**: it
+> collects evidence, matches, and calls the injection primitive itself. A token
+> that escapes can be ignored — a caller can decline to ask for one — whereas a
+> primitive with no reachable symbol cannot be called at all. In C++ that is
+> internal linkage in the guard's own translation unit, which is a stronger
+> mechanism than the C# accessibility trick §S8 disproved. It also deletes the
+> staleness question: mint-to-inject shrinks to nothing because nothing is
+> minted.
 
-**(a) Guard placement.** `19_SAFETY` §The anti-cheat guard says "Implemented in
-`FrameLedger.Injector`" — the C++ static lib — and CLAUDE.md §Solution layout
-calls it the "AC guard probe". Against that: the fail-closed test matrix in
-`14_TESTING` requires forcing `EnumProcessModulesEx` failures, partial lists and
-unreadable processes from unit tests, which needs ports and fakes; and the rules
-model, blocklist matching and verdict types are pure logic that belongs in
-`Domain`. Proposal: the authoritative guard is **managed**, in
-`FrameLedger.Application`, with `FrameLedger.Injector` reduced to a dumb
-primitive (`VirtualAllocEx`/`WriteProcessMemory`/`CreateRemoteThread`) holding no
-guard logic and no independent entry point. Requires editing `19_SAFETY` and
-CLAUDE.md in the same change.
+A `CREATE_SUSPENDED` target has loaded almost nothing — **measured**: the module
+scan does not merely come back thin, `EnumProcessModulesEx` *fails* with
+`ERROR_PARTIAL_COPY` (§S1, `spike-notes.md` §1). The originally proposed "defer
+hooks until first present" gate is also circular, because the ring handshake that
+would signal first-present is published by the Overlay *after* injection.
 
-**(b) Should a clearance token escape the guard at all?** §S8 established that
-the documented "sealed token only the guard can produce" does not work as
-written — in C# accessibility flows *inward* only, so the enclosing type cannot
-reach a nested private constructor (`CS0122`, verified by compiling). An
-`internal` constructor **does** hold across an assembly boundary (also verified:
-`FrameLedger.Infrastructure` gets `CS1729` trying to forge one).
-
-But a token that escapes can still be *ignored* — a caller can simply not ask
-for one, or pass `null!`. The stronger shape is for the guard to **own the
-chokepoint**: it collects evidence, matches, and then calls the injection
-primitive itself, so no clearance is ever handed out. That also deletes the
-staleness problem, because mint-to-inject shrinks to microseconds and no
-expiry policy is needed.
-
-**(c) §S1 launch mode may not be salvageable as designed.** A `CREATE_SUSPENDED`
-target has loaded almost nothing, so the module scan is blind; and the proposed
-"defer hooks until first present" gate is circular, because the ring handshake
-that would signal first-present is published by the Overlay *after* injection.
 An externally observable proxy is needed instead — e.g. resume, then poll until
 the target has mapped a presentation runtime (`dxgi.dll` plus `d3d11`/`d3d12`, or
 `opengl32`, or `vulkan-1`) *and* the scan passes *and* the blocklist is clean.
 Decide whether that is acceptable, or whether launch-mode injection is dropped.
+
+**The one input still missing** is how much early-init data injecting late
+actually costs. It needs a title that loads a presentation runtime lazily; the
+local fixtures (`hook-harness`, which creates D3D at startup, and a 2D GOG
+prologue) cannot produce a figure that generalises.
+
+### S15 · The four consequences of putting the guard in C++ (§S13(a))
+
+None of these is a question — they are commitments the §S13(a) decision creates,
+recorded so the guard is not written without them.
+
+1. **One matcher, not two.** `04_CAPTURE` §The guard writes
+   `AntiCheatGuard.Check(pid)` and `01_ARCHITECTURE` draws the guard inside the
+   Agent box, while `19_SAFETY` says "implemented in `FrameLedger.Injector` and
+   re-checked by the Agent". The managed side must be documented as a **P/Invoke
+   facade over the single native implementation**, living in `Infrastructure`
+   (CLAUDE.md: the native layer is reachable only through `Infrastructure`). Two
+   blocklist matchers that can disagree is a fail-open by construction.
+2. **Catch2 is now a prerequisite, not a P1 nicety.** `14_TESTING` §Safety-guard
+   tests requires forcing `EnumProcessModulesEx` failure, a partial module list
+   and an unreadable process — all native tests now.
+   `src/native/tests/CMakeLists.txt` still defers Catch2 to P1, and the guard
+   needs seams (injectable enumerator function pointers) before those failures
+   are forceable at all.
+3. **The Injector must parse `detection-rules.json` in C++.** Record the parser
+   choice, pinned by commit like MinHook, and the exceptions policy for that
+   target — `-D_HAS_EXCEPTIONS=0` is Overlay-specific and the guard is *not* a
+   hook path, so STL and allocation are fine there. Parse failure ⇒ **REFUSE**.
+4. **`14_TESTING`'s absence-of-override mechanism must be rewritten.** It
+   currently specifies a C# `sealed` token type that §S8 disproved by compiling.
+   The replacement is (b) above plus a build-time check that no translation unit
+   other than the guard's references the injection primitive.
+
+### S16 · *Which* process does the guard scan? — nobody has said
+
+Found 2026-08-02. Not previously recorded anywhere, and it changes the guard's
+own signature, so it belongs before the guard is written rather than after.
+
+`04_CAPTURE` §The guard is `AntiCheatGuard.Check(pid)` — **singular**. But
+`04_CAPTURE` §Process watcher says the capture target is "the descendant that
+actually presents", elected from a ppid tree, and in attach mode elected only
+after we see a ring handshake or count presents. So the guard is specified
+against one pid while the subject of the capture is a *tree* whose presenting
+member is identified later.
+
+That matters because **anti-cheat frequently does not live in the presenting
+process.** A launcher starts, loads the anti-cheat, and spawns the renderer as a
+child; or a sibling service process holds it. Scanning only the elected
+presenter would miss exactly that arrangement — and it is a common one, not an
+exotic one.
+
+**Needs a decision, and it is not obviously "scan everything":**
+
+- Scanning the whole tree makes the guard stricter but raises the false-refusal
+  rate, since a launcher may legitimately carry components a game process never
+  loads.
+- Scanning the presenter only is the narrow reading and is what the current
+  signature implies.
+- Whatever is chosen, the *machine-wide* driver check (check 2) already covers
+  the worst case independently of process identity, which lowers the stakes but
+  does not answer the question.
+
+Also unspecified: what the guard does when the tree changes mid-session
+(level-transition relaunches re-elect the presenting pid — `04_CAPTURE`
+§Process watcher), and whether a newly appearing sibling is re-scanned.
+
+### S14 · Pre-injection check 3 is inert, and has no "cannot determine" state
+
+Found 2026-08-02 while hardening the rules toolchain. `19_SAFETY` §Pre-injection
+checks lists a per-title blocklist as check 3, but `anticheat.blockedExecutables`
+and `anticheat.blockedStoreIds` are **both empty arrays**, so the check matches
+nothing. The gate is not currently weakened — checks 1, 2 and 4 run, and every
+family in the seed is caught by a module, driver or directory signal — but a
+documented check that does nothing will read as "this title is not a known
+online title" to the next person who trusts it.
+
+Two decisions, both the owner's:
+
+1. **Which titles.** Seeding a list of competitive/online games is a product
+   decision with false-refusal consequences, not a mechanical fill-in.
+2. **What "unknown" means.** A title the user added by exe path has no store id,
+   and store metadata is opt-in (CLAUDE.md rule 8). "No store id" must not read
+   as "not blocked", and a renamed exe defeats `blockedExecutables` the same
+   way. Whatever ships, an unresolvable identity has to land on *unknown*, and
+   the doc must say where unknown goes — which today it does not.
+
+Until both are answered the inertness is recorded in the data's own `$comment`
+and beside check 3, rather than being inferable only from two empty arrays.
 
 ### S6 · The 30 s scan window is the weakest part of the most important behavior
 
@@ -165,71 +294,87 @@ acceptable in that hook under the no-allocation rule (it should be), and a
 decision on whether it supplements or replaces the poll. Supplements — the poll
 also catches modules loaded before we hooked.
 
-### S7 · Guard handle rights and WOW64
+### S7 ✅ · Guard handle rights and WOW64 — **closed**
 
-`19_SAFETY` specifies `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ` for
-the module scan. Verify this is sufficient for `EnumProcessModulesEx` on the
-targets we care about. Separately, **enumerating a 32-bit process from a 64-bit
-one requires `LIST_MODULES_ALL`** or the list comes back empty — and an empty
-module list must never read as "clean". `14_TESTING` already requires a
-partial-module-list test to fail closed; add the WOW64 case explicitly.
+Measured unelevated 2026-08-02 by `src/native/tools/fl-probe-guard` (ctest
+`fl_guard_apis`); evidence in `spike-notes.md` §1, rule now written into
+`19_SAFETY` §Pre-injection checks item 1.
 
-### S8 · The absence-of-override test design does not work as described
+The read handle rights are sufficient. `LIST_MODULES_ALL` is mandatory: on a
+live 32-bit target the default filter returned **7 of 15** modules *as a
+success*, which is the under-report that would read as clean. And every failure
+of the call — `ERROR_ACCESS_DENIED (5)` on a protected target,
+`ERROR_PARTIAL_COPY (299)` on a suspended one — means REFUSE, never "no modules
+found".
 
-`14_TESTING` proposes making the bug unrepresentable via "a `sealed` token type
-that only the guard can produce", required as a constructor argument. In C#
-nothing stops another type in the same assembly from constructing it, and
-`internal` does not prevent it either. The *intent* is right and worth keeping.
+The one branch that could **not** be measured here is a service query returning
+`ACCESS_DENIED`: a standard user holds `SERVICE_QUERY_STATUS` on the stock
+service set, so it has to be driven from a unit-test fake. Recorded in
+`spike-notes.md` §1 rather than left to look covered.
 
-**Needs:** a mechanism that actually holds — e.g. a private nested constructor
-plus a factory the guard alone owns, an analyzer/architecture test asserting no
-call path reaches `Injector.Attach` without a guard result, or both. Pick one and
-write it down before `Injector` exists; retrofitting is how the override path
-gets born.
+### S8 ✅ · The absence-of-override mechanism — **closed**
 
-### S9 · `FrameLedger.Injector.exe` ships as a standalone injector
+The intent was right and is kept; the mechanism was wrong and is replaced.
+Rewritten in `14_TESTING` §Safety-guard tests.
 
-`12_BUILD` builds a "thin CLI used by the Agent and for manual testing" and
-ships it in the package. As a user-runnable `LoadLibraryW` injector outside
-anything the managed guard constrains, it is both a bypass and a bad look for a
-project whose position is "we are plainly identifiable and we refuse where we are
-not welcome".
+The original — a `sealed` token type "only the guard can produce", passed as a
+constructor argument — was disproved by compiling: C# accessibility flows
+*inward*, so an enclosing type cannot reach a nested private constructor
+(`CS0122`). (`internal` *does* hold across an assembly boundary — `CS1729` when
+`Infrastructure` tries to forge one — but that was never the weak part.)
 
-**Needs:** decide between (a) not shipping it — dev-only, excluded from the
-Velopack package, or (b) shipping it with the guard compiled in and no flag that
-skips it. Also define its invocation contract and how a guard result crosses the
-process boundary unforgeably.
+The real weakness is that **any token which escapes can simply be ignored**: a
+caller can decline to ask for one. §S13(a) put the guard in C++, which makes the
+stronger shape natural — the guard **owns the chokepoint** and calls the
+injection primitive itself, the primitive has internal linkage in the guard's own
+translation unit so no other TU has a symbol to call, and a build-time check
+asserts nothing else references it. A token that escapes can be ignored; a symbol
+that does not exist cannot be called.
 
-### S10 · `--register-vklayer` registers a machine-wide layer with no consent
+### S9 ✅ · `FrameLedger.Injector.exe` — **closed: it does not exist**
 
-`12_BUILD` lists the flag, `08_UI` puts a Register button in Settings, and
-`12_BUILD` §Bundled assets registers the layer at **install time**. All three
-register a machine-wide component before any game is enabled and before any
-consent dialog. Reconcile with `17_HOOK_ENGINE`'s "registered only while at least
-one Vulkan game has hooking enabled", which is the correct rule.
+Decided 2026-08-02, written into `12_BUILD` §Targets. `FrameLedger.Injector` is
+a **static lib only**. A user-runnable `LoadLibraryW` injector is a path into a
+game process that the guard does not stand in front of, and no invocation
+contract makes that safe — a guard result crossing a process boundary is exactly
+the forgeable clearance §S13(b) rejects. The Agent links the lib; the guard owns
+the chokepoint inside it, so there is no entry point that skips the gate. Manual
+testing uses `hook-harness`.
 
-### S11 · FR-2.2 and FR-2.3 have no specified interaction
+### S10 ✅ · Machine-wide layer registration without consent — **closed**
 
-FR-2.2 (static pre-scan disables the toggle) and FR-2.3 (runtime guard refuses)
-are each clear, but nothing says what happens when a game **already enabled**
-later trips the static scan — e.g. a patch adds anti-cheat, or updated rules
-newly match it. Silently leaving `hook_enabled = 1` is the dangerous reading.
+Written into `12_BUILD` §The Vulkan layer is not registered at install time.
+The install-time registration is removed; the rule is now the one
+`17_HOOK_ENGINE` §Vulkan always stated — **registered only while at least one
+Vulkan game has hooking enabled**, unregistered when the last is disabled and on
+uninstall, under `HKCU`. The `--register-vklayer` flag and the Settings button
+are repair tools that reflect that state, not independent grants of machine-wide
+reach.
 
-**Proposed:** re-run the static pre-scan on every rules update and on every exe
-change, and force `hook_enabled = 0` with `hook_blocked_reason` set, surfaced as
-a persistent notice. Requires a new column or a reuse rule for
-`hook_blocked_reason`.
+Note this is a *consent and blast-radius* fix, not the §S2 guard fix. A
+registered layer still loads into every Vulkan process while it is registered;
+narrowing *when* it is registered reduces the window, and `enable_environment`
+plus the in-layer scan (§S2) is what closes the hole.
 
-### S12 · Breadcrumb / "cautious mode" is a one-line orphan
+### S11 ✅ · FR-2.2 / FR-2.3 interaction — **closed**
 
-`19_SAFETY` §Crash safety describes a breadcrumb file and a "cautious mode"
-(hooks installed, overlay drawing disabled) for the run after an unexplained
-death. No other doc mentions either, and **in v1 there is no overlay drawing to
-disable** (FR-15 is v1.1), so cautious mode as written is a no-op.
+Specified in `19_SAFETY` §A game already enabled can become blocked later. The
+pre-scan re-runs on every rules update and every exe change; a new match forces
+`hook_enabled = 0` and sets `hook_blocked_reason` — **no schema change needed,
+the column already exists** (`06_DATA_MODEL` §games) and a non-null value already
+means "toggle disabled". `hook_consent_at` is preserved: the block is not a
+withdrawal of consent. A rules update that removes a match does **not** re-enable
+hooking on its own, because that would let the rules feed switch injection on for
+a game with nobody looking.
 
-**Needs:** either specify what v1 cautious mode actually does differently
-(plausibly: install present hooks only, no feature hooks) or defer it to v1.1
-with the overlay and say so.
+### S12 ✅ · "Cautious mode" — **closed by deferring it, explicitly**
+
+Deferred to v1.1 with the overlay, recorded in `19_SAFETY` §Crash & stability
+safety. It was defined as "hooks installed, overlay drawing disabled" and **v1
+draws no overlay** (FR-15 is v1.1), so it disabled nothing — a no-op dressed as a
+safety measure, which is worse than an absent feature because it reads as
+coverage. The breadcrumb is still written and still read in v1; the behaviour
+that actually protects the user is the existing two-crashes-in-60s auto-disable.
 
 ---
 
@@ -304,33 +449,34 @@ present is the obvious one) and an explicit statement that RT activity means
 "recorded this frame", with the accuracy budget in `03_METRICS` adjusted to say
 so.
 
-### H7 · Vtable restore on unhook clobbers later hookers
+### H7 ✅ · Vtable restore on unhook clobbers later hookers — **closed**
 
-`17_HOOK_ENGINE` §Unhooking restores the original vtable entries. If another
-overlay (RTSS, Discord, Steam) hooked the same slot *after* us, restoring the
-original silently removes their hook. The doc's claim that vtable swapping gives
-a "cleaner uninstall" is backwards in the multi-overlay case, which is the common
-case on a gamer's machine.
+Fixed and specified in `17_HOOK_ENGINE` §Compare-and-restore, never
+unconditional restore. Verified by `hook-harness --probe-unhook`, ctest
+`fl_unhook_preserves_foreign`.
 
-**Needs:** compare-and-restore-only-if-unchanged, and a documented behaviour when
-the slot has changed (leave it, go dormant — we already stay loaded).
+The "cleaner uninstall" claim was backwards: a later hooker saves **our detour**
+as its original and chains through it, so writing the pristine address back
+removes their hook silently. Both halves of the contract are asserted — we
+decline to restore when the slot changed, **and** we do restore when it did not,
+because a compare-and-restore that never restores is not a fix.
 
-> **Testable today.** The dev machine already runs RTSS, OBS, Steam Overlay,
-> Steam Fossilize, EOS Overlay and GOG Galaxy Overlay (`spike-notes.md`
-> §Environment). RTSS and the Steam overlay both hook D3D presentation
-> in-process, so the "someone else hooked after us" case does not need to be
-> simulated — it is the default state of that machine.
+Simulated rather than depending on RTSS being installed, so it is deterministic
+and runs on CI. Confirming against the six overlays actually resident on the dev
+machine (`spike-notes.md` §Environment) is still worth doing once the Overlay has
+real hooks, but the mechanism no longer rests on that.
 
-### H8 · "Never crash the game" is over-promised
+### H8 ✅ · "Never crash the game" — **closed**
 
-`FL_HOOK_GUARD` catches SEH exceptions in our code. It cannot catch stack
-overflow reliably, cannot intercept `__fastfail`, and does not help when the game
-installs a vectored exception handler that runs first. NFR-3 says the Overlay
-"must never crash a game", which is not a claim the mechanism can support.
+NFR-3 reworded in `02_SPEC` to what the mechanism can actually support: faults
+*originating in our own hook bodies* are contained, counted and self-disable
+after three. The absolute promise is gone, and stays out of user-facing text —
+the Disclaimer's existing "injection carries risk" wording is the honest one.
 
-**Needs:** reword NFR-3 to what is actually guaranteed (faults in our code are
-contained and self-disable after three), and keep the absolute promise out of
-user-facing text.
+Recorded alongside it, because it is the sharpest instance: `-D_HAS_EXCEPTIONS=0`
+turns a would-be STL throw into `__fastfail`, which SEH cannot intercept
+(`spike-notes.md` §H3). The "no throwing STL in hook paths" rule is therefore
+load-bearing rather than stylistic.
 
 ### H10 · Per-process VRAM thread inside the game process
 
@@ -359,7 +505,7 @@ instead, which needs no thread at all.
 | M6 | Can a documented one-time "add me to Performance Log Users" step, or the PresentMon Service, restore genuinely elevation-free Tier 2? Would change the README, Disclaimer and EULA wording back |
 | M7 | `18_GPU_VENDOR_APIS` §Runtime policy says telemetry is never read from the game process, but `17_HOOK_ENGINE` reads per-process VRAM and Reflex latency there. Reconcile the wording — the rule means "no vendor SDK polling loops in the game", not "no measurement in the game" |
 | M8 | The `GpuSample` type has no latency field, yet L3 is credited with Reflex/PC latency. Latency is per-frame and arrives via the ring, not the 1 Hz sample. Fix the layering description |
-| M9 | The **P0 accuracy baseline does not exist.** `15_ROADMAP` requires comparing against "what the *old* file/module-based detection reported" and putting the improvement in the README — but no prior implementation is in this repository. Either locate it, or add "build a minimal static-hint detector as the baseline" to P0 scope. Without it the headline justification for ADR-7 is unfalsifiable |
+| M9 ✅ | **Closed 2026-08-02 by a decision.** The old file/module detection does not exist in this repository and the owner confirmed there is no copy elsewhere, so **"build a minimal static-hint detector as the measurement baseline" is now P0 item 3** (`15_ROADMAP`). It needs no guard and no injection. Until it exists, ADR-7's headline claim stays out of the README rather than being asserted unmeasured |
 | M10 | PDH `\GPU Engine(*)\Utilization Percentage` summed across engines does not reproduce the Task Manager figure the doc invokes. Decide what we actually report and label it accordingly |
 
 ---
@@ -386,22 +532,12 @@ Each of these is referenced by an existing doc but specified nowhere.
 
 ## R — Roadmap resequencing
 
-Fold into `15_ROADMAP` once agreed.
-
-1. **The guard is P0 item 8, after two items that inject into real games.** This
-   contradicts CLAUDE.md rule 2 and P1's own statement that the guard "ships
-   before the first real injection, not after". Move it to item 0.
-2. **Move the Vulkan layer passthrough test early** (currently item 7). A
-   passthrough bug loads FrameLedger into every Vulkan process on the machine,
-   including anything Vanguard-protected. It is the highest blast-radius item in
-   the spike and it is scheduled seventh.
-3. **Run the LHM Exhibit B and NVAPI licence checks first** (M3, M4). Both are
-   pure reading, both can invalidate a whole telemetry layer, and neither needs
-   hardware.
-4. **P0's exit criteria silently import P2 work.** "Records a real session" with
-   Agent CPU/RSS budgets needs the drain, aggregate and recorder paths P2
-   delivers. Either scope a throwaway drain harness into P0 or move the
-   FPS-impact criterion to the end of P1.
+~~1–4 are folded into `15_ROADMAP` (2026-08-02) and are no longer proposals:~~
+the guard is **item 0**, the Vulkan passthrough test is **item 1**, the two
+licence checks were run first and came back clear (`spike-notes.md` §0), and
+P0's exit criteria no longer import P2 work — the FPS-impact measurement moves
+to the end of P1, while the harness-level per-present cost (no game, no Agent,
+no drain) stays in P0. Items 5–9 below are still open.
 5. **P0 item 5 asks for an AFMF decision on an RTX 5080.** AFMF is AMD driver
    -side. Reword to "validate on NVIDIA; record AFMF as untested", per the
    precedent `14_TESTING` already sets for absent hardware.

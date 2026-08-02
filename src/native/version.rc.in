@@ -1,0 +1,50 @@
+// VERSIONINFO for every native binary FrameLedger ships.
+//
+// This is a SAFETY requirement, not packaging polish
+// (docs/19_SAFETY_AND_ANTICHEAT.md §What we will never build): the DLL ships
+// with its real filename, real exports, and a populated version block. An
+// anti-cheat vendor looking at a module loaded into their game must be able to
+// tell instantly what it is and who wrote it. Being identifiable is a feature
+// here — the whole design principle is "easy for anti-cheat to see and
+// identify, and refuse to run where it isn't welcome".
+//
+// Anything that made these fields vaguer, absent, or randomised would be
+// evasion, which CLAUDE.md rule 3 rejects on principle regardless of quality.
+//
+// Configured by CMake per target; see fl_add_version_resource().
+
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     @FL_VER_MAJOR@,@FL_VER_MINOR@,@FL_VER_PATCH@,0
+PRODUCTVERSION  @FL_VER_MAJOR@,@FL_VER_MINOR@,@FL_VER_PATCH@,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+FILEFLAGS       VS_FF_DEBUG
+#else
+FILEFLAGS       0x0L
+#endif
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_DLL
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"    // US English, Unicode
+        BEGIN
+            VALUE "CompanyName",      "@FL_COMPANY_NAME@"
+            VALUE "ProductName",      "@FL_PRODUCT_NAME@"
+            VALUE "FileDescription",  "@FL_FILE_DESCRIPTION@"
+            VALUE "InternalName",     "@FL_TARGET_NAME@"
+            VALUE "OriginalFilename", "@FL_TARGET_FILENAME@"
+            VALUE "FileVersion",      "@FL_VER_MAJOR@.@FL_VER_MINOR@.@FL_VER_PATCH@.0"
+            VALUE "ProductVersion",   "@FL_VER_MAJOR@.@FL_VER_MINOR@.@FL_VER_PATCH@.0"
+            VALUE "LegalCopyright",   "@FL_COPYRIGHT@"
+            VALUE "Comments",         "@FL_COMMENTS@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

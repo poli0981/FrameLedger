@@ -153,9 +153,36 @@ Vulkan gets an **implicit layer** (`FrameLedger.VkLayer`), not injection — it 
 - Declare an API version at least as high as the applications we expect to
   layer. The same machine shows the loader warning that `VK_LAYER_OBS_HOOK` and
   `VK_LAYER_RTSS` declare 1.3 against a 1.4 application, "may cause issues".
-- `disable_environment` so a user can turn it off with an env var — and so it is
-  well-behaved by Vulkan convention. (`20_OPEN_QUESTIONS` §S2 proposes moving to
-  `enable_environment`, which is a stronger gate; that decision is open.)
+- **`enable_environment` (`FRAMELEDGER_ENABLE_VK_LAYER=1`)**, plus
+  `disable_environment` so a user can force us off — the latter is Vulkan
+  convention and stays. Measured against loader 1.4.357 (`spike-notes.md` §2):
+  with the variable unset the loader locates our manifest and **never maps the
+  DLL**, and it compares the variable's **value**, so a stray
+  `FRAMELEDGER_ENABLE_VK_LAYER=0` does not enable us. **This makes Vulkan
+  Tier 1 launch-mode-only** — the Agent sets the variable when it starts an
+  opted-in game, so a Vulkan title launched from Steam or GOG is not hooked.
+  It is a *loading* gate, not a security gate: anything running as the user can
+  set the variable.
+
+### Never decline to load — accept, then be inert
+
+> **Measured, and it would have been catastrophic.** Returning
+> `VK_ERROR_INITIALIZATION_FAILED` from
+> `vkNegotiateLoaderLayerInterfaceVersion` — the obvious way to say "this
+> process did not opt in, skip me" — does **not** make loader 1.4.357 skip the
+> layer. It **access-violates the application** (`spike-notes.md` §2,
+> reproduced every time). Every Vulkan application on the machine outside our
+> enable-list would have crashed: a far larger blast radius than the one we
+> were reducing, inflicted on programs with nothing to do with FrameLedger.
+
+So the layer **always accepts negotiation and always forwards**. Returning
+`nullptr` from `vkGetInstanceProcAddr` as a way to opt out is the same class of
+failure and is equally forbidden — handing the loader a null `vkCreateInstance`
+breaks the application just as thoroughly.
+
+The enable-list decides **what we intercept**, never **whether we load**. Being
+present and inert costs a pointer forward per call; being absent by erroring out
+is not something this loader supports.
 
 > **We will not be the only layer, and probably not the only present hook.** A
 > representative dev machine carries six machine-wide implicit layers already:
@@ -168,8 +195,37 @@ Vulkan gets an **implicit layer** (`FrameLedger.VkLayer`), not injection — it 
 > admin. Registering under HKCU (below) is the less common choice and the better
 > one: no elevation, and per-user scope.
 - Intercepts `vkQueuePresentKHR`, `vkCreateSwapchainKHR`, `vkCmdTraceRaysKHR`, `vkCmdBuildAccelerationStructuresKHR`, `vkCreateGraphicsPipelines`.
-- The layer respects the same guard: on init it checks the enable-list written by the Agent (a small per-user config the Agent maintains) and stays fully passthrough for any process not opted in. **A layer is machine-wide by nature — this check is mandatory, not optional.**
-- Registered only while at least one Vulkan game has hooking enabled; unregistered on uninstall (Velopack hook) and when the last such game is disabled.
+- The layer respects the same guard: on init it checks the enable-list and stays fully passthrough for any process not opted in. **A layer is machine-wide by nature — this check is mandatory, not optional.**
+- Registered only while at least one Vulkan game has hooking enabled; unregistered on uninstall (Velopack hook) and when the last such game is disabled. **Never at install time** — `12_BUILD` §The Vulkan layer is not registered at install time.
+
+### The enable-list
+
+Referenced everywhere, specified nowhere until now (`20_OPEN_QUESTIONS` §S4).
+It is read inside a process we do not own, by code that runs before we know
+anything, so its failure modes matter more than its format.
+
+| | |
+|---|---|
+| **Location** | `%LOCALAPPDATA%\FrameLedger\vklayer\enabled.txt` — per-user, no admin, same trust boundary as the rules copy |
+| **Format** | UTF-8, LF, one lowercased process image name per line (`witchfire.exe`), `#` comments, blank lines ignored |
+| **Bounds** | ≤ 64 KiB and ≤ 1024 entries. A file larger than that is treated as corrupt |
+| **Matching** | Exact, case-insensitive, on the image name only — never a path, never a prefix, never a substring |
+| **Sole writer** | The Agent. The layer only ever reads it |
+| **ACL** | Inherited from `%LOCALAPPDATA%`: the current user's SID. **The Agent must not widen it** |
+
+**Every failure is passthrough.** File missing, unreadable, oversized, malformed,
+or the current process simply absent from it ⇒ the layer does nothing and
+forwards. That is the opposite direction from the injection guard, and
+deliberately so: here "do nothing" *is* the safe outcome, because the risk being
+managed is our code running somewhere it was not invited.
+
+> **The ACL is the whole mechanism, and it is not a strong one.** Anything
+> running as the user can add a line to this file, exactly as anything running
+> as the user could once redirect the rules path (§S3). The difference is what
+> it buys an attacker: a line here causes FrameLedger to *observe* a Vulkan
+> process it would otherwise ignore. It grants no injection — the Vulkan path
+> has no injection — and it cannot disable the blocklist scan the layer runs on
+> itself. Treat it as reducing blast radius, not as authorisation.
 
 ## Ring writer (hot path)
 
@@ -256,7 +312,38 @@ Every hook body is wrapped:
 
 ## Unhooking
 
-`FlRequestUnhook()` (or the control flag) ⇒ `MH_DisableHook(MH_ALL_HOOKS)`, restore vtable entries, flush the ring, set status. **The DLL is not `FreeLibrary`'d from the live process** — a thread could still be inside a trampoline. It goes dormant and unloads with the process. This is deliberate and documented.
+`FlRequestUnhook()` (or the control flag) ⇒ `MH_DisableHook(MH_ALL_HOOKS)`, restore vtable entries **only where they are still ours**, flush the ring, set status. **The DLL is not `FreeLibrary`'d from the live process** — a thread could still be inside a trampoline. It goes dormant and unloads with the process. This is deliberate and documented.
+
+### Compare-and-restore, never unconditional restore
+
+This section used to call vtable swapping a "cleaner uninstall" than inline
+patching. **In the multi-overlay case that is backwards** (`20_OPEN_QUESTIONS`
+§H7), and the multi-overlay case is the normal state of a gamer's machine — the
+dev box alone has RTSS, OBS, Steam Overlay, Steam Fossilize, EOS and GOG Galaxy
+resident (`spike-notes.md` §Environment).
+
+If another overlay hooked the same slot *after* us, it saved **our detour** as
+its original and chains through it. Writing the pristine address back then
+removes their hook silently: their overlay stops working, with no error
+anywhere, and we caused it.
+
+So the rule is **compare-and-restore**:
+
+```
+if (slot != our_detour) -> leave it alone, go dormant
+else                    -> restore the original
+```
+
+Re-check the comparison *under* the `VirtualProtect` write window, not only
+before it. And when the slot has changed, going dormant costs nothing: we stay
+loaded anyway, and our detour remains in someone else's chain doing nothing
+harmful.
+
+Verified by `hook-harness --probe-unhook` (ctest `fl_unhook_preserves_foreign`),
+which simulates the foreign hooker rather than depending on RTSS being
+installed, so it is deterministic and runs on CI. Both halves are asserted: we
+decline when the slot changed, **and** we do restore when it did not — a
+compare-and-restore that never restores is not a fix.
 
 ## Native logging
 

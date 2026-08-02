@@ -4,6 +4,8 @@ add_library(FrameLedger.Overlay SHARED src/dllmain.cpp)
 target_link_libraries(FrameLedger.Overlay PRIVATE FrameLedger.Shm fl_native_flags fl_hostile_env_flags minhook)
 set_target_properties(FrameLedger.Overlay PROPERTIES OUTPUT_NAME "FrameLedger.Overlay")
 
-# VERSIONINFO is mandatory and CI fails the build without it: being plainly
+# VERSIONINFO is mandatory and the build fails without it: being plainly
 # identifiable to anti-cheat is a requirement, not a nicety (docs/19_SAFETY).
-# TODO(P1): add version.rc once the target has real content.
+# This used to be a TODO next to a comment asserting CI enforced it. Enforced
+# for real now by tools/versioninfo-check.ps1, which reads the built binary.
+fl_add_version_resource(FrameLedger.Overlay "FrameLedger capture overlay (injected, opt-in per game)")

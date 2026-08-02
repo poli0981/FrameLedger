@@ -14,16 +14,23 @@
 //   --probe-vtable   H4: prove vtable slot identity by behaviour
 //   --probe-proxy    H5: does patching the real vtable catch a present made
 //                        through a wrapper object?
-//   --present N      present N frames (for later overhead measurement)
+//   --probe-unhook   H7: does our unhook clobber an overlay that hooked the
+//                        same slot after us?
+//   --probe-cost     NFR-1: per-present cost of a vtable detour (measurement,
+//                        not a ctest — a timing threshold on a shared runner
+//                        fails for reasons unrelated to the code)
+//   --present N      present N frames
 
 #include <windows.h>
 
 #include <d3d11.h>
 #include <dxgi1_2.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 #include "proxy_swapchain.h"
 
@@ -145,6 +152,36 @@ bool PatchSlot(void** vtbl, unsigned index, void* replacement, void** outOrigina
     return true;
 }
 
+// Restore a vtable slot ONLY if it still holds what we put there.
+//
+// §H7: 17_HOOK_ENGINE §Unhooking says we restore the original entry, and calls
+// vtable swapping a "cleaner uninstall" than inline patching. In the
+// multi-overlay case — which is the common case on a gamer's machine — that is
+// backwards. If RTSS, Discord or the Steam overlay hooked the same slot AFTER
+// us, writing the original address back silently removes THEIR hook and
+// whatever they were doing stops working, with no error anywhere.
+//
+// Returning false means someone else owns the slot now. The documented
+// behaviour is to leave it alone and go dormant; we already stay loaded, so
+// there is nothing to unwind.
+bool RestoreSlotIfUnchanged(void** vtbl, unsigned index, void* expected, void* original) {
+    if (vtbl[index] != expected) {
+        return false;    // someone hooked after us — leave their entry alone
+    }
+    DWORD old = 0;
+    if (!VirtualProtect(&vtbl[index], sizeof(void*), PAGE_READWRITE, &old)) {
+        return false;
+    }
+    // Re-check under the write protection: the window above is small but real.
+    const bool stillOurs = vtbl[index] == expected;
+    if (stillOurs) {
+        vtbl[index] = original;
+    }
+    DWORD ignored = 0;
+    VirtualProtect(&vtbl[index], sizeof(void*), old, &ignored);
+    return stillOurs;
+}
+
 using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
 using ResizeBuffersFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT, UINT, DXGI_FORMAT, UINT);
 
@@ -233,12 +270,18 @@ bool ProbeH4_VtableIndices(Gfx& g) {
     g.swapChain1->Present1(0, DXGI_PRESENT_TEST, &params);
     Check(g_present1Hits.load(std::memory_order_relaxed) == p1before + 1, "slot 22 IS IDXGISwapChain1::Present1");
 
-    // Restore before leaving so later probes see a clean object.
+    // Restore before leaving so later probes see a clean object, then PROVE the
+    // restore. Asserting Check(true) here would report "slots restored" even if
+    // VirtualProtect had failed and the object were left detoured — the next
+    // probe would then measure our own hook and call it a finding.
     void* dummy = nullptr;
     PatchSlot(vtbl, kPresentIndex, reinterpret_cast<void*>(g_origPresent), &dummy);
     PatchSlot(vtbl, kResizeBuffersIndex, reinterpret_cast<void*>(g_origResize), &dummy);
     PatchSlot(vtbl1, kPresent1Index, reinterpret_cast<void*>(g_origPresent1), &dummy);
-    Check(true, "slots restored");
+    Check(vtbl[kPresentIndex] == reinterpret_cast<void*>(g_origPresent) &&
+              vtbl[kResizeBuffersIndex] == reinterpret_cast<void*>(g_origResize) &&
+              vtbl1[kPresent1Index] == reinterpret_cast<void*>(g_origPresent1),
+          "all three slots hold their original entries again");
     return true;
 }
 
@@ -275,18 +318,159 @@ bool ProbeH5_ProxySwapChain(Gfx& g) {
     std::printf("  proxy saw %u present(s); our hook on the REAL vtable saw %d\n",
                 proxy->proxyPresentCount.load(std::memory_order_relaxed), after - before);
 
-    // This is the finding, whichever way it lands.
     if (after > before) {
         std::printf("  => the proxy forwards via the real interface, so the hook still fires\n");
     } else {
         std::printf("  => the present did NOT reach our hook: proxies defeat real-vtable patching\n");
     }
-    Check(true, "observation recorded (see docs/spike-notes.md)");
+
+    // This was an open observation once. It is now a RECORDED FINDING
+    // (docs/spike-notes.md §H5, CHANGELOG "H2/H5 partly answered"), so this
+    // probe's job changed from "report whatever happens" to "keep it true".
+    //
+    // It previously read Check(true, "observation recorded"), which cannot fail
+    // — ctest fl_proxy_swapchain was green by construction and would have
+    // stayed green if a forwarding proxy ever stopped reaching our hook. That
+    // is the same shape as the EnumDeviceDrivers fail-open: a check that
+    // succeeds while telling you nothing.
+    Check(after > before, "a forwarding proxy's Present reaches our hook on the REAL vtable");
 
     void* dummy = nullptr;
     PatchSlot(realVtbl, kPresentIndex, reinterpret_cast<void*>(g_origPresent), &dummy);
     proxy->Release();
     return after > before;
+}
+
+// ---------------------------------------------------------------------------
+// H7 — does our unhook clobber an overlay that hooked after us?
+//
+// The dev machine already runs RTSS, OBS, Steam Overlay, EOS and GOG Galaxy
+// (spike-notes.md §Environment), so this is the DEFAULT state of a gamer's
+// machine, not an exotic one. It is simulated here rather than depending on
+// RTSS being installed, so it runs on CI too — and so the failure is
+// deterministic instead of depending on who hooked first.
+// ---------------------------------------------------------------------------
+PresentFn        g_foreignOrig = nullptr;
+std::atomic<int> g_foreignHits{0};
+
+HRESULT STDMETHODCALLTYPE ForeignHookPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
+    g_foreignHits.fetch_add(1, std::memory_order_relaxed);
+    return g_foreignOrig(sc, sync, flags);
+}
+
+bool ProbeH7_UnhookPreservesForeign(Gfx& g) {
+    std::printf("\nH7 - unhooking must not clobber an overlay that hooked after us\n");
+
+    void** vtbl = VtableOf(g.swapChain);
+    void*  pristine = vtbl[kPresentIndex];
+
+    // 1. We hook first.
+    if (!PatchSlot(vtbl, kPresentIndex, reinterpret_cast<void*>(&HookPresent),
+                   reinterpret_cast<void**>(&g_origPresent))) {
+        Check(false, "install our hook");
+        return false;
+    }
+
+    // 2. Someone else hooks after us, chaining through our detour exactly as a
+    //    real overlay would.
+    if (!PatchSlot(vtbl, kPresentIndex, reinterpret_cast<void*>(&ForeignHookPresent),
+                   reinterpret_cast<void**>(&g_foreignOrig))) {
+        Check(false, "install the foreign hook");
+        return false;
+    }
+    Check(reinterpret_cast<void*>(g_foreignOrig) == reinterpret_cast<void*>(&HookPresent),
+          "the foreign hook chained through ours (it saved our detour as its original)");
+
+    // 3. We unhook. Compare-and-restore must decline.
+    const bool restored = RestoreSlotIfUnchanged(vtbl, kPresentIndex, reinterpret_cast<void*>(&HookPresent),
+                                                 reinterpret_cast<void*>(g_origPresent));
+    Check(!restored, "our unhook DECLINED to restore, because the slot is no longer ours");
+    Check(vtbl[kPresentIndex] == reinterpret_cast<void*>(&ForeignHookPresent),
+          "the foreign hook is still installed - we did not silently remove it");
+
+    // 4. And it still works.
+    const int before = g_foreignHits.load(std::memory_order_relaxed);
+    g.swapChain->Present(0, DXGI_PRESENT_TEST);
+    Check(g_foreignHits.load(std::memory_order_relaxed) == before + 1, "the foreign hook still fires after our unhook");
+
+    // 5. The other half of the contract: when the slot IS still ours, we DO
+    //    restore. A compare-and-restore that never restores is not a fix.
+    void* dummy = nullptr;
+    PatchSlot(vtbl, kPresentIndex, reinterpret_cast<void*>(g_origPresent), &dummy);    // undo the foreign hook
+    if (!PatchSlot(vtbl, kPresentIndex, reinterpret_cast<void*>(&HookPresent),
+                   reinterpret_cast<void**>(&g_origPresent))) {
+        Check(false, "re-install our hook");
+        return false;
+    }
+    const bool restored2 = RestoreSlotIfUnchanged(vtbl, kPresentIndex, reinterpret_cast<void*>(&HookPresent),
+                                                  reinterpret_cast<void*>(g_origPresent));
+    Check(restored2, "with the slot untouched, our unhook DOES restore");
+    Check(vtbl[kPresentIndex] == pristine, "the slot holds the pristine entry again");
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Per-present cost (NFR-1, 14_TESTING §Hook overhead item 1: <= 1 us).
+// The remaining open bullet under spike-notes.md §3. Needs no game.
+// ---------------------------------------------------------------------------
+double MedianOf(std::vector<double>& v) {
+    std::sort(v.begin(), v.end());
+    return v.empty() ? 0.0 : v[v.size() / 2];
+}
+
+double TimePresents(Gfx& g, int iterations) {
+    LARGE_INTEGER freq{};
+    QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER a{};
+    QueryPerformanceCounter(&a);
+    for (int i = 0; i < iterations; ++i) {
+        g.swapChain->Present(0, DXGI_PRESENT_TEST);
+    }
+    LARGE_INTEGER b{};
+    QueryPerformanceCounter(&b);
+    return static_cast<double>(b.QuadPart - a.QuadPart) * 1e9 / static_cast<double>(freq.QuadPart) / iterations;
+}
+
+bool ProbeCost_PerPresent(Gfx& g) {
+    std::printf("\nPer-present hook cost (NFR-1: <= 1 us)\n");
+
+    constexpr int kIterations = 20000;
+    constexpr int kRuns = 5;
+
+    // Interleave hooked and unhooked runs and take medians. Three-of-each in a
+    // block would attribute any thermal or scheduler drift during the run to
+    // the hook.
+    std::vector<double> cold, hot;
+    void**              vtbl = VtableOf(g.swapChain);
+    for (int r = 0; r < kRuns; ++r) {
+        cold.push_back(TimePresents(g, kIterations));
+
+        if (!PatchSlot(vtbl, kPresentIndex, reinterpret_cast<void*>(&HookPresent),
+                       reinterpret_cast<void**>(&g_origPresent))) {
+            Check(false, "patch Present slot for the hooked run");
+            return false;
+        }
+        hot.push_back(TimePresents(g, kIterations));
+        void* dummy = nullptr;
+        PatchSlot(vtbl, kPresentIndex, reinterpret_cast<void*>(g_origPresent), &dummy);
+    }
+
+    const double c = MedianOf(cold);
+    const double h = MedianOf(hot);
+    const double delta = h - c;
+    std::printf("  %d presents x %d runs, interleaved\n", kIterations, kRuns);
+    std::printf("  unhooked median %.1f ns/present\n", c);
+    std::printf("  hooked   median %.1f ns/present\n", h);
+    std::printf("  delta           %.1f ns/present  (budget 1000 ns)\n", delta);
+
+    // The detour here is an atomic increment plus a call through the saved
+    // pointer -- i.e. the floor for ANY vtable hook, not the real Overlay's
+    // cost. It bounds the mechanism, not the product. The real budget is
+    // 14_TESTING item 2, on a real game, and that stays P1.
+    Check(delta < 1000.0, "vtable detour costs under 1 us per present");
+    std::printf("       NOTE: this is the empty-detour floor. The Overlay's real per-present\n");
+    std::printf("             cost is 14_TESTING item 2, on a real game, and is not this number.\n");
+    return true;
 }
 
 int PresentLoop(Gfx& g, int frames) {
@@ -308,24 +492,41 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    // Probe return values are propagated, not discarded. Today every early
+    // return is preceded by a Check(false, ...) so g_failures would catch it
+    // anyway — but relying on that makes the exit code depend on each probe
+    // remembering to log its own failure. A probe that returns false must fail
+    // the ctest whether or not it said so.
+    bool ok = true;
     bool ranSomething = false;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--probe-vtable") == 0) {
-            ProbeH4_VtableIndices(g);
+            ok = ProbeH4_VtableIndices(g) && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-proxy") == 0) {
-            ProbeH5_ProxySwapChain(g);
+            ok = ProbeH5_ProxySwapChain(g) && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-unhook") == 0) {
+            ok = ProbeH7_UnhookPreservesForeign(g) && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-cost") == 0) {
+            ok = ProbeCost_PerPresent(g) && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--present") == 0 && i + 1 < argc) {
-            PresentLoop(g, std::atoi(argv[++i]));
+            ok = PresentLoop(g, std::atoi(argv[++i])) == 0 && ok;
             ranSomething = true;
+        } else {
+            std::printf("FAILED: unrecognised argument '%s'\n", argv[i]);
+            return 2;
         }
     }
     if (!ranSomething) {
-        ProbeH4_VtableIndices(g);
-        ProbeH5_ProxySwapChain(g);
+        ok = ProbeH4_VtableIndices(g) && ok;
+        ok = ProbeH5_ProxySwapChain(g) && ok;
+        ok = ProbeH7_UnhookPreservesForeign(g) && ok;
     }
 
-    std::printf("\n%s (%d failure(s))\n", g_failures == 0 ? "HARNESS OK" : "HARNESS FAILURES", g_failures);
-    return g_failures == 0 ? 0 : 1;
+    const bool passed = ok && g_failures == 0;
+    std::printf("\n%s (%d failure(s))\n", passed ? "HARNESS OK" : "HARNESS FAILURES", g_failures);
+    return passed ? 0 : 1;
 }

@@ -5,7 +5,7 @@
 # hard to retrofit, and two of them are open questions (see below).
 
 cmake_minimum_required(VERSION 3.28)
-project(FrameLedgerNative LANGUAGES CXX)
+project(FrameLedgerNative VERSION 0.1.0 LANGUAGES CXX RC)
 
 if(NOT WIN32)
     message(FATAL_ERROR "FrameLedger's native layer is Windows-only.")
@@ -25,6 +25,36 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Static CRT everywhere: never drag a VC runtime dependency into a host process
 # we do not control (docs/17_HOOK_ENGINE.md §Build profile).
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+# ---------------------------------------------------------------------------
+# VERSIONINFO — a safety requirement, not packaging polish.
+#
+# docs/19_SAFETY_AND_ANTICHEAT.md: the DLL ships with its real filename, real
+# exports, and a populated version block, because an anti-cheat vendor looking
+# at a module inside their game must be able to tell instantly what it is and
+# who wrote it. The Overlay CMakeLists claimed "CI fails the build without it"
+# while no .rc file existed anywhere in the repository and nothing checked —
+# so the claim was true only as an intention.
+#
+# tools/versioninfo-check.ps1 now makes it true for real, and every shipped
+# native binary calls this.
+# ---------------------------------------------------------------------------
+set(FL_VER_MAJOR ${PROJECT_VERSION_MAJOR})
+set(FL_VER_MINOR ${PROJECT_VERSION_MINOR})
+set(FL_VER_PATCH ${PROJECT_VERSION_PATCH})
+set(FL_COMPANY_NAME  "FrameLedger")
+set(FL_PRODUCT_NAME  "FrameLedger")
+set(FL_COPYRIGHT     "GPL-3.0-or-later")
+
+function(fl_add_version_resource target description)
+    set(FL_TARGET_NAME "${target}")
+    set(FL_TARGET_FILENAME "${target}.dll")
+    set(FL_FILE_DESCRIPTION "${description}")
+    set(FL_COMMENTS "Performance measurement tool. Identifies itself deliberately; see https://github.com/poli0981/frameledger")
+    set(_out "${CMAKE_CURRENT_BINARY_DIR}/${target}.version.rc")
+    configure_file("${CMAKE_SOURCE_DIR}/version.rc.in" "${_out}" @ONLY)
+    target_sources(${target} PRIVATE "${_out}")
+endfunction()
 
 # CMake injects /EHsc into CMAKE_CXX_FLAGS by default. Targets that disable
 # exceptions then get "/EHsc ... /EHsc-" on one command line: the later flag

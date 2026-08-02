@@ -3,31 +3,43 @@
 The hook rewrite front-loads risk: almost everything uncertain is in P0/P1. That is deliberate — a hook layer that doesn't work is not a feature you discover in week four.
 
 > **Read `docs/20_OPEN_QUESTIONS.md` alongside this file.** It holds the audit
-> findings that P0 exists to answer, plus a resequencing proposal for the item
-> order below — most importantly that **the guard (item 8) must move to item 0**,
-> since injecting into real games in items 1–2 before the guard exists
-> contradicts CLAUDE.md rule 2 and P1's own "it ships before the first real
-> injection, not after". The two licence checks in item 6 need no hardware and
-> can invalidate an entire telemetry layer; run them first.
+> findings that P0 exists to answer. The §R resequencing proposals are now folded
+> into the order below rather than sitting as a proposal: the guard is item 0,
+> the Vulkan passthrough test is item 1, and the two licence checks — which
+> needed no hardware and could each have invalidated an entire telemetry layer —
+> were run first and came back clear.
 
-## P0 — Spike (4–6 days) · *gates everything*
+## P0 — Spike · *gates everything*
 
 Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit criteria pass.
 
-1. **Hook viability.** `hook-harness` (D3D11 + D3D12) + MinHook: dummy-device vtable probe, verify present indices at runtime, install/uninstall cleanly, measure per-present cost. Confirm `/MT` DLL loads into a real (offline, non-AC) game without incident.
-2. **The accuracy question — the reason this rewrite exists.** On the dev machine (RTX 5080), verify against ≥ 3 real offline titles that hooks recover: NGX/Streamline feature identity, render vs output resolution, quality preset, and DLSS-G activity. Compare against what the *old* file/module-based detection reported. **Quantify the improvement** — this number justifies the whole trade-off and belongs in the README.
-3. **Vendor SDK reality check.** Resolve actual exported symbol names for NGX, Streamline, FFX (`ffx_api` vs legacy FSR2/3), XeSS on the dev machine. The names in `17_HOOK_ENGINE` are conventions, not verified facts — correct the doc.
-4. **RT detection.** Harness + a real DXR title: `DispatchRays` counting *and* `BuildRaytracingAccelerationStructure`; verify the AS-build path catches an inline-RayQuery title that dispatch counting misses.
-5. **Frame Generation ground truth.** Compare rung 1 (FG feature evaluations per present) against Tier-2 ETW `FrameType` on a DLSS-G title. ~~rung 2 (`GetFrameStatistics` present delta)~~ was removed as structurally impossible, not merely unreliable (`03_METRICS` §Frame Generation). Driver-level FG (AFMF) is undetectable at Tier 1 in v1; whether PresentMon 2.x `FrameType` sees it at Tier 2 is `20_OPEN_QUESTIONS` §M1 — and is untestable on this dev machine, which has no AMD GPU.
-6. **Telemetry layering.** Fill the `18_GPU_VENDOR_APIS` capability matrix on real hardware:
+0. **The guard.** Module + driver enumeration, blocklist matching, fail-closed behaviour on every error path. **Moved from item 8**: items 1 and 6 below inject into real games, and CLAUDE.md rule 2 plus P1's own "it ships before the first real injection, not after" both forbid that ordering. *Evidence collected — `spike-notes.md` §1; §S7 closed, §S1 measured. The guard itself is not yet written.*
+1. **Vulkan layer passthrough.** Minimal implicit layer intercepting `vkQueuePresentKHR`, registered under `HKCU`, with the opt-in check that keeps it passthrough for non-enabled processes. **Moved from item 7**: a passthrough bug loads FrameLedger into every Vulkan process on the machine, which is the highest blast radius in the spike.
+2. **Hook viability.** `hook-harness` (D3D11 + D3D12) + MinHook: dummy-device vtable probe, verify present indices at runtime, install/uninstall cleanly, measure per-present cost. Confirm `/MT` DLL loads into a real (offline, non-AC) game without incident.
+3. **The accuracy baseline.** Build a **minimal static-hint detector** — passive file/module scanning, no injection — as the thing item 4 measures against. Added to P0 scope 2026-08-02 (`20_OPEN_QUESTIONS` §M9): the "old detection" this roadmap assumed as a baseline does not exist in this repository, and without it the comparison below cannot be made and ADR-7's founding claim is unfalsifiable. It needs no guard and no injection, so it can be built at any point before item 4.
+4. **The accuracy question — the reason this rewrite exists.** On the dev machine (RTX 5080), verify against ≥ 3 real offline titles that hooks recover: NGX/Streamline feature identity, render vs output resolution, quality preset, and DLSS-G activity. Compare against what the item-3 baseline reports. **Quantify the improvement** — this number justifies the whole trade-off and belongs in the README.
+5. **Vendor SDK reality check.** Resolve actual exported symbol names for NGX, Streamline, FFX (`ffx_api` vs legacy FSR2/3), XeSS on the dev machine. The names in `17_HOOK_ENGINE` are conventions, not verified facts — correct the doc.
+6. **RT detection.** Harness + a real DXR title: `DispatchRays` counting *and* `BuildRaytracingAccelerationStructure`; verify the AS-build path catches an inline-RayQuery title that dispatch counting misses.
+7. **Frame Generation ground truth.** Compare rung 1 (FG feature evaluations per present) against Tier-2 ETW `FrameType` on a DLSS-G title. ~~rung 2 (`GetFrameStatistics` present delta)~~ was removed as structurally impossible, not merely unreliable (`03_METRICS` §Frame Generation). Driver-level FG (AFMF) is undetectable at Tier 1 in v1; whether PresentMon 2.x `FrameType` sees it at Tier 2 is `20_OPEN_QUESTIONS` §M1 — and is untestable on this dev machine, which has no AMD GPU.
+8. **Telemetry layering.** Fill the `18_GPU_VENDOR_APIS` capability matrix on real hardware:
    - L1 baseline (DXGI + PDH counters) working vendor-neutrally; decide whether the `D3DKMT` perf-data probe is stable enough on Win 10 **and** Win 11 to keep.
    - L2: which fields LibreHardwareMonitor actually returns per vendor, and **whether GPU sensors work unelevated without PawnIO** — this decides whether the default unelevated Agent has temperatures.
    - L3: NVAPI linked from vendored MIT headers; Reflex latency, throttle reasons, per-domain utilisation.
    - ~~**Licence confirmations:** LHM free of MPL-2.0 Exhibit B; NVAPI SPDX blocks intact~~ — **done before P0 began, both clear** (`spike-notes.md` §0). `tools/license-check` is in place and proven to fail on a planted violation.
-7. **Vulkan layer.** Minimal implicit layer intercepting `vkQueuePresentKHR`, registered under `HKCU`, with the opt-in check that keeps it passthrough for non-enabled processes.
-8. **Guard prototype.** Module + driver enumeration, blocklist matching, fail-closed behavior on every error path.
 
-**Exit criteria:** a throwaway build records a real session from a real offline game reporting *correct* upscaler, quality preset, render→output resolution, FG factor and RT state — verified against the game's own settings menu — with measured game FPS impact ≤ 0.5%.
+*(The former items 7 "Vulkan layer" and 8 "Guard prototype" are now items 1 and 0. §R1/§R2 are folded in, not pending.)*
+
+**Exit criteria:** a throwaway build records a real session from a real offline game reporting *correct* upscaler, quality preset, render→output resolution, FG factor and RT state — verified against the game's own settings menu.
+
+> **The FPS-impact criterion moves to the end of P1** (`20_OPEN_QUESTIONS` §R4,
+> decided 2026-08-02). "Records a real session" with an Agent CPU/RSS budget
+> silently imported the drain, aggregate and recorder paths that P2 delivers, so
+> as written P0 could not exit without building most of P2. The measurement
+> itself is unchanged (`14_TESTING` §Hook overhead ≤ 0.5%); only its gate moves,
+> to the point where a real Overlay and a real drain exist to measure.
+>
+> The **harness-level** per-present cost (≤ 1 µs, hooked vs unhooked, uncapped)
+> stays in P0 as item 2 — it needs no game, no Agent and no drain.
 
 ## P1 — Native core (1.5 weeks)
 `FrameLedger.Overlay` proper: hook installation for D3D11/12/9/OGL, feature hooks, ring writer, fault policy, unhook path, native logging. `FrameLedger.Injector` with launch + attach modes. **The guard, complete and fully tested** (`14_TESTING` §Safety-guard tests) — it ships before the first real injection, not after. Struct mirror + Catch2 tests. Vulkan layer to parity.

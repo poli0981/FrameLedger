@@ -148,18 +148,229 @@ Two things this turned up that are *not* blockers but are now known:
 
 ## 1 · Guard *(moved to first — `20_OPEN_QUESTIONS` §R1)*
 
-- Module enumeration on a suspended process (§S1) — what is actually visible:
-- WOW64 / `LIST_MODULES_ALL` behaviour (§S7):
-- Fail-closed behaviour on each error path:
-- Driver enumeration for machine-wide blockers:
-- **Decision on launch-mode injection timing:**
+Measured 2026-08-02, Windows 11 Pro Insider Preview 26300.9032, **unelevated**
+(the default Agent under ADR-9). Probe: `src/native/tools/fl-probe-guard`,
+running as ctest `fl_guard_apis`, so these are re-checked on every build rather
+than being a one-off. It opens processes only with
+`PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ` — the rights `19_SAFETY`
+specifies — and never with `CREATE_THREAD | VM_OPERATION | VM_WRITE`.
+
+### ✅ §S1 · Module enumeration on a suspended process — **it fails, it does not return empty**
+
+```
+suspended:          opened=1  enumerated=0  modules=0  enumErr=299 (ERROR_PARTIAL_COPY)
+after ResumeThread: opened=1  enumerated=1  modules=9   (kernel32.dll present)
+```
+
+S1 predicted `EnumProcessModulesEx` "returns essentially nothing". **Measured, it
+is sharper than that, and the difference is the whole point:** the call *fails*
+with `ERROR_PARTIAL_COPY (299)`. It does not hand back a plausible empty success.
+
+That is the good version of this news. An empty success is the dangerous shape —
+it is exactly what `EnumDeviceDrivers` does, and it is what a guard reads as
+"clean". An outright error cannot be mistaken for a clean scan by any caller that
+checks the return value. So the guard's obligation here is narrow and explicit:
+
+> **`ERROR_PARTIAL_COPY` means CANNOT DETERMINE, which means REFUSE.** Never
+> "no modules found".
+
+The blindness is the suspension and not our handle rights — the same target with
+the same rights enumerates normally once resumed. §S1 is confirmed as a real
+constraint on launch mode; what to *do* about it is still §S13(c).
+
+### ✅ §S7 · WOW64 — the wrong filter under-reports, and silently
+
+Live 32-bit target (`SysWOW64\cmd.exe`) enumerated from this x64 process:
+
+| Filter | Modules |
+|---|---|
+| `LIST_MODULES_ALL` | **15** |
+| `LIST_MODULES_DEFAULT` | 7 |
+| `LIST_MODULES_32BIT` | 9 |
+| `LIST_MODULES_64BIT` | 6 |
+
+The default filter returns **less than half** the list, and returns it as a
+*success*. A guard using the default would scan a 32-bit title, see 7 modules,
+find no anti-cheat among them and report clean. `LIST_MODULES_ALL` is mandatory,
+not a preference.
+
+### ✅ Fail-closed inputs — "cannot inspect" is a distinguishable state
+
+- **Protected process:** `OpenProcess` with the guard's own rights returns
+  `ERROR_ACCESS_DENIED (5)` for at least one process on this machine. So
+  "I could not look" and "I looked and it was clean" are genuinely different
+  values, and `19_SAFETY` §Elevated / protected targets is implementable.
+- **Absent service:** `OpenServiceW` on a non-existent name returns
+  `ERROR_SERVICE_DOES_NOT_EXIST (1060)` **specifically**, not a generic failure —
+  which is the discrimination `19_SAFETY` relies on.
+- **NOT MEASURED — the DENIED service branch.** A standard user holds
+  `SERVICE_QUERY_STATUS` on the stock service set, so `ACCESS_DENIED` is not
+  producible against real services here. It has to be driven from a unit-test
+  fake. Recorded rather than implied: A5 does **not** cover it.
+
+### ✅ Driver enumeration — the replacement measured against the fail-open
+
+```
+EnumDeviceDrivers                 ok=1  count=266  non-null bases=0  recoverable names=0
+NtQuerySystemInformation(11)      STATUS_SUCCESS  78,744 bytes
+                                  parsed=266  well-formed=266  resolvable-on-disk=257  ntoskrnl=yes
+```
+
+`EnumDeviceDrivers` reproduces its documented fail-open exactly: 266 drivers
+reported, **zero** usable base addresses, **zero** recoverable names. The `Nt*`
+route returns 266 real native paths.
+
+**The fail-open is purely a function of elevation** — established by CI, which
+runs elevated and failed this probe's original assertion:
+
+| Configuration | `EnumDeviceDrivers` |
+|---|---|
+| unelevated (this machine, the ADR-9 default) | 266 drivers, **0** bases, **0** names |
+| elevated (GitHub `windows-latest`) | 260 drivers, **260** bases, **260** names |
+
+The API is not broken; it is broken *for standard users*. That is the
+configuration ADR-9 makes the default, and it means anyone who tests this while
+elevated sees a perfectly working call and concludes the defect is imaginary.
+
+The probe's assertion was originally unconditional — "the `Nt*` route recovers
+more identities" — which encoded one machine's configuration as a universal
+fact and went red on CI for a correct reason. It is now elevation-aware: it
+asserts the fail-open when unelevated, and when elevated says plainly that this
+run **cannot** demonstrate it.
+
+**The assertions here check content, not count — deliberately.** "266 distinct
+non-empty strings" is *not* discriminating: the earlier two-byte offset bug
+produced exactly that, and every string was garbage. So the probe asserts that
+`ntoskrnl.exe` is present, that **every** path is a native path (`\SystemRoot\`
+or `\??\`), and that 257 of them name files that actually exist on disk.
+
+**Canary, run every build:** the same buffer is re-parsed with the historical
+two-byte skew and the validator must reject it —
+`well-formed=0, ntoskrnl=NO`, first entry `ystemRoot\system32\ntoskrnl.exe`.
+A count check passes that. This one does not.
+
+### Still open
+
+- **§S13(c) — decision on launch-mode injection timing.** The measurement above
+  makes the constraint precise but does not make the decision. Deliberately not
+  taken here: quantifying the early-init data actually lost needs a title that
+  loads a presentation runtime lazily, and the only local fixtures are
+  `hook-harness` (creates D3D at startup) and a 2D GOG prologue. A number from
+  those would not generalise, which is worse than recording it as unmeasured.
+
+### ✅ Signer field for the unknown-but-suspicious heuristic — **`O=`, not `CN=`**
+
+Measured 2026-08-02, Windows 11 26300, unelevated, via
+`Get-AuthenticodeSignature` on real binaries present on this machine.
+
+| Binary | `CN=` | `O=` |
+|---|---|---|
+| `kernel32.dll` | Microsoft Windows | Microsoft Corporation |
+| `win32u.dll` | Microsoft Windows | Microsoft Corporation |
+| `nvapi64.dll` | **Microsoft Windows Hardware Compatibility Publisher** | Microsoft Corporation |
+| `nvlddmkm.sys` (the display driver) | **Microsoft Windows Hardware Compatibility Publisher** | Microsoft Corporation |
+| `nvrla.exe` | NVIDIA Corporation | NVIDIA Corporation |
+| `steam.exe` | Valve Corp. | Valve Corp. |
+
+The `trustedSigners` list was a guess marked UNVERIFIED, and the schema's own
+comment said the comparison was against **CN**. Measurement says that is the
+wrong field: **WHQL re-signing replaces the CN with a Microsoft publisher
+string**, so NVIDIA's own kernel driver does not present as NVIDIA. Under a
+CN comparison the whole driver stack reads as untrusted, and paired with the
+`guard`/`protect` name fragments that is a false-refusal path — the failure
+direction that is safe for the user's account but destroys trust in the gate,
+which is how someone ends up asking for the override CLAUDE.md rule 2 says does
+not exist.
+
+`signerField` is now a schema **`const": "O"`**, so switching it back requires
+editing the schema. `"Microsoft Windows"` was dropped from `trustedSigners` — it
+is a CN value and matches nothing under `O=`.
+
+**Untested by decision (2026-08-02):** `Intel Corporation` and
+`Advanced Micro Devices, Inc.`. No AMD or Intel GPU and no iGPU on this machine
+(§Environment), and the owner elected to keep NVIDIA as the v1 focus rather than
+chase them.
+
+The WHQL finding above is what makes that cheap: both vendors' driver binaries
+are WHQL-signed, so they present `O='Microsoft Corporation'` and are already
+suppressed by the first entry. Only their **non-WHQL first-party** binaries
+depend on these two strings, and a wrong string there fails **closed** — a
+refusal, never a silent allow. Kept in the data, labelled untested, not
+presented as measured.
 
 ## 2 · Vulkan layer passthrough *(moved earlier — §R2)*
 
-- `enable_environment` behaviour with the loader:
-- Confirmed passthrough for non-enabled processes:
-- **Blast-radius check:** layer registered, unrelated Vulkan app run, nothing of
-  ours loaded/executed:
+Measured 2026-08-02 against **Vulkan loader 1.4.357** on Windows 11 26300,
+unelevated, with `tools/vklayer-blastradius.ps1`. That script is the **only**
+place the layer is registered; it registers under `HKCU`, runs `vulkaninfo`, and
+unregisters in a `finally` block including on failure. Verified clean afterwards.
+
+### ✅ `enable_environment` works, and it compares the VALUE
+
+| Condition | Result |
+|---|---|
+| `FRAMELEDGER_ENABLE_VK_LAYER` unset | loader locates the manifest, **never maps the DLL** |
+| set to `1` (the manifest's value) | `Insert instance layer` / `Inserted device layer` — mapped |
+| set to `0` (non-matching) | **not** enabled — the loader compares the value, not mere existence |
+
+The value comparison is the better of the two possible answers and was not
+safe to assume: had the loader merely checked existence, a stray
+`FRAMELEDGER_ENABLE_VK_LAYER=0` anywhere in a user's environment would have
+enabled us machine-wide.
+
+**Still a loading gate, not a security gate.** Anything running as the user can
+set the variable. It shrinks the default blast radius from "every Vulkan process
+on the machine" to "processes the Agent launched"; it does not authorise.
+
+### 🔴 Declining `vkNegotiateLoaderLayerInterfaceVersion` CRASHES the host
+
+The single most valuable thing this test found, and it was in code written the
+same afternoon. The obvious-looking gate — "if this process is not in the
+enable-list, return `VK_ERROR_INITIALIZATION_FAILED` from negotiation so the
+loader skips us" — does **not** make loader 1.4.357 skip the layer. It
+access-violates the application. Reproduced every time, with and without
+`VK_LOADER_DEBUG`:
+
+| Enable-list state (variable set) | `vulkaninfo` exit |
+|---|---|
+| file absent | `0xC0000005` |
+| file present, this process not listed | `0xC0000005` |
+| file present, this process listed | ok |
+
+So that design would have crashed **every Vulkan application on the machine
+outside our enable-list** — a far larger blast radius than the one §S2 exists to
+reduce, and inflicted on applications that have nothing to do with FrameLedger.
+
+**The rule that follows:** the layer always accepts negotiation and always
+forwards. The enable-list decides what we *intercept*, never whether we *load*.
+Being present and inert is cheap; being absent by erroring out is not something
+this loader supports.
+
+### Two false positives in the test itself, both corrected
+
+Recorded because each would have reported a working gate as broken, and both are
+the same shape as defects found elsewhere in this project:
+
+1. **Discovery is not loading.** With the variable unset the loader still prints
+   `Located json file "...\FrameLedger.VkLayer\VkLayer_..._overlay.json"`. A
+   match on `FrameLedger.VkLayer.dll` hit that *path* — the manifest sits in a
+   directory of that name.
+2. **Availability is not loading.** `vulkaninfo`'s own report lists the layer by
+   name, read from the manifest. That is the tool describing the system, not the
+   loader mapping anything.
+
+The unambiguous signal is the loader printing `Insert instance layer` /
+`Inserted device layer` with our name and DLL path.
+
+### Not yet done
+
+- **The in-layer blocklist scan** — §S2's second half. The layer intercepts
+  nothing today, which is why that gap is not yet dangerous, but §S2 must not be
+  closed until it lands.
+- **Passthrough under a real Vulkan game**, alongside the six implicit layers
+  already resident on this machine (§Environment). `vulkaninfo` proves
+  load/no-load; it does not prove a real title still renders correctly with us
+  in the chain.
 
 ## 3 · Hook viability on `hook-harness` only
 
@@ -322,9 +533,63 @@ probe mis-computed the path offset by two bytes (`INDOWS\system32\...`), which i
 exactly the class of error that must fail closed rather than silently match
 nothing. Assert the struct offsets; treat any parse failure as *refuse*.
 
-### Still open
+### ✅ H7 · Unhook does not clobber a later hooker — **closed**
 
-- Per-present cost, hooked vs unhooked (QPC around the call site):
+`hook-harness --probe-unhook`, ctest `fl_unhook_preserves_foreign`. The foreign
+hooker is simulated rather than depending on RTSS being installed, so the test
+is deterministic and runs on CI instead of only on this machine.
+
+```
+[PASS] the foreign hook chained through ours (it saved our detour as its original)
+[PASS] our unhook DECLINED to restore, because the slot is no longer ours
+[PASS] the foreign hook is still installed - we did not silently remove it
+[PASS] the foreign hook still fires after our unhook
+[PASS] with the slot untouched, our unhook DOES restore
+[PASS] the slot holds the pristine entry again
+```
+
+The mechanism is the interesting part: a later hooker saves **our detour** as
+*its* original and chains through it, so an unconditional restore does not
+"clean up after ourselves" — it deletes their hook, silently, and their overlay
+stops working with no error anywhere. `17_HOOK_ENGINE`'s "cleaner uninstall"
+claim was backwards and is corrected.
+
+Both halves are asserted deliberately. A compare-and-restore that never restores
+would pass a one-sided test and leave our detour permanently in every process.
+
+### ✅ Per-present cost — **8.4 ns, against a 1,000 ns budget**
+
+`hook-harness --probe-cost`. 20,000 presents × 5 runs, hooked and unhooked runs
+**interleaved** so scheduler or thermal drift during the run is not attributed
+to the hook, medians compared.
+
+| | ns / present |
+|---|---|
+| unhooked | 317.9 |
+| hooked | 326.3 |
+| **delta** | **8.4** (budget 1,000 — NFR-1, `14_TESTING` §Hook overhead item 1) |
+
+**Read this narrowly.** The detour is an atomic increment plus a call through the
+saved pointer, i.e. the *floor* for any vtable hook — it bounds the mechanism,
+not the product. The Overlay's real per-present cost is `14_TESTING` item 2,
+measured on a real game, and that number is not this one.
+
+Not registered as a ctest: a timing threshold on a shared CI runner fails for
+reasons that have nothing to do with the code. Run it deliberately.
+
+### Still open in §3
+
+Both remaining items need something this harness cannot synthesise:
+
+- **§H2** — the deferred `LoadLibrary` install pattern is verified against heavy
+  loader contention, but the case against the naive inline install still rests
+  on the mechanism, not a measurement. Exercising it needs a real game that
+  loads D3D12 lazily.
+- **§H5** — a forwarding proxy does not defeat a real-vtable hook. DLSS-G
+  presenting *interpolated* frames the application never submitted is the case
+  that matters for FG counting, and it needs a real Streamline title.
+
+Everything else in §3 is answered: H1, H3, H4, H7 and the per-present cost.
 
 ## 4 · Vendor symbol reality check
 

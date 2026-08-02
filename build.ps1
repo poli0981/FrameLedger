@@ -208,8 +208,28 @@ function Invoke-Managed([bool]$FixFormat) {
     }
 
     Write-Step 'Tests'
+    # `dotnet test` writes each run into a fresh TestResults/<guid>/ and never
+    # prunes. Left alone they accumulate — 24 after a handful of builds — and
+    # any gate that reads "the coverage reports" then reads mostly history.
+    # Clear them so the gate below sees this run and only this run.
+    Get-ChildItem (Join-Path $repo 'tests') -Directory -Filter 'TestResults' -Recurse -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     Invoke-Checked 'dotnet test' {
         dotnet test $solution -c $Configuration --no-build --collect:"XPlat Code Coverage"
+    }
+
+    # The cobertura reports above were produced and ignored from the day the
+    # repository was scaffolded, while 14_TESTING called its thresholds
+    # PR-failing. The gate is self-arming: it reports emptiness explicitly today
+    # and starts enforcing the moment Domain or Application gains a .cs file,
+    # so the number is never negotiated against code that already exists.
+    Write-Step 'coverage-gate'
+    $coverageTool = Join-Path $repo 'tools/coverage-gate.ps1'
+    if (Test-Path $coverageTool) {
+        Invoke-Checked 'coverage-gate' { & $coverageTool }
+    }
+    else {
+        Skip-Gate 'coverage-gate' 'tools/coverage-gate.ps1 not implemented yet'
     }
 }
 
@@ -224,6 +244,21 @@ function Invoke-ProjectGates {
     }
     else {
         Skip-Gate 'rules-validate' 'tools/rules-validate.ps1 not implemented yet'
+    }
+
+    # Being plainly identifiable to anti-cheat is a requirement, not packaging
+    # polish (docs/19_SAFETY_AND_ANTICHEAT.md). Reads the built binary, because
+    # what ships is what an anti-cheat vendor sees.
+    Write-Step 'versioninfo-check'
+    $versionTool = Join-Path $repo 'tools/versioninfo-check.ps1'
+    if ((Test-Path $versionTool) -and -not $SkipNative) {
+        Invoke-Checked 'versioninfo-check' { & $versionTool -BuildDir (Join-Path $repo "build/native/x64-$($Configuration.ToLower())") }
+    }
+    elseif ($SkipNative) {
+        Skip-Gate 'versioninfo-check' 'native build skipped, so there is no binary to inspect'
+    }
+    else {
+        Skip-Gate 'versioninfo-check' 'tools/versioninfo-check.ps1 not implemented yet'
     }
 
     Write-Step 'license-check'

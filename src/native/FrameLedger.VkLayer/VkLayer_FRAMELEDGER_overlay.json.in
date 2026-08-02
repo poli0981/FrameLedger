@@ -1,0 +1,17 @@
+{
+    "file_format_version": "1.2.0",
+    "layer": {
+        "name": "VK_LAYER_FRAMELEDGER_overlay",
+        "type": "GLOBAL",
+        "library_path": "@FL_VKLAYER_LIBRARY_PATH@",
+        "api_version": "1.4.357",
+        "implementation_version": "1",
+        "description": "FrameLedger performance capture (opt-in per game; passthrough otherwise)",
+        "enable_environment": {
+            "FRAMELEDGER_ENABLE_VK_LAYER": "1"
+        },
+        "disable_environment": {
+            "DISABLE_FRAMELEDGER_VK_LAYER": "1"
+        }
+    }
+}
