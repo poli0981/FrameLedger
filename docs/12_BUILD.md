@@ -54,6 +54,23 @@ Launch profiles:
 - **"UI + Agent"** — both managed processes, real capture against `hook-harness`.
 - **"Harness + Overlay"** — starts `hook-harness` under the debugger with the Overlay injected at launch; attach a second native debugger to step hook code.
 
+**Toolchain gotchas, both hit on a real machine and both handled by `build.ps1`:**
+
+- **msys2 / MinGW on `PATH` breaks the native build.** `vcvars64` *prepends* to
+  whatever `PATH` it inherits, and MSVC ships `link.exe` — there is no `ld.exe`
+  to shadow MinGW's. CMake then picks MinGW's linker and the build dies with
+  `cannot find /nologo: No such file or directory`, a failure a long way from
+  its cause. `build.ps1` strips only the MinGW entries before importing the
+  MSVC environment, so `dotnet`, `git` and `cmake` survive.
+- **`vcvars64` exports `Platform=x64`,** which is meaningful for `.vcxproj`
+  builds. We have none, and MSBuild reads it as a *solution* platform, so
+  `dotnet build FrameLedger.slnx` then fails with `MSB4126 solution
+  configuration "Release|x64" is invalid`. `build.ps1` clears it after import;
+  project-level x64 comes from `Directory.Build.props`.
+- `ninja` and `clang-format` both ship inside the VS C++ workload but are on
+  neither the default `PATH` nor the `vcvars` one. `build.ps1` locates both, so
+  the C++ workload alone is enough to run every gate.
+
 Native debugging notes: use **`hook-harness`, never a real game**, for step-through debugging — a breakpoint inside a present hook of a real game freezes it in ways anti-cheat and drivers both dislike. Enable the Vulkan validation layers when touching `FrameLedger.VkLayer`. Application Verifier + PageHeap on the harness catches ring-buffer bugs early.
 
 Agent flags: `--serve`, `--console`, `--diag`, `--install-task`, `--uninstall-task`, `--register-vklayer`, `--unregister-vklayer`.

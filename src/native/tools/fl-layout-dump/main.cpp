@@ -9,18 +9,16 @@
 // architecture: nothing crashes, the Agent just reads garbage into fields that
 // look plausible.
 
-#include <fl_shm.h>
-
 #include <cstddef>
 #include <cstdio>
+#include <fl_shm.h>
 
 using namespace fl;
 
 namespace {
 
 void Field(const char* name, size_t offset, size_t size, bool last = false) {
-    std::printf("      { \"name\": \"%s\", \"offset\": %zu, \"size\": %zu }%s\n", name, offset, size,
-                last ? "" : ",");
+    std::printf("      { \"name\": \"%s\", \"offset\": %zu, \"size\": %zu }%s\n", name, offset, size, last ? "" : ",");
 }
 
 }    // namespace

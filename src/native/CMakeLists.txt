@@ -61,6 +61,11 @@ add_subdirectory(FrameLedger.Injector)
 add_subdirectory(FrameLedger.VkLayer)
 
 if(FL_BUILD_TESTS)
+    # enable_testing() must be called from the TOP-LEVEL CMakeLists, not from
+    # tests/. Calling it only in the subdirectory configures without error and
+    # then reports "No tests were found!!!" at ctest time — a green build with
+    # a silently empty test gate.
+    enable_testing()
     add_subdirectory(tests)
 endif()
 
