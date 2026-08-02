@@ -300,6 +300,28 @@ So: layering does not inherently break the strategy, which is genuinely good
 news for the vtable approach. A real Streamline/DLSS-G title is still required
 before §H5 closes.
 
+### 🔴 Guard · The documented driver scan is blind unelevated — **fail-open found**
+
+Measured 2026-08-02, Windows 11 26300, standard user (the default Agent
+configuration under ADR-9). Independently reproduced twice.
+
+| API | Result unelevated |
+|---|---|
+| `EnumDeviceDrivers` (what `19_SAFETY` specified) | `ok=True`, 258 drivers, **0 usable base addresses**, **1** recoverable name (`ntoskrnl.exe`) |
+| `NtQuerySystemInformation(SystemModuleInformation)` | `STATUS_SUCCESS`, 258 modules, **258 distinct full paths**, real driver names legible |
+
+The first one **succeeds while telling you nothing**. A guard built on it would
+report "no anti-cheat driver present" on a machine running Riot Vanguard. That is
+a fail-open in the hard gate, in the default configuration — the single most
+serious defect found in this project so far, and it was in a shipped doc.
+
+`19_SAFETY` §Pre-injection checks now specifies the `Nt*` route. Caveats that
+must not be lost: the API is documented-as-unsupported, and
+`RTL_PROCESS_MODULE_INFORMATION`'s layout is version-sensitive — my own quick
+probe mis-computed the path offset by two bytes (`INDOWS\system32\...`), which is
+exactly the class of error that must fail closed rather than silently match
+nothing. Assert the struct offsets; treat any parse failure as *refuse*.
+
 ### Still open
 
 - Per-present cost, hooked vs unhooked (QPC around the call site):

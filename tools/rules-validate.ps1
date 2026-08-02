@@ -33,10 +33,51 @@ if (-not (Test-Path $Path)) {
 }
 
 try {
-    $rules = Get-Content $Path -Raw | ConvertFrom-Json
+    $rulesRaw = Get-Content $Path -Raw
+    $rules = $rulesRaw | ConvertFrom-Json
 }
 catch {
     Write-Host "RULES VALIDATION FAILED: not valid JSON — $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+
+# --- Schema validation (S5) -------------------------------------------------
+# Test-Json FAILS OPEN on a broken schema: measured on PowerShell 7.6.4,
+# `-Schema '{'` returns $true while writing "Cannot parse the JSON schema" to
+# the error stream. A corrupted or truncated schema file would therefore make
+# every rules file "valid", including one with an empty blocklist.
+#
+# So the schema is proved to be DISCRIMINATING before it is trusted: a canary
+# document that MUST fail is validated first. If the canary passes, the schema
+# is not doing its job and we refuse rather than continue.
+$schemaPath = Join-Path (Split-Path $Path -Parent) 'detection-rules.schema.json'
+if (-not (Test-Path $schemaPath)) {
+    Write-Host "RULES VALIDATION FAILED: schema missing at $schemaPath" -ForegroundColor Red
+    exit 1
+}
+$schema = Get-Content $schemaPath -Raw
+
+$canaryPassed = $false
+try {
+    # Missing every required key — no working schema can accept this.
+    $canaryPassed = ('{"schemaVersion":"not-a-number"}' | Test-Json -Schema $schema -ErrorAction SilentlyContinue)
+}
+catch { $canaryPassed = $false }
+if ($canaryPassed) {
+    Write-Host 'RULES VALIDATION FAILED: the schema accepted a document it must reject.' -ForegroundColor Red
+    Write-Host '  The schema is unusable (Test-Json fails open on a malformed schema), so' -ForegroundColor Red
+    Write-Host '  a pass here would mean nothing. Refusing rather than reporting success.' -ForegroundColor Red
+    exit 1
+}
+
+$schemaOk = $false
+try { $schemaOk = ($rulesRaw | Test-Json -Schema $schema -ErrorAction Stop) }
+catch {
+    Write-Host "RULES VALIDATION FAILED: does not match the schema — $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+if (-not $schemaOk) {
+    Write-Host 'RULES VALIDATION FAILED: does not match rules/detection-rules.schema.json' -ForegroundColor Red
     exit 1
 }
 
