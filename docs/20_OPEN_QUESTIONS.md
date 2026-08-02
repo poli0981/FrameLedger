@@ -202,13 +202,32 @@ prologue) cannot produce a figure that generalises.
 Not questions — commitments the §S13(a) decision creates. **Three of four are
 done; item 1 is the one still open.**
 
-- **1 — one matcher, not two: STILL OPEN.** The native guard exists
-  (`FrameLedger.Injector/src/fl_guard.cpp`), but `04_CAPTURE` §The guard still
-  writes `AntiCheatGuard.Check(pid)` and `01_ARCHITECTURE` still draws the guard
-  inside the Agent box. Nothing managed exists yet, so nothing is *wrong* today
-  — but the moment `Infrastructure` gains a guard type that is anything other
-  than a thin P/Invoke facade over `fl::guard::GuardedInject`, there are two
-  blocklist matchers that can disagree, which is a fail-open by construction.
+- **1 — one matcher, not two: DONE.** `FrameLedger.Guard.dll` exposes a C ABI;
+  `Infrastructure`'s `NativeAntiCheatGuard` is a thin P/Invoke facade over it,
+  and `Application`'s `IAntiCheatGuard` exposes only the two questions the guard
+  answers — no rules, no blocklist, no evidence. `04_CAPTURE` and
+  `01_ARCHITECTURE` are corrected. Two tests keep it true: one asserts no
+  managed type carries a blocklist token and the port accepts no evidence, the
+  other asserts the managed `AntiCheatRefusalReason` has not drifted from
+  `fl::guard::Reason` by reading every name back through the ABI.
+
+  Three things that came out of building it:
+
+  - **The guard DLL is loaded by absolute path**, via a
+    `NativeLibrary.SetDllImportResolver`, and never by search. A planted
+    `FrameLedger.Guard.dll` earlier on the probe order would replace the entire
+    gate with whatever an attacker wanted it to say — a worse outcome than any
+    other DLL-hijack in this application. CA5393 rejects `ApplicationDirectory`
+    for exactly that reason, and no "safe" search path fits a DLL of our own,
+    so the search path is not merely restricted but never consulted.
+  - **A default-constructed `AntiCheatVerdict` must not read as permission.**
+    The native `Verdict` gets a member initialiser; a C# struct zeroes every
+    field and `Allow` is 0 — which it must stay, because it mirrors the native
+    enum. The verdict therefore records whether it came from an evaluation at
+    all: a value nobody assigned has evaluated nothing and permits nothing.
+  - **`FrameLedger.Application` shadows `System.Windows.Application`** inside
+    `FrameLedger.App`, because a sibling namespace beats a `using`. The WPF
+    `App` class now says `System.Windows.Application` in full.
 - **2 — Catch2: DONE.** `src/native/tests/guard_test.cpp`, ctest `fl_guard`.
   The seams are `fl::guard::Sources`, plain function pointers so the guard
   allocates nothing, and every failure in `14_TESTING`'s matrix is forced

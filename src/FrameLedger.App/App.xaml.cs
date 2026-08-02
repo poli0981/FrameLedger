@@ -18,6 +18,11 @@ namespace FrameLedger.App;
 ///   registered in DI.</item>
 /// </list>
 /// </remarks>
-public partial class App : Application
+// FULLY QUALIFIED, deliberately. This project's namespace is FrameLedger.App
+// and there is now a FrameLedger.Application namespace beside it, so the bare
+// name `Application` resolves to that NAMESPACE rather than to the WPF type
+// (CS0118) — sibling namespaces win over a `using`. Anything here that means
+// the WPF Application must say so in full.
+public partial class App : System.Windows.Application
 {
 }

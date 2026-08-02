@@ -14,6 +14,42 @@
     <ProjectReference Include="..\FrameLedger.Shared\FrameLedger.Shared.csproj" />
   </ItemGroup>
 
+  <!--
+    The native guard travels with this assembly and with everything that
+    references it (docs/12_BUILD.md §Local build).
+
+    NativeAntiCheatGuard loads it BY ABSOLUTE PATH from AppContext.BaseDirectory
+    and never falls back to a search, so it has to actually be there — which is
+    the point: a guard that could be "not found" and shrugged off would be a
+    guard with an off switch.
+
+    build.ps1 runs the native build before the managed one, so by the time this
+    evaluates the DLL exists. If it does not, FAIL — see the target below.
+  -->
+  <PropertyGroup>
+    <FlNativeOutDir>$(MSBuildThisFileDirectory)..\..\build\native\x64-release\FrameLedger.Injector\</FlNativeOutDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(FlNativeOutDir)FrameLedger.Guard.dll" Condition="Exists('$(FlNativeOutDir)FrameLedger.Guard.dll')">
+      <Link>FrameLedger.Guard.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!--
+    A missing guard must not degrade into a build that quietly produces an
+    application without one. It is not an error to build before the native
+    layer exists (a fresh clone, or ./build.ps1 managed -SkipNative), so this
+    warns rather than fails — but it says exactly what is missing and what it
+    means, instead of surfacing later as a DllNotFoundException at the moment
+    somebody tries to start a capture.
+  -->
+  <Target Name="FlWarnOnMissingGuard" AfterTargets="Build"
+          Condition="!Exists('$(FlNativeOutDir)FrameLedger.Guard.dll')">
+    <Warning Text="FrameLedger.Guard.dll was not found at $(FlNativeOutDir). The anti-cheat guard is native; without it no capture can start. Run ./build.ps1 native first." />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Dapper" />

@@ -7,7 +7,7 @@
 │ FrameLedger.exe (UI)     │  FrameLedger.v2 │ FrameLedger.Agent.exe        │
 │ standard user            │◄───────────────►│ standard user (elev. optional)│
 │ WPF · Wpf.Ui · ScottPlot │                 │ ├ ProcessWatcher              │
-└──────────────────────────┘                 │ ├ AntiCheatGuard  ◄─ 19_SAFETY│
+└──────────────────────────┘                 │ ├ AntiCheatGuard* ◄─ 19_SAFETY│
                                              │ ├ Injector (launch / attach)  │
               SQLite (WAL)  ◄────────────────┤ ├ ShmReader (10 Hz drain)     │
                                              │ ├ VendorTelemetry (NVAPI/…)   │
@@ -27,6 +27,12 @@
 │   └ ring writer (allocation-free, lock-free, SEH-guarded)                 │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+> `*` **`AntiCheatGuard` is a facade, not an implementation.** The guard is
+> native (`20_OPEN_QUESTIONS` §S13(a)); the box above is the P/Invoke wrapper
+> in `Infrastructure` that the Agent calls. Nothing managed parses rules or
+> matches a blocklist — two matchers that can disagree is a fail-open by
+> construction, and a test asserts there is only one (§S15 item 1).
 
 ## Why this shape
 

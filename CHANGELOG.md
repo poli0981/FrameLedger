@@ -120,6 +120,27 @@ GitHub release body, so a missing section means an empty release note.
     app, no game and no anti-cheat surface — and assert both directions: a
     passing verdict really loads the DLL, and a **refused** verdict leaves the
     target untouched.
+- **The managed guard facade — §S15 item 1, and the first real managed code.**
+  `FrameLedger.Guard.dll` exposes a C ABI; `Infrastructure`'s
+  `NativeAntiCheatGuard` is a thin P/Invoke facade over it, and
+  `Application`'s `IAntiCheatGuard` exposes only the two questions the guard
+  answers — no rules, no blocklist, no evidence. **Nothing managed matches an
+  anti-cheat blocklist**, because two matchers that can disagree is a fail-open
+  by construction. Two tests keep that true: one asserts no managed type
+  carries a blocklist token and the port accepts no evidence; the other asserts
+  `AntiCheatRefusalReason` has not drifted from `fl::guard::Reason`, by reading
+  every name back through the ABI.
+  - `HookedCaptureGate` checks the one thing the native guard structurally
+    cannot see — **per-game consent** (CLAUDE.md rule 1) — and refuses an
+    un-enabled, unconsented or previously-blocked game *without the guard being
+    called at all*.
+  - **The guard DLL is loaded by absolute path** and never by search: a planted
+    `FrameLedger.Guard.dll` would replace the entire gate. CA5393 rejects
+    `ApplicationDirectory` and no "safe" search path fits a DLL of our own, so
+    a `DllImportResolver` pins the load to one file beside the assembly.
+  - The **coverage gate armed itself** exactly as designed the moment Domain
+    and Application gained source: 100% over 38 and 50 lines against the 80%
+    floor, with no threshold negotiated after the fact.
 - **Catch2 and jsmn**, both pinned by commit (§S15 items 2 and 3). jsmn was
   chosen for what it does *not* do: no allocation, no exceptions, failure as a
   return code. `/EHsc` is on the test binary only — a throw crossing the guard
@@ -187,6 +208,10 @@ GitHub release body, so a missing section means an empty release note.
   `blockedStoreIds` are both empty, so it matches nothing. Recorded in the data,
   beside the check, and as `20_OPEN_QUESTIONS` §S14, rather than being
   inferable only from two empty arrays.
+- `FrameLedger.App` could not compile once `FrameLedger.Application` existed:
+  a sibling namespace beats a `using`, so the bare name `Application` resolved
+  to the namespace rather than the WPF type. The `App` class now says
+  `System.Windows.Application` in full.
 - **A Vulkan layer that declined to load would have crashed the host.** Found by
   the blast-radius test, in code written the same day. Returning
   `VK_ERROR_INITIALIZATION_FAILED` from `vkNegotiateLoaderLayerInterfaceVersion`
