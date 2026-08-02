@@ -1,0 +1,137 @@
+{
+  "$comment": [
+    "Rules are DATA, not code (docs/05_DETECTION.md). This file ships with the",
+    "app and is updatable from the repository independently of releases.",
+    "",
+    "The `anticheat` block is what feeds the hard gate in",
+    "docs/19_SAFETY_AND_ANTICHEAT.md. Updates to it are treated as security",
+    "updates: applied on the next check regardless of the user's auto-update",
+    "preference for other rules. Removing an entry is a safety change and needs",
+    "the same review as a security fix (docs/13_CI_CD.md §rules-publish).",
+    "",
+    "SEED, NOT COMPLETE. docs/20_OPEN_QUESTIONS.md §S5 records that the schema",
+    "cannot yet express everything docs/19_SAFETY §Blocklist seed describes —",
+    "service names, directory presence and the unknown-but-suspicious heuristic",
+    "are represented below but the validator does not yet enforce their shape."
+  ],
+  "schemaVersion": 2,
+  "rulesVersion": "2026.08.1",
+
+  "engines": [
+    {
+      "id": "unity",
+      "name": "Unity",
+      "signals": { "any": [
+        { "type": "sibling_glob", "value": "UnityPlayer.dll" },
+        { "type": "dir_exists", "value": "${ExeName}_Data" }
+      ] },
+      "version": { "type": "pe_file_version", "from": "UnityPlayer.dll" }
+    },
+    {
+      "id": "unreal",
+      "name": "Unreal Engine",
+      "signals": { "any": [
+        { "type": "sibling_glob", "value": "*-Win64-Shipping.exe" },
+        { "type": "sibling_glob", "value": "*/Content/Paks/*.pak" }
+      ] },
+      "version": { "type": "pe_product_version_regex", "value": "\\+\\+UE(4|5)\\+Release-(\\d+\\.\\d+)" }
+    },
+    {
+      "id": "godot",
+      "name": "Godot",
+      "signals": { "any": [
+        { "type": "sibling_glob", "value": "*.pck" },
+        { "type": "strings_contains", "value": "Godot Engine v" }
+      ] },
+      "version": { "type": "strings_regex", "value": "Godot Engine v(\\d+\\.\\d+[\\.\\d]*)" }
+    },
+    {
+      "id": "gamemaker",
+      "name": "GameMaker",
+      "signals": { "all": [ { "type": "sibling_glob", "value": "data.win" } ] },
+      "version": null
+    },
+    {
+      "id": "renpy",
+      "name": "Ren'Py",
+      "signals": { "any": [
+        { "type": "dir_exists", "value": "renpy" },
+        { "type": "sibling_glob", "value": "*.rpa" }
+      ] },
+      "version": null
+    }
+  ],
+
+  "platforms": [
+    {
+      "id": "steam",
+      "name": "Steam",
+      "signals": { "any": [
+        { "type": "sibling_glob", "value": "steam_api64.dll" },
+        { "type": "sibling_glob", "value": "steam_api.dll" },
+        { "type": "path_contains", "value": "steamapps\\common" }
+      ] }
+    },
+    {
+      "id": "gog",
+      "name": "GOG",
+      "signals": { "any": [
+        { "type": "sibling_glob", "value": "goggame-*.info" },
+        { "type": "sibling_glob", "value": "Galaxy64.dll" }
+      ] }
+    },
+    {
+      "id": "epic",
+      "name": "Epic Games",
+      "signals": { "any": [
+        { "type": "sibling_glob", "value": "EOSSDK-Win64-Shipping.dll" }
+      ] }
+    },
+    {
+      "id": "itch",
+      "name": "itch.io",
+      "signals": { "any": [
+        { "type": "sibling_glob", "value": ".itch/receipt.json.gz" }
+      ] }
+    }
+  ],
+
+  "capabilities": [
+    { "id": "dlss",    "name": "DLSS",              "signals": [ "nvngx_dlss.dll" ] },
+    { "id": "dlss_g",  "name": "DLSS Frame Gen",    "signals": [ "nvngx_dlssg.dll", "sl.dlss_g.dll" ] },
+    { "id": "dlss_rr", "name": "Ray Reconstruction","signals": [ "nvngx_dlssd.dll" ] },
+    { "id": "streamline", "name": "Streamline",     "signals": [ "sl.interposer.dll", "sl.reflex.dll" ] },
+    { "id": "fsr",     "name": "FSR",               "signals": [ "ffx_fsr2_*.dll", "ffx_frameinterpolation_*.dll", "amd_fidelityfx_*.dll", "ffx_api*.dll" ] },
+    { "id": "xess",    "name": "XeSS",              "signals": [ "libxess.dll" ] },
+    { "id": "xefg",    "name": "XeSS Frame Gen",    "signals": [ "libxess_fg.dll" ] }
+  ],
+
+  "anticheat": {
+    "$comment": "MUST be non-empty. An empty block is a fail-closed test fixture, never a ship state.",
+    "modules": [
+      { "family": "Easy Anti-Cheat", "match": "prefix", "values": [ "EasyAntiCheat", "EasyAntiCheat_EOS" ] },
+      { "family": "BattlEye",        "match": "prefix", "values": [ "BEClient", "BEService" ] },
+      { "family": "Denuvo Anti-Cheat","match": "prefix", "values": [ "denuvo" ] },
+      { "family": "nProtect GameGuard","match": "prefix", "values": [ "GameGuard", "npgg", "GameMon" ] },
+      { "family": "Xigncode3",       "match": "prefix", "values": [ "xhunter" ] },
+      { "family": "PunkBuster",      "match": "prefix", "values": [ "PnkBstr", "pbcl", "pbsv" ] },
+      { "family": "FACEIT",          "match": "prefix", "values": [ "faceit" ] },
+      { "family": "ESEA",            "match": "prefix", "values": [ "esea" ] }
+    ],
+    "drivers": [
+      { "family": "Riot Vanguard", "match": "exact", "values": [ "vgk.sys" ], "scope": "machine" },
+      { "family": "mihoyo protect", "match": "prefix", "values": [ "mhyprot" ], "scope": "machine" }
+    ],
+    "directories": [
+      { "family": "Easy Anti-Cheat", "values": [ "EasyAntiCheat" ] },
+      { "family": "BattlEye",        "values": [ "BattlEye" ] }
+    ],
+    "services": [
+      { "family": "Easy Anti-Cheat", "values": [ "EasyAntiCheat", "EasyAntiCheat_EOS" ] },
+      { "family": "Riot Vanguard",   "values": [ "vgc" ] }
+    ],
+    "suspiciousNameFragments": [ "anticheat", "antitamper", "gameguard" ],
+    "blockedExecutables": [],
+    "blockedStoreIds": []
+  }
+}

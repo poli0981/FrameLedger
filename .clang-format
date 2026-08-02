@@ -1,0 +1,43 @@
+# docs/12_BUILD.md: clang-format (LLVM base, 4-space, 120 col), enforced in CI
+# via `clang-format --dry-run -Werror` over src/native.
+---
+Language: Cpp
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+
+AccessModifierOffset: -4
+AlignAfterOpenBracket: Align
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Attach
+BreakConstructorInitializers: BeforeColon
+Cpp11BracedListStyle: true
+FixNamespaceComments: true
+NamespaceIndentation: None
+PointerAlignment: Left
+SortIncludes: CaseInsensitive
+SpaceAfterCStyleCast: false
+SpacesBeforeTrailingComments: 4
+Standard: c++20
+
+# Keep the hot-path record and header structs readable as tables: their field
+# comments carry the byte offsets that 07_IPC.md declares normative.
+AlignConsecutiveDeclarations: Consecutive
+AlignTrailingComments: true
+
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<windows\.h>'
+    Priority: 1
+  - Regex: '^<(d3d|dxgi|vulkan|GL)'
+    Priority: 2
+  - Regex: '^<'
+    Priority: 3
+  - Regex: '^"'
+    Priority: 4

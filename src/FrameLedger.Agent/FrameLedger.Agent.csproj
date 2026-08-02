@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Capture orchestrator: process watcher, anti-cheat guard, injector control,
+    shm drain, telemetry poller, session recorder (docs/04_CAPTURE.md).
+    Runs as a standard user by default (ADR-9); elevation is optional and only
+    unlocks CPU sensors, elevated-game attach, and the Tier-2 ETW source.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>FrameLedger.Agent</AssemblyName>
+    <RootNamespace>FrameLedger.Agent</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FrameLedger.Application\FrameLedger.Application.csproj" />
+    <ProjectReference Include="..\FrameLedger.Infrastructure\FrameLedger.Infrastructure.csproj" />
+    <ProjectReference Include="..\FrameLedger.Shared\FrameLedger.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <PackageReference Include="Serilog.Sinks.File" />
+  </ItemGroup>
+
+</Project>

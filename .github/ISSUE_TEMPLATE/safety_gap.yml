@@ -1,0 +1,66 @@
+# README: "If you find a game with anti-cheat that FrameLedger fails to detect,
+# please open an issue — that is a safety bug and is treated with the same
+# priority as a security report."
+#
+# It deserves its own template rather than being buried in the bug form: a
+# missed blocklist entry can cost someone their account, and blocklist entries
+# ship as data so a fix does not need a release.
+name: Safety gap — undetected anti-cheat
+description: FrameLedger failed to detect anti-cheat in a game
+labels: [safety, priority-high]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting this. Blocklist entries ship as data
+        (`rules/detection-rules.json`) and can be updated without a new release,
+        so this can usually be fixed quickly for everyone.
+
+        **Please do not include instructions for defeating any anti-cheat
+        system.** We need to know what to refuse, not how to evade it.
+
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      placeholder: 'Name, and the store it came from'
+    validations:
+      required: true
+
+  - type: input
+    id: anticheat
+    attributes:
+      label: Which anti-cheat or anti-tamper
+      placeholder: 'e.g. Easy Anti-Cheat, BattlEye, Denuvo Anti-Cheat'
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How do you know it is present?
+      description: |
+        Module names, a directory next to the executable, a service, or a
+        driver. Filenames are the most useful thing you can give us.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: what-happened
+    attributes:
+      label: What did FrameLedger do?
+      options:
+        - 'Allowed hooking to be enabled (the toggle was not disabled)'
+        - 'Injected successfully'
+        - 'Injected, then something went wrong'
+        - 'Other'
+    validations:
+      required: true
+
+  - type: textarea
+    id: consequences
+    attributes:
+      label: Did anything happen to your account?
+      description: |
+        Only if you are comfortable sharing. It helps us judge severity, and it
+        is genuinely useful to other users.

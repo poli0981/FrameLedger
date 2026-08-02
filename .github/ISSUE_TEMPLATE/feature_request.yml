@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest something FrameLedger should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening: `docs/15_ROADMAP.md` lists what is planned, and
+        `docs/02_SPEC.md` §Out of scope lists what is permanently excluded.
+
+        **Permanently out of scope, regardless of how it is framed:** any
+        evasion technique, reading or writing game memory, kernel drivers,
+        hardware control (overclocking, fan curves, power limits), and
+        online/competitive titles. These are architectural constraints from
+        `docs/19_SAFETY_AND_ANTICHEAT.md`, not a backlog.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: The situation you are in, not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like it to do?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This does not require evasion, game memory access, a kernel driver, or hardware control
+          required: true
+        - label: I checked docs/15_ROADMAP.md

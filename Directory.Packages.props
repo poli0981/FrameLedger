@@ -1,0 +1,98 @@
+<Project>
+
+  <!--
+    Central package management (docs/12_BUILD.md). Every version is pinned here
+    and nowhere else, which also makes Dependabot PRs single-file diffs.
+    All versions verified against nuget.org on 2026-08-02.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="UI">
+    <!--
+      WPF UI (lepoco). Pinned EXACTLY, deliberately.
+      The 4.x line has NuGet-deprecated releases with critical bugs
+      (4.0.0-4.0.3, 4.1.0, 4.2.0). Never let this float, never go below 4.2.1,
+      and read the release notes on every bump. docs/16_WPFUI_SYNTAX.md
+      §Version hygiene. ui:NumberBox SpinButtonPlacementMode needs >= 4.3.0.
+      Last reviewed: 2026-08-02.
+    -->
+    <PackageVersion Include="WPF-UI" Version="[4.3.0]" />
+    <PackageVersion Include="WPF-UI.Abstractions" Version="[4.3.0]" />
+    <PackageVersion Include="WPF-UI.DependencyInjection" Version="[4.3.0]" />
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageVersion Include="ScottPlot.WPF" Version="5.1.59" />
+    <PackageVersion Include="H.NotifyIcon.Wpf" Version="2.4.1" />
+  </ItemGroup>
+
+  <ItemGroup Label="Hosting and logging">
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <PackageVersion Include="Serilog" Version="4.4.0" />
+    <PackageVersion Include="Serilog.Extensions.Hosting" Version="10.0.0" />
+    <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Storage">
+    <!-- No EF: Dapper over Microsoft.Data.Sqlite (CLAUDE.md pinned stack). -->
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageVersion Include="Dapper" Version="2.1.79" />
+    <!--
+      Transitive pin, not a direct dependency.
+
+      Microsoft.Data.Sqlite 10.0.10 resolves SQLitePCLRaw.lib.e_sqlite3 2.1.11,
+      which carries GHSA-2m69-gcr7-jv3q (high severity, vulnerable range
+      <= 2.1.11) via its bundled SQLite. With TreatWarningsAsErrors that is
+      NU1903 and the build fails — correctly. Pinning the bundle forward to the
+      3.x line pulls a patched native library.
+
+      CentralPackageTransitivePinningEnabled is what makes this work from here.
+      Revisit when Microsoft.Data.Sqlite ships a build that resolves a patched
+      version on its own, and drop this pin rather than carrying it forever.
+    -->
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+  </ItemGroup>
+
+  <ItemGroup Label="Interop, telemetry and packaging">
+    <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.298" />
+    <PackageVersion Include="Velopack" Version="1.2.0" />
+    <!-- MPL-2.0. docs/18_GPU_VENDOR_APIS.md §L2 requires >= 0.9.6, and
+         legal/THIRD_PARTY_NOTICES.md has a release-gate check that no
+         depended-upon file carries MPL-2.0 Exhibit B. Consume UNMODIFIED. -->
+    <PackageVersion Include="LibreHardwareMonitorLib" Version="0.9.6" />
+  </ItemGroup>
+
+  <ItemGroup Label="Analyzers (build-time only)">
+    <PackageVersion Include="Roslynator.Analyzers" Version="4.15.0" />
+    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.138" />
+    <PackageVersion Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.7.23" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <!--
+      FluentAssertions is pinned to the 7.x line ON PURPOSE, and must not be
+      bumped to 8.x without redoing the licence analysis.
+
+      7.2.2  <license type="expression">Apache-2.0</license>
+      8.0.0+ <license type="file">LICENSE.md</license>,
+             "Copyright 2024-2025 Xceed Software Inc., all rights reserved"
+
+      The 8.x line moved to Xceed's Community License, which is not an OSI
+      licence and carries field-of-use restrictions. docs/18_GPU_VENDOR_APIS.md
+      §Checklist before adding any vendor SDK is explicit: MIT / BSD /
+      Apache-2.0 / MPL-2.0 proceed, anything else does not, and the decision
+      gets recorded either way. That checklist is written about GPU SDKs but
+      the reasoning does not stop at test dependencies.
+      Reviewed 2026-08-02. See docs/20_OPEN_QUESTIONS.md §G.
+    -->
+    <PackageVersion Include="FluentAssertions" Version="[7.2.2]" />
+    <PackageVersion Include="NSubstitute" Version="6.0.0" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+  </ItemGroup>
+
+</Project>

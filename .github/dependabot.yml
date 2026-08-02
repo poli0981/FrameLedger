@@ -1,0 +1,27 @@
+# Central package management makes NuGet PRs single-file diffs
+# (docs/12_BUILD.md, docs/13_CI_CD.md).
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # WPF-UI is pinned exactly and bumped deliberately: the 4.x line has
+      # NuGet-deprecated releases with critical bugs, and every bump needs the
+      # release notes read (docs/16_WPFUI_SYNTAX.md §Version hygiene).
+      - dependency-name: WPF-UI*
+      # FluentAssertions 8.x moved from Apache-2.0 to Xceed's Community
+      # Licence. An automated major bump here would be a licensing regression
+      # in a GPL-3.0 project (see Directory.Packages.props).
+      - dependency-name: FluentAssertions
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

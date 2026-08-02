@@ -1,0 +1,28 @@
+# FrameLedger is a Windows-only project and .editorconfig mandates CRLF.
+# Without this file, line endings depend on each contributor's core.autocrlf
+# setting, and `dotnet format --verify-no-changes` (a build.ps1 check gate)
+# fails for reasons that do not appear in a diff.
+
+* text=auto eol=crlf
+
+# Shell scripts must keep LF or they will not run under bash / CI containers.
+*.sh   text eol=lf
+*.bash text eol=lf
+
+# Binary — never normalize, never diff as text.
+*.png    binary
+*.jpg    binary
+*.ico    binary
+*.dll    binary
+*.exe    binary
+*.lib    binary
+*.pdb    binary
+*.db     binary
+*.zip    binary
+*.ttf    binary
+*.otf    binary
+
+# Linguist: keep generated and vendored material out of language statistics.
+docs/**      linguist-documentation
+legal/**     linguist-documentation
+src/native/third_party/** linguist-vendored

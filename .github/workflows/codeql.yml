@@ -1,0 +1,71 @@
+# CodeQL for C# AND C++ (docs/13_CI_CD.md).
+#
+# The native layer is where memory-safety bugs would live — a lock-free ring
+# written from inside a host process we do not own. Scanning only the managed
+# side would defeat the purpose.
+#
+# Repo-local for now. The ops repo has codeql-mixed.yml, but C++ needs manual
+# build mode driven by the CMake preset, and that input surface has not been
+# verified. Switch to a caller stub once it has.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '27 4 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp
+            build-mode: none
+          - language: cpp
+            build-mode: manual
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Set up MSVC (x64)
+        if: matrix.language == 'cpp'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Build native
+        if: matrix.language == 'cpp'
+        shell: pwsh
+        run: |
+          cmake --preset x64-release
+          cmake --build --preset x64-release
+        working-directory: src/native
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
