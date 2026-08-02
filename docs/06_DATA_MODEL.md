@@ -159,6 +159,6 @@ Sequential embedded SQL (`Migrations/0001_init.sql`, `0002_hooks.sql`, …), app
 
 **v1 → v2:** existing sessions get `capture_tier = 2`, all new measured columns `NULL`, `games.hook_enabled = 0`. No data loss; historical ETW sessions remain valid and comparable within their tier.
 
-## Hardware change markers (FR-5.3)
+## Hardware change markers (FR-6.3)
 
 Snapshot captured per session, hashed, deduped. Trend queries join consecutive sessions' snapshots; differing fields emit a marker `{after_session_id, field, old, new}`. GPU driver version now comes from the vendor API (`18_GPU_VENDOR_APIS`) rather than WMI, which makes it accurate enough to be worth charting.

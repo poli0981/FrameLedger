@@ -95,6 +95,7 @@ rules\detection-rules.json   engine/platform/feature + anticheat blocklist
 logs\ui-*.log, agent-*.log, overlay-<pid>-*.log   (native log flushed at session end, never mid-frame)
 crashdumps\*.dmp
 breadcrumbs\<pid>.json       pre-injection breadcrumb (19_SAFETY §Crash safety)
+tmp\<sessionGuid>.partial    crash-safety flush of raw buffers, every 60 s (04_CAPTURE §Ring draining)
 covers\*.jpg
 ```
 

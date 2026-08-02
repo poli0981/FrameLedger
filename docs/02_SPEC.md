@@ -83,7 +83,7 @@ Velopack against GitHub Releases; silent startup check, manual check in Help; er
 Rolling Serilog logs per process plus native overlay logs; in-app viewer; bug bundle zip + prefilled GitHub issue (`10_LOGGING`). Bundles include the overlay log and hook fault details, which are what make injection bugs diagnosable.
 
 ### FR-14 Tray & notifications
-Tray icon states (idle / capturing T1 / capturing T2 / paused); menu; toasts for session saved, capture refused, safety unhook, update available.
+Tray icon states (idle / capturing T1 / capturing T2 / paused); menu; toasts for session saved and update available. **Safety events (`CaptureRefused`, `SafetyUnhook`, hook auto-disable) are never toasts** — they get a dedicated dialog or a persistent `ui:InfoBar` that cannot be dismissed by timeout (`08_UI` §Notifications policy, `07_IPC` §Client behavior).
 
 ### FR-15 In-game overlay *(v1.1, opt-in, off by default)*
 Draw live FPS/frametime/upscaler info inside the game. Only for games already hooked; a separate toggle; never on by default. Deferred until the data path is stable (`15_ROADMAP` P5).
