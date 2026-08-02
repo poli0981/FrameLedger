@@ -31,7 +31,37 @@ Implemented in `FrameLedger.Injector` and re-checked by the Agent. Runs **before
 ### Pre-injection checks (all must pass)
 
 1. **Target module scan** — enumerate loaded modules of the target process (`EnumProcessModulesEx`, read-only handle: `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ`). Match against the blocklist below by filename.
-2. **System driver scan** — enumerate loaded kernel drivers (`EnumDeviceDrivers` / service query) for always-on anti-cheat drivers that gate the whole machine (e.g. Vanguard's `vgk`). Present → refuse for **all** titles while it is running, not just the matching game.
+2. **System driver scan** — enumerate loaded kernel drivers for always-on anti-cheat drivers that gate the whole machine (e.g. Vanguard's `vgk`). Present → refuse for **all** titles while it is running, not just the matching game.
+
+   > 🔴 **`EnumDeviceDrivers` cannot do this unelevated, and it fails *open*.**
+   > Measured 2026-08-02 on Windows 11 26300 as a standard user — which is the
+   > **default** Agent configuration (ADR-9):
+   >
+   > ```
+   > EnumDeviceDrivers  ok=True  count=258
+   > non-null base addresses: 0
+   > distinct names recoverable: 1  ->  ntoskrnl.exe
+   > ```
+   >
+   > The call *succeeds*. It reports 258 drivers. It then yields no usable base
+   > address for any of them, so `GetDeviceDriverBaseName` recovers one name.
+   > A guard built on it would report "no anti-cheat driver present" on a machine
+   > running Vanguard — a **fail-open in the hard gate, in the default
+   > configuration**. `14_TESTING` already insists an empty *module* list must
+   > never read as "clean"; the same rule was never applied to drivers, and this
+   > is what it looks like when it is missed.
+   >
+   > **Use `NtQuerySystemInformation(SystemModuleInformation)` instead.** Measured
+   > on the same unelevated session: `STATUS_SUCCESS`, 258 modules, **258 distinct
+   > full driver paths**, real third-party driver names legible. Corroborate with
+   > `OpenServiceW`/`QueryServiceStatusEx`, which also distinguishes *absent*
+   > (`ERROR_SERVICE_DOES_NOT_EXIST`, 1060) from *denied* — a distinction the
+   > guard needs, because denied must fail closed while absent must not.
+   >
+   > `NtQuerySystemInformation` is a documented-as-unsupported API and its
+   > `RTL_PROCESS_MODULE_INFORMATION` layout is version-sensitive; the struct
+   > offsets must be asserted, not assumed. Treat a parse failure as *refuse*,
+   > never as *clean*. `20_OPEN_QUESTIONS` §S7 tracks the remaining work.
 3. **Rules blocklist** — `detection-rules.json` carries `anticheat.blockedExecutables` (exe names) and `anticheat.blockedStoreIds` (Steam appids etc.) for known competitive/online titles, updatable independently of app releases (`05_DETECTION` §Rules updates).
 4. **Multiplayer heuristic** — if the pre-launch file scan finds an anti-cheat SDK shipped alongside the game (e.g. EOS anti-cheat binaries, `EasyAntiCheat/` directory) even when not currently loaded → refuse and explain.
 

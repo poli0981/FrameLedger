@@ -1,0 +1,435 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/poli0981/frameledger/main/rules/detection-rules.schema.json",
+  "title": "FrameLedger detection-rules v2",
+  "$comment": "Closes docs/20_OPEN_QUESTIONS.md S5. The `anticheat` subtree feeds the hard gate in docs/19_SAFETY_AND_ANTICHEAT.md and CLAUDE.md rule 2. Every `additionalProperties: false` in that subtree is a safety control, not tidiness: it makes an unrecognised knob (an `enabled`, `severity` or `warnOnly` field) a hard validation error instead of silently-ignored data, so an override cannot be born by adding a field. This $id is an identifier only; the schema has no external $ref and never needs the network.",
+
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "rulesVersion", "engines", "platforms", "capabilities", "anticheat"],
+
+  "properties": {
+    "$comment": { "$ref": "#/$defs/commentBlock" },
+
+    "schemaVersion": {
+      "const": 2,
+      "$comment": "A const, not a minimum. A file declaring another version is refused, not coerced."
+    },
+
+    "rulesVersion": {
+      "type": "string",
+      "pattern": "^(20[2-9][0-9])\\.(0[1-9]|1[0-2])\\.([1-9][0-9]{0,2})(?![\\s\\S])",
+      "$comment": "YYYY.MM.N, real month, N >= 1. Monotonicity and staleness are NOT checkable here - see the imperative checks."
+    },
+
+    "engines":      { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/engineRule" } },
+    "platforms":    { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/platformRule" } },
+    "capabilities": { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/capabilityRule" } },
+
+    "anticheat": { "$ref": "#/$defs/anticheat" }
+  },
+
+  "$defs": {
+
+    "commentBlock": {
+      "$comment": "Prose, as a string or an array of strings. `items` is ignored for the string case. Expressed without oneOf so a failure elsewhere in the document does not drag branch noise into the error list.",
+      "type": ["string", "array"],
+      "maxLength": 4000,
+      "maxItems": 64,
+      "items": { "type": "string", "maxLength": 500 }
+    },
+
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,31}(?![\\s\\S])",
+      "$comment": "Stable machine id, 2-32 chars. Used as a database and .resx key, so no spaces and no case variance."
+    },
+
+    "displayName": {
+      "$comment": "Shown in the UI. Permissive about script (game engines and stores have non-ASCII names) but rejects control characters and leading/trailing whitespace of any Unicode class. The trailing `(?![\\s\\S])` is a true end-of-input anchor: this validator's `$` also matches immediately before a final newline, so `\"Unity\\n\"` would pass a `$`-anchored pattern.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\u0000-\\u0020\\u007F\\u0085\\u00A0\\u1680\\u2000-\\u200B\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF](?:[^\\u0000-\\u001F\\u007F]*[^\\u0000-\\u0020\\u007F\\u0085\\u00A0\\u1680\\u2000-\\u200B\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF])?(?![\\s\\S])"
+    },
+
+    "freeText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "pattern": "^[^\\u0000-\\u0020\\u007F\\u0085\\u00A0\\u1680\\u2000-\\u200B\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF](?:[^\\u0000-\\u001F\\u007F]*[^\\u0000-\\u0020\\u007F\\u0085\\u00A0\\u1680\\u2000-\\u200B\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF])?(?![\\s\\S])"
+    },
+
+    "acToken": {
+      "$comment": "STRICT. Every value the hard gate matches on - module, driver, service, directory, file, executable - must be one of these. Deliberately a positive ASCII allowlist rather than a 'not blank' denylist, because (a) `minLength: 1` does NOT reject whitespace and (b) this validator's regex engine treats \\S as ASCII-only, so U+0085, U+00A0, U+1680, U+2000-U+200B, U+202F, U+205F, U+3000 and U+FEFF all satisfy a \\S-based non-blank check. An allowlist makes every one of them unrepresentable, and a blank prefix is the single worst value this file can contain. It also rejects glob syntax: a maintainer copying `EasyAntiCheat*.dll` verbatim out of the 19_SAFETY seed table would otherwise create an entry matched literally, which never fires - a silent hole in the blocklist. Path separators, wildcards and the Windows-illegal filename characters are excluded, so `..\\..\\x`, `C:/x` and `*` are rejected too.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 ._+()-]*[A-Za-z0-9._+()-])?(?![\\s\\S])"
+    },
+
+    "familyName": {
+      "$comment": "Vendor family. Shown to the user as the reason the guard fired, and the key the required-family checks match on, so it is held to the same ASCII discipline as acToken.",
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 ._'&/+-]*[A-Za-z0-9._'&/+-])?(?![\\s\\S])"
+    },
+
+    "matchKind": {
+      "$comment": "CLOSED, and deliberately without `glob`, `regex` or `contains`. Each of those reintroduces a value that can match everything (`*`, `.*`, `\"\"`), which is precisely what the acToken allowlist exists to prevent. Substring semantics exist in exactly one place - the heuristic block - where they are paired with a signer condition and a hardcoded refuse action.",
+      "enum": ["exact", "prefix"]
+    },
+
+    "signalValue": {
+      "$comment": "LOOSER than acToken on purpose: detection signals legitimately contain globs, path separators and ${ExeName} placeholders, and game directory names are frequently non-ASCII. This is inference data that populates library metadata and capability chips; per 05_DETECTION a static hint may never set a runtime fact, and none of it reaches the hard gate.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u0020\\u007F\\u0085\\u00A0\\u1680\\u2000-\\u200B\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF](?:[^\\u0000-\\u001F\\u007F]*[^\\u0000-\\u0020\\u007F\\u0085\\u00A0\\u1680\\u2000-\\u200B\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF])?(?![\\s\\S])",
+      "allOf": [
+        {
+          "pattern": "[A-Za-z0-9]",
+          "$comment": "At least one alphanumeric somewhere: a value of only wildcards and separators would match every game on the machine."
+        }
+      ]
+    },
+
+    "regexSource": {
+      "$comment": "`format: \"regex\"` is annotation-only in this dialect and does NOT validate - it is present as documentation. Whether the pattern actually compiles is an imperative check.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "format": "regex",
+      "pattern": "^[^\\u0000-\\u0020\\u007F](?:[^\\u0000-\\u001F\\u007F]*[^\\u0000-\\u0020\\u007F])?(?![\\s\\S])"
+    },
+
+    "manifestFieldPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*(?![\\s\\S])"
+    },
+
+    "signalType": {
+      "$comment": "Closed enum. `path_contains` is used by the seed (platforms/steam) but is ABSENT from the 05_DETECTION signal-type list, and `strings_regex` is used as a version extractor but is likewise absent - 05_DETECTION needs the same edit as this schema.",
+      "enum": [
+        "file_exists",
+        "dir_exists",
+        "sibling_glob",
+        "path_contains",
+        "pe_company_contains",
+        "pe_product_contains",
+        "strings_contains",
+        "manifest_field"
+      ]
+    },
+
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "$ref": "#/$defs/signalType" },
+        "value": { "$ref": "#/$defs/signalValue" },
+        "field": { "$ref": "#/$defs/manifestFieldPath" }
+      },
+      "allOf": [
+        {
+          "$comment": "manifest_field is the only signal that carries a field path; for every other type the key is forbidden (`false` schema) rather than merely ignored.",
+          "if": { "properties": { "type": { "const": "manifest_field" } }, "required": ["type"] },
+          "then": { "required": ["field"] },
+          "else": { "properties": { "field": false } }
+        }
+      ]
+    },
+
+    "signalGroup": {
+      "$comment": "Exactly one of `any` / `all`, enforced by maxProperties rather than oneOf so the error list stays readable. Both-at-once is rejected rather than given an invented precedence; nested groups are not supported in v2.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "any": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/signal" } },
+        "all": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/signal" } }
+      }
+    },
+
+    "versionExtractor": {
+      "$comment": "Nullable and REQUIRED on engines: an explicit null means 'this engine has no version extractor', which is a different statement from a missing key and must not be confusable with one.",
+      "type": ["object", "null"],
+      "if": { "type": "object" },
+      "then": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "from"],
+            "properties": {
+              "type": { "const": "pe_file_version" },
+              "from": { "$ref": "#/$defs/signalValue" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "value"],
+            "properties": {
+              "type": { "enum": ["pe_product_version_regex", "strings_regex"] },
+              "value": { "$ref": "#/$defs/regexSource" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "field"],
+            "properties": {
+              "type": { "const": "manifest_field" },
+              "field": { "$ref": "#/$defs/manifestFieldPath" }
+            }
+          }
+        ]
+      }
+    },
+
+    "engineRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "signals", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "$ref": "#/$defs/displayName" },
+        "signals": { "$ref": "#/$defs/signalGroup" },
+        "version": { "$ref": "#/$defs/versionExtractor" }
+      }
+    },
+
+    "platformRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "signals"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "$ref": "#/$defs/displayName" },
+        "signals": { "$ref": "#/$defs/signalGroup" }
+      }
+    },
+
+    "capabilityRule": {
+      "$comment": "capabilities[].signals is a flat glob list - a different shape from engines/platforms. Kept as the seed has it; unifying the two is a schemaVersion 3 change, not a silent one.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "signals"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "$ref": "#/$defs/displayName" },
+        "signals": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/signalValue" }
+        }
+      }
+    },
+
+    "acValueList": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/acToken" }
+    },
+
+    "prefixMinimumLength": {
+      "$comment": "A 1-2 character prefix matches a large share of ordinary Windows DLLs. Over-matching fails closed so it cannot get anyone banned - but it refuses every title on the machine, which is how a user ends up hunting for the override CLAUDE.md rule 2 says does not exist. 19_SAFETY's own table writes PunkBuster as `pb*.dll`; the seed correctly narrows that to PnkBstr/pbcl/pbsv and this rule makes the narrow form mandatory. Shortest prefix in the current seed is 4. `exact` values are unaffected - `vgk.sys` needs no floor.",
+      "if": { "properties": { "match": { "const": "prefix" } }, "required": ["match"] },
+      "then": { "properties": { "values": { "items": { "minLength": 3 } } } }
+    },
+
+    "acMatchGroup": {
+      "$comment": "anticheat.modules. `scope` is deliberately absent: 19_SAFETY check 1 is a scan of the target process, so module scope is not a degree of freedom the guard has, and an unused degree of freedom in a safety file is an override waiting to be born.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "match", "values"],
+      "properties": {
+        "family": { "$ref": "#/$defs/familyName" },
+        "match": { "$ref": "#/$defs/matchKind" },
+        "values": { "$ref": "#/$defs/acValueList" },
+        "note": { "$ref": "#/$defs/freeText" }
+      },
+      "allOf": [{ "$ref": "#/$defs/prefixMinimumLength" }]
+    },
+
+    "acDriverGroup": {
+      "$comment": "19_SAFETY check 2: a loaded anti-cheat driver gates the WHOLE MACHINE, not just the matching title. `scope` is required and const so that blast radius is stated in the data rather than implied by which array the entry happens to sit in.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "match", "values", "scope"],
+      "properties": {
+        "family": { "$ref": "#/$defs/familyName" },
+        "match": { "$ref": "#/$defs/matchKind" },
+        "values": { "$ref": "#/$defs/acValueList" },
+        "scope": { "const": "machine" },
+        "note": { "$ref": "#/$defs/freeText" }
+      },
+      "allOf": [{ "$ref": "#/$defs/prefixMinimumLength" }]
+    },
+
+    "acNameGroup": {
+      "$comment": "directories / services / files. Matching is exact and case-insensitive by definition, so there is no `match` knob to get wrong.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "values"],
+      "properties": {
+        "family": { "$ref": "#/$defs/familyName" },
+        "values": { "$ref": "#/$defs/acValueList" },
+        "note": { "$ref": "#/$defs/freeText" }
+      }
+    },
+
+    "acBlockedExecutable": {
+      "$comment": "`reason` is required: 19_SAFETY requires the UI to show which check fired, and a bare exe name cannot carry that.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "match", "values", "reason"],
+      "properties": {
+        "family": { "$ref": "#/$defs/familyName" },
+        "match": { "$ref": "#/$defs/matchKind" },
+        "values": { "$ref": "#/$defs/acValueList" },
+        "reason": { "$ref": "#/$defs/freeText" }
+      },
+      "allOf": [{ "$ref": "#/$defs/prefixMinimumLength" }]
+    },
+
+    "acBlockedStoreId": {
+      "$comment": "Objects, not bare strings, for the same reason. This is where a VAC-protected title is expressed: 19_SAFETY treats VAC titles as online and refuses them, and an explicit appid is the only representation of that which does not depend on detecting VAC modules from outside the process.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["store", "id", "family", "reason"],
+      "properties": {
+        "store": { "enum": ["steam", "gog", "epic", "itch"] },
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(?![\\s\\S])" },
+        "family": { "$ref": "#/$defs/familyName" },
+        "reason": { "$ref": "#/$defs/freeText" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "store": { "const": "steam" } }, "required": ["store"] },
+          "then": { "properties": { "id": { "pattern": "^[1-9][0-9]{0,9}(?![\\s\\S])" } } }
+        }
+      ]
+    },
+
+    "heuristic": {
+      "$comment": "19_SAFETY: 'Unknown-but-suspicious modules (filename containing anticheat, antitamper, guard, protect + unsigned-by-known-vendor) produce a warn-and-refuse'. The flat `suspiciousNameFragments` string array the seed used to carry can express only the first half of that AND. `trustedSigners` is the allowlist of publishers whose signature SUPPRESSES the heuristic; a module whose signature is absent, invalid, or simply could not be checked is untrusted and refuses. Getting a signer string wrong therefore fails closed. `action` is a const, not an enum, so 'allow' and 'warn' are unrepresentable.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nameFragments", "trustedSigners", "action"],
+      "properties": {
+        "$comment": { "$ref": "#/$defs/commentBlock" },
+        "nameFragments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32,
+            "pattern": "^[a-z][a-z0-9]*(?![\\s\\S])",
+            "$comment": "Lowercase ASCII, matched case-insensitively as a substring. The 5-character floor is the length of the doc's own shortest example (`guard`); a 3-character substring rule would fire on a large share of ordinary DLLs and, because the action is refuse, would take the whole machine out."
+          }
+        },
+        "trustedSigners": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 .,'&()/+-]*[A-Za-z0-9.,')])?(?![\\s\\S])",
+            "$comment": "Certificate subject CN, compared in full and case-insensitively - never as a prefix or substring, because a substring signer rule is a forgery surface ('NVIDIA Corporation Ltd' would match 'NVIDIA Corporation')."
+          }
+        },
+        "action": { "const": "warn_and_refuse" }
+      }
+    },
+
+    "anticheat": {
+      "$comment": "The hard gate's data. modules and drivers are non-empty ship requirements; an empty block is a fail-closed test fixture, never a ship state (20_OPEN_QUESTIONS S5).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modules",
+        "drivers",
+        "directories",
+        "services",
+        "files",
+        "heuristic",
+        "blockedExecutables",
+        "blockedStoreIds"
+      ],
+      "properties": {
+        "$comment": { "$ref": "#/$defs/commentBlock" },
+
+        "modules": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/acMatchGroup" },
+          "allOf": [
+            {
+              "$comment": "Removing Easy Anti-Cheat or BattlEye is a safety change. Encoding the floor here rather than only in tools/rules-validate.ps1 means the RUNTIME loader also refuses a fetched rules file that has lost one - a CI-only check cannot protect a client that has already shipped. A legitimate future rename fails closed: the client rejects the new file and keeps using its last valid local copy.",
+              "contains": { "type": "object", "required": ["family"], "properties": { "family": { "const": "Easy Anti-Cheat" } } }
+            },
+            {
+              "contains": { "type": "object", "required": ["family"], "properties": { "family": { "const": "BattlEye" } } }
+            }
+          ]
+        },
+
+        "drivers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/acDriverGroup" },
+          "allOf": [
+            {
+              "contains": { "type": "object", "required": ["family"], "properties": { "family": { "const": "Riot Vanguard" } } }
+            }
+          ]
+        },
+
+        "directories": { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/acNameGroup" } },
+        "services":    { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/acNameGroup" } },
+
+        "files": {
+          "$comment": "NEW in this schema. 19_SAFETY lists Xigncode3's `x3.xem`, which is a data file shipped beside the game rather than a loadable module - the previous seed had nowhere to put it. Also the home for the anti-cheat SDK payloads that 19_SAFETY check 4 (multiplayer heuristic) looks for during the static pre-scan.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/acNameGroup" }
+        },
+
+        "heuristic": { "$ref": "#/$defs/heuristic" },
+
+        "blockedExecutables": {
+          "$comment": "May legitimately be empty - a per-title list, not the family blocklist. minItems is deliberately absent here and deliberately present on modules/drivers.",
+          "type": "array",
+          "maxItems": 4096,
+          "items": { "$ref": "#/$defs/acBlockedExecutable" }
+        },
+
+        "blockedStoreIds": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": { "$ref": "#/$defs/acBlockedStoreId" }
+        }
+      }
+    }
+  }
+}

@@ -9,10 +9,15 @@
     "preference for other rules. Removing an entry is a safety change and needs",
     "the same review as a security fix (docs/13_CI_CD.md §rules-publish).",
     "",
-    "SEED, NOT COMPLETE. docs/20_OPEN_QUESTIONS.md §S5 records that the schema",
-    "cannot yet express everything docs/19_SAFETY §Blocklist seed describes —",
-    "service names, directory presence and the unknown-but-suspicious heuristic",
-    "are represented below but the validator does not yet enforce their shape."
+    "Shape is fixed by rules/detection-rules.schema.json (JSON Schema 2020-12),",
+    "which closes docs/20_OPEN_QUESTIONS.md §S5. Constraints a schema cannot",
+    "express — duplicate ids, over-broad prefixes that shadow system DLLs, regex",
+    "compilability, case-insensitive duplicate values — stay imperative in",
+    "tools/rules-validate.ps1.",
+    "",
+    "STILL INCOMPLETE AS DATA: docs/19_SAFETY §Blocklist seed names two families",
+    "with no representation here at all — Activision Ricochet (driver/service",
+    "names not yet confirmed) and Valve VAC (needs blockedStoreIds entries)."
   ],
   "schemaVersion": 2,
   "rulesVersion": "2026.08.1",
@@ -130,7 +135,22 @@
       { "family": "Easy Anti-Cheat", "values": [ "EasyAntiCheat", "EasyAntiCheat_EOS" ] },
       { "family": "Riot Vanguard",   "values": [ "vgc" ] }
     ],
-    "suspiciousNameFragments": [ "anticheat", "antitamper", "gameguard" ],
+    "files": [
+      { "family": "Xigncode3", "values": [ "x3.xem" ], "note": "Data file shipped beside the game, not a loadable module." }
+    ],
+    "heuristic": {
+      "$comment": "19_SAFETY: name fragment AND not signed by a known vendor => warn-and-refuse. Signer strings are UNVERIFIED — see docs/20_OPEN_QUESTIONS.md §S5.",
+      "nameFragments": [ "anticheat", "antitamper", "gameguard", "guard", "protect" ],
+      "trustedSigners": [
+        "Microsoft Windows",
+        "Microsoft Corporation",
+        "NVIDIA Corporation",
+        "Intel Corporation",
+        "Advanced Micro Devices, Inc.",
+        "Valve Corp."
+      ],
+      "action": "warn_and_refuse"
+    },
     "blockedExecutables": [],
     "blockedStoreIds": []
   }
