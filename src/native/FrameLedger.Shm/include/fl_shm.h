@@ -28,6 +28,12 @@
 #ifndef FRAMELEDGER_FL_SHM_H
 #define FRAMELEDGER_FL_SHM_H
 
+// <atomic> is included on purpose even though no declaration below needs it:
+// every field marked "via std::atomic_ref" in this header is unusable without
+// it, and a consumer following the documented protocol would otherwise get
+// "'atomic_ref': is not a member of 'std'" from their own file. The contract
+// this header defines should carry its own prerequisites.
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 

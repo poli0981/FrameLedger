@@ -28,7 +28,7 @@ Targets:
 
 Compiler/linker flags (enforced in CMake, not per-target ad hoc): `/std:c++20 /MT /O2 /GS /guard:cf /Qspectre /GR- /W4 /WX`, `-D_HAS_EXCEPTIONS=0` for the Overlay target. Link `/DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA`.
 
-**MinHook** is vendored as a submodule (or FetchContent) and built from source — pinned by commit, recorded in `THIRD_PARTY_NOTICES`.
+**MinHook** is fetched by CMake `FetchContent` and built from source, pinned to the **commit** behind tag `v1.3.4` (`c3fcafdc`) rather than to the tag name — a tag can be moved, a commit cannot. FetchContent over a submodule so a fresh clone needs no extra step and CI has nothing to remember. Upstream warnings are not subjected to our `/W4 /WX`: warnings in third-party code are upstream's to fix, and failing our build on them would only tempt someone to patch the fetched copy, which drags it out of "consumed unmodified". The BSD-2-Clause notice ships in `legal/licenses/`, and `tools/license-check.ps1` fails the build if it goes missing while the FetchContent declaration is still present.
 
 **NVAPI SDK** (MIT) is vendored under `src/native/third_party/nvapi/` — headers + `nvapi64.lib`, pinned by upstream tag, with the SPDX blocks left untouched and the licence copied to `legal/licenses/nvapi-MIT.txt`. Link it normally; do **not** resolve NVAPI by ordinal (that was a workaround for a licensing constraint that no longer exists, and it breaks across driver versions). Still guard `NvAPI_Initialize` failure as a normal path — plenty of users have no NVIDIA GPU.
 

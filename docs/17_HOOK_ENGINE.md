@@ -14,7 +14,11 @@ The injected DLL. Its whole job: install hooks, write 64-byte records into a rin
 > Overlay and injector would restore them, at the cost of doubling the native
 > build matrix and adding a second struct-mirror surface; that trade is recorded
 > in `20_OPEN_QUESTIONS` §Scope rather than left implicit in a build flag.
-- `/GS /guard:cf /Qspectre`, `/O2`, no RTTI (`/GR-`), C++ exceptions disabled in this target (`-D_HAS_EXCEPTIONS=0`); error handling is return codes + SEH.
+- `/GS /guard:cf /Qspectre`, `/O2`, no RTTI (`/GR-`), C++ exceptions disabled in this target (`-D_HAS_EXCEPTIONS=0`); error handling is return codes + SEH. **Both of the contentious flags are verified, not assumed** (`20_OPEN_QUESTIONS` §H1/§H3, `spike-notes.md` §3): `/guard:cf` coexists with MinHook trampolines because Windows treats `VirtualAlloc`'d executable memory as a valid CFG call target, and `std::atomic_ref` is lock-free at both widths under `-D_HAS_EXCEPTIONS=0`. The `fl_hook_profile` ctest re-checks both on every build.
+
+  > ⚠ Know what `-D_HAS_EXCEPTIONS=0` actually buys. MSVC's STL does not delete its failure paths under that define — it rewrites `_THROW(x)` to `(x)._Raise()` and `_RAISE` to `__fastfail(5)`. Inside an injected DLL that means **a would-be exception kills the host game**, uncatchably, which SEH cannot intercept. It is safe here only because the hot path uses no throwing STL at all (`<atomic>`, `<cstdint>` and `<type_traits>` have zero throw-sites). That makes "no STL containers that allocate in hook paths" a load-bearing rule, not a style preference.
+  >
+  > ⚠ The CFG result was measured with **strict mode off**. A host that enables CFG strict mode does not auto-validate dynamically generated code and could still `__fastfail`. Rare, but real, and not something the fault policy can catch — see §Fault policy and `20_OPEN_QUESTIONS` §H8.
 - No STL container that allocates in a hook path. `std::atomic` and fixed arrays are fine.
 - VERSIONINFO populated (`ProductName=FrameLedger`, real company/version) — being identifiable is required by `19_SAFETY`.
 - Exports: `FlGetBuildId()`, `FlRequestUnhook()`, `FlGetStatus()`. Real names, no ordinal-only tricks.
@@ -81,7 +85,14 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 | Streamline: `slInit`, `slSetFeatureLoaded`, `slEvaluateFeature`, `slSetConstants`, `slGetFeatureRequirements` | Feature set actually active when the game goes through SL rather than NGX directly (`kFeatureDLSS`, `DLSS_G`, `DLSS_RR`, `Reflex`, `NIS`) |
 | FidelityFX: `ffxFsr2ContextCreate` / `ffxFsr3*` / unified `ffxCreateContext` (`ffx_api`) | `maxRenderSize` vs `displaySize`/`maxUpscaleSize`, FSR version, frame-interpolation context presence |
 | XeSS: `xessD3D12CreateContext`, `xessD3D12Init`, `xessD3D12Execute` | `outputResolution`, `qualitySetting`, XeSS version; `xess_fg` variants for XeFG |
-| `IDXGISwapChain` present-count vs `GetFrameStatistics().PresentCount` | Driver-inserted (generated) frames — see `03_METRICS` §FG ground truth |
+| NGX/SL/FFX/XeSS **FG feature evaluations per present** (`fgEvaluations`) | Native vs Displayed frame counts at Tier 1 — see `03_METRICS` §Frame Generation. This is what separates the two counts: generated frames go out through the same swapchain we hooked, so the present count alone is Displayed, not Native |
+
+> `GetFrameStatistics().PresentCount` is **not** in this inventory and must not be
+> re-added as an FG signal. It counts presents the application submitted through
+> the swapchain — the same events our present hook already intercepts — so the
+> difference is structurally zero, not merely unreliable. An earlier revision
+> used it to claim driver-level FG (AMD AFMF) detection; that claim was wrong and
+> would have read as "no frame generation" rather than as a failure.
 
 > ⚠ **Symbol names above are from vendor SDK conventions and must be verified against the actual exports on the dev machine during the P0 spike.** These SDKs rename and restructure between versions (especially the FidelityFX move to `ffx_api`, and NGX/Streamline dual paths). Resolve everything dynamically by name with a null-check + capability flag; a missing export must degrade to "unknown", never crash.
 
