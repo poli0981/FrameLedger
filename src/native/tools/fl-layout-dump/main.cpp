@@ -52,7 +52,7 @@ int main() {
     Field("pauseRequested", offsetof(FlControlBlock, pauseRequested), sizeof(uint32_t));
     Field("unhookRequested", offsetof(FlControlBlock, unhookRequested), sizeof(uint32_t));
     Field("overlayEnabled", offsetof(FlControlBlock, overlayEnabled), sizeof(uint32_t));
-    Field("agentHeartbeat", offsetof(FlControlBlock, agentHeartbeat), sizeof(uint32_t), true);
+    Field("guardTicks", offsetof(FlControlBlock, guardTicks), sizeof(uint32_t), true);
     std::printf("    ] },\n");
 
     std::printf("    \"FlFrameRecord\": { \"size\": %zu, \"fields\": [\n", sizeof(FlFrameRecord));

@@ -138,11 +138,27 @@ struct alignas(64) FlWriterState {
 // ---------------------------------------------------------------------------
 // Region 3 — Agent-written.
 // ---------------------------------------------------------------------------
+// `guardTicks` is NOT a liveness heartbeat, and the difference is the whole
+// point of the field.
+//
+// It was specified as "Agent bumps every second". A timer-driven tick attests
+// that the Agent's PROCESS is alive, which is not the question anyone is
+// asking: the guard loop can be dead — a swallowed exception, or blocked in a
+// service query, or stalled on one unreadable process in the §S16 scan set —
+// while a timer keeps bumping. A consumer reading "supervised" would then keep
+// observing precisely because the thing supervising it had stopped. That is a
+// gate incapable of going red for the reason it exists, which is the defect
+// this project has now found eight times.
+//
+// So it counts COMPLETED GUARD EVALUATIONS for this ring. The Agent increments
+// it at exactly one site: after `Evaluate` returns a verdict. A refusal still
+// counts — the evaluation completed — but it also sets `unhookRequested`, so a
+// consumer never has to infer the verdict from the counter.
 struct alignas(64) FlControlBlock {
     uint32_t pauseRequested;     // @0
     uint32_t unhookRequested;    // @4   set when the guard fires mid-session
     uint32_t overlayEnabled;     // @8   in-game overlay draw toggle (v1.1)
-    uint32_t agentHeartbeat;     // @12  Agent bumps every second
+    uint32_t guardTicks;         // @12  completed guard evaluations, NOT a timer
     uint32_t reserved[12];       // @16..63  must be zero
 };
 
@@ -213,7 +229,7 @@ static_assert(offsetof(FlWriterState, vramBudgetMb) == 20);
 static_assert(offsetof(FlControlBlock, pauseRequested) == 0);
 static_assert(offsetof(FlControlBlock, unhookRequested) == 4);
 static_assert(offsetof(FlControlBlock, overlayEnabled) == 8);
-static_assert(offsetof(FlControlBlock, agentHeartbeat) == 12);
+static_assert(offsetof(FlControlBlock, guardTicks) == 12);
 
 static_assert(offsetof(FlFrameRecord, qpc) == 0);
 static_assert(offsetof(FlFrameRecord, frameIndex) == 8);

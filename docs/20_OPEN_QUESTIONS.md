@@ -113,10 +113,56 @@ there is no way to point the layer at a different rules file (§S3), so without
 it the test silently skipped on any machine that had not run the product — and a
 ctest that always skips is a gate that cannot fail.
 
-**Also still open: mid-session unhook inside a layered process.** With no Agent
-running there is nothing to drive the 30 s re-scan that `19_SAFETY` calls the
-most important runtime behaviour. The layer needs its own answer, and does not
-have one.
+### ◐ Part three: mid-session guard inside a layered process — decided, half built
+
+**The mechanism is decided.** The layer does NOT re-scan on its own after init.
+Four options were pressure-tested (2026-08-02); the reasons the other three lost
+are worth keeping, because each looks reasonable until costed:
+
+- **A layer-owned worker thread** re-running the self-scan on a timer. Repeating
+  a ~1.15 MB transient allocation and a full module enumeration every 30 s inside
+  a game, against an 8 MB total budget — and, if the driver half were added,
+  `NtQuerySystemInformation` plus SCM probing *from inside a game process*, which
+  is the behavioural signature of anti-analysis code. CLAUDE.md rule 3 forbids
+  hiding from anti-cheat; looking like the thing you are trying not to be
+  mistaken for is the opposite failure. Also: the Vulkan loader owns the layer's
+  mapping, and a thread outliving it is an access violation in a host we do not
+  own — the same shape as the crash already measured in §S2.
+- **Driving the re-scan from the present hook.** Rejected outright. It violates
+  CLAUDE.md rule 5 structurally; it fails NFR-1 worst exactly where the user has
+  least frame budget; and — decisively — **the clock stops when presents stop**,
+  which is the scenario the requirement was written for. It would also inject a
+  periodic stall into the frame-time series this product exists to measure.
+- **Dropping Vulkan to Tier 2.** Not fatal to the product, but the stated form is
+  false: Tier 2 needs an elevated Agent, so for most users the real proposition
+  is "duration and sensors only".
+
+**What is decided:** supervision is the Agent's job, and a capture side that
+cannot confirm supervision stops observing. That is the same polarity the rest of
+the layer already has — every uncertainty resolves to inert.
+
+**✅ The Agent half is built and proven.** `GuardSupervisor`
+(`FrameLedger.Application`) publishes `guardTicks`, and the load-bearing property
+is tested: **the tick counts completed evaluations, not seconds.** A timer-driven
+heartbeat attests that the Agent *process* is alive while the guard loop can be
+dead — a swallowed exception, a blocked service query, a stall on one unreadable
+process in the §S16 scan set — and the capture side would then keep observing
+*because* the thing supervising it had stopped. Seven tests force each of those.
+`07_IPC` and `fl_shm.h` are corrected, and so is the polarity at the other end:
+"the Overlay keeps writing (harmless)" on heartbeat loss described an
+unsupervised hooked process as harmless.
+
+**◐ The in-layer half is deliberately NOT built yet, and this stays open.**
+The layer intercepts nothing — `vkQueuePresentKHR` is P1 — so a `ShouldObserve()`
+today would be a predicate whose wrong answer *in either direction* changes
+nothing observable. That is a gate on something that does not exist, which is the
+defect class this file keeps recording. It lands in the PR that adds the present
+hook, where a fake loader chain can drive it end to end.
+
+**Residual, to state rather than discover:** even once built, the mid-session
+*driver* case is invisible from inside a layered process, and a layer cannot
+leave a running game's loader chain — "stops" means passthrough, not unhook.
+`legal/DISCLAIMER.md` and `README.md` now say so.
 
 ### S3 ✅ · `UpdateRules { path }` — **closed, and it was not alone**
 

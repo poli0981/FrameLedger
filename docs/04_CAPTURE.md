@@ -101,6 +101,16 @@ Idle → Detected(pid) → Guarded → Injecting → Capturing → Finalizing �
 4. Compress raw series (Deflate) — **the full `frame_blobs` set in `06_DATA_MODEL`**, not a subset: frametimes `float32[]`, frame flags `byte[]`, RT flags `byte[]`, render/output resolution `uint16[]` (two pairs per frame, only when either varies), dispatch-rays volume `uint32[]`, PSO counts `uint16[]`, per-process VRAM `uint32[]`, Reflex latency `uint32[]`, and the sensor series `float32[]`. Anything skipped here becomes a CSV column the exporter cannot fill (`03_METRICS` §Export schema) — Reflex latency was previously omitted from this step while `06_DATA_MODEL` declared a column for it.
 5. Write session row + blobs in one SQLite transaction; delete the `.partial`.
 
+**Vulkan sessions do not pass through `Injecting`.** The layer is loaded by the
+Vulkan loader when the Agent launches an opted-in game, so the path is
+`Detected(pid) → Guarded → Capturing`, skipping injection entirely. This is
+stated because the state machine above, read literally, meant the 30 s guard
+re-scan — which `19_SAFETY` calls the most important runtime behaviour in the
+capture layer — was not specified to run for Vulkan at all. It runs for **every
+Tier-1 session**, and `Unhooked(safety)` is reachable from a layered session as
+well; for Vulkan it means the layer goes passthrough rather than removing hooks,
+because a layer cannot leave a running game's loader chain.
+
 **Discard rule:** duration < min session length (default 30 s) → discard silently (log only).
 
 ## Crash & exit classification

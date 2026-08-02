@@ -24,9 +24,9 @@
 //   1. enable_environment in the manifest — MEASURED to work (spike-notes §2):
 //      with FRAMELEDGER_ENABLE_VK_LAYER unset the loader locates our manifest
 //      and never maps the DLL. A LOADING gate, not a security gate: anything
-//      running as the user can set the variable, and the loader checks that the
-//      variable EXISTS rather than comparing its value. It shrinks blast
-//      radius; it does not authorise.
+//      running as the user can set the variable. The loader compares the
+//      variable's VALUE, not merely its existence (spike-notes §2), so a stray
+//      `=0` does not enable us. It shrinks blast radius; it does not authorise.
 //   2. The enable-list (docs/17_HOOK_ENGINE §The enable-list), which decides
 //      what we INTERCEPT once mapped — not whether we load. That distinction is
 //      not stylistic: declining to load crashes the host, measured below.
@@ -371,10 +371,16 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddr(VkDevice device, cons
 // ---------------------------------------------------------------------------
 extern "C" {
 
-// The modern negotiation entry point. Returning anything other than VK_SUCCESS
-// makes the loader skip us entirely — a documented, supported way to be absent,
-// and what we use when the process was not opted in.
+// The modern negotiation entry point.
+//
 // ALWAYS SUCCEEDS (given a well-formed struct). Do not "decline" here.
+//
+// An earlier version of this comment said the opposite — that returning
+// anything other than VK_SUCCESS "makes the loader skip us entirely, a
+// documented, supported way to be absent". That is false, it is the design the
+// measurement below killed, and it sat directly above the text correcting it.
+// Left in place it was an instruction to re-introduce a crash in every Vulkan
+// application on the machine, in the one function where that is the cost.
 //
 // MEASURED 2026-08-02 against loader 1.4.357, and it cost an afternoon to find:
 // returning VK_ERROR_INITIALIZATION_FAILED from this function does NOT make the
