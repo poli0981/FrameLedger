@@ -220,6 +220,24 @@ NtQuerySystemInformation(11)      STATUS_SUCCESS  78,744 bytes
 reported, **zero** usable base addresses, **zero** recoverable names. The `Nt*`
 route returns 266 real native paths.
 
+**The fail-open is purely a function of elevation** — established by CI, which
+runs elevated and failed this probe's original assertion:
+
+| Configuration | `EnumDeviceDrivers` |
+|---|---|
+| unelevated (this machine, the ADR-9 default) | 266 drivers, **0** bases, **0** names |
+| elevated (GitHub `windows-latest`) | 260 drivers, **260** bases, **260** names |
+
+The API is not broken; it is broken *for standard users*. That is the
+configuration ADR-9 makes the default, and it means anyone who tests this while
+elevated sees a perfectly working call and concludes the defect is imaginary.
+
+The probe's assertion was originally unconditional — "the `Nt*` route recovers
+more identities" — which encoded one machine's configuration as a universal
+fact and went red on CI for a correct reason. It is now elevation-aware: it
+asserts the fail-open when unelevated, and when elevated says plainly that this
+run **cannot** demonstrate it.
+
 **The assertions here check content, not count — deliberately.** "266 distinct
 non-empty strings" is *not* discriminating: the earlier two-byte offset bug
 produced exactly that, and every string was garbage. So the probe asserts that

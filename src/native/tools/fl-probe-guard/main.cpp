@@ -42,6 +42,11 @@ namespace {
 
 int g_failures = 0;
 
+// Set once in main. Several results below are elevation-dependent, and the
+// whole point of this probe is that the DEFAULT Agent is unelevated (ADR-9) —
+// so an assertion must say which configuration it is asserting about.
+bool g_elevated = false;
+
 void Check(bool ok, const char* what) {
     std::printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
     if (!ok) {
@@ -404,7 +409,7 @@ std::vector<std::string> ParseDriverPaths(const std::vector<unsigned char>& buf,
 }
 
 bool ProbeA4_DriverScan() {
-    std::printf("\nA4 - driver enumeration, unelevated (19_SAFETY check 2)\n");
+    std::printf("\nA4 - driver enumeration, %s (19_SAFETY check 2)\n", g_elevated ? "ELEVATED" : "unelevated");
 
     // The API 19_SAFETY used to specify, kept as the contrast case.
     LPVOID       drivers[2048]{};
@@ -464,10 +469,27 @@ bool ProbeA4_DriverScan() {
     Check(v.wellFormed == v.total, "EVERY path is a native path (\\SystemRoot\\ or \\??\\)");
     Check(v.resolvable > 8, "many parsed paths name files that actually exist on disk");
 
-    // 19_SAFETY records EnumDeviceDrivers as failing open unelevated. Assert
-    // that the replacement is strictly better rather than trusting the note.
-    Check(v.total > eddNamed,
-          "the Nt* route recovers more driver identities than EnumDeviceDrivers does (the documented fail-open)");
+    // THE FAIL-OPEN IS A FUNCTION OF ELEVATION, and this assertion has to say
+    // so. Measured both ways:
+    //
+    //   unelevated (dev machine)   266 drivers, 0 bases, 0 names recoverable
+    //   elevated   (CI runner)     260 drivers, 260 bases, 260 names
+    //
+    // EnumDeviceDrivers is not broken; it is broken FOR STANDARD USERS, which
+    // ADR-9 makes the default Agent configuration. An unconditional "the Nt*
+    // route recovers more" is therefore false on an elevated machine — it
+    // failed exactly that way on CI, which runs elevated — and asserting it
+    // would have encoded one machine's configuration as a universal fact.
+    if (g_elevated) {
+        Check(eddNamed > 0 && v.total > 0,
+              "elevated: both routes work - this configuration CANNOT demonstrate the fail-open");
+        Note("elevated run: EnumDeviceDrivers recovered %zu names. The defect 19_SAFETY records", eddNamed);
+        Note("is specific to STANDARD USERS, which ADR-9 makes the default. Re-run unelevated");
+        Note("to exercise it; this run does not.");
+    } else {
+        Check(v.total > eddNamed,
+              "unelevated: the Nt* route recovers more driver identities than EnumDeviceDrivers (the fail-open)");
+    }
 
     // --- CANARY: the content validator must REJECT the known-bad parse ------
     // Reproduce the exact historical defect - FullPathName read two bytes late
@@ -491,7 +513,7 @@ bool ProbeA4_DriverScan() {
 // must not.
 // ---------------------------------------------------------------------------
 bool ProbeA5_Services() {
-    std::printf("\nA5 - service query: absent vs present, unelevated (19_SAFETY)\n");
+    std::printf("\nA5 - service query: absent vs present, %s (19_SAFETY)\n", g_elevated ? "ELEVATED" : "unelevated");
 
     SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
     if (scm == nullptr) {
@@ -554,17 +576,19 @@ int main() {
     std::printf("FrameLedger guard probe - measures the APIs docs/19_SAFETY specifies.\n");
     std::printf("Run UNELEVATED first: that is the default Agent under ADR-9.\n");
 
-    BOOL   elevated = FALSE;
     HANDLE tok = nullptr;
     if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &tok)) {
         TOKEN_ELEVATION te{};
         DWORD           cb = 0;
         if (GetTokenInformation(tok, TokenElevation, &te, sizeof(te), &cb)) {
-            elevated = te.TokenIsElevated;
+            g_elevated = te.TokenIsElevated != 0;
         }
         CloseHandle(tok);
     }
-    std::printf("This run is %s.\n", elevated ? "ELEVATED" : "unelevated");
+    // Which configuration this run measured is part of every result below, not
+    // a footnote. CI runs ELEVATED; the default Agent does not (ADR-9), and the
+    // driver-scan fail-open exists only in the latter.
+    std::printf("This run is %s.\n", g_elevated ? "ELEVATED" : "unelevated");
 
     bool ok = true;
     ok = ProbeA1_SuspendedModules() && ok;

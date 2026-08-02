@@ -65,6 +65,21 @@ Implemented in `FrameLedger.Injector` and re-checked by the Agent. Runs **before
    > never read as "clean"; the same rule was never applied to drivers, and this
    > is what it looks like when it is missed.
    >
+   > **The defect is purely a function of elevation**, measured both ways by
+   > `fl-probe-guard` (`spike-notes.md` §1):
+   >
+   > | Configuration | `EnumDeviceDrivers` result |
+   > |---|---|
+   > | **unelevated** (dev machine, the ADR-9 default) | 266 drivers, **0** bases, **0** names |
+   > | elevated (CI runner) | 260 drivers, **260** bases, **260** names |
+   >
+   > So the API is not broken — it is broken *for standard users*, and ADR-9
+   > makes standard user the default Agent. Anyone testing this while elevated
+   > sees a perfectly working call and concludes the note above is wrong. It is
+   > the sharpest illustration in the project of why measurements must state
+   > their configuration: the same API, on the same OS, is either fine or
+   > catastrophic depending on a token.
+   >
    > **Use `NtQuerySystemInformation(SystemModuleInformation)` instead.** Measured
    > on the same unelevated session: `STATUS_SUCCESS`, 258 modules, **258 distinct
    > full driver paths**, real third-party driver names legible. Corroborate with
