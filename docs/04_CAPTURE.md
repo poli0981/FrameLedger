@@ -61,7 +61,16 @@ Steam users can also set FrameLedger as a launch option wrapper; documented in t
 
 ## The guard
 
-`AntiCheatGuard.Check(pid)` runs **before every injection** and every 30 s during a hooked session, exactly as specified in `19_SAFETY_AND_ANTICHEAT.md`. Its result is authoritative: no code path may inject without a passing check, and there is no override. Failures produce a structured `CaptureRefused { reason, signal }` surfaced to the UI with plain-language text.
+The guard is **native** (`20_OPEN_QUESTIONS` §S13(a)) and the Agent reaches it through `IAntiCheatGuard`, a **thin P/Invoke facade over the single implementation** — never a second one. Two blocklist matchers that can disagree is a fail-open by construction: the day they diverge, one is wrong and nothing says which. Nothing managed parses rules or matches a blocklist, and a test asserts it (§S15 item 1).
+
+The facade exposes exactly two operations, and neither hands out a clearance:
+
+- `GuardedInjectAsync(pid, payload)` — runs every pre-injection check and, only on a pass, injects. There is no overload that skips the checks and no way to supply evidence; the guard collects its own, so a caller can ask but only the guard answers (§S13(b)).
+- `EvaluateAsync(pid)` — the same checks with no injection, for the 30 s in-session re-scan. It cannot be used to pre-authorise anything: it takes no payload and returns no token, so acting on a pass means calling `GuardedInjectAsync`, which re-collects.
+
+Its result is authoritative: no code path may inject without a passing check, and there is no override. Failures produce a structured `CaptureRefused { reason, signal }` surfaced to the UI with plain-language text; the reason codes mirror `fl::guard::Reason` and a test proves the two have not drifted.
+
+What the Agent checks **before** asking the guard is the thing the native side structurally cannot see: **per-game consent** (CLAUDE.md rule 1). Consent is a record of something a human did and lives in SQLite, so `HookedCaptureGate` refuses an unconsented or un-enabled game without the guard ever being called.
 
 ## Ring draining
 

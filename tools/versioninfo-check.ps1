@@ -29,7 +29,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # Every binary that can end up inside a process we do not own.
-$required = @('FrameLedger.Overlay.dll', 'FrameLedger.VkLayer.dll')
+$required = @('FrameLedger.Overlay.dll', 'FrameLedger.VkLayer.dll', 'FrameLedger.Guard.dll')
 
 if (-not (Test-Path $BuildDir)) {
     Write-Host "VERSIONINFO CHECK FAILED: no native build at $BuildDir" -ForegroundColor Red
