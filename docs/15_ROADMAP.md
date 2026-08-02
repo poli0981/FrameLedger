@@ -23,7 +23,7 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
    - L1 baseline (DXGI + PDH counters) working vendor-neutrally; decide whether the `D3DKMT` perf-data probe is stable enough on Win 10 **and** Win 11 to keep.
    - L2: which fields LibreHardwareMonitor actually returns per vendor, and **whether GPU sensors work unelevated without PawnIO** — this decides whether the default unelevated Agent has temperatures.
    - L3: NVAPI linked from vendored MIT headers; Reflex latency, throttle reasons, per-domain utilisation.
-   - **Licence confirmations:** LHM free of MPL-2.0 Exhibit B; NVAPI SPDX blocks intact; `tools/license-check` in place.
+   - ~~**Licence confirmations:** LHM free of MPL-2.0 Exhibit B; NVAPI SPDX blocks intact~~ — **done before P0 began, both clear** (`spike-notes.md` §0). `tools/license-check` is in place and proven to fail on a planted violation.
 7. **Vulkan layer.** Minimal implicit layer intercepting `vkQueuePresentKHR`, registered under `HKCU`, with the opt-in check that keeps it passthrough for non-enabled processes.
 8. **Guard prototype.** Module + driver enumeration, blocklist matching, fail-closed behavior on every error path.
 
