@@ -153,7 +153,7 @@ TEST_CASE("a clean process on a clean machine is allowed", "[guard]") {
     g.modules = {"kernel32.dll", "d3d11.dll", "UnityPlayer.dll"};
     g.drivers = {"\\SystemRoot\\system32\\ntoskrnl.exe", "\\SystemRoot\\system32\\drivers\\tcpip.sys"};
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     INFO("reason was " << ReasonName(v.reason) << " signal=" << v.signal);
     REQUIRE(v.Allowed());
 }
@@ -234,7 +234,7 @@ TEST_CASE("a blocked module in the target refuses", "[guard][failclosed]") {
     ResetFake();
     g.modules = {"kernel32.dll", "EasyAntiCheat_EOS.dll"};
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kBlockedModule);
     CHECK(std::strcmp(v.family, "Easy Anti-Cheat") == 0);
@@ -246,7 +246,7 @@ TEST_CASE("a blocked driver refuses for ALL titles", "[guard][failclosed]") {
     g.modules = {"kernel32.dll"};    // the game itself is clean
     g.drivers = {"\\SystemRoot\\system32\\drivers\\vgk.sys"};
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kBlockedDriver);
     CHECK(std::strcmp(v.family, "Riot Vanguard") == 0);
@@ -257,7 +257,7 @@ TEST_CASE("module enumeration FAILING refuses — it is not an empty list", "[gu
     g.modules = {};
     g.moduleResult = Collected::kFailed;
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kProcessUnreadable);
 }
@@ -270,7 +270,7 @@ TEST_CASE("a PARTIAL module list refuses — the WOW64 case", "[guard][failclose
     g.modules = {"kernel32.dll"};
     g.moduleResult = Collected::kIncomplete;
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kModuleScanFailed);
 }
@@ -279,7 +279,7 @@ TEST_CASE("driver enumeration failing refuses", "[guard][failclosed]") {
     ResetFake();
     g.driverResult = Collected::kFailed;
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kDriverScanFailed);
 }
@@ -292,14 +292,14 @@ TEST_CASE("a service query that is DENIED refuses; ABSENT does not", "[guard][fa
     ResetFake();
     g.serviceResult = Collected::kFailed;
 
-    const Verdict denied = Evaluate(1234, FakeSources());
+    const Verdict denied = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(denied.Allowed());
     CHECK(denied.reason == Reason::kServiceQueryFailed);
 
     ResetFake();
     g.modules = {"kernel32.dll"};
     g.serviceResult = Collected::kOk;    // queried fine, service simply absent
-    CHECK(Evaluate(1234, FakeSources()).Allowed());
+    CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
 }
 
 TEST_CASE("a present blocked service refuses", "[guard][failclosed]") {
@@ -307,7 +307,7 @@ TEST_CASE("a present blocked service refuses", "[guard][failclosed]") {
     g.modules = {"kernel32.dll"};
     g.presentServices = {"vgc"};
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kBlockedService);
     CHECK(std::strcmp(v.family, "Riot Vanguard") == 0);
@@ -316,13 +316,13 @@ TEST_CASE("a present blocked service refuses", "[guard][failclosed]") {
 TEST_CASE("an empty or failed scan set refuses — it is not 'nothing to scan'", "[guard][failclosed]") {
     ResetFake();
     g.scanSet = {};
-    const Verdict empty = Evaluate(1234, FakeSources());
+    const Verdict empty = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(empty.Allowed());
     CHECK(empty.reason == Reason::kProcessTreeUnavailable);
 
     ResetFake();
     g.scanSetResult = Collected::kFailed;
-    const Verdict failed = Evaluate(1234, FakeSources());
+    const Verdict failed = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(failed.Allowed());
     CHECK(failed.reason == Reason::kProcessTreeUnavailable);
 }
@@ -334,7 +334,7 @@ TEST_CASE("EVERY process in the scan set is scanned, not just the target", "[gua
     g.scanSet = {1000, 1001, 1234};
     g.modules = {"kernel32.dll"};
 
-    CHECK(Evaluate(1234, FakeSources()).Allowed());
+    CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
 
     // The fake returns the same module list for every pid, so putting a
     // blocked module there proves all of them were visited only in combination
@@ -347,7 +347,7 @@ TEST_CASE("EVERY process in the scan set is scanned, not just the target", "[gua
         sink(ctx, "kernel32.dll");
         return Collected::kOk;
     };
-    CHECK(Evaluate(1234, s).Allowed());
+    CHECK(EvaluateWithSources(1234, s).Allowed());
     CHECK(visited == 3);
 }
 
@@ -358,7 +358,7 @@ TEST_CASE("an unreadable rules file refuses", "[guard][failclosed][rules]") {
     ResetFake();
     g.rulesReadable = false;
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kRulesUnreadable);
 }
@@ -367,7 +367,7 @@ TEST_CASE("malformed JSON refuses", "[guard][failclosed][rules]") {
     ResetFake();
     g.rulesJson = R"({"anticheat": {"modules": [)";
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kRulesMalformed);
 }
@@ -376,7 +376,7 @@ TEST_CASE("a missing anticheat block refuses", "[guard][failclosed][rules]") {
     ResetFake();
     g.rulesJson = R"({"schemaVersion": 2, "engines": []})";
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kRulesMalformed);
 }
@@ -385,7 +385,7 @@ TEST_CASE("an EMPTY blocklist refuses — it is a fixture, never a ship state", 
     ResetFake();
     g.rulesJson = R"({"anticheat": {"modules": [], "drivers": [], "blockedExecutables": [], "blockedStoreIds": []}})";
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kRulesIncomplete);
 }
@@ -404,7 +404,7 @@ TEST_CASE("dropping a required family refuses, and moving its GROUP does too", "
     moved.erase(at, from.size());
     g.rulesJson = moved;
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kRulesIncomplete);
 }
@@ -420,7 +420,7 @@ TEST_CASE("a prefix shorter than the floor refuses the whole file", "[guard][fai
     bad.replace(at, std::strlen(R"("denuvo")"), R"("den")");
     g.rulesJson = bad;
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kRulesMalformed);
 }
@@ -433,7 +433,7 @@ TEST_CASE("a blank value refuses — it would match everything", "[guard][failcl
     bad.replace(at, std::strlen(R"("xhunter")"), R"("")");
     g.rulesJson = bad;
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kRulesMalformed);
 }
@@ -452,24 +452,24 @@ TEST_CASE("a missing evidence source refuses", "[guard][failclosed]") {
 
     Sources noRules = FakeSources();
     noRules.ReadRulesFile = nullptr;
-    CHECK_FALSE(Evaluate(1234, noRules).Allowed());
-    CHECK(Evaluate(1234, noRules).reason == Reason::kRulesUnreadable);
+    CHECK_FALSE(EvaluateWithSources(1234, noRules).Allowed());
+    CHECK(EvaluateWithSources(1234, noRules).reason == Reason::kRulesUnreadable);
 
     Sources noDrivers = FakeSources();
     noDrivers.EnumerateDrivers = nullptr;
-    CHECK(Evaluate(1234, noDrivers).reason == Reason::kDriverScanFailed);
+    CHECK(EvaluateWithSources(1234, noDrivers).reason == Reason::kDriverScanFailed);
 
     Sources noServices = FakeSources();
     noServices.QueryService = nullptr;
-    CHECK(Evaluate(1234, noServices).reason == Reason::kServiceQueryFailed);
+    CHECK(EvaluateWithSources(1234, noServices).reason == Reason::kServiceQueryFailed);
 
     Sources noModules = FakeSources();
     noModules.EnumerateModules = nullptr;
-    CHECK(Evaluate(1234, noModules).reason == Reason::kProcessTreeUnavailable);
+    CHECK(EvaluateWithSources(1234, noModules).reason == Reason::kProcessTreeUnavailable);
 
     Sources noTree = FakeSources();
     noTree.EnumerateScanSet = nullptr;
-    CHECK(Evaluate(1234, noTree).reason == Reason::kProcessTreeUnavailable);
+    CHECK(EvaluateWithSources(1234, noTree).reason == Reason::kProcessTreeUnavailable);
 }
 
 TEST_CASE("a default-constructed Verdict is a refusal", "[guard][failclosed]") {
@@ -507,7 +507,127 @@ TEST_CASE("a suspicious module name refuses while the signer path is unwired", "
     ResetFake();
     g.modules = {"kernel32.dll", "someantitamper64.dll"};
 
-    const Verdict v = Evaluate(1234, FakeSources());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kSuspiciousUnsigned);
 }
+
+// ===========================================================================
+// The injection primitive, end to end.
+//
+// A real cross-process injection: spawn hook-harness (our own dummy D3D11 app,
+// no game and no anti-cheat surface at all), inject FrameLedger.Overlay.dll,
+// and confirm the module is really there. 14_TESTING §Integration tests
+// contemplates exactly this — the harness is what makes the architecture
+// testable without touching a title.
+//
+// Guarded by FL_INJECT_TARGETS so the suite still builds if the paths are not
+// wired; a silently absent test would be worse than no test.
+// ===========================================================================
+#if defined(FL_HARNESS_EXE) && defined(FL_OVERLAY_DLL)
+
+#include <windows.h>
+
+#include <psapi.h>
+
+namespace {
+
+bool TargetHasModule(DWORD pid, const wchar_t* leaf) {
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (h == nullptr) {
+        return false;
+    }
+    HMODULE mods[1024]{};
+    DWORD   needed = 0;
+    bool    found = false;
+    if (EnumProcessModulesEx(h, mods, sizeof(mods), &needed, LIST_MODULES_ALL)) {
+        const size_t n = (needed > sizeof(mods) ? sizeof(mods) : needed) / sizeof(HMODULE);
+        for (size_t i = 0; i < n && !found; ++i) {
+            wchar_t name[MAX_PATH]{};
+            if (GetModuleBaseNameW(h, mods[i], name, MAX_PATH) != 0 && _wcsicmp(name, leaf) == 0) {
+                found = true;
+            }
+        }
+    }
+    CloseHandle(h);
+    return found;
+}
+
+struct Child {
+    PROCESS_INFORMATION pi{};
+    ~Child() {
+        if (pi.hProcess != nullptr) {
+            TerminateProcess(pi.hProcess, 0);
+            WaitForSingleObject(pi.hProcess, 3000);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        }
+    }
+};
+
+}    // namespace
+
+TEST_CASE("the injection primitive really loads our DLL into another process", "[guard][inject]") {
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --hold 30";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);    // let its loader finish
+
+    // The target must still be RUNNING. A dead child would make every
+    // assertion below fail for a reason unrelated to injection — which is
+    // exactly what happened the first time this test was written.
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+
+    const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources());
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+    REQUIRE(v.Allowed());
+    CHECK(v.signal[0] == '\0');    // an empty signal means the injection took
+
+    CHECK(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+TEST_CASE("a REFUSED guard injects nothing", "[guard][inject]") {
+    // The assertion the whole design exists for. The target is a real process,
+    // the DLL is real and loadable, and the only thing standing between them is
+    // the verdict.
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --hold 30";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll", "BEClient_x64.dll"};    // BattlEye in the target
+    g.scanSet = {child.pi.dwProcessId};
+
+    const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources());
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kBlockedModule);
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+TEST_CASE("a missing payload is refused before any process is opened", "[guard][inject]") {
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {GetCurrentProcessId()};
+
+    const Verdict v = GuardedInjectWithSources(GetCurrentProcessId(), LR"(C:\definitely\not\here.dll)", FakeSources());
+    // The gate passed; the injection did not take, and that is reported rather
+    // than being mistaken for a refusal.
+    CHECK(v.Allowed());
+    CHECK(std::strstr(v.signal, "injection failed") != nullptr);
+}
+
+#endif    // FL_HARNESS_EXE && FL_OVERLAY_DLL

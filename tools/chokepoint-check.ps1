@@ -102,6 +102,30 @@ if (-not $checkedFile) {
     exit 1
 }
 
+# --- FL_GUARD_TESTABLE must not reach anything that ships -------------------
+# The seam it exposes lets a caller hand the guard all-clean fakes. That is
+# necessary for 14_TESTING's fail-closed matrix and unacceptable anywhere else:
+# with the injection primitive real, a shipping target that defined this would
+# have a route into a game process that consulted no genuine signal at all.
+$testTarget = 'src/native/tests/CMakeLists.txt'
+$cmakeFiles = @(Get-ChildItem $nativeRoot -Recurse -File -Filter 'CMakeLists.txt' |
+        Where-Object { $_.FullName -notmatch '\\(third_party|_deps|build)\\' })
+$definers = @()
+foreach ($f in $cmakeFiles) {
+    $rel = ([IO.Path]::GetRelativePath($Root, $f.FullName)) -replace '\\', '/'
+    if (Select-String -Path $f.FullName -Pattern 'FL_GUARD_TESTABLE' -SimpleMatch -Quiet) {
+        $definers += $rel
+    }
+}
+foreach ($d in $definers) {
+    if ($d -ne $testTarget) {
+        $violations.Add("$d defines FL_GUARD_TESTABLE — the evidence seam must exist only in the test target")
+    }
+}
+if ($definers.Count -eq 0) {
+    $violations.Add("no CMakeLists defines FL_GUARD_TESTABLE — either the seam moved or this check is now inert")
+}
+
 if ($violations.Count -gt 0) {
     Write-Host 'CHOKEPOINT CHECK FAILED' -ForegroundColor Red
     $violations | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }

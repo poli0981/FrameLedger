@@ -97,9 +97,29 @@ GitHub release body, so a missing section means an empty release note.
   - The rules parser re-checks the required-family floor **and group**. CI
     already enforces that, but rules ship as updatable data, so CI is not in the
     loop at injection time.
-  - `InjectViaLoadLibrary` is deliberately still a stub. CLAUDE.md rule 2 orders
-    the guard before the first real injection, and this is what that looks like
-    from the inside.
+  - **The injection primitive**, in the order CLAUDE.md rule 2 requires: guard
+    and full matrix first, then the primitive. `VirtualAllocEx` +
+    `WriteProcessMemory` + `CreateRemoteThread` on documented `LoadLibraryW` —
+    the most ordinary technique there is, which is the point. Minimal handle
+    rights, `PAGE_READWRITE` (we write a *path*, never code), a bounded wait,
+    the remote page always freed, and WOW64 targets refused because an x64 DLL
+    cannot load there and the `LoadLibraryW` address would be meaningless.
+  - Success is **verified by observation**: the target is re-enumerated and the
+    module looked up by name. `GetExitCodeThread` would give `LoadLibraryW`'s
+    `HMODULE` truncated to 32 bits, so a handle with a zero low word reads as
+    failure — and a nonzero one reads as success with nothing having checked
+    that our DLL is actually there.
+  - **The evidence seam is compiled out of everything that ships.**
+    `GuardedInject`/`Evaluate` take no `Sources`; the injectable versions exist
+    only under `FL_GUARD_TESTABLE`, which only the test target defines, and the
+    guard sources are compiled *into* the test rather than linked from the
+    static lib. `FrameLedger.Injector.lib` therefore contains zero
+    `WithSources` symbols — verified with `dumpbin`. `chokepoint-check` fails
+    the build if any other CMakeLists defines the macro.
+  - End-to-end tests inject into `hook-harness --hold` — our own dummy D3D11
+    app, no game and no anti-cheat surface — and assert both directions: a
+    passing verdict really loads the DLL, and a **refused** verdict leaves the
+    target untouched.
 - **Catch2 and jsmn**, both pinned by commit (§S15 items 2 and 3). jsmn was
   chosen for what it does *not* do: no allocation, no exceptions, failure as a
   return code. `/EHsc` is on the test binary only — a throw crossing the guard

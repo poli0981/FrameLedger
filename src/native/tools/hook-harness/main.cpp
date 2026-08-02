@@ -20,6 +20,9 @@
 //                        not a ctest — a timing threshold on a shared runner
 //                        fails for reasons unrelated to the code)
 //   --present N      present N frames
+//   --hold N         present, then stay alive N seconds. Exists so the harness
+//                    can be an INJECTION TARGET: a target that has already
+//                    exited is not a cross-process test, it is a silent pass
 
 #include <windows.h>
 
@@ -511,6 +514,16 @@ int main(int argc, char** argv) {
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-cost") == 0) {
             ok = ProbeCost_PerPresent(g) && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold") == 0 && i + 1 < argc) {
+            // A live target for the injection tests. --present alone is not
+            // enough: 100,000 WARP presents take ~30 ms, so the process is gone
+            // long before anything can inject into it, and the test then fails
+            // for a reason that has nothing to do with injection.
+            ok = PresentLoop(g, 240) == 0 && ok;
+            std::printf("  holding for %d second(s)\n", std::atoi(argv[i + 1]));
+            std::fflush(stdout);
+            Sleep(static_cast<DWORD>(std::atoi(argv[++i])) * 1000);
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--present") == 0 && i + 1 < argc) {
             ok = PresentLoop(g, std::atoi(argv[++i])) == 0 && ok;

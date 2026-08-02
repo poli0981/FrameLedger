@@ -1,6 +1,9 @@
+#include <windows.h>
+
 #include <cstring>
 #include <fl_ac_rules.h>
 #include <fl_guard.h>
+#include <psapi.h>
 
 namespace fl::guard {
 namespace {
@@ -21,22 +24,127 @@ namespace {
 // erasure, no PEB unlinking, no thread hiding — CLAUDE.md rule 3, and
 // 19_SAFETY §What we will never build.
 // ---------------------------------------------------------------------------
+// VirtualAllocEx + WriteProcessMemory + CreateRemoteThread on LoadLibraryW.
+//
+// The most ordinary injection technique there is, and that is the point.
+// 19_SAFETY §What we will never build rules out manual mapping, PE header
+// erasure, PEB unlinking, thread hiding and every other way of being harder to
+// see. A performance tool should be EASY for anti-cheat to identify: the DLL
+// keeps its real name, its real exports and a populated VERSIONINFO block, and
+// it arrives through the documented loader like RTSS, OBS and ReShade do.
+//
+// Reached only from GuardedInject, below, after every check has passed.
 bool InjectViaLoadLibrary(std::uint32_t pid, const wchar_t* dllPath) noexcept {
-    // NOT IMPLEMENTED YET, AND THAT IS THE CORRECT STATE.
+    // The payload must exist and be a file before we ask another process to
+    // load it. A missing DLL turns into a remote LoadLibraryW that fails inside
+    // the game rather than an error we can report here.
+    const DWORD attrs = GetFileAttributesW(dllPath);
+    if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        return false;
+    }
+
+    // Only exactly the rights needed. PROCESS_ALL_ACCESS would work and would
+    // be worse: a handle that can do more than the operation requires is a
+    // larger blast radius for any bug in the code below.
+    const DWORD rights = PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ |
+                         PROCESS_QUERY_LIMITED_INFORMATION;
+    HANDLE      proc = OpenProcess(rights, FALSE, pid);
+    if (proc == nullptr) {
+        return false;
+    }
+
+    // An x64 DLL cannot load into a 32-bit process, and kernel32 sits at a
+    // different address there — so the LoadLibraryW address computed below
+    // would be meaningless. Refuse rather than write a wrong pointer into
+    // somebody else's address space. (This is also why D3D9 is not Tier 1:
+    // 20_OPEN_QUESTIONS §Scope.)
+    BOOL targetIsWow64 = FALSE;
+    if (!IsWow64Process(proc, &targetIsWow64) || targetIsWow64) {
+        CloseHandle(proc);
+        return false;
+    }
+
+    // kernel32 is mapped at the same base in every 64-bit process for the life
+    // of a boot, so our own LoadLibraryW address is valid in the target. This
+    // is the documented consequence of ASLR being per-boot for system images,
+    // not a trick.
+    const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    if (kernel32 == nullptr) {
+        CloseHandle(proc);
+        return false;
+    }
+    auto loadLibrary =
+        reinterpret_cast<LPTHREAD_START_ROUTINE>(reinterpret_cast<void*>(GetProcAddress(kernel32, "LoadLibraryW")));
+    if (loadLibrary == nullptr) {
+        CloseHandle(proc);
+        return false;
+    }
+
+    const std::size_t bytes = (wcslen(dllPath) + 1) * sizeof(wchar_t);
+    // PAGE_READWRITE, never PAGE_EXECUTE_*. We are writing a STRING — a path
+    // for the loader to read. Nothing we place in the target is ever executed;
+    // the only code that runs is kernel32's own LoadLibraryW.
+    void* remote = VirtualAllocEx(proc, nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (remote == nullptr) {
+        CloseHandle(proc);
+        return false;
+    }
+
+    bool   ok = false;
+    SIZE_T written = 0;
+    if (WriteProcessMemory(proc, remote, dllPath, bytes, &written) && written == bytes) {
+        HANDLE thread = CreateRemoteThread(proc, nullptr, 0, loadLibrary, remote, 0, nullptr);
+        if (thread != nullptr) {
+            // Bounded wait. A hung loader in someone else's game is not
+            // something we can fix, but it is something we must not wait on
+            // forever — the Agent has a session to fail cleanly.
+            const DWORD waited = WaitForSingleObject(thread, 10000);
+            ok = (waited == WAIT_OBJECT_0);
+            CloseHandle(thread);
+        }
+    }
+
+    // Release the path buffer either way. Leaving a page behind in a process we
+    // do not own is litter at best and a lifetime bug at worst.
+    VirtualFreeEx(proc, remote, 0, MEM_RELEASE);
+
+    // VERIFY BY OBSERVATION, not by return value.
     //
-    // CLAUDE.md rule 2 and 15_ROADMAP both say the guard ships before the first
-    // real injection, not after — and the guard's Catch2 fail-closed matrix is
-    // still being written. Opening a process with
-    // CREATE_THREAD|VM_OPERATION|VM_WRITE before those tests pass would be the
-    // exact ordering the project has refused from the start.
-    //
-    // When it lands it is VirtualAllocEx + WriteProcessMemory + CreateRemoteThread
-    // on LoadLibraryW. Documented API, real DLL name, real exports. No manual
-    // mapping, no header erasure, no PEB unlinking (19_SAFETY §What we will
-    // never build).
-    (void)pid;
-    (void)dllPath;
-    return false;
+    // GetExitCodeThread would give us LoadLibraryW's HMODULE truncated to 32
+    // bits, so a module whose handle happens to have a zero low word reads as
+    // failure — and, worse, a nonzero value reads as success without anything
+    // having checked that our DLL is actually there. Re-enumerating the target
+    // and looking for the module by name is the observation that answers the
+    // question we actually have.
+    if (ok) {
+        // BOTH separators. Win32 accepts forward slashes throughout, and the
+        // path handed to us may well contain them — CMake generates them, and
+        // so does anything that has been through a POSIX-flavoured toolchain.
+        // Looking only for a backslash left `leaf` holding the entire path, so
+        // the name comparison below never matched and a SUCCESSFUL injection
+        // reported failure.
+        wchar_t        leaf[MAX_PATH]{};
+        const wchar_t* back = wcsrchr(dllPath, L'\\');
+        const wchar_t* fwd = wcsrchr(dllPath, L'/');
+        const wchar_t* slash = (back > fwd) ? back : fwd;
+        wcscpy_s(leaf, (slash != nullptr) ? slash + 1 : dllPath);
+
+        ok = false;
+        HMODULE mods[1024]{};
+        DWORD   needed = 0;
+        if (EnumProcessModulesEx(proc, mods, sizeof(mods), &needed, LIST_MODULES_ALL)) {
+            const size_t count = (needed > sizeof(mods) ? sizeof(mods) : needed) / sizeof(HMODULE);
+            for (size_t i = 0; i < count && !ok; ++i) {
+                wchar_t name[MAX_PATH]{};
+                if (GetModuleBaseNameW(proc, mods[i], name, MAX_PATH) != 0 && _wcsicmp(name, leaf) == 0) {
+                    ok = true;
+                }
+            }
+        }
+    }
+
+    CloseHandle(proc);
+    return ok;
 }
 
 Verdict Refuse(Reason reason, const char* family, const char* signal) noexcept {
@@ -271,7 +379,9 @@ const char* ReasonName(Reason r) noexcept {
     return "Unknown";
 }
 
-Verdict Evaluate(std::uint32_t targetPid, const Sources& sources) noexcept {
+namespace {
+
+Verdict EvaluateImpl(std::uint32_t targetPid, const Sources& sources) noexcept {
     // Static so the 1 MiB of rules storage inside LoadRules is not duplicated
     // on the stack. Cleared on every call: a stale blocklist from a previous
     // evaluation would be a gate answering about the wrong data.
@@ -295,8 +405,8 @@ Verdict Evaluate(std::uint32_t targetPid, const Sources& sources) noexcept {
     return Allow();
 }
 
-Verdict GuardedInject(std::uint32_t targetPid, const wchar_t* dllPath, const Sources& sources) noexcept {
-    const Verdict v = Evaluate(targetPid, sources);
+Verdict GuardedInjectImpl(std::uint32_t targetPid, const wchar_t* dllPath, const Sources& sources) noexcept {
+    const Verdict v = EvaluateImpl(targetPid, sources);
     if (!v.Allowed()) {
         return v;
     }
@@ -313,5 +423,25 @@ Verdict GuardedInject(std::uint32_t targetPid, const wchar_t* dllPath, const Sou
     }
     return v;
 }
+
+}    // namespace
+
+Verdict Evaluate(std::uint32_t targetPid) noexcept {
+    return EvaluateImpl(targetPid, SystemSources());
+}
+
+Verdict GuardedInject(std::uint32_t targetPid, const wchar_t* dllPath) noexcept {
+    return GuardedInjectImpl(targetPid, dllPath, SystemSources());
+}
+
+#ifdef FL_GUARD_TESTABLE
+Verdict EvaluateWithSources(std::uint32_t targetPid, const Sources& sources) noexcept {
+    return EvaluateImpl(targetPid, sources);
+}
+
+Verdict GuardedInjectWithSources(std::uint32_t targetPid, const wchar_t* dllPath, const Sources& sources) noexcept {
+    return GuardedInjectImpl(targetPid, dllPath, sources);
+}
+#endif
 
 }    // namespace fl::guard

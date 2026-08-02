@@ -222,11 +222,20 @@ done; item 1 is the one still open.**
   unit other than the guard's names the injection primitive *or* the Win32 calls
   that constitute injection. Proven red both ways.
 
-> **The injection primitive itself is deliberately still a stub.** The guard and
-> its matrix exist; `InjectViaLoadLibrary` returns false and does not open a
-> process. CLAUDE.md rule 2 and `15_ROADMAP` both order the guard before the
-> first real injection, and this is what that ordering looks like from the
-> inside.
+> **The injection primitive is now real**, in the order CLAUDE.md rule 2
+> requires: the guard and its full matrix landed first, then the primitive.
+> `VirtualAllocEx` + `WriteProcessMemory` + `CreateRemoteThread` on documented
+> `LoadLibraryW`, verified end to end against `hook-harness --hold`.
+>
+> Hardening that came out of writing it: **the evidence seam is compiled out of
+> everything that ships.** `GuardedInject` and `Evaluate` take no `Sources` and
+> always use `SystemSources()`; the injectable versions exist only under
+> `FL_GUARD_TESTABLE`, which only `src/native/tests` defines. The guard sources
+> are compiled *into* the test binary rather than linked from the static lib, so
+> `FrameLedger.Injector.lib` contains **zero** `WithSources` symbols — verified
+> with `dumpbin`, not assumed. While the primitive was a stub a caller passing
+> all-clean fakes was theoretical; the moment injection became real it would
+> have been a route into a game process that consulted no genuine signal at all.
 
 1. **One matcher, not two.** `04_CAPTURE` §The guard writes
    `AntiCheatGuard.Check(pid)` and `01_ARCHITECTURE` draws the guard inside the

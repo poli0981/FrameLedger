@@ -6,6 +6,14 @@
 # structurally rather than by review — the injection primitive has internal
 # linkage inside fl_guard.cpp, so no other translation unit has a symbol to
 # call, and tools/chokepoint-check.ps1 fails the build if one names it.
+set(FL_INJECTOR_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/injector.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/fl_ac_rules.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/fl_guard.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/fl_guard_sources.cpp"
+    PARENT_SCOPE
+)
+
 add_library(FrameLedger.Injector STATIC
     src/injector.cpp
     src/fl_ac_rules.cpp
