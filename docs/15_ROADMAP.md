@@ -13,9 +13,15 @@ The hook rewrite front-loads risk: almost everything uncertain is in P0/P1. That
 
 Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit criteria pass.
 
-0. **The guard.** Module + driver enumeration, blocklist matching, fail-closed behaviour on every error path. **Moved from item 8**: items 1 and 6 below inject into real games, and CLAUDE.md rule 2 plus P1's own "it ships before the first real injection, not after" both forbid that ordering. *Evidence collected — `spike-notes.md` §1; §S7 closed, §S1 measured. The guard itself is not yet written.*
-1. **Vulkan layer passthrough.** Minimal implicit layer intercepting `vkQueuePresentKHR`, registered under `HKCU`, with the opt-in check that keeps it passthrough for non-enabled processes. **Moved from item 7**: a passthrough bug loads FrameLedger into every Vulkan process on the machine, which is the highest blast radius in the spike.
-2. **Hook viability.** `hook-harness` (D3D11 + D3D12) + MinHook: dummy-device vtable probe, verify present indices at runtime, install/uninstall cleanly, measure per-present cost. Confirm `/MT` DLL loads into a real (offline, non-AC) game without incident.
+> **Status as of 2026-08-03.** Items 0 done, 1 and 2 partly. Everything still
+> open needs either a real game (2, 4, 5, 6, 7), absent hardware (8, and the
+> AMD/Intel half of the capability matrix), or is P1 by construction (the
+> layer's presentation hooks). The safety work that had to precede the first
+> injection — the guard, its matrix, the chokepoint, the layer's gates — is in.
+
+0. **The guard.** Module + driver enumeration, blocklist matching, fail-closed behaviour on every error path. **Moved from item 8**: items 1 and 6 below inject into real games, and CLAUDE.md rule 2 plus P1's own "it ships before the first real injection, not after" both forbid that ordering. **✅ DONE.** The guard is built (`FrameLedger.Injector`, native per §S13(a)), owns the chokepoint, and its fail-closed matrix is 27 Catch2 cases. The injection primitive landed after it, in that order. Reached from managed code through one P/Invoke facade — never a second matcher (§S15). Evidence: `spike-notes.md` §1; §S7, §S8, §S16 closed.
+1. **Vulkan layer passthrough.** Minimal implicit layer registered under `HKCU`, with the opt-in checks that keep it passthrough for non-enabled processes. **Moved from item 7**: a passthrough bug loads FrameLedger into every Vulkan process on the machine, which is the highest blast radius in the spike. **◐ Gates done, interception not started.** `enable_environment` measured against loader 1.4.357, blast radius verified, in-layer blocklist self-scan built and proven both directions. `vkQueuePresentKHR` is **not** hooked — that is P1, and §S2's in-layer supervision check lands with it.
+2. **Hook viability.** `hook-harness` (D3D11 + D3D12) + MinHook: dummy-device vtable probe, verify present indices at runtime, install/uninstall cleanly, measure per-present cost. Confirm `/MT` DLL loads into a real (offline, non-AC) game without incident. **◐ Everything except the real game.** Vtable indices proved by behaviour (§H4), unhook proved not to clobber a later hooker (§H7), per-present cost measured at 8.4 ns against a 1,000 ns budget. **The `/MT` DLL has never been loaded into a real title** — the injection primitive is proven only against `hook-harness`. That is the single largest remaining P0 item and it needs a chosen offline, anti-cheat-free game.
 3. **The accuracy baseline.** Build a **minimal static-hint detector** — passive file/module scanning, no injection — as the thing item 4 measures against. Added to P0 scope 2026-08-02 (`20_OPEN_QUESTIONS` §M9): the "old detection" this roadmap assumed as a baseline does not exist in this repository, and without it the comparison below cannot be made and ADR-7's founding claim is unfalsifiable. It needs no guard and no injection, so it can be built at any point before item 4.
 4. **The accuracy question — the reason this rewrite exists.** On the dev machine (RTX 5080), verify against ≥ 3 real offline titles that hooks recover: NGX/Streamline feature identity, render vs output resolution, quality preset, and DLSS-G activity. Compare against what the item-3 baseline reports. **Quantify the improvement** — this number justifies the whole trade-off and belongs in the README.
 5. **Vendor SDK reality check.** Resolve actual exported symbol names for NGX, Streamline, FFX (`ffx_api` vs legacy FSR2/3), XeSS on the dev machine. The names in `17_HOOK_ENGINE` are conventions, not verified facts — correct the doc.
@@ -42,7 +48,14 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > stays in P0 as item 2 — it needs no game, no Agent and no drain.
 
 ## P1 — Native core (1.5 weeks)
-`FrameLedger.Overlay` proper: hook installation for D3D11/12/9/OGL, feature hooks, ring writer, fault policy, unhook path, native logging. `FrameLedger.Injector` with launch + attach modes. **The guard, complete and fully tested** (`14_TESTING` §Safety-guard tests) — it ships before the first real injection, not after. Struct mirror + Catch2 tests. Vulkan layer to parity.
+`FrameLedger.Overlay` proper: hook installation for D3D11/12/9/OGL, feature hooks, ring writer, fault policy, unhook path, native logging. `FrameLedger.Injector` with launch + attach modes. Struct mirror + Catch2 tests. Vulkan layer to parity — `vkQueuePresentKHR` plus the in-layer supervision check §S2 gates on it.
+
+> **The guard already shipped, in P0.** This line used to read "the guard,
+> complete and fully tested — it ships before the first real injection, not
+> after", which was the correct ordering stated in the wrong phase: P0 items 1
+> and 6 inject into real games. It moved to item 0 and is done. What P1 still
+> owes the guard is the launch-mode decision (§S13(c)) and the mid-session
+> re-scan wired to a real Overlay.
 
 ## P2 — Capture pipeline (1 week)
 Agent: watcher, tier selection, injection orchestration, shm drain, telemetry poller (NVAPI first), session recorder, segments, `.partial` recovery, Tier-2 `EtwFrameSource` retained as fallback. SQLite v2 schema + migrations. Domain metric calculators + golden tests. **Milestone: first real hooked session persisted with measured upscaler/RT data.**
