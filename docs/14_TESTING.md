@@ -14,8 +14,10 @@ The anti-cheat guard is the one component where a bug can cost someone an accoun
 
 ## Native unit tests (Catch2)
 
-- **Ring buffer:** SPSC correctness under a hammering writer thread; seqlock torn-read detection; wrap and overwrite-oldest semantics; `droppedRecords` accuracy; power-of-two capacity assumptions.
-- **Record layout:** `static_assert` plus a runtime offset dump consumed by the managed struct-mirror test.
+- **Ring buffer:** SPSC correctness under a hammering writer thread; seqlock torn-read detection; wrap and overwrite-oldest semantics; power-of-two capacity assumptions. Include the **one-full-lap case**: a reader stalled exactly `capacity` records must not validate a different frame as unchanged (this is what the never-reset `seq` counter defends, `07_IPC` §Protocol rules).
+- **Drop accounting:** the reader-side computation (`writeIndex - readIndex > capacity`) reports the right count and resumes at the right index. The writer has no drop counter to test — by design.
+- **Torn records produce gap markers,** not silently shortened streams; a golden test asserts the gap does not appear as a stutter.
+- **Record and header layout:** `static_assert(sizeof(...) == 64)` and `offsetof` assertions for `FlFrameRecord` **and all three header structs** (`FlShmHandshake`, `FlWriterState`, `FlControlBlock`) — the Agent reads across the process boundary in every one of them. Runtime offset dump consumed by the managed struct-mirror test.
 - **Fault policy:** injected SEH faults in a fake hook body → counter increments, original still called, self-disable at 3.
 - **Hook index verification:** the dummy-object vtable probe returns the expected indices on the CI runner's D3D runtime; a deliberate mismatch aborts installation instead of patching.
 
@@ -34,7 +36,7 @@ The anti-cheat guard is the one component where a bug can cost someone an accoun
 - PresentMon CSV (Tier 2): header-map building with shuffled/unknown/missing columns, malformed lines, invariant decimal. Fixtures recorded from real runs.
 - Steam ACF (KeyValues), GOG `.info`, Epic `.item`, itch receipt — real-world fixtures.
 - `RuleEvaluator`: fixture directory trees per engine, including the "Unity markers present but UE structure too" ordering case.
-- Blob codecs round-trip (NaN forbidden — assert). SQLite migrations 0→v2 including the **v1→v2 upgrade with existing ETW sessions** (they must survive as `capture_tier = 2`).
+- Blob codecs round-trip for every series in `frame_blobs` (NaN forbidden — assert), including the two-pair `render_res` encoding and the three-bit `rt_flags` byte. SQLite migrations apply cleanly from an empty file to the current schema, and re-applying is a no-op. (There is no v1→v2 upgrade to test — `06_DATA_MODEL` §Migrations.)
 - IPC pipe: framing, split reads, oversize rejection, unknown fields/types ignored, protocol mismatch.
 
 ## Integration tests (CI-runnable, no game, no anti-cheat surface)
@@ -62,7 +64,7 @@ Run the same game session with Tier 1 and Tier 2 simultaneously where possible (
 |---|---|
 | OS | Win 10 22H2 VM · Win 11 dev machine |
 | GPU vendor | NVIDIA (primary) · AMD or Intel if available, else document as untested |
-| API | D3D11 · D3D12 · D3D9 (VN/older indie) · Vulkan (layer path) · OpenGL |
+| API | D3D11 · D3D12 · Vulkan (layer path) · OpenGL · **a 32-bit title, asserting it is correctly refused and routed to Tier 2** |
 | Upscaler | DLSS SR · DLSS-G · DLSS-RR · FSR2/3 · XeSS · none |
 | RT | DXR 1.0 dispatch title · inline RayQuery title · non-RT title |
 | Mode | launch mode · attach mode · mid-session settings change |

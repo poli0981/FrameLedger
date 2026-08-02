@@ -24,7 +24,7 @@ Targets:
 - `FrameLedger.VkLayer` → `FrameLedger.VkLayer.dll` + `VkLayer_frameledger_overlay.json`
 - `FrameLedger.Injector` → static lib + `FrameLedger.Injector.exe` (thin CLI used by the Agent and for manual testing)
 - `FrameLedger.Overlay.Tests` → Catch2 unit tests (ring buffer, record layout, fault filter, seqlock)
-- `hook-harness` → the dummy D3D9/11/12/Vulkan app (`17_HOOK_ENGINE` §Test harness)
+- `hook-harness` → the dummy D3D11/D3D12/Vulkan/OpenGL app (`17_HOOK_ENGINE` §Test harness)
 
 Compiler/linker flags (enforced in CMake, not per-target ad hoc): `/std:c++20 /MT /O2 /GS /guard:cf /Qspectre /GR- /W4 /WX`, `-D_HAS_EXCEPTIONS=0` for the Overlay target. Link `/DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA`.
 
@@ -38,7 +38,11 @@ Compiler/linker flags (enforced in CMake, not per-target ad hoc): `/std:c++20 /M
 
 ## Managed build & native integration
 
-- `Directory.Build.props`: TFM `net10.0-windows10.0.19041.0`, Nullable enable, ImplicitUsings enable, `TreatWarningsAsErrors=true`, `AnalysisLevel=latest-all`, deterministic, `ContinuousIntegrationBuild` on CI.
+- **`global.json` pins the SDK band** (`10.0.x`, `rollForward: latestFeature`). Without it `dotnet build` picks the newest installed SDK — on a machine with a .NET 11 preview installed that silently changes analyzer behaviour under `TreatWarningsAsErrors`, and makes local and CI disagree for reasons nobody can see in a diff.
+- `Directory.Build.props`:
+  - **`TargetFramework` = `net10.0-windows10.0.19041.0`** and **`SupportedOSPlatformVersion` = `10.0.19045.0`**. These are two different knobs and must not be conflated. The TFM platform version selects the Windows API projections available; the supported version is the floor CA1416 enforces. NFR-8 requires Windows 10 **22H2**, which is build **19045** — leaving it to default to the TFM's 19041 would silently accept installs three releases below the stated floor. A bare `net10.0-windows` is wrong for a different reason: it resolves to `net10.0-windows7.0`, and CA1416 would then error on Mica, `MiniDumpWriteDump` and `QueryVideoMemoryInfo` — every Windows-10-era API this app is built on.
+  - `Platforms`/`PlatformTarget` = `x64` and `RuntimeIdentifier` = `win-x64`. "x64 only" is asserted in CLAUDE.md and NFR-8 but was previously enforced nowhere except an ad-hoc `-r win-x64` on the publish command.
+  - Nullable enable, ImplicitUsings enable, `TreatWarningsAsErrors=true`, `AnalysisLevel=latest-all`, deterministic, `ContinuousIntegrationBuild` on CI.
 - `Directory.Packages.props`: central package management, all versions pinned (including `WPF-UI` = 4.3.0 exactly — `16_WPFUI_SYNTAX` §Version hygiene).
 - `FrameLedger.Infrastructure` has a build target that invokes the CMake build and copies `FrameLedger.Overlay.dll`, `FrameLedger.VkLayer.dll` (+ manifest), and `FrameLedger.Injector.exe` into the output as content. The native build runs **before** the managed build in the solution's project dependency order.
 - **Struct mirror check:** a test in `FrameLedger.Infrastructure.Tests` reads offsets emitted by a tiny generated header dump from the native build and asserts they match the C# `[StructLayout]` mirror. Struct drift between the two layers is the most dangerous silent bug in this architecture; the build catches it.
@@ -71,6 +75,17 @@ vpk pack --packId FrameLedger --packVersion {ver} --packDir out/app --mainExe Fr
 - No trimming (WPF + reflection), no NativeAOT (WPF unsupported), **no obfuscation** (GPLv3 policy, and `19_SAFETY` forbids making our binaries harder to identify).
 - `SatelliteResourceLanguages=en;vi;ja`. Expected package ≈ 95–130 MB self-contained.
 - Velopack hooks: installed → offer Agent setup + Vulkan layer registration; uninstalled → unregister the layer, remove the scheduled task, ask about the data folder.
+
+## Release-time token substitution
+
+`{{RELEASE_DATE}}` in `legal/*.md` is the **only** placeholder that survives into
+the repository, and it is deliberate: the effective date of a legal document is
+the date it ships, which is not knowable at authoring time. `release.yml`
+substitutes it with the tag date when packaging, and `ci.yml` fails the build if
+**any other** `{{` token appears in `README.md` or `legal/*.md` (`13_CI_CD.md`
+§ci.yml). Everything else — repository URL, slug, developer identity, contact
+address — is resolved in the source files, because an unsubstituted token in a
+document the app displays for acceptance (FR-11) is a defect, not a template.
 
 ## Local quality gate (pre-push)
 

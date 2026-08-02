@@ -4,7 +4,7 @@
 
 > ⚠ Draft for review. Not legal advice. The developer should review before first public release.
 
-This End User License Agreement ("Agreement") applies to **FrameLedger** ("the Software"), developed and published by **{{DEVELOPER_NAME}} (poli0981)** ("the Developer").
+This End User License Agreement ("Agreement") applies to **FrameLedger** ("the Software"), developed and published by **poli0981** ("the Developer"), contactable at <contact@poli0981.dev> — see <https://poli0981.dev/> for other contact channels.
 
 ## 1. License
 
@@ -30,7 +30,7 @@ By enabling this feature for a game, you confirm that:
 
 (e) the Developer has no ability to reverse a ban, recover lost progress, or intervene with any game publisher on your behalf, and accepts no liability for such outcomes.
 
-A measurement mode requiring no injection is always available and is the default.
+A measurement mode requiring no injection is the default. It depends on Windows event tracing and therefore on the Software's agent running with administrator rights; where those rights are unavailable, the Software records only session duration and hardware sensor data, and indicates which mode produced each session.
 
 ## 3. Acceptance
 
@@ -62,4 +62,4 @@ Your rights under the GPL-3.0 continue as described in that license. You may sto
 
 ---
 
-Contact: {{CONTACT_EMAIL}} · Project: {{REPO_URL}}
+Contact: <contact@poli0981.dev> · Developer: <https://poli0981.dev/> · Project: <https://github.com/poli0981/frameledger>

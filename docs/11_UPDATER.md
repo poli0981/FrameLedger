@@ -1,6 +1,6 @@
 # 11 — Updater
 
-Velopack, feeding from GitHub Releases of `{{REPO_URL}}`. Stable channel only in v1.
+Velopack, feeding from GitHub Releases of `https://github.com/poli0981/frameledger`. Stable channel only in v1.
 
 ## Flow
 

@@ -6,7 +6,7 @@ Mandatory conventions for all XAML/C# in `FrameLedger.App`. WPF UI = lepoco's Fl
 
 | Package (NuGet id) | Pin | Notes |
 |---|---|---|
-| `WPF-UI` | **= 4.3.0** (exact; bump deliberately) | Assembly/namespace is `Wpf.Ui`. Targets `net8.0-windows` → resolves cleanly for our `net10.0-windows` TFM |
+| `WPF-UI` | **= 4.3.0** (exact; bump deliberately) | Assembly/namespace is `Wpf.Ui`. Targets `net8.0-windows` → resolves cleanly for our `net10.0-windows10.0.19041.0` TFM (`12_BUILD` §Managed build) |
 | `WPF-UI.Abstractions` | transitive | Navigation abstractions (`INavigationViewPageProvider`) |
 | `WPF-UI.DependencyInjection` | match `WPF-UI` | DI glue (`services.AddNavigationViewPageProvider()`); verify exact id/version at scaffold |
 | `WPF-UI.Tray` | **not used** | Tray stays on H.NotifyIcon.Wpf (CLAUDE.md stack table) |

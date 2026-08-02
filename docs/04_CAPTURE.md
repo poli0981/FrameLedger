@@ -22,9 +22,26 @@ Tier selection per launch:
 
 ```
 hookingEnabledForGame && guardPasses && injectionSucceeds   → Tier 1
-otherwise, if ETW available (needs elevation)               → Tier 2
+otherwise, if the Agent is elevated (ETW needs it)          → Tier 2
 otherwise                                                    → Tier 3 (duration + sensors only)
 ```
+
+**Tier 2 is not unconditionally available, and the product must stop implying it
+is.** Controlling an ETW trace session requires the caller to be in
+Administrators or Performance Log Users, and joining the latter itself needs
+admin. Intel's PresentMon console binary re-launches itself elevated when run
+without rights, which for an Agent driven by a 1 Hz watcher (FR-3.1) means a UAC
+prompt per capture — unacceptable — or outright failure on a standard account.
+
+So an unelevated Agent that fails Tier 1 lands on **Tier 3**, not Tier 2. The UI
+must say so at the moment it happens and in the Agent-setup step, rather than
+offering "capture without injection instead" and then silently recording nothing
+but duration. `19_SAFETY` §Pre-injection checks, `08_UI` §First-run flow and the
+Disclaimer all state the elevation requirement for the same reason.
+
+Whether a documented one-time "add me to Performance Log Users" setup step, or
+the PresentMon Service (`15_ROADMAP` v2 backlog), can restore genuinely
+elevation-free Tier 2 is `20_OPEN_QUESTIONS` §M6.
 
 The chosen tier is recorded on the session and surfaced in the UI. A Tier-1 attempt that fails **degrades to Tier 2 for the session without interrupting the user's game**, and raises a one-time notification explaining why (users must not lose data fidelity without knowing).
 
@@ -49,8 +66,9 @@ Steam users can also set FrameLedger as a launch option wrapper; documented in t
 ## Ring draining
 
 - Map `Local\FrameLedger.Ring.<pid>`; validate layout version + build id against our own. Mismatch (app updated while game running) → refuse to attach, tell the user to restart the game.
-- Drain every 100 ms: read `writeIndex` (acquire), copy new records, validate `seq` before/after each (skip torn), advance the read index.
-- `droppedRecords` from the header is accumulated onto the session's data-quality counter. A non-zero value means the Agent stalled — log it, surface it as a session warning, never silently accept it.
+- Drain every 100 ms: read `writeIndex` (acquire), copy new records, validate `seq` before/after each (skip torn), advance the read index. Protocol in `07_IPC` §Protocol rules.
+- **Dropped records are computed here, not read from the header.** The Overlay has no reader index and cannot know whether a slot it overwrites was consumed. The Agent owns the read index, so it owns the accounting: when `writeIndex - readIndex > capacity`, add the excess to the session's data-quality counter and resume at `writeIndex - capacity`. A non-zero value means the Agent stalled for over ~16 s — log it, surface it as a session warning, never silently accept it.
+- **A torn record is a gap, not a skipped frame.** Silently dropping it merges two frame times into one double-length interval, i.e. fabricates a stutter. Record an explicit gap at that index; `03_METRICS` excludes gap-adjacent intervals from frame-time statistics.
 - Records go into an in-memory buffer (`ArrayPool<FlFrameRecord>` segments). Every 60 s, a crash-safety flush writes raw buffers to `%LOCALAPPDATA%\FrameLedger\tmp\<sessionGuid>.partial`.
 
 ## Telemetry poller
@@ -71,7 +89,7 @@ Idle → Detected(pid) → Guarded → Injecting → Capturing → Finalizing �
 1. Signal the Overlay to stop writing (control flag), drain the ring one last time.
 2. Build **segments** from resolution/upscaler changes (`03_METRICS` §Upscaling).
 3. Compute all aggregates.
-4. Compress raw series (Deflate): frametimes `float32[]`, per-frame flags `byte[]`, per-frame render-res `uint16[]` pairs (only when they vary), sensor series `float32[]`.
+4. Compress raw series (Deflate) — **the full `frame_blobs` set in `06_DATA_MODEL`**, not a subset: frametimes `float32[]`, frame flags `byte[]`, RT flags `byte[]`, render/output resolution `uint16[]` (two pairs per frame, only when either varies), dispatch-rays volume `uint32[]`, PSO counts `uint16[]`, per-process VRAM `uint32[]`, Reflex latency `uint32[]`, and the sensor series `float32[]`. Anything skipped here becomes a CSV column the exporter cannot fill (`03_METRICS` §Export schema) — Reflex latency was previously omitted from this step while `06_DATA_MODEL` declared a column for it.
 5. Write session row + blobs in one SQLite transaction; delete the `.partial`.
 
 **Discard rule:** duration < min session length (default 30 s) → discard silently (log only).

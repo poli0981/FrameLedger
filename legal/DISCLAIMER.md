@@ -21,9 +21,9 @@ None of this information is obtainable from outside the process, which is why th
 FrameLedger is designed to reduce that risk substantially:
 
 - Injection is **off by default** and must be enabled by you **per game**.
-- Before injecting, and every 30 seconds afterwards, FrameLedger scans for known anti-cheat and anti-tamper components. **If it finds one, it refuses to inject, or stops immediately if the session is already running.** There is no setting to override this.
+- Before injecting, and every 30 seconds afterwards, FrameLedger scans for known anti-cheat and anti-tamper components. **If it finds one, it refuses to inject; if a session is already running, it stops at the next scan.** There is no setting to override this. Because the scan runs every 30 seconds rather than continuously, anti-cheat that loads mid-session may be present for **up to 30 seconds** before FrameLedger detects it and unhooks.
 - FrameLedger contains **no evasion techniques of any kind** — it does not hide, rename, obfuscate, or disguise itself. It is intended to be plainly identifiable to any security software that looks.
-- A no-injection measurement mode is always available and is the default for anything the software is unsure about.
+- A no-injection measurement mode is the default for anything the software is unsure about. It relies on Windows event tracing, which requires the FrameLedger agent to run with administrator rights; without that, measurement falls back to session duration and hardware sensors only. FrameLedger tells you which mode produced each session.
 
 **However, these protections cannot be complete:**
 

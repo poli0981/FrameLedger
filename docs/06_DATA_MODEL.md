@@ -85,6 +85,8 @@ CREATE TABLE sessions (
   displayed_frame_count INTEGER NOT NULL, dropped_frames INTEGER NOT NULL,
   native_fps REAL, displayed_fps REAL,
   median_fps REAL, p1_low_fps REAL, p01_low_fps REAL,
+  displayed_p1_low_fps REAL,                   -- 03_METRICS §Lows: stored for the
+                                               -- Displayed chart series, never the headline
   min_fps REAL, max_fps REAL, frametime_stddev_ms REAL,
   stutter_count INTEGER, stutter_time_pct REAL,
   pso_stutter_pct REAL,                        -- tier 1 only
@@ -116,12 +118,22 @@ CREATE TABLE session_segments (
 );
 CREATE INDEX ix_segments_session ON session_segments(session_id, start_frame);
 
+-- Per-frame series. Every column of the CSV export (03_METRICS §Export schema)
+-- must be reconstructible from this table plus session_segments — the exporter
+-- reads from here, not from the live ring.
 CREATE TABLE frame_blobs (
   session_id INTEGER PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
   codec TEXT NOT NULL, sample_count INTEGER NOT NULL,
   frametimes BLOB NOT NULL,        -- float32[] ms
-  frame_flags BLOB NOT NULL,       -- byte[] : generated/dropped/rt-active/pso-created bits
-  render_res BLOB,                 -- uint16[] pairs, only when resolution varies
+  frame_flags BLOB NOT NULL,       -- byte[] : generated/dropped/gap bits
+  rt_flags BLOB,                   -- byte[] : one per frame, all 3 bits preserved
+                                   -- (asBuild | dispatchRays | rtPsoAlive). Collapsing
+                                   -- these loses the inline-RayQuery distinction.
+  render_res BLOB,                 -- uint16[] : TWO pairs per frame (render W/H, output W/H),
+                                   -- stored only when either varies
+  dispatch_rays BLOB,              -- uint32[] : ray volume per frame, tier 1 only
+  pso_created BLOB,                -- uint16[] : compile COUNT per frame, not a flag
+  vram_proc BLOB,                  -- uint32[] MB per frame; held 1 Hz sample, see 03_METRICS
   latency_us BLOB                  -- uint32[], tier 1 + Reflex only
 );
 
@@ -155,9 +167,16 @@ Default: raw blobs for the **last 20 sessions per game** (configurable N or unli
 
 ## Migrations
 
-Sequential embedded SQL (`Migrations/0001_init.sql`, `0002_hooks.sql`, …), applied at startup by whichever process opens the DB first, guarded by `schema_migrations` + a global mutex. Never edit an applied script; only append.
+Sequential embedded SQL (`Migrations/0001_init.sql`, `0002_*.sql`, …), applied at startup by whichever process opens the DB first, guarded by `schema_migrations` + a global mutex. Never edit an applied script; only append.
 
-**v1 → v2:** existing sessions get `capture_tier = 2`, all new measured columns `NULL`, `games.hook_enabled = 0`. No data loss; historical ETW sessions remain valid and comparable within their tier.
+**`0001_init.sql` creates the schema above directly.** There is no v1 → v2
+upgrade path, because there is no released v1: nothing has shipped, so no
+FrameLedger database exists anywhere in the world. Writing and testing a
+migration from a schema that never existed is work with no user on the other end
+of it. The `schema_migrations` machinery still ships from day one — it is what
+makes the *next* migration safe, and `11_UPDATER` §Versioning already requires
+migrations to cover every released `MAJOR-1`. That obligation begins at the first
+release, not before it.
 
 ## Hardware change markers (FR-6.3)
 
