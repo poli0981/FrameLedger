@@ -111,6 +111,46 @@ and service names unconfirmed) and Valve VAC (needs `blockedStoreIds`). Recorded
 in the seed's own `$comment`. The `heuristic.trustedSigners` list is a guess and
 is marked UNVERIFIED.
 
+### S12 · Where the guard lives, and whether a clearance ever escapes it
+
+Three coupled decisions surfaced by the guard design work (2026-08-02). All need
+the owner: each contradicts something already written down.
+
+**(a) Guard placement.** `19_SAFETY` §The anti-cheat guard says "Implemented in
+`FrameLedger.Injector`" — the C++ static lib — and CLAUDE.md §Solution layout
+calls it the "AC guard probe". Against that: the fail-closed test matrix in
+`14_TESTING` requires forcing `EnumProcessModulesEx` failures, partial lists and
+unreadable processes from unit tests, which needs ports and fakes; and the rules
+model, blocklist matching and verdict types are pure logic that belongs in
+`Domain`. Proposal: the authoritative guard is **managed**, in
+`FrameLedger.Application`, with `FrameLedger.Injector` reduced to a dumb
+primitive (`VirtualAllocEx`/`WriteProcessMemory`/`CreateRemoteThread`) holding no
+guard logic and no independent entry point. Requires editing `19_SAFETY` and
+CLAUDE.md in the same change.
+
+**(b) Should a clearance token escape the guard at all?** §S8 established that
+the documented "sealed token only the guard can produce" does not work as
+written — in C# accessibility flows *inward* only, so the enclosing type cannot
+reach a nested private constructor (`CS0122`, verified by compiling). An
+`internal` constructor **does** hold across an assembly boundary (also verified:
+`FrameLedger.Infrastructure` gets `CS1729` trying to forge one).
+
+But a token that escapes can still be *ignored* — a caller can simply not ask
+for one, or pass `null!`. The stronger shape is for the guard to **own the
+chokepoint**: it collects evidence, matches, and then calls the injection
+primitive itself, so no clearance is ever handed out. That also deletes the
+staleness problem, because mint-to-inject shrinks to microseconds and no
+expiry policy is needed.
+
+**(c) §S1 launch mode may not be salvageable as designed.** A `CREATE_SUSPENDED`
+target has loaded almost nothing, so the module scan is blind; and the proposed
+"defer hooks until first present" gate is circular, because the ring handshake
+that would signal first-present is published by the Overlay *after* injection.
+An externally observable proxy is needed instead — e.g. resume, then poll until
+the target has mapped a presentation runtime (`dxgi.dll` plus `d3d11`/`d3d12`, or
+`opengl32`, or `vulkan-1`) *and* the scan passes *and* the blocklist is clean.
+Decide whether that is acceptable, or whether launch-mode injection is dropped.
+
 ### S6 · The 30 s scan window is the weakest part of the most important behavior
 
 Now disclosed honestly in the Disclaimer and README. The open question is whether
