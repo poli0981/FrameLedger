@@ -300,12 +300,17 @@ instead, which needs no thread at all.
 
 ## M — Metrics and telemetry. Blocks P2.
 
+> **M3 and M4 are resolved — both licence questions came back clean.** They were
+> the two items that needed no hardware and could each have invalidated an
+> entire telemetry layer, so they were answered first. Evidence and the exact
+> reasoning are in `spike-notes.md` §0; the licence texts now ship in
+> `legal/licenses/`. The remaining M-items still need measurement.
+
+
 | # | Question |
 |---|---|
 | M1 | Can PresentMon 2.x `FrameType` see **driver-level** frame generation (AMD AFMF)? `03_METRICS` now says v1 cannot detect it at Tier 1. If Tier 2 can, that is a genuine and surprising capability inversion worth surfacing in the UI |
 | M2 | Does the pinned **PresentMon console binary** still exist as a bundleable artifact, run unelevated, and emit the 2.x column set over stdout? `15_ROADMAP` parks the Service + API2 in v2, so there is no planned fallback if the console is gone |
-| M3 | **NVAPI licensing and availability.** Is the exact vendored artifact — headers **and** `nvapi64.lib` — MIT, with SPDX blocks intact? The import library may not be covered by the same grant as the headers. If this fails, Reflex/PC latency has no alternative source and FR-4.6, the latency tab and `sessions.latency_*` become permanently `N/A`. Do **not** fall back to ordinal resolution |
-| M4 | **LHM MPL-2.0 Exhibit B.** Does any depended-upon file carry "Incompatible With Secondary Licenses"? A ten-minute grep with a week-scale consequence: if it does, the L2 telemetry layer is unusable for **all three** vendors, and IGCL and ADLX are already rejected. **Run this in the first hour of P0** |
 | M5 | **Do LHM GPU sensors work unelevated, without PawnIO?** This decides whether the default unelevated Agent has temperatures at all, and therefore how ADR-9 reads to users |
 | M6 | Can a documented one-time "add me to Performance Log Users" step, or the PresentMon Service, restore genuinely elevation-free Tier 2? Would change the README, Disclaimer and EULA wording back |
 | M7 | `18_GPU_VENDOR_APIS` §Runtime policy says telemetry is never read from the game process, but `17_HOOK_ENGINE` reads per-process VRAM and Reflex latency there. Reconcile the wording — the rule means "no vendor SDK polling loops in the game", not "no measurement in the game" |

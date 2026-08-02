@@ -82,6 +82,28 @@ foreach ($v in $vendored) {
     }
 }
 
+# --- 2b. Packages whose licence text WE are obliged to ship ------------------
+# Some NuGet packages declare an SPDX expression and ship no licence file of
+# their own. LibreHardwareMonitorLib 0.9.6 is one: verified by unpacking the
+# .nupkg — 46 entries, no licence file. MPL-2.0 §3.1 makes distributing the
+# text our obligation, not a courtesy, so the copy in legal/licenses/ is
+# load-bearing and must not be deleted as "unused".
+$packagesProps = Join-Path $RepoRoot 'Directory.Packages.props'
+if (Test-Path $packagesProps) {
+    $props = Get-Content $packagesProps -Raw
+    $obliged = @(
+        @{ Package = 'LibreHardwareMonitorLib'; Licence = 'mpl-2.0.txt'; Spdx = 'MPL-2.0' }
+    )
+    foreach ($o in $obliged) {
+        if ($props -match [regex]::Escape($o.Package)) {
+            $copy = Join-Path $licenceDir $o.Licence
+            if (-not (Test-Path $copy)) {
+                $violations.Add("$($o.Package) is a dependency and its package ships no licence file; $($o.Spdx) requires legal/licenses/$($o.Licence) to be distributed with the app")
+            }
+        }
+    }
+}
+
 # NVAPI's SPDX headers must survive vendoring — the MIT grant travels with them.
 $nvapiDir = Join-Path $RepoRoot 'src/native/third_party/nvapi'
 if (Test-Path $nvapiDir) {

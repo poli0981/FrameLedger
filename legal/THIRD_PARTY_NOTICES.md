@@ -29,7 +29,7 @@ Telemetry is layered so no proprietary vendor licence is ever required (`docs/18
 
 | Component | How we use it | Licence | Bundled? |
 |---|---|---|---|
-| **NVIDIA NVAPI SDK** (headers, interface definitions, `nvapi64.lib`) | Linked normally; NVIDIA-only telemetry, throttle reasons, Reflex/PC latency | **MIT** — <https://github.com/NVIDIA/nvapi> | **Yes** — headers and import library vendored. MIT copyright notice ships in `legal/licenses/nvapi-MIT.txt` |
+| **NVIDIA NVAPI SDK** (headers, interface definitions, `nvapi64.lib`) | Linked normally; NVIDIA-only telemetry, throttle reasons, Reflex/PC latency | **MIT** — <https://github.com/NVIDIA/nvapi> | **Yes** — headers and import library vendored. **Verified 2026-08-02:** `amd64/nvapi64.lib` is a tracked file *in that repository*, and its `License.txt` opens "nvapi.lib and nvapi64.lib are licensed under the following terms" + `SPDX-License-Identifier: MIT` — the grant names the import libraries explicitly. Notice ships in `legal/licenses/nvapi-MIT.txt` |
 | `nvapi64.dll` (runtime implementation) | Loaded at runtime from the user's system | Part of the NVIDIA graphics driver | No — never redistributed by us |
 | **LibreHardwareMonitorLib** | GPU sensors for **all vendors** (AMD, Intel, NVIDIA) + CPU/board sensors when elevated | **MPL-2.0** | Yes, as an unmodified NuGet package |
 | **DXGI + Windows performance counters (PDH)** | Vendor-neutral baseline: utilisation, VRAM, adapter identity | Windows OS APIs | n/a |
@@ -37,9 +37,10 @@ Telemetry is layered so no proprietary vendor licence is ever required (`docs/18
 
 ### GPL-3.0 compatibility
 
-- **NVAPI SDK — MIT.** MIT is one-way compatible with GPL-3.0: the SDK material may be included in this repository and conveyed as part of a GPL-3.0 work, provided the MIT copyright and permission notice are retained. The runtime `nvapi64.dll` is a component of the user's installed graphics driver and is not distributed by us; its use falls under GPLv3 §1's **System Library** provision.
+- **NVAPI SDK — MIT, confirmed for the binary too.** The question worth asking was whether the MIT grant covered only the headers, leaving `nvapi64.lib` under the NVIDIA SDK agreement. It does not: the import libraries are tracked files in the MIT-licensed repository and `License.txt` names them as the subject of the grant. MIT is one-way compatible with GPL-3.0: the material may be included here and conveyed as part of a GPL-3.0 work, provided the copyright and permission notice are retained. The runtime `nvapi64.dll` is a component of the user's installed graphics driver and is not distributed by us; its use falls under GPLv3 §1's **System Library** provision.
 - **LibreHardwareMonitorLib — MPL-2.0.** MPL-2.0 is explicitly designed to be combinable with GPL ("Secondary Licenses", MPL-2.0 §1.12 and §3.3). We consume the package **unmodified**; if any LHM source file is ever modified, that file remains under MPL-2.0 and the modification must be published. Upstream source: <https://github.com/LibreHardwareMonitor/LibreHardwareMonitor>.
-  - [ ] **P0 check:** confirm the pinned LHM version does not carry MPL-2.0 **Exhibit B** ("Incompatible With Secondary Licenses") on any file we depend on — that notice would remove the GPL-compatibility route.
+  - [x] **Verified 2026-08-02 (LHM 0.9.6, repo commit `3d331e33`).** No source file applies the MPL-2.0 **Exhibit B** notice: a repository-wide code search returns exactly one hit, the `LICENSE` file itself, where Exhibit B appears only as part of the standard MPL-2.0 template. Every file we depend on (`Computer.cs`, `Sensor.cs`, `Gpu/NvidiaGpu.cs`, `Gpu/AmdGpu.cs`) carries the permissive **Exhibit A** notice, and the shipped `.nupkg` contains no Exhibit B notice in any entry. §3.3 Secondary Licenses applies → GPL-3.0 compatible. Re-check on every version bump; `docs/spike-notes.md` §0 has the method.
+  - ⚠ **The package ships no licence file** — `<license>` is an SPDX expression. MPL-2.0 §3.1 therefore makes shipping the text our obligation, not a courtesy. `legal/licenses/mpl-2.0.txt` is committed.
 
 ### Vendor SDKs deliberately rejected
 
@@ -67,6 +68,6 @@ All product names, logos, and brands are property of their respective owners and
 - [ ] About → Third-party tab lists this table with versions filled from `Directory.Packages.props`
 - [ ] PresentMon license + copyright shipped beside the bundled binary
 - [ ] MPL-2.0 source-availability note points to upstream LibreHardwareMonitor repository
-- [ ] LHM checked for MPL-2.0 Exhibit B on any depended-upon file (P0)
+- [x] LHM checked for MPL-2.0 Exhibit B on any depended-upon file — clear as of 0.9.6 / commit `3d331e33`, 2026-08-02
 - [ ] Vendored NVAPI headers still carry their `SPDX-License-Identifier: MIT` blocks unmodified
 - [ ] No Intel IGCL or AMD ADLX material anywhere in the tree (CI grep, see `docs/13_CI_CD.md`)
