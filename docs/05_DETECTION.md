@@ -50,6 +50,31 @@ Signal types evaluated by `RuleEvaluator` (Domain): `file_exists`, `dir_exists`,
 
 `tools/rules-validate` checks schema and runs rules against fixture trees in CI.
 
+### Trust and staleness of the rules feed
+
+`20_OPEN_QUESTIONS` §S4. The file is fetched over HTTPS from a raw GitHub URL.
+Three rules, because a gate whose data can silently go stale is a gate with an
+expiry date nobody sees:
+
+- **The Agent reads rules from exactly one place:** its own
+  `%LOCALAPPDATA%\FrameLedger\rules\`. The source is not a parameter and cannot
+  be redirected over the pipe (`07_IPC` §The pipe is not a trust boundary).
+- **A fetched file replaces the local copy only if it validates.** Same
+  structural checks `tools/rules-validate.ps1` runs, including the non-empty
+  `anticheat` requirement. A malformed, truncated or empty-blocklist download is
+  discarded and the **last valid copy is kept** — never cleared, never partially
+  applied.
+- **Staleness warns; it never disables.** Past N days without a successful
+  check, the UI says so plainly. It must **never** be wired to relax or disable
+  the blocklist: "the rules are old" is an argument for more caution, not less,
+  and an expiry that weakens a gate is an override with a timer on it.
+
+Signing the feed is **not** decided. HTTPS authenticates the host, not the
+content, and a signature would authenticate the content. It is deferred rather
+than dismissed: the app ships a seed blocklist that validates locally, so a
+compromised feed can be *rejected* by the rules above but not *proven genuine*.
+Recorded as a residual risk, not as a solved problem.
+
 ### Engine signatures
 
 | Engine | Signals | Version |

@@ -268,9 +268,17 @@ not exist.
 editing the schema. `"Microsoft Windows"` was dropped from `trustedSigners` — it
 is a CN value and matches nothing under `O=`.
 
-**Still untested:** `Intel Corporation` and `Advanced Micro Devices, Inc.` — no
-AMD or Intel GPU and no iGPU on this machine (§Environment). Marked untested in
-the data, not silently kept as if measured.
+**Untested by decision (2026-08-02):** `Intel Corporation` and
+`Advanced Micro Devices, Inc.`. No AMD or Intel GPU and no iGPU on this machine
+(§Environment), and the owner elected to keep NVIDIA as the v1 focus rather than
+chase them.
+
+The WHQL finding above is what makes that cheap: both vendors' driver binaries
+are WHQL-signed, so they present `O='Microsoft Corporation'` and are already
+suppressed by the first entry. Only their **non-WHQL first-party** binaries
+depend on these two strings, and a wrong string there fails **closed** — a
+refusal, never a silent allow. Kept in the data, labelled untested, not
+presented as measured.
 
 ## 2 · Vulkan layer passthrough *(moved earlier — §R2)*
 

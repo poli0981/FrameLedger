@@ -22,10 +22,11 @@ cmake --build --preset x64-release
 Targets:
 - `FrameLedger.Overlay` → `FrameLedger.Overlay.dll`
 - `FrameLedger.VkLayer` → `FrameLedger.VkLayer.dll` + `VkLayer_FRAMELEDGER_overlay.json`
-- `FrameLedger.Injector` → static lib + `FrameLedger.Injector.exe` (thin CLI used by the Agent and for manual testing)
-- `FrameLedger.Overlay.Tests` → Catch2 unit tests (ring buffer, record layout, fault filter, seqlock)
+- `FrameLedger.Injector` → **static lib only.** There is no `FrameLedger.Injector.exe` and none ships (`20_OPEN_QUESTIONS` §S9, decided 2026-08-02). A standalone `LoadLibraryW` injector that users can run is a path into a game process that the guard does not stand in front of — a bypass, and a bad look for a project whose position is "we refuse where we are not welcome". The Agent links the static lib; the guard owns the chokepoint inside it (§S13(b)), so there is no callable entry point that skips the gate. Manual testing uses `hook-harness`, never a real game (§Debugging).
+- `FrameLedger.Overlay.Tests` → Catch2 unit tests (ring buffer, record layout, fault filter, seqlock) **and the guard's fail-closed matrix** (`14_TESTING` §Safety-guard tests) — the guard is native, so its tests are too
 - `hook-harness` → the dummy D3D11 app, WARP + composition swapchain so it runs headless on CI (`17_HOOK_ENGINE` §Test harness). D3D12/Vulkan/OpenGL modes to follow as those hooks land.
 - `fl-probe-hookprofile` → build-profile probes for `/guard:cf` and `-D_HAS_EXCEPTIONS=0` (`20_OPEN_QUESTIONS` §H1/§H3)
+- `fl-probe-guard` → measures the Windows APIs the guard is built on, unelevated (`spike-notes.md` §1). Not the guard, and takes no injection rights.
 
 Compiler/linker flags (enforced in CMake, not per-target ad hoc): `/std:c++20 /MT /O2 /GS /guard:cf /Qspectre /GR- /W4 /WX`, `-D_HAS_EXCEPTIONS=0` for the Overlay target. Link `/DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA`.
 
@@ -79,7 +80,26 @@ Agent flags: `--serve`, `--console`, `--diag`, `--install-task`, `--uninstall-ta
 ## Bundled assets
 
 - `assets/native/PresentMon.exe` (pinned, SHA-256 verified at build) for the Tier-2 fallback.
-- Vulkan layer manifest, written with the installed layer path at install time (Velopack hook), registered under `HKCU` — never `HKLM`, never requiring admin.
+- Vulkan layer manifest, **written** with the installed layer path at install time (Velopack hook) — but **not registered there**. Registration is a separate, later act.
+
+### The Vulkan layer is not registered at install time
+
+`20_OPEN_QUESTIONS` §S10. An implicit layer is **machine-wide by nature**: once
+registered, the loader maps it into *every* Vulkan process on the system,
+including ones the user never added to FrameLedger. Registering it as a side
+effect of installation would put our DLL into unrelated Vulkan applications
+before the user has enabled a single game — and before any consent dialog has
+been shown, which contradicts FR-2.1 and `19_SAFETY` §User-facing consent.
+
+The correct rule is the one `17_HOOK_ENGINE` §Vulkan already states, and it is
+now the only rule: **registered only while at least one Vulkan game has hooking
+enabled**, unregistered when the last such game is disabled, and unregistered on
+uninstall. Under `HKCU` — never `HKLM`, never requiring admin.
+
+This governs all three places that touched registration: the install hook above,
+the `--register-vklayer` Agent flag (§Agent flags — a manual repair tool, not the
+normal path), and the Settings button (`08_UI` §Settings — it reflects and
+repairs state, it does not grant machine-wide reach on its own).
 
 ## Publish & package
 

@@ -92,7 +92,9 @@ Draw live FPS/frametime/upscaler info inside the game. Only for games already ho
 
 - **NFR-1 Game-side overhead:** ≤ 1 µs per present, ≤ 8 MB resident, measured game FPS impact ≤ 0.5% vs uninstrumented.
 - **NFR-2 Agent overhead:** ≤ 1% of one core during capture, ≤ 150 MB working set, ~0% idle.
-- **NFR-3 Stability:** the Overlay must never crash a game. Hook faults self-disable after 3 occurrences; the safety-unhook path completes within one frame.
+- **NFR-3 Stability:** faults **originating in our own hook bodies** are contained by `FL_HOOK_GUARD`, counted, and self-disable the Overlay after 3 occurrences; the safety-unhook path completes within one frame. The Overlay adds no allocation, lock, syscall or logging to the present path.
+
+  > This deliberately does **not** say "must never crash a game" (`20_OPEN_QUESTIONS` §H8). SEH containment cannot reliably catch stack overflow, cannot intercept `__fastfail` — and `-D_HAS_EXCEPTIONS=0` converts a would-be STL throw into exactly that (`spike-notes.md` §H3) — and does not help when the game installs a vectored exception handler that runs first. An absolute promise the mechanism cannot support does not belong in a requirement, and must stay out of user-facing text: the Disclaimer already says injection carries risk, and that wording is the honest one.
 - **NFR-4 UI performance:** cold start ≤ 2 s; opening a game with 100 sessions ≤ 500 ms; charts interactive at 60 fps post-decimation.
 - **NFR-5 Storage:** raw series ≤ 3 MB per hour compressed; 50 games × 50 sessions ≤ 500 MB at default retention.
 - **NFR-6 Accuracy:** per `03_METRICS` §Accuracy budget, stated per tier.

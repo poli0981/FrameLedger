@@ -168,8 +168,37 @@ Vulkan gets an **implicit layer** (`FrameLedger.VkLayer`), not injection — it 
 > admin. Registering under HKCU (below) is the less common choice and the better
 > one: no elevation, and per-user scope.
 - Intercepts `vkQueuePresentKHR`, `vkCreateSwapchainKHR`, `vkCmdTraceRaysKHR`, `vkCmdBuildAccelerationStructuresKHR`, `vkCreateGraphicsPipelines`.
-- The layer respects the same guard: on init it checks the enable-list written by the Agent (a small per-user config the Agent maintains) and stays fully passthrough for any process not opted in. **A layer is machine-wide by nature — this check is mandatory, not optional.**
-- Registered only while at least one Vulkan game has hooking enabled; unregistered on uninstall (Velopack hook) and when the last such game is disabled.
+- The layer respects the same guard: on init it checks the enable-list and stays fully passthrough for any process not opted in. **A layer is machine-wide by nature — this check is mandatory, not optional.**
+- Registered only while at least one Vulkan game has hooking enabled; unregistered on uninstall (Velopack hook) and when the last such game is disabled. **Never at install time** — `12_BUILD` §The Vulkan layer is not registered at install time.
+
+### The enable-list
+
+Referenced everywhere, specified nowhere until now (`20_OPEN_QUESTIONS` §S4).
+It is read inside a process we do not own, by code that runs before we know
+anything, so its failure modes matter more than its format.
+
+| | |
+|---|---|
+| **Location** | `%LOCALAPPDATA%\FrameLedger\vklayer\enabled.txt` — per-user, no admin, same trust boundary as the rules copy |
+| **Format** | UTF-8, LF, one lowercased process image name per line (`witchfire.exe`), `#` comments, blank lines ignored |
+| **Bounds** | ≤ 64 KiB and ≤ 1024 entries. A file larger than that is treated as corrupt |
+| **Matching** | Exact, case-insensitive, on the image name only — never a path, never a prefix, never a substring |
+| **Sole writer** | The Agent. The layer only ever reads it |
+| **ACL** | Inherited from `%LOCALAPPDATA%`: the current user's SID. **The Agent must not widen it** |
+
+**Every failure is passthrough.** File missing, unreadable, oversized, malformed,
+or the current process simply absent from it ⇒ the layer does nothing and
+forwards. That is the opposite direction from the injection guard, and
+deliberately so: here "do nothing" *is* the safe outcome, because the risk being
+managed is our code running somewhere it was not invited.
+
+> **The ACL is the whole mechanism, and it is not a strong one.** Anything
+> running as the user can add a line to this file, exactly as anything running
+> as the user could once redirect the rules path (§S3). The difference is what
+> it buys an attacker: a line here causes FrameLedger to *observe* a Vulkan
+> process it would otherwise ignore. It grants no injection — the Vulkan path
+> has no injection — and it cannot disable the blocklist scan the layer runs on
+> itself. Treat it as reducing blast radius, not as authorisation.
 
 ## Ring writer (hot path)
 

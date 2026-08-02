@@ -146,7 +146,16 @@ checked stays untrusted and refuses — that direction is deliberate.
 
 ### During a session
 
-Re-run the module scan every 30 s. Anti-cheat loading *after* injection (some titles load it late, or the user launched a multiplayer mode from a single-player menu) ⇒ **clean unhook on detection**, session finalized as `exit_status = unhooked_safety`, prominent UI notice. This is the single most important runtime behavior in the whole capture layer.
+Re-run **both the module scan and the driver scan** every 30 s. Anti-cheat loading *after* injection (some titles load it late, or the user launched a multiplayer mode from a single-player menu) ⇒ **clean unhook on detection**, session finalized as `exit_status = unhooked_safety`, prominent UI notice. This is the single most important runtime behavior in the whole capture layer.
+
+> **The driver scan is not optional here, and it used to be missing.** This
+> section said "the module scan" only. But a machine-wide anti-cheat driver can
+> start *after* injection — the user opens Valorant while another title is
+> hooked — and check 2 above requires refusal for **all** titles while such a
+> driver is running. A module-only re-scan looks inside the hooked game and
+> would never see it. The runtime loop must repeat every pre-injection check
+> whose subject can change mid-session, not just the one whose subject is the
+> game.
 
 **Be honest about the window.** A 30 s poll means anti-cheat can be loaded for up to 30 s before we react — the unhook is immediate *once detected*, not immediate in absolute terms. Consent and disclaimer wording must say "within 30 seconds", never "immediately" (`legal/DISCLAIMER.md` §2). Whether to shrink the window, or to detect the load directly via the `LoadLibrary` hook the Overlay already installs for lazily-loaded graphics DLLs, is `20_OPEN_QUESTIONS` §S6 — the hook exists and is currently unused for this purpose, which is the cheapest available improvement to the most important behavior in the product.
 
@@ -163,15 +172,49 @@ Enabling hooking is a **per-game** action, gated by a one-time dialog per game t
 - that the user is responsible for the terms of service of the games they play,
 - that Tier-2 (no injection) capture is available and is the default for anything the guard is unsure about.
 
-Consent is stored per game (`games.hook_consent_at`). Wording lives in `.resx` and is reviewed with the same care as the legal documents.
+Consent is stored per game (`games.hook_consent_at`), **stamped by the Agent, never supplied by a client** (`07_IPC` §The pipe is not a trust boundary). Wording lives in `.resx` and is reviewed with the same care as the legal documents.
 
 The default for every newly added game is **hooking off, Tier-2 on**. Nothing is ever injected because the user merely added a game.
+
+### A game already enabled can become blocked later
+
+FR-2.2 disables the toggle for titles that ship anti-cheat, and FR-2.3 refuses at
+runtime — but neither says what happens to a game the user enabled *before* it
+started matching. A patch adds anti-cheat, or a rules update newly covers it.
+Leaving `hook_enabled = 1` in that state is the dangerous reading, and it is the
+one the documents used to permit by omission (`20_OPEN_QUESTIONS` §S11).
+
+**The static pre-scan re-runs on every rules update and on every change to the
+game's executable** (path, size or mtime). If it now matches:
+
+1. `hook_enabled` is forced to `0`.
+2. `hook_blocked_reason` is set — the column already exists (`06_DATA_MODEL`
+   §games), so this needs no schema change, and a non-null value already means
+   "toggle disabled in the UI".
+3. `hook_consent_at` is **preserved**. The user did consent; the block is not a
+   withdrawal of consent and must not silently require them to consent again if
+   the title is later cleared.
+4. The UI shows a persistent notice, not a transient toast — the user needs to
+   understand why a game they enabled stopped being captured at Tier 1.
+
+A rules update that *removes* a match does **not** re-enable hooking on its own.
+Turning it back on is a user action, because re-enabling silently would mean the
+rules feed can switch injection on for a game without anyone looking.
 
 ## Crash & stability safety
 
 - Two crashes of the same game within 60 s of injection ⇒ hooking auto-disabled for that game, UI explains, Tier-2 takes over. Recorded in `games.hook_autodisabled_reason`.
 - The Overlay DLL self-disables after 3 faults in hook bodies (`17_HOOK_ENGINE` §Fault policy) and reports it.
-- Every hooked session writes a breadcrumb file before injection; if the game process dies before the first frame record arrives, the next run starts in "cautious mode" (hooks installed, overlay drawing disabled) to isolate whether rendering or capture caused it.
+- Every hooked session writes a breadcrumb file before injection; if the game process dies before the first frame record arrives, the next run is recorded as suspect.
+
+  > **"Cautious mode" is deferred to v1.1 (`20_OPEN_QUESTIONS` §S12).** It was
+  > described as "hooks installed, overlay drawing disabled" — but **v1 draws no
+  > overlay at all** (FR-15 is v1.1), so as written it disables nothing and is a
+  > no-op dressed as a safety measure. In v1 the breadcrumb is still written and
+  > still read: a second unexplained death within 60 s of injection triggers the
+  > existing auto-disable above, which is the behaviour that actually protects
+  > the user. Cautious mode returns with the overlay, when there is something
+  > for it to switch off.
 
 ## Honest limits to document to users
 

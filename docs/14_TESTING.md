@@ -6,11 +6,14 @@ Managed: xUnit + FluentAssertions + NSubstitute. Native: Catch2. Coverage goal �
 
 The anti-cheat guard is the one component where a bug can cost someone an account. It gets the most rigorous treatment in the codebase:
 
-- Blocklist matching: exact, case-insensitive, prefix rules; every family in `19_SAFETY` §Blocklist seed has a fixture.
+**These are Catch2 tests, not xUnit.** `20_OPEN_QUESTIONS` §S13(a) settled the guard into the C++ `FrameLedger.Injector`, so the fail-closed matrix below lives in the native suite and the guard needs seams — injectable enumerator function pointers — before any of these failures can be forced at all. Landing Catch2 is a prerequisite of the guard, not a later nicety (§S15).
+
+- Blocklist matching: exact, case-insensitive, prefix rules; every family in `19_SAFETY` §Blocklist seed has a fixture. Two families (Activision Ricochet, Valve VAC) have **no data yet**, so their fixtures must assert that absence explicitly rather than quietly passing on an empty rule set.
 - **Fail-closed proofs:** malformed `detection-rules.json`, missing `anticheat` block, unreadable target process, `EnumProcessModulesEx` failure, partial module list → **all must refuse injection**, never allow. Each is a named test.
-- Mid-session detection: simulated late-loading anti-cheat module → `unhookRequested` set, hooks disabled within one frame, session finalized `unhooked_safety`.
-- **Absence-of-override test:** a test asserts no code path reaches `Injector.Attach` without a passing `AntiCheatGuard` result (enforced by making the guard result a required constructor argument of a `sealed` token type that only the guard can produce — a design that makes the bug unrepresentable rather than merely untested).
-- Static pre-scan: a game directory containing `EasyAntiCheat/` renders `hook_enabled` un-settable; API-level attempt to set it is rejected.
+- **Measured error paths that must be named tests** (`spike-notes.md` §1): `ERROR_PARTIAL_COPY (299)` from a suspended target, `ERROR_ACCESS_DENIED (5)` from a protected one, a driver-list parse whose paths are not native paths, and a service query returning `ACCESS_DENIED` — the last of which **cannot be produced on real services by a standard user**, so it exists only as a fake. Every one means REFUSE.
+- Mid-session detection: simulated late-loading anti-cheat module → `unhookRequested` set, hooks disabled within one frame, session finalized `unhooked_safety`. Cover the **driver** scan too, not only modules: a machine-wide driver can start after injection.
+- **Absence-of-override test:** no code path may reach the injection primitive without a passing guard result. The mechanism previously described here — a `sealed` token type "only the guard can produce" — does not work and was disproved by compiling (`20_OPEN_QUESTIONS` §S8: C# accessibility flows inward, `CS0122`). The replacement is structural: the guard **owns the chokepoint** and calls the primitive itself, the primitive has internal linkage in the guard's own translation unit so no other TU has a symbol to call, and a build-time check asserts that nothing else references it. A token that escapes can be ignored; a symbol that does not exist cannot.
+- Static pre-scan: a game directory containing `EasyAntiCheat/` renders `hook_enabled` un-settable; API-level attempt to set it is rejected — including via `SetWatchlist`, which no longer carries hooking state at all (`07_IPC` §The pipe is not a trust boundary).
 
 ## Native unit tests (Catch2)
 
@@ -19,7 +22,8 @@ The anti-cheat guard is the one component where a bug can cost someone an accoun
 - **Torn records produce gap markers,** not silently shortened streams; a golden test asserts the gap does not appear as a stutter.
 - **Record and header layout:** `static_assert(sizeof(...) == 64)` and `offsetof` assertions for `FlFrameRecord` **and all three header structs** (`FlShmHandshake`, `FlWriterState`, `FlControlBlock`) — the Agent reads across the process boundary in every one of them. Runtime offset dump consumed by the managed struct-mirror test.
 - **Fault policy:** injected SEH faults in a fake hook body → counter increments, original still called, self-disable at 3.
-- **Hook index verification:** the dummy-object vtable probe returns the expected indices on the CI runner's D3D runtime; a deliberate mismatch aborts installation instead of patching.
+- **Hook index verification, by behaviour.** A vtable slot carries no identity, so "check that slot 8 *is* `Present`" is not a question the runtime can answer — the earlier wording here required something unimplementable. What is answerable: patch the slot, call the method, see whether the detour ran (`17_HOOK_ENGINE` §Getting vtable addresses; proved for slots 8, 13 and 22 in `spike-notes.md` §H4). Runs headless on CI via WARP and `CreateSwapChainForComposition`. A deliberate mismatch aborts installation instead of patching.
+- **Every probe must be shown to fail.** A probe that ends in an unconditional assertion is green by construction and its ctest is decorative — `fl_proxy_swapchain` shipped in exactly that state. Before a probe counts as a regression net, break the thing it watches and watch it go red.
 
 ## Managed unit tests
 

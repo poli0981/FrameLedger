@@ -113,6 +113,42 @@ GitHub release body, so a missing section means an empty release note.
   available" when it requires an elevated agent.
 
 ### Changed
+- **Eight safety questions closed by decision or specification** (`S3`, `S7`,
+  `S8`, `S9`, `S10`, `S11`, `S12`, `H8`, `M9`; `S4` two-thirds), each written
+  into its owning doc and deleted from `20_OPEN_QUESTIONS.md`:
+  - The guard stays in the C++ `FrameLedger.Injector` (§S13(a)) and **owns the
+    chokepoint** — no clearance escapes it, because the injection primitive has
+    internal linkage in the guard's own translation unit. A token that escapes
+    can be ignored; a symbol that does not exist cannot be called. The four
+    consequences of that choice are tracked as §S15.
+  - `FrameLedger.Injector.exe` does not exist and does not ship. A user-runnable
+    `LoadLibraryW` injector is a path into a game the guard does not stand in
+    front of.
+  - **No inbound pipe message may assert a safety fact.** `UpdateRules` lost its
+    `path`; `SetHookEnabled` lost its client-supplied `consentAt`; `SetWatchlist`
+    lost `hookEnabled` — the last two were found while auditing for the first.
+  - The **driver scan now re-runs mid-session** alongside the module scan. A
+    machine-wide anti-cheat driver can start after injection, and a module-only
+    re-scan looks inside the hooked game and would never see it.
+  - The Vulkan layer is **not registered at install time**; only while at least
+    one Vulkan game has hooking enabled. The enable-list is specified — location,
+    format, bounds, ACL, sole writer, and every-failure-is-passthrough.
+  - A game enabled *before* it started matching is force-disabled on the next
+    rules update or exe change, reusing `hook_blocked_reason`, **preserving
+    consent**. A rules update that removes a match does not re-enable it.
+  - Rules feed: one read location, replace-only-if-valid keeping the last valid
+    copy, and staleness that **warns and never disables**. Signing stays open.
+  - NFR-3 no longer promises the Overlay "must never crash a game" — SEH cannot
+    catch stack overflow or `__fastfail`, and `-D_HAS_EXCEPTIONS=0` produces the
+    latter.
+  - P0 is resequenced: guard is item 0, Vulkan passthrough item 1. The accuracy
+    **baseline detector is added to P0 scope** (§M9 — the "old detection" this
+    comparison assumed does not exist). The FPS-impact exit criterion moves to
+    the end of P1, since it silently imported P2's drain and recorder.
+- Two questions nobody had recorded, added: §S14 (pre-injection check 3 is inert
+  and has no "cannot determine" state) and §S16 (*which* process the guard
+  scans — `Check(pid)` is singular, but anti-cheat often lives in the launcher
+  or a sibling, not the presenter).
 - Direct3D 9 is not a Tier-1 API in v1: the Overlay is x64-only and those
   titles are almost entirely 32-bit. They are captured at Tier 2.
 
