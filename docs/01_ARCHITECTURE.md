@@ -19,7 +19,7 @@
 ┌────────────────────────────────────────────────────────┴──────────────────┐
 │ GAME PROCESS                                                              │
 │  FrameLedger.Overlay.dll (C++20, injected)   or   VK_LAYER_frameledger_*  │
-│   ├ present hooks: DXGI / D3D9 / OpenGL      (Vulkan: implicit layer)     │
+│   ├ present hooks: DXGI (D3D11/12) / OpenGL  (Vulkan: implicit layer)     │
 │   ├ upscaler hooks: NGX · Streamline · FFX · XeSS                         │
 │   ├ RT hooks: CreateStateObject · DispatchRays · BuildRaytracingAS        │
 │   ├ PSO hooks: pipeline creation (stutter attribution)                    │
@@ -33,7 +33,7 @@
 - **Hooking in-process is the only way to get the facts we care about.** Render resolution vs output resolution, upscaler identity and quality preset, whether frame generation is actually running, whether rays are actually being traced — none of these are observable from outside the process. The previous ETW-only design could only guess from file/module presence, which measured badly against real games.
 - **The DLL does as little as possible.** It records; it does not analyze, log, allocate, or block. All interpretation happens in the Agent. This keeps the game-side risk surface tiny and the overhead near zero.
 - **Shared memory, not pipes, on the hot path.** A present hook must not make a syscall. It writes 64 bytes into a ring and returns.
-- **The Agent no longer needs elevation by default.** Injecting into a same-integrity process, and reading GPU telemetry through vendor user-mode APIs, both work unprivileged. Elevation is now *optional* and only unlocks: CPU/board temperatures (LHM + PawnIO), attaching to games that themselves run elevated, and the Tier-2 ETW source. This is a significant simplification versus the previous design.
+- **The Agent no longer needs elevation for its primary path.** Injecting into a same-integrity process, and reading GPU telemetry through vendor user-mode APIs, both work unprivileged. Elevation is *optional* and unlocks: CPU/board temperatures (LHM + PawnIO), attaching to games that themselves run elevated, and the Tier-2 ETW source. A significant simplification versus the previous design — with one honest consequence: **the fallback tier is the part that needs elevation**, so an unelevated Agent whose Tier-1 attempt fails degrades to Tier 3, not Tier 2 (`04_CAPTURE` §Frame source abstraction).
 
 ## Capture tiers
 

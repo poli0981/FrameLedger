@@ -35,7 +35,7 @@ Implemented in `FrameLedger.Injector` and re-checked by the Agent. Runs **before
 3. **Rules blocklist** — `detection-rules.json` carries `anticheat.blockedExecutables` (exe names) and `anticheat.blockedStoreIds` (Steam appids etc.) for known competitive/online titles, updatable independently of app releases (`05_DETECTION` §Rules updates).
 4. **Multiplayer heuristic** — if the pre-launch file scan finds an anti-cheat SDK shipped alongside the game (e.g. EOS anti-cheat binaries, `EasyAntiCheat/` directory) even when not currently loaded → refuse and explain.
 
-Any check failing ⇒ **injection is refused**. The UI shows which check fired and offers Tier-2 (ETW) capture instead, which requires no injection.
+Any check failing ⇒ **injection is refused**. The UI shows which check fired and offers Tier-2 (ETW) capture instead, which requires no injection — but does require an elevated Agent, so the offer must state that plainly and fall through to Tier 3 rather than appearing to succeed and recording nothing (`04_CAPTURE` §Frame source abstraction).
 
 > There is no override. No hidden setting, no config-file flag, no CLI switch, no "advanced users" escape hatch. If a user disagrees with a specific entry, the path is a GitHub issue against the rules file, reviewed in public — not a local bypass.
 
@@ -61,7 +61,9 @@ The list is data, versioned in `detection-rules.json`, expandable without a rele
 
 ### During a session
 
-Re-run the module scan every 30 s. Anti-cheat loading *after* injection (some titles load it late, or the user launched a multiplayer mode from a single-player menu) ⇒ **immediate clean unhook**, session finalized as `exit_status = unhooked_safety`, prominent UI notice. This is the single most important runtime behavior in the whole capture layer.
+Re-run the module scan every 30 s. Anti-cheat loading *after* injection (some titles load it late, or the user launched a multiplayer mode from a single-player menu) ⇒ **clean unhook on detection**, session finalized as `exit_status = unhooked_safety`, prominent UI notice. This is the single most important runtime behavior in the whole capture layer.
+
+**Be honest about the window.** A 30 s poll means anti-cheat can be loaded for up to 30 s before we react — the unhook is immediate *once detected*, not immediate in absolute terms. Consent and disclaimer wording must say "within 30 seconds", never "immediately" (`legal/DISCLAIMER.md` §2). Whether to shrink the window, or to detect the load directly via the `LoadLibrary` hook the Overlay already installs for lazily-loaded graphics DLLs, is `20_OPEN_QUESTIONS` §S6 — the hook exists and is currently unused for this purpose, which is the cheapest available improvement to the most important behavior in the product.
 
 ### Elevated / protected targets
 

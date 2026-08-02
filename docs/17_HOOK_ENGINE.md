@@ -5,6 +5,15 @@ The injected DLL. Its whole job: install hooks, write 64-byte records into a rin
 ## Build profile
 
 - C++20, MSVC v143+, x64 only, `/MT` (static CRT — never drag a VC runtime dependency into a host process we don't control).
+
+> **x64-only is a scope decision with a user-visible consequence, stated here so
+> it is not rediscovered during implementation.** An x64 DLL cannot be loaded
+> into a 32-bit process, and Direct3D 9 titles — the visual-novel, JRPG and older
+> indie catalogue — are almost entirely 32-bit. **D3D9 is therefore not a Tier-1
+> API in v1**, and 32-bit games of any API are Tier 2. Shipping a second 32-bit
+> Overlay and injector would restore them, at the cost of doubling the native
+> build matrix and adding a second struct-mirror surface; that trade is recorded
+> in `20_OPEN_QUESTIONS` §Scope rather than left implicit in a build flag.
 - `/GS /guard:cf /Qspectre`, `/O2`, no RTTI (`/GR-`), C++ exceptions disabled in this target (`-D_HAS_EXCEPTIONS=0`); error handling is return codes + SEH.
 - No STL container that allocates in a hook path. `std::atomic` and fixed arrays are fine.
 - VERSIONINFO populated (`ProductName=FrameLedger`, real company/version) — being identifiable is required by `19_SAFETY`.
@@ -17,7 +26,7 @@ The injected DLL. Its whole job: install hooks, write 64-byte records into a rin
 `InitThread` order:
 1. Open/create shared memory `Local\FrameLedger.Ring.<pid>`; write the handshake header (layout version, build id, pid, api=unknown).
 2. `MH_Initialize()`.
-3. Resolve which graphics APIs are present (`GetModuleHandleW` on `d3d11.dll`, `d3d12.dll`, `dxgi.dll`, `d3d9.dll`, `opengl32.dll`) — and register a `LoadLibrary` hook so APIs loaded **later** still get hooked (many games load D3D12 lazily).
+3. Resolve which graphics APIs are present (`GetModuleHandleW` on `d3d11.dll`, `d3d12.dll`, `dxgi.dll`, `opengl32.dll`) — and register a `LoadLibrary` hook so APIs loaded **later** still get hooked (many games load D3D12 lazily). **The `LoadLibrary` hook must not install hooks inline:** it runs under the loader lock, and MinHook suspends all threads to patch, which deadlocks against any thread waiting on that lock. It enqueues the request and signals the init thread, which installs outside the lock (`20_OPEN_QUESTIONS` §H2).
 4. Install present hooks for what exists (below).
 5. Install feature hooks (upscaler / RT / PSO) lazily — the first time their module appears.
 6. Publish `status = ready` in the handshake block.
@@ -33,7 +42,19 @@ void** vtbl = *reinterpret_cast<void***>(dummySwapChain);
 MH_CreateHook(vtbl[kPresentIndex], &Hook_Present, reinterpret_cast<void**>(&Orig_Present));
 ```
 
-Index constants (`IDXGISwapChain::Present = 8`, `Present1 = 22` on `IDXGISwapChain1`, `ResizeBuffers = 13`, `IDirect3DDevice9::Present = 17`, `EndScene = 42`) are written down as *expectations* in `HookIndices.h` and **verified at runtime** against the dummy object before hooking; a mismatch aborts hook installation and reports rather than corrupting the vtable. Release the dummy objects immediately after reading vtables.
+Index constants (`IDXGISwapChain::Present = 8`, `Present1 = 22` on `IDXGISwapChain1`, `ResizeBuffers = 13`) live in `HookIndices.h`.
+
+> ⚠ **"Verified at runtime against the dummy object" is not implementable as
+> stated, and must not be relied on.** A vtable slot holds a bare function
+> pointer; it carries no name, no signature, and nothing that identifies which
+> method it is. Reading `vtbl[8]` tells you an address, not that the address is
+> `Present`. The only checks actually available are structural — the pointer is
+> non-null, lies inside the module that exports the interface, and the vtable has
+> at least the expected number of entries — none of which distinguish slot 8 from
+> slot 9. What genuinely validates the indices is the `hook-harness` integration
+> test on a known runtime plus the D3D headers themselves, not a runtime probe.
+> Treat the constants as compile-time facts covered by tests (`20_OPEN_QUESTIONS`
+> §H4). Release the dummy objects immediately after reading vtables.
 
 Prefer hooking the **vtable entry** over inline-patching for COM methods (cleaner uninstall, no trampoline hazards); use MinHook inline hooks for flat C exports (`wglSwapBuffers`, NGX/FFX/XeSS entry points).
 
@@ -49,7 +70,6 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 | `IDXGISwapChain::SetFullscreenState` | Fullscreen ↔ borderless transitions |
 | `IDXGISwapChain4::SetColorSpace1` | HDR output detection |
 | `IDXGIFactory::CreateSwapChain*` | Capture swapchain desc (format, buffer count, swap effect, flags) at creation |
-| `IDirect3DDevice9::Present` / `EndScene` | D3D9 titles (very common in VN/JRPG/older indie) |
 | `wglSwapBuffers` | OpenGL titles |
 | Vulkan `vkQueuePresentKHR` | via layer, not hook (below) |
 
@@ -102,33 +122,68 @@ Vulkan gets an **implicit layer** (`FrameLedger.VkLayer`), not injection — it 
 
 ```cpp
 struct alignas(64) FlFrameRecord {   // 64 bytes exactly, static_assert'd
-    uint64_t qpc;                    // present entry timestamp
-    uint32_t frameIndex;
-    uint32_t presentFlags;
-    uint16_t syncInterval;
-    uint16_t renderW, renderH;       // 0 = unknown
-    uint16_t outputW, outputH;
-    uint8_t  api;                    // d3d9|d3d11|d3d12|vulkan|opengl
-    uint8_t  upscaler;               // none|dlss|dlss_rr|fsr2|fsr3|fsr4|xess|nis|unknown
-    uint8_t  upscalerQuality;        // vendor enum, 0xFF unknown
-    uint8_t  fgMode;                 // none|dlss_g|fsr_fg|xefg|afmf|unknown
-    uint8_t  rtFlags;                // bit0 asBuild, bit1 dispatchRays, bit2 rtPsoAlive
-    uint8_t  hdr;
-    uint16_t dispatchRaysCount;
-    uint16_t psoCreatedThisFrame;
-    uint64_t vramUsedBytes;
-    uint32_t reflexLatencyUs;        // 0 = unavailable
-    uint32_t gpuBusyUs;              // 0 = unavailable
-    uint32_t seq;                    // seqlock counter for torn-read detection
-    uint32_t _pad;
+    uint64_t qpc;                    // @0  present entry timestamp
+    uint32_t frameIndex;             // @8
+    uint32_t presentFlags;           // @12
+    uint16_t syncInterval;           // @16
+    uint16_t renderW, renderH;       // @18 0 = unknown
+    uint16_t outputW, outputH;       // @22
+    uint8_t  api;                    // @26 d3d11|d3d12|vulkan|opengl
+    uint8_t  upscaler;               // @27 none|dlss|dlss_rr|fsr2|fsr3|fsr4|xess|nis|unknown
+    uint8_t  upscalerQuality;        // @28 vendor enum, 0xFF unknown
+    uint8_t  fgMode;                 // @29 none|dlss_g|fsr_fg|xefg|unknown
+    uint8_t  rtFlags;                // @30 bit0 asBuild, bit1 dispatchRays, bit2 rtPsoAlive
+    uint8_t  hdr;                    // @31
+    uint32_t dispatchRaysVolume;     // @32 Σ (W×H×D) over DispatchRays calls this frame
+    uint16_t psoCreatedThisFrame;    // @36
+    uint8_t  maxTraceRecursionDepth; // @38 from the live RT PSO config, 0 = none
+    uint8_t  _pad0;                  // @39 explicit; keeps vramUsedBytes 8-aligned
+    uint64_t vramUsedBytes;          // @40
+    uint32_t reflexLatencyUs;        // @48 0 = unavailable
+    uint32_t fgEvaluations;          // @52 FG feature evaluations observed this frame
+    uint32_t seq;                    // @56 seqlock counter (see 07_IPC §Protocol rules)
+    uint32_t _pad1;                  // @60 explicit
 };
 static_assert(sizeof(FlFrameRecord) == 64);
 ```
 
+Field notes — each of these was a defect in an earlier revision:
+
+- **`dispatchRaysVolume` is `uint32`, and it is a volume, not a call count.** A
+  single 3840×2160 primary-ray dispatch is 8,294,400 rays — 126× a `uint16`'s
+  range, so a counter of that width saturates on every RT title at 1080p or
+  above. That is precisely the regime `03_METRICS` §RT reads: its path-tracing
+  heuristic keys off "rays dispatched per output pixel ≥ ~1.0", which is
+  uncomputable from a pinned counter. `rays_per_pixel` divides this by output
+  pixels.
+- **`maxTraceRecursionDepth`** is the second of the four stated inputs to
+  `pt_confidence`. It is read at `CreateStateObject` (§Hook inventory) but
+  previously had no transport to the Agent and no column to land in.
+- **`_pad0` and `_pad1` are explicit.** Natural alignment would insert padding
+  here anyway; naming it is required because CLAUDE.md §Struct mirroring asserts
+  *every field offset* on both the C++ and C# sides, and an unnamed hole cannot
+  be asserted.
+- **There is no `gpuBusyUs`.** Its only possible source is GPU timestamp queries
+  injected into the game's command lists, which `15_ROADMAP` defers to v2 as
+  "more invasive than anything in v1". A version-locked 64-byte record must not
+  reserve space for a field v1 cannot fill; the bytes now carry
+  `fgEvaluations`, which v1 genuinely produces.
+- **`fgEvaluations`** is what makes Native-vs-Displayed computable at Tier 1 —
+  see `03_METRICS` §Frame Generation.
+- **`api` no longer lists `d3d9`.** D3D9 titles are almost entirely 32-bit and
+  the Overlay is x64-only; they are Tier 2 in v1 (`20_OPEN_QUESTIONS` §Scope).
+
 - **SPSC lock-free ring**, capacity a power of two (default 8192 records = 512 KB), overwrite-oldest.
-- Writer: bump `seq` (odd = writing), fill, bump `seq` (even = complete), `store(writeIndex, release)`. Reader validates `seq` before/after copy and skips torn records.
-- Header block (separate cache line): layout version, build id, pid, status, api mask, `droppedRecords`, `faultCount`, control flags (`pauseRequested`, `unhookRequested`, `overlayEnabled`).
-- **The hot path performs: one QPC read, a few field reads from cached state, one 64-byte store, two atomics.** No syscall, no allocation, no lock, no logging. Target ≤ 1 µs per present.
+- Writer/reader seqlock protocol, including the rule that the payload write must
+  **exclude** the `seq` field and that `seq` is never reset: `07_IPC` §Protocol rules.
+- Header: three separate 64-byte lines before the ring — `FlShmHandshake` (write-once),
+  `FlWriterState` (Overlay-written: `writeIndex`, `status`, `apiMask`, `faultCount`),
+  and `FlControlBlock` (**Agent**-written: `pauseRequested`, `unhookRequested`,
+  `overlayEnabled`, `agentHeartbeat`). The control flags are *not* in the Overlay's
+  header — they are written by the other process, and mixing them into an
+  Overlay-written line reintroduces exactly the false sharing the split exists to
+  prevent. Layout is normative in `07_IPC` §A + B.
+- **The hot path performs: one QPC read, a few field reads from cached state, one 60-byte store, two relaxed atomic stores and two compiler fences.** No syscall, no allocation, no lock, no logging. Target ≤ 1 µs per present.
 - Per-frame mutable state (current upscaler, render res, dispatch counts) lives in a small struct updated by the feature hooks and *read* by the present hook; counters reset at present.
 
 ## Fault policy
@@ -156,4 +211,4 @@ No logging in hook bodies. A small fixed-size in-memory ring of structured event
 
 ## Test harness
 
-`tools/hook-harness` — a minimal D3D11 / D3D12 / Vulkan / D3D9 app that presents at a controlled rate, optionally creates RT PSOs and dispatches rays, and can simulate an upscaler by calling stub exports with the same names. It lets CI and local dev exercise every hook path with **no game and no anti-cheat surface at all** (`14_TESTING`).
+`tools/hook-harness` — a minimal D3D11 / D3D12 / Vulkan / OpenGL app that presents at a controlled rate, optionally creates RT PSOs and dispatches rays, and can simulate an upscaler by calling stub exports with the same names. It lets CI and local dev exercise every hook path with **no game and no anti-cheat surface at all** (`14_TESTING`).

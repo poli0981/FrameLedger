@@ -6,9 +6,9 @@ Every metric declares which **capture tier** it requires (`01_ARCHITECTURE` §Ca
 
 ## Inputs
 
-**Tier 1** — `FlFrameRecord` stream from the ring (`17_HOOK_ENGINE`): `qpc`, `presentFlags`, `syncInterval`, `renderW/H`, `outputW/H`, `upscaler`, `upscalerQuality`, `fgMode`, `rtFlags`, `dispatchRaysCount`, `psoCreatedThisFrame`, `vramUsedBytes`, `reflexLatencyUs`, `hdr`.
+**Tier 1** — `FlFrameRecord` stream from the ring (`17_HOOK_ENGINE` §Ring writer), which is the authoritative field list. Every field is consumed: `qpc`, `frameIndex`, `presentFlags`, `syncInterval`, `renderW/H`, `outputW/H`, `api`, `upscaler`, `upscalerQuality`, `fgMode`, `fgEvaluations`, `rtFlags`, `dispatchRaysVolume`, `maxTraceRecursionDepth`, `psoCreatedThisFrame`, `vramUsedBytes`, `reflexLatencyUs`, `hdr`. Plus `vramBudgetMb` from `FlWriterState`, needed for `budget_exceeded_pct`.
 
-**Tier 2** — PresentMon CSV: `MsBetweenPresents`, `MsBetweenDisplayChange`, `FrameType`, `PresentMode`, `Runtime`, `Dropped`.
+**Tier 2** — PresentMon CSV. **Pin the version:** `FrameType` exists only in PresentMon 2.x, while `MsBetweenPresents` / `MsBetweenDisplayChange` are 1.x column names — no single binary emits both sets, so a parser written against this list as originally stated could never succeed. v1 targets the **2.x console** and its column names; the header-map parser (`14_TESTING` §Parsers) resolves columns by name and reports an explicit capability loss when `FrameType` is absent rather than silently reporting `fg_mode = none`.
 
 **Both** — 1 Hz `GpuSample` (`18_GPU_VENDOR_APIS`) + optional CPU sample.
 
@@ -31,12 +31,26 @@ Let `D` = session duration (first → last present), `F_app` = frames the *game*
 | **0.1% Low** | `1000 / p99.9(ft_app)` | 1, 2 |
 | **Min / Max FPS** | `1000 / max(ft_app)` / `1000 / min(ft_app)` | 1, 2 |
 | **Frametime σ** | population stddev of `ft_app` (ms) | 1, 2 |
-| **Stutter count** | `ft_app[i] > 2 × rollingMedian(ft_app, 19)` (centered) | 1, 2 |
+| **Stutter count** | `ft_app[i] > 2 × rollingMedian(ft_app, 19)` (centered, window in **frames**) | 1, 2 |
 | **Stutter time %** | `Σ ft_app[stutter] / Σ ft_app × 100` | 1, 2 |
 | **PC latency** | mean/p95 of `reflexLatencyUs` when Reflex reports it | **1 only** |
 | **PSO stutter %** | share of stutter frames with `psoCreatedThisFrame > 0` | **1 only** |
 
 **Percentile method:** sort ascending, linear interpolation between closest ranks (NumPy `linear` / Excel `PERCENTILE`). Document it, test it — tools differ and users will compare numbers.
+
+**Rolling-median edges.** The 19-frame window is centered and measured in
+*frames*, so the first and last 9 frames have no full window. They use a
+**truncated symmetric window** (the largest centered odd window that fits), not a
+padded or partial-shifted one — the alternatives either invent data or silently
+bias the first samples. A session shorter than 19 application frames reports
+`stutter_count = N/A`; it is already below the 30 s minimum session length
+(FR-3.6) and would be discarded anyway. Golden tests pin both edges.
+
+**Data gaps.** Where the drain recorded a gap (a torn record, `07_IPC`
+§Protocol rules), the interval spanning the gap is **excluded** from `ft_app`
+entirely rather than counted as one long frame. Including it would fabricate a
+stutter — the exact artifact these metrics exist to detect honestly. Gaps count
+toward the session's data-quality warnings.
 
 **Lows use application frames only.** Generated frames smooth display cadence but do not represent simulation stalls; mixing them hides real stutter. A secondary "Displayed 1% Low" is stored for the Displayed chart series but never replaces the headline.
 
@@ -47,12 +61,42 @@ Let `D` = session duration (first → last present), `F_app` = frames the *game*
 This is the metric the rewrite exists for. Resolution ladder, highest confidence first; the winning rung is stored in `fg_source`:
 
 1. **`api` (authoritative).** An NGX `FrameGeneration` feature (or Streamline `DLSS_G`, or an FFX frame-interpolation context, or `xess_fg`) was **created and evaluated this frame** → FG is on, and we know *which* technology by name, from the vendor's own API call. This is a fact, not an inference.
-2. **`presentdelta`.** Compare our hooked present count against `IDXGISwapChain::GetFrameStatistics().PresentCount` over a window: the driver-side excess = generated frames. This catches **driver-level FG the application never sees** (AMD AFMF, driver-injected paths) — the case that hooking alone cannot see. Requires flip-model presentation to be reliable; when `GetFrameStatistics` is unavailable, this rung is skipped.
-3. **`etw`** (Tier 2). PresentMon `FrameType` column reports generated frames.
-4. **`cadence`** (last resort, both tiers). Sustained `Displayed/Native ≥ 1.5` → `Detected (unknown)`.
-5. Otherwise `fg_mode = none`, factor `—`.
+2. **`etw`** (Tier 2). PresentMon 2.x `FrameType` column reports generated frames directly.
+3. **`cadence`** (last resort, both tiers). Sustained `Displayed/Native ≥ 1.5` → `Detected (unknown)`.
+4. Otherwise `fg_mode = none`, factor `—`.
 
-`fg_factor` is **always** computed as `DisplayedFPS / NativeFPS` over the session regardless of which rung identified the mode — the ratio is measured, only the *identification* comes from the ladder.
+### Counting native vs displayed frames at Tier 1
+
+Application-generated and FG-generated frames both go out through the swapchain
+we hooked, so **our present hook sees them all** — the present count alone is
+`F_disp`, not `F_app`. The separation comes from the FG feature itself:
+
+```
+F_disp  = presents observed by the hook
+F_app   = presents − Σ fgEvaluations       (generated frames, counted at the source)
+```
+
+`fgEvaluations` is recorded per frame by the NGX/Streamline/FFX/XeSS FG hooks
+(`17_HOOK_ENGINE` §Upscaling / frame generation). `fg_factor = F_disp / F_app`.
+
+> **What this replaces, and why.** An earlier revision derived generated frames
+> from `IDXGISwapChain::GetFrameStatistics().PresentCount` minus our hooked
+> present count, and claimed that difference exposed driver-level FG such as AMD
+> AFMF. It does not. `PresentCount` counts presents *the application submitted
+> through that swapchain* — the same events our hook intercepts — so the
+> difference is structurally zero, and a metric that is always zero reads as
+> "no frame generation" rather than as a failure. The rung was not conservative;
+> it was silently wrong.
+
+**Driver-level frame generation (AMD AFMF, driver-injected interpolation) is not
+detectable in v1 and must not be implied to be.** It happens after present, in
+the driver or the compositor, invisible to both an in-process hook and
+`GetFrameStatistics`. Where the UI cannot distinguish it, the honest answer is
+`N/A`, exactly as elsewhere in this document. Whether PresentMon 2.x's
+`FrameType` can see it at Tier 2 is a P0 question (`20_OPEN_QUESTIONS` §M1).
+
+`fg_factor` is **always** the measured ratio `F_disp / F_app` regardless of which
+rung identified the mode — only the *identification* comes from the ladder.
 
 **Display rule (product requirement, CLAUDE.md rule 6):** wherever FPS appears and FG is active, render `"{native} → {displayed} FPS (×{factor} FG)"`. Cards show Native large, Displayed + factor secondary. Charts default to Native with a Displayed toggle. Exports contain all three.
 
@@ -75,7 +119,7 @@ Tri-state `Yes | No | N/A` per session with `source` (`measured | manual | inher
 |---|---|---|
 | **Ray Tracing** | `BuildRaytracingAccelerationStructure` called, **or** `DispatchRays` called, in ≥ 5% of frames | `Yes` |
 | | RT-capable device (`D3D12_FEATURE_D3D12_OPTIONS5` tier ≥ 1.0) present, no AS builds and no dispatches for the whole session | `No` |
-| | No RT-capable API in use (D3D11/D3D9/OpenGL), or evidence inconclusive | `N/A` |
+| | No RT-capable API in use (D3D11/OpenGL), or evidence inconclusive | `N/A` |
 | **Ray Reconstruction** | NGX `RayReconstruction` feature created **and evaluated** (or Streamline `DLSS_RR`) | `Yes` / `No` if DLSS is active without it |
 | **Path Tracing** | heuristic only — see below | usually `N/A` |
 
@@ -113,4 +157,25 @@ Per session over 1 Hz samples: `avg` (mean of non-null), `max`. Sensor timeline 
 
 `frame_index,qpc_ms,frametime_ms,native_or_generated,render_w,render_h,output_w,output_h,upscaler,upscaler_quality,fg_mode,rt_flags,dispatch_rays,pso_created,vram_mb,reflex_latency_us`
 
-plus a `#`-prefixed header block: game, date, **capture tier**, api, present mode, hardware snapshot, segment list, and the tri-state flags with their sources. The tier belongs in the header because a Tier-2 export is missing whole columns and anyone reading it later must know why.
+**Every column above must have a stored source.** The export is written from
+`frame_blobs` after the session ends, not from the live ring, so a column is
+only exportable if the finalize step (`04_CAPTURE` §Finalizing) persisted it.
+The blob set in `06_DATA_MODEL` is defined to cover exactly this list — when
+adding a column here, add its series there in the same change, or the exporter
+will emit a column it cannot fill.
+
+Per-column sources, and what a *Tier-2* export does instead:
+
+| Column | Tier-1 source | Tier 2 |
+|---|---|---|
+| `frame_index`, `qpc_ms`, `frametime_ms` | `frametimes` blob + session `qpcEpoch` | from CSV |
+| `native_or_generated` | `frame_flags` generated bit, set from `fgEvaluations` | `FrameType` (2.x) |
+| `render_w/h`, `output_w/h` | `render_res` blob — **two `uint16` pairs per frame**, not one; `ResizeBuffers` is hooked precisely because output resolution changes mid-session | `N/A` |
+| `upscaler`, `upscaler_quality`, `fg_mode` | segment table, joined by frame index | `N/A` |
+| `rt_flags` | `rt_flags` blob, **one byte per frame** preserving all three bits (`asBuild`, `dispatchRays`, `rtPsoAlive`) — collapsing them to a single "rt-active" bit loses the inline-RayQuery distinction this project exists to measure | `N/A` |
+| `dispatch_rays` | `dispatch_rays` blob (`uint32[]`, the volume) | `N/A` |
+| `pso_created` | `pso_created` blob (`uint16[]`, the **count**, not a flag) | `N/A` |
+| `vram_mb` | `vram_proc` per-frame blob. Note the value is refreshed at 1 Hz (`17_HOOK_ENGINE` §Memory) so it is a held sample, not a per-frame measurement — the header block says so | `N/A` |
+| `reflex_latency_us` | `latency_us` blob; **finalize must write it** | `N/A` |
+
+Plus a `#`-prefixed header block: game, date, **capture tier**, api, present mode, hardware snapshot, segment list, the tri-state flags with their sources, and the note that `vram_mb` is 1 Hz-sampled. The tier belongs in the header because a Tier-2 export is missing whole columns and anyone reading it later must know why.

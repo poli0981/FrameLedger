@@ -31,7 +31,7 @@ Tails the active files (shared read), level filter, text search, pause autoscrol
    - crash dumps included only when the user ticks the checkbox (size warning shown)
 3. **Preview step:** the dialog lists every file included and lets the user open the zip before continuing. Nothing is ever sent automatically.
 4. "Open GitHub issue" → launches browser to
-   `{{REPO_URL}}/issues/new?template=bug_report.yml&title=[Bug]%20&labels=bug&app_version=…&os=…`
+   `https://github.com/poli0981/frameledger/issues/new?template=bug_report.yml&title=[Bug]%20&labels=bug&app_version=…&os=…`
    (short fields only — GitHub URLs cannot carry logs) with on-screen instruction: *"Drag the zip file into the issue description."* Clipboard fallback copies the environment summary as Markdown.
 5. `bug_report.yml` issue form (in `.github/ISSUE_TEMPLATE/`) fields: description, steps, expected/actual, app version (prefilled), OS (prefilled), attachments note.
 

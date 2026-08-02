@@ -29,10 +29,10 @@ FrameLedger is built to keep that risk small and to be honest about it:
 | Safeguard | |
 |---|---|
 | **Off by default** | Injection is disabled for every game until you enable it individually, after a consent prompt |
-| **Hard refusal** | Known anti-cheat/anti-tamper components are detected before injection and every 30 s during a session. Detected ⇒ FrameLedger refuses, or stops immediately. **There is no override — not in settings, not in a config file, not on the command line** |
+| **Hard refusal** | Known anti-cheat/anti-tamper components are detected before injection and every 30 s during a session. Detected ⇒ FrameLedger refuses, or unhooks at the next scan — so up to 30 s can pass before it reacts to anti-cheat that loads mid-session. **There is no override — not in settings, not in a config file, not on the command line** |
 | **No evasion, ever** | FrameLedger does not hide, rename, obfuscate, or disguise itself. It keeps its real name, real exports, and version info. It is meant to be plainly visible to any security software that looks. This is an architectural rule, not a setting |
 | **Read-only** | It never reads or writes game memory, never modifies game behavior, never touches saves or input, and never changes GPU clocks, fans, or power limits |
-| **Always a way out** | A no-injection mode (ETW-based) is always available and is the default for anything the software is unsure about |
+| **Always a way out** | A no-injection mode (ETW-based) is the default for anything the software is unsure about. It needs the Agent running elevated, because Windows restricts the trace sessions it uses — FrameLedger tells you when that applies rather than silently recording less |
 
 **FrameLedger is for offline and single-player games.** If you enable it for anything with an online or competitive component, that is your call and your responsibility. The developer cannot reverse a ban. Please read [`legal/DISCLAIMER.md`](legal/DISCLAIMER.md) and [`docs/19_SAFETY_AND_ANTICHEAT.md`](docs/19_SAFETY_AND_ANTICHEAT.md) before enabling it for anything.
 
@@ -41,7 +41,7 @@ FrameLedger is built to keep that risk small and to be honest about it:
 | Tier | How | What you get |
 |---|---|---|
 | **1** | Injected hooks (opt-in, per game) | Everything above |
-| **2** | ETW / Intel PresentMon, no injection | Frame times, FPS, lows, present mode, coarse frame-generation inference |
+| **2** | ETW / Intel PresentMon, no injection (**needs an elevated Agent**) | Frame times, FPS, lows, present mode, coarse frame-generation inference |
 | **3** | None | Session duration + hardware telemetry |
 
 The tier is recorded on every session and shown in the UI. Metrics unavailable at a session's tier read `N/A` — FrameLedger never substitutes an estimate for a measurement.
@@ -55,17 +55,17 @@ The tier is recorded on every session and shown in the UI. Metrics unavailable a
 | `FrameLedger.Overlay.dll` | Inside the game | C++20 hooks + lock-free shared-memory writer. Records only; never analyzes, allocates, or blocks |
 | `FrameLedger.VkLayer.dll` | Inside the game | Vulkan implicit layer (Vulkan titles use this instead of injection) |
 
-Elevation is **optional** and only unlocks CPU temperature sensors, attaching to games that themselves run elevated, and the Tier-2 ETW fallback.
+Elevation is **optional for Tier-1 hooked capture** — that is the normal path and it runs as a standard user. It unlocks CPU temperature sensors, attaching to games that themselves run elevated, and the Tier-2 ETW fallback. If you expect to rely on Tier 2, run the Agent elevated.
 
 ## Requirements
 
 - Windows 10 (22H2) or Windows 11, 64-bit
-- A DirectX 9/11/12, Vulkan, or OpenGL game
+- A 64-bit DirectX 11/12, Vulkan, or OpenGL game for full (Tier-1) capture. 32-bit games — including most DirectX 9 titles — are supported at Tier 2 only
 - Optional: [PawnIO](https://pawnio.eu/) for CPU temperature (GPU telemetry works without it, through your graphics driver's own libraries)
 
 ## Install
 
-1. Download the latest `FrameLedger-win-Setup.exe` from [Releases]({{REPO_URL}}/releases).
+1. Download the latest `FrameLedger-win-Setup.exe` from [Releases](https://github.com/poli0981/frameledger/releases).
 2. SmartScreen may warn — releases are not code-signed (free, open-source project). Verify the SHA-256 checksum published with each release, then **More info → Run anyway**.
 3. Follow the first-run Legal Gate and Agent setup. Nothing is injected until you enable it for a specific game.
 

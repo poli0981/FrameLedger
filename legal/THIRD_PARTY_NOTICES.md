@@ -1,6 +1,6 @@
 # FrameLedger — Third-Party Notices
 
-FrameLedger is licensed under **GPL-3.0-only**. It includes or depends on the third-party components below, each under its own license. All listed licenses are compatible with distribution alongside/within a GPL-3.0 application. Full license texts must be shipped in `legal/licenses/` in release packages ({{TODO: generate at P4 with a license-gathering script}}).
+FrameLedger is licensed under **GPL-3.0-only**. It includes or depends on the third-party components below, each under its own license. All listed licenses are compatible with distribution alongside/within a GPL-3.0 application. Full license texts must be shipped in `legal/licenses/` in release packages. Populating that directory is a P4 task, driven by a license-gathering script and enforced at build time by `tools/license-check` (`docs/12_BUILD.md` §Local quality gate).
 
 ## Bundled / linked components
 

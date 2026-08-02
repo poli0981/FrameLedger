@@ -22,7 +22,7 @@ FrameLedger makes **no network connections except the following**, each visible 
 
 | Purpose | Endpoint | When | Data sent |
 |---|---|---|---|
-| Update check | GitHub Releases API for `{{REPO_SLUG}}` | At startup (can be disabled) and on manual check | Standard HTTP request metadata only (no identifiers beyond your IP as seen by GitHub) |
+| Update check | GitHub Releases API for `poli0981/frameledger` | At startup (can be disabled) and on manual check | Standard HTTP request metadata only (no identifiers beyond your IP as seen by GitHub) |
 | Safety list update | Raw file on the project repository | Weekly, and **regardless of your other rules-update settings** | Same as above — this list is what stops FrameLedger injecting into newly-protected games, so it is not optional |
 | Update download | GitHub release assets | Only after an update is found | Same as above |
 | Detection-rules update | Raw file on the project repository | Weekly check (can be disabled) and manual | Same as above |
@@ -50,4 +50,4 @@ FrameLedger is a technical utility, provides no communication features, and coll
 
 Material changes to this policy increment its version; the app will show the updated document for review before continuing.
 
-Contact: {{CONTACT_EMAIL}} · Project: {{REPO_URL}}
+Contact: <contact@poli0981.dev> · Developer: <https://poli0981.dev/> · Project: <https://github.com/poli0981/frameledger>

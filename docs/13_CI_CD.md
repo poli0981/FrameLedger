@@ -1,19 +1,21 @@
 # 13 — CI/CD
 
-FrameLedger consumes the centralized reusable workflows from the **`poli0981/.github` ops repo**, template family **`desktop-csharp`**, with repo-local caller stubs.
+FrameLedger uses the **`poli0981/.github` ops repo** where its templates fit, and repo-local workflows where they do not. `ci.yml` is repo-local **by necessity, not preference**: the ops repo's `reusable-desktop-csharp.yml` runs `dotnet restore` / `build` / `test` directly and exposes no input for a native pre-step, MSVC setup, or the Vulkan SDK. FrameLedger's build is mixed-toolchain and native-first, and `12_BUILD.md` §Local quality gate commits to CI running *the identical script* as local — a promise a pure-managed template cannot keep. CodeQL and release still call the ops repo.
 
 > ⚠ Known gotcha (learned on earlier migrations): caller stubs **must declare explicit `permissions:` blocks** — permissions do not inherit into reusable workflows. Every stub below lists its own.
 
 ## Workflows (`.github/workflows/`)
 
-### `ci.yml` — push to `main` + all PRs
-- `runs-on: windows-latest`, .NET 10 SDK via `actions/setup-dotnet`, MSVC via `ilammy/msvc-dev-cmd`, CMake + Vulkan SDK cached.
-- Steps: checkout → NuGet cache → `./build.ps1 check` (restore, build `-warnaserror`, `dotnet format --verify-no-changes`, `dotnet test --collect:"XPlat Code Coverage"`, rules-validate, resx-audit) → upload coverage + resx-audit artifacts.
+### `ci.yml` — push to `main` + all PRs · **repo-local**
+- `runs-on: windows-latest`, .NET SDK pinned by `global.json` via `actions/setup-dotnet`, MSVC via `ilammy/msvc-dev-cmd`, CMake + Vulkan SDK cached.
+- Single step of substance: **`./build.ps1 check`** — the same script a developer runs before pushing, so local and CI cannot disagree. It covers the native build (`/W4 /WX`), Catch2 tests, `clang-format --dry-run -Werror`, managed restore/build with warnings as errors, `dotnet format --verify-no-changes`, `dotnet test` including the struct-mirror check, `rules-validate`, `license-check`, and `resx-audit`.
+- Uploads coverage + resx-audit artifacts.
 - **Licence guard:** `tools/license-check` fails the build if a vendored dependency is missing its licence copy, or if Intel IGCL / AMD ADLX headers appear anywhere in the tree (`docs/18_GPU_VENDOR_APIS.md` §Vendor SDKs we deliberately do not use). Licensing regressions are silent and hard to unwind later — catch them at PR time.
+- **Placeholder guard:** fails if any `{{` token survives in `README.md` or `legal/*.md`. Those are shipped, legally operative documents (FR-11 displays them in the first-run Legal Gate); an unsubstituted `{{DEVELOPER_NAME}}` in an EULA is not a cosmetic defect.
 - `permissions: contents: read`.
 
-### `codeql.yml` — push, PR, weekly cron
-- Languages: `csharp` **and `cpp`** (manual build mode for C++, driven by the CMake preset). The native layer is where memory-safety bugs would live; excluding it would defeat the purpose.
+### `codeql.yml` — push, PR, weekly cron · caller stub → `poli0981/.github` `codeql-mixed.yml`
+- Languages: `csharp` **and `cpp`** (manual build mode for C++, driven by the CMake preset). The native layer is where memory-safety bugs would live; excluding it would defeat the purpose. Verify the mixed template exposes a C++ build-command input; if it does not, this one goes repo-local too.
 - `permissions: security-events: write, contents: read`.
 
 ### `release.yml` — on tag `v*`
@@ -50,7 +52,7 @@ Central package management makes Dependabot PRs single-file diffs.
 
 ## Repo hygiene checklist (one-time setup)
 
-- [ ] Add caller stubs pointing at `poli0981/.github` reusable workflows with the explicit permissions above
+- [ ] Add repo-local `ci.yml`; add caller stubs for CodeQL + release pointing at `poli0981/.github` with the explicit permissions above
 - [ ] Enable Dependabot alerts + security updates
 - [ ] Add `bug_report.yml`, `feature_request.yml` issue forms; PR template referencing CLAUDE.md definition-of-done
 - [ ] Branch protection as above

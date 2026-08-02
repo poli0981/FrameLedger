@@ -12,44 +12,119 @@ Three channels, each chosen for its constraints:
 
 Created by the Overlay on init, opened by the Agent. Name is deliberately plain and identifiable (`19_SAFETY` — no obfuscated object names).
 
-Layout:
+Layout — **four regions, each exactly one 64-byte cache line before the ring**:
 
 ```
-[0x0000] FlShmHeader     (one cache line, written by Overlay)
-[0x0040] FlControlBlock  (one cache line, written by Agent)
-[0x0080] FlFrameRecord[capacity]   (64 B each, power-of-two capacity)
+[0x0000] FlShmHandshake  64 B  write-once by the Overlay at init
+[0x0040] FlWriterState   64 B  Overlay-written (writeIndex touched every present)
+[0x0080] FlControlBlock  64 B  Agent-written
+[0x00C0] FlFrameRecord[capacity]   (64 B each, power-of-two capacity)
 ```
+
+The header is split in two on purpose. The immutable handshake and the
+per-present writer state have completely different access patterns, and keeping
+the Agent's control line separate from both is what makes the no-false-sharing
+claim true rather than aspirational: the Overlay writes line 2 every frame while
+the Agent writes line 3 every second, and neither invalidates the other's line.
 
 ```cpp
-struct alignas(64) FlShmHeader {
-    uint32_t layoutVersion;      // must equal FL_SHM_LAYOUT_VERSION on both sides
-    uint32_t recordSize;         // 64; belt-and-braces against struct drift
-    uint32_t capacity;           // power of two
-    uint32_t pid;
-    char     buildId[32];        // native DLL build id
-    std::atomic<uint64_t> writeIndex;
-    std::atomic<uint32_t> status;        // init|ready|self_disabled|unhooked
-    std::atomic<uint32_t> apiMask;       // which graphics APIs got hooked
-    std::atomic<uint32_t> droppedRecords;
-    std::atomic<uint32_t> faultCount;
-    uint64_t qpcEpoch;           // session time base, shared with sensor samples
-    uint64_t adapterLuid;        // which GPU the swapchain is on (multi-GPU selection)
+struct alignas(64) FlShmHandshake {  // exactly 64 B, no padding holes
+    uint32_t layoutVersion;      // @0  must equal FL_SHM_LAYOUT_VERSION on both sides
+    uint32_t recordSize;         // @4  64; belt-and-braces against struct drift
+    uint32_t capacity;           // @8  power of two
+    uint32_t pid;                // @12
+    char     buildId[32];        // @16 native DLL build id
+    uint64_t qpcEpoch;           // @48 session time base, shared with sensor samples
+    uint64_t adapterLuid;        // @56 which GPU the swapchain is on (multi-GPU selection)
 };
 
-struct alignas(64) FlControlBlock {
-    std::atomic<uint32_t> pauseRequested;
-    std::atomic<uint32_t> unhookRequested;   // 19_SAFETY: set when the guard fires mid-session
-    std::atomic<uint32_t> overlayEnabled;    // in-game overlay draw toggle (v1.1)
-    std::atomic<uint32_t> agentHeartbeat;    // Agent bumps every second
+struct alignas(64) FlWriterState {   // Overlay-written
+    uint64_t writeIndex;         // @0  monotonic; release-store via std::atomic_ref
+    uint32_t status;             // @8  init|ready|self_disabled|unhooked
+    uint32_t apiMask;            // @12 which graphics APIs got hooked
+    uint32_t faultCount;         // @16 hook faults so far (17_HOOK_ENGINE §Fault policy)
+    uint32_t vramBudgetMb;       // @20 IDXGIAdapter3 Budget, refreshed at 1 Hz
+    uint32_t reserved[10];       // @24..63 must be zero; reserved for additive fields
 };
+
+struct alignas(64) FlControlBlock {  // Agent-written
+    uint32_t pauseRequested;     // @0
+    uint32_t unhookRequested;    // @4  19_SAFETY: set when the guard fires mid-session
+    uint32_t overlayEnabled;     // @8  in-game overlay draw toggle (v1.1)
+    uint32_t agentHeartbeat;     // @12 Agent bumps every second
+    uint32_t reserved[12];       // @16..63 must be zero
+};
+
+static_assert(sizeof(FlShmHandshake) == 64);
+static_assert(sizeof(FlWriterState)  == 64);
+static_assert(sizeof(FlControlBlock) == 64);
+static_assert(FL_SHM_RING_OFFSET == 0xC0 && FL_SHM_RING_OFFSET % 64 == 0);
 ```
+
+The cross-process fields are declared as plain integers and accessed through
+`std::atomic_ref` rather than as `std::atomic<T>` members. `std::atomic<T>` has
+no guaranteed layout, cannot be memcpy'd, and cannot be mirrored by a C#
+`[StructLayout(LayoutKind.Sequential)]` struct — and CLAUDE.md §Struct mirroring
+requires exactly that mirror, with a test asserting every field offset on both
+sides. `std::atomic_ref<uint32_t>` requires 4-byte alignment and
+`std::atomic_ref<uint64_t>` 8-byte, which every offset above satisfies.
+
+**Offset asserts apply to all three header structs, not just the record.** The
+Agent reads `layoutVersion`, `recordSize`, `buildId`, `writeIndex` and
+`faultCount` across the process boundary; a silent drift in any of them is the
+same class of bug as record drift.
+
+> Why this is spelled out in such detail: an earlier revision of this document
+> declared a single 88-byte `FlShmHeader` while mapping `FlControlBlock` to
+> `0x0040`. In code, `unhookRequested` would have aliased `faultCount` — so the
+> safety stop would fire on any hook fault, and the fault counter would be
+> clobbered by the Agent's heartbeat. Header layout in this file is normative
+> and must be checked with `offsetof`, not read as illustration.
 
 **Security:** the mapping is created with a DACL granting access only to the **current user's SID**; `Local\` namespace keeps it session-scoped. No `Global\` objects (would need admin and would be visible across sessions for no benefit).
 
 **Protocol rules**
 
-- Writer (game): seqlock per record — bump `seq` odd, fill 64 bytes, bump `seq` even, `writeIndex.store(release)`. Overwrite-oldest on wrap; increment `droppedRecords` when overwriting unread data.
-- Reader (Agent): `writeIndex.load(acquire)`, copy, validate `seq` unchanged and even, skip torn records. Drain every 100 ms.
+- **Writer (game) — seqlock per record.** `seq` lives at offset 56 *inside* the
+  record, so "fill 64 bytes" would overwrite the very field guarding the write.
+  The payload write must cover bytes `[0,56)` and `[60,64)` and **never touch
+  `seq`**:
+
+  ```cpp
+  FlFrameRecord* slot = &ring[idx & (capacity - 1)];
+  std::atomic_ref<uint32_t> seq{slot->seq};
+  const uint32_t s = seq.load(std::memory_order_relaxed);  // sole writer of seq
+  seq.store(s + 1, std::memory_order_relaxed);             // odd = writing
+  std::atomic_thread_fence(std::memory_order_release);
+  /* write payload — bytes [0,56) and [60,64), never slot->seq */
+  std::atomic_thread_fence(std::memory_order_release);
+  seq.store(s + 2, std::memory_order_relaxed);             // even = complete
+  writeIndex.store(idx + 1, std::memory_order_release);    // via atomic_ref
+  ```
+
+  `seq` is **monotonic per slot and never reset**, so a full lap of the ring
+  always changes it — otherwise a reader stalled for exactly one lap would
+  validate a completely different frame as unchanged. Both fences compile to
+  nothing on x86-64, so this costs zero against the ≤ 1 µs budget.
+
+- **Reader (Agent).** `writeIndex.load(acquire)`; for each slot, load `seq`
+  (acquire), skip if odd, copy, `atomic_thread_fence(acquire)`, then re-load
+  `seq` and accept only if unchanged.
+
+- **A skipped torn record is a data gap, not a missing frame.** Dropping it
+  silently makes the two surrounding frame times merge into one double-length
+  interval — i.e. it *manufactures a stutter* in the metric the whole product
+  exists to report. The drain must emit an explicit gap marker at that index;
+  `03_METRICS` excludes gap-adjacent intervals from frame-time statistics and
+  counts them toward the session's data-quality warnings.
+
+- **Dropped records are computed by the Agent, not the writer.** The writer has
+  no reader index and therefore cannot know whether the slot it is about to
+  overwrite was ever consumed — the field was unimplementable as originally
+  specified. The Agent computes it from the write index it already tracks:
+  `if (writeIndex - readIndex > capacity) dropped += (writeIndex - readIndex) - capacity`,
+  then resumes at `writeIndex - capacity`. This keeps the hot path free of an
+  extra atomic and puts the accounting where the information actually exists.
 - Version handshake: Agent compares `layoutVersion` + `recordSize` + `buildId` against its own. **Mismatch → refuse to attach**, tell the user to restart the game (this happens when the app updates while a game is running).
 - Heartbeat: if `agentHeartbeat` stops advancing for 60 s, the Overlay keeps writing (harmless) but stops any overlay drawing and flushes its native log — the Agent may have crashed.
 - If `unhookRequested` is set, the Overlay disables hooks within one frame and sets `status = unhooked`. This path must be the fastest, most-tested code in the DLL: it is the safety stop.
