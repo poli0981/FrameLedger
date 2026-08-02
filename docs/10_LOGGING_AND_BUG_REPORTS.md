@@ -19,7 +19,7 @@
 
 Tails the active files (shared read), level filter, text search, pause autoscroll, "Open logs folder", "Export bug bundle". Reads at most last 2 MB per file into the view.
 
-## Bug report flow (FR-12)
+## Bug report flow (FR-13)
 
 1. Entry points: Help → Report a bug, crash dialog, Logs screen button.
 2. **Bundle builder** creates `FrameLedger-bugreport-YYYYMMDD-HHmm.zip` in a user-chosen location:

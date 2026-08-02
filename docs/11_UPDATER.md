@@ -4,13 +4,13 @@ Velopack, feeding from GitHub Releases of `{{REPO_URL}}`. Stable channel only in
 
 ## Flow
 
-- **Startup silent check** (if enabled): `UpdateManager.CheckForUpdatesAsync()` 5 s after UI idle. Offline/any failure → log `Information`, no dialog (NFR-8). Update found → non-blocking toast "Update vX.Y.Z available" → Downloads in background → "Restart to update" button (never auto-restart; the user may be mid-capture — if a capture is active, defer the prompt until session end).
+- **Startup silent check** (if enabled): `UpdateManager.CheckForUpdatesAsync()` 5 s after UI idle. Offline/any failure → log `Information`, no dialog (NFR-10). Update found → non-blocking toast "Update vX.Y.Z available" → Downloads in background → "Restart to update" button (never auto-restart; the user may be mid-capture — if a capture is active, defer the prompt until session end).
 - **Manual check** (Help → Check for updates): progress dialog; all failures produce the mapped dialog below.
 - **Never apply an update while a game is hooked** (FR-12): the Overlay DLL on disk must not change under a running game, and a mid-session swap would invalidate the ring layout handshake. If a capture is active, defer the prompt and the apply until the session ends.
 - Apply: `WaitExitThenApplyUpdates` on restart. Agent is stopped via `Shutdown` before applying and the scheduled task action path is re-validated after update (Velopack keeps a stable `current` path, but verify in P4 and re-register task if the action path changed).
 - Release notes (GitHub release body, Markdown) rendered in the update dialog.
 
-## Error mapping (FR-11)
+## Error mapping (FR-12)
 
 | Condition | Dialog (resx key) | Extra behavior |
 |---|---|---|

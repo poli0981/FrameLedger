@@ -40,7 +40,7 @@ Let `D` = session duration (first → last present), `F_app` = frames the *game*
 
 **Lows use application frames only.** Generated frames smooth display cadence but do not represent simulation stalls; mixing them hides real stutter. A secondary "Displayed 1% Low" is stored for the Displayed chart series but never replaces the headline.
 
-**Sufficiency guards (FR-3.5):** 0.1% Low needs ≥ 10,000 application frames, 1% Low ≥ 1,000; otherwise `N/A`.
+**Sufficiency guards (FR-4.8):** 0.1% Low needs ≥ 10,000 application frames, 1% Low ≥ 1,000; otherwise `N/A`.
 
 ## Frame Generation — ground truth (Tier 1)
 
@@ -109,7 +109,7 @@ Per session over 1 Hz samples: `avg` (mean of non-null), `max`. Sensor timeline 
 | GPU temp / load / power | vendor API accuracy, ±1 s sampling | same |
 | CPU temperature | sensor-inherent ±1–2 °C, needs LHM + PawnIO + elevation | same |
 
-## Export schema (per-frame CSV, FR-8.1)
+## Export schema (per-frame CSV, FR-9.1)
 
 `frame_index,qpc_ms,frametime_ms,native_or_generated,render_w,render_h,output_w,output_h,upscaler,upscaler_quality,fg_mode,rt_flags,dispatch_rays,pso_created,vram_mb,reflex_latency_us`
 

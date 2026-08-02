@@ -26,7 +26,7 @@ otherwise, if ETW available (needs elevation)               → Tier 2
 otherwise                                                    → Tier 3 (duration + sensors only)
 ```
 
-The chosen tier is recorded on the session and surfaced in the UI. A Tier-1 attempt that fails **degrades silently to Tier 2 for the session** but raises a one-time notification explaining why (users must not silently lose data fidelity without knowing).
+The chosen tier is recorded on the session and surfaced in the UI. A Tier-1 attempt that fails **degrades to Tier 2 for the session without interrupting the user's game**, and raises a one-time notification explaining why (users must not lose data fidelity without knowing).
 
 ## Process watcher
 
@@ -100,4 +100,4 @@ Crash-within-60s-of-injection happening twice for the same game ⇒ **hooking au
 | Agent, idle | ~0% (1 Hz process poll only) |
 | Measured game FPS impact | ≤ 0.5% vs uninstrumented, verified per release (`14_TESTING` §Hook overhead) |
 
-The ring is sized so a 100 ms drain interval at 500 fps still leaves >10× headroom (8192 records ≈ 16 s at 500 fps).
+Ring sizing: at 500 fps a 100 ms drain consumes 50 of 8192 slots (~164× headroom), and the ring holds ≈ 16 s of frames. The number that matters to an implementer is that **second figure** — the Agent can stall for many seconds (a GC pause, a scheduler hiccup, a debugger break) without dropping a record. That is why a non-zero drop count means something went genuinely wrong and must surface as a session warning, never be silently accepted.
