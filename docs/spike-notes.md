@@ -171,15 +171,78 @@ padding, and the mapping is 512 KiB + 192 B of header at the default capacity.
 This is what the corrected `07_IPC` layout was worth checking twice: the
 earlier design put `FlControlBlock` at an offset that overlapped the header.
 
-Still open:
+### ✅ H1 · `/guard:cf` with MinHook trampolines — **SAFE** (2026-08-02)
 
-- Vtable indices observed (§H4):
-- CFG / `__fastfail` behaviour with MinHook trampolines (§H1) — **not yet
-  exercised: `/guard:cf` is deliberately not applied to the Overlay target
-  until this is answered**:
-- `-D_HAS_EXCEPTIONS=0` + `<atomic>` compiles (§H3) — same, the define is not
-  applied yet:
-- Deferred hook install from the `LoadLibrary` hook, no deadlock (§H2):
+Probe: `src/native/tools/fl-probe-hookprofile`, built with the exact Overlay
+flag set and run as ctest `fl_hook_profile`. MinHook v1.3.4, commit
+`c3fcafdc`. Result: the indirect call from a `/guard:cf` module into MinHook's
+runtime-allocated trampoline **succeeds**; `original=44 hooked=144`, and the
+unhook path restores the original behaviour.
+
+**A green probe is only worth what its setup proves, so the setup was verified
+separately** rather than assumed — if CFG had not actually been enforcing, the
+call would have succeeded for reasons that say nothing about H1:
+
+| Evidence | Value |
+|---|---|
+| PE DLL characteristics | `Control Flow Guard` present |
+| Guard CF function table | 84 entries |
+| Guard Flags | `0x10014500` |
+| Guarded indirect call sites in `.text` | **114** |
+| `GetProcessMitigationPolicy` | `EnableControlFlowGuard = 1` |
+
+Why it works: Windows marks memory allocated `VirtualAlloc(PAGE_EXECUTE_*)` as
+a valid call target in the process CFG bitmap by default, so a trampoline is
+callable without any `SetProcessValidCallTargets` dance.
+
+⚠ **Measured with CFG strict mode OFF** (the probe reports it explicitly). A
+host process that enables strict mode does not auto-validate dynamic code and
+could still `__fastfail`. That is rare, and it is **not** catchable by
+`FL_HOOK_GUARD` — see §H8. Treat it as a residual risk to watch for on real
+titles, not as a solved problem.
+
+### ✅ H3 · `-D_HAS_EXCEPTIONS=0` with `<atomic>` — **SAFE, with a sharp edge**
+
+Compiles and runs under MSVC 19.51 with the full Overlay flag set, real
+`fl_shm.h` included. `std::atomic_ref` is **lock-free at both 32- and 64-bit
+widths** — the part that actually matters, since a non-lock-free atomic would
+take a mutex and violate CLAUDE.md rule 5 in the present hook.
+
+The sharp edge is what the define *does*, which is not "remove failure paths":
+
+```
+yvals.h:     #define _THROW(...) (__VA_ARGS__)._Raise()
+             #define _RAISE(x)   _MSVC_STL_DOOM_FUNCTION(...)
+__msvc_doom_core.hpp:  #define _MSVC_STL_DOOM_FUNCTION(mesg) __fastfail(5)
+```
+
+So a would-be exception becomes `__fastfail` — **an immediate, uncatchable
+kill of the host game**. In an injected DLL that is arguably worse than an
+exception, and SEH cannot intercept it (§H8 again).
+
+It is safe here only because the hot path does not use throwing STL at all:
+`<atomic>`, `<cstdint>` and `<type_traits>` contain **zero** throw-sites. That
+makes the existing "no STL containers that allocate in hook paths" rule
+load-bearing rather than stylistic — and arguably it is now a feature, since
+violating it fails loudly in testing instead of propagating quietly.
+
+### ◐ H2 · Hook installation under the loader lock — **safe path verified**
+
+The deferred pattern holds: 20 MinHook enable/disable cycles (each suspending
+every other thread to patch) while a worker thread ran **4,510**
+`LoadLibrary`/`FreeLibrary` cycles. No deadlock, thread joined cleanly.
+
+**Be precise about what this does not show.** It does not prove the naive
+inline install deadlocks. A probe that deadlocks cannot report its own result,
+and hanging CI to demonstrate a hazard we have already decided to avoid buys
+nothing. So: the safe path is *verified*; the case against installing from
+inside the `LoadLibrary` hook rests on the documented mechanism — suspending a
+thread that holds the loader lock — and remains an argument, not a measurement.
+H2 stays open in `20_OPEN_QUESTIONS` for that reason.
+
+### Still open
+
+- Vtable indices observed (§H4) — needs the D3D harness:
 - Per-present cost, hooked vs unhooked (QPC around the call site):
 
 ## 4 · Vendor symbol reality check

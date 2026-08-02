@@ -68,11 +68,29 @@ if ($scanRoots) {
 # Keyed by the directory that would exist if the component were vendored, so a
 # missing licence is only reported once the component is actually present.
 $vendored = @(
-    @{ Path = 'src/native/third_party/minhook'; Licence = 'minhook-BSD-2-Clause.txt'; Name = 'MinHook' }
     @{ Path = 'src/native/third_party/nvapi'; Licence = 'nvapi-MIT.txt'; Name = 'NVIDIA NVAPI SDK' }
 )
 
 $licenceDir = Join-Path $RepoRoot 'legal/licenses'
+
+# MinHook arrives via FetchContent, so no directory appears under third_party/
+# to key on — but its code is compiled into a DLL we ship, which is exactly
+# when BSD-2-Clause requires the notice to travel with the binary. Key on the
+# CMake declaration instead of a path that will never exist.
+$fetched = @(
+    @{ Marker = 'src/native/third_party/CMakeLists.txt'; Needle = 'minhook'
+       Licence = 'minhook-BSD-2-Clause.txt'; Name = 'MinHook' }
+)
+foreach ($f in $fetched) {
+    $marker = Join-Path $RepoRoot $f.Marker
+    if ((Test-Path $marker) -and (Select-String -Path $marker -Pattern $f.Needle -Quiet)) {
+        $copy = Join-Path $licenceDir $f.Licence
+        if (-not (Test-Path $copy)) {
+            $violations.Add("$($f.Name) is built into a shipped binary but legal/licenses/$($f.Licence) is missing")
+        }
+    }
+}
+
 foreach ($v in $vendored) {
     if (Test-Path (Join-Path $RepoRoot $v.Path)) {
         $copy = Join-Path $licenceDir $v.Licence

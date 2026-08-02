@@ -185,38 +185,36 @@ with the overlay and say so.
 
 ## H — Native hook layer. Blocks P1.
 
-### H1 · `/guard:cf` and MinHook trampolines
+> **H1 and H3 are resolved, and both flags are now applied** to the Overlay and
+> the Vulkan layer via the `fl_hostile_env_flags` interface target. Evidence in
+> `spike-notes.md` §3; the probe lives at `src/native/tools/fl-probe-hookprofile`
+> and runs as ctest `fl_hook_profile`, so a regression fails the build rather
+> than reaching a game.
+>
+> Two residual risks were recorded rather than waved away, and both feed §H8:
+> CFG **strict mode** was off during the measurement, and `-D_HAS_EXCEPTIONS=0`
+> turns a would-be throw into `__fastfail` — an uncatchable kill of the host
+> process.
 
-`17_HOOK_ENGINE` §Build profile mandates `/guard:cf` on the Overlay, and
-`12_BUILD` enforces it in CMake. In a CFG-enabled host process, an indirect call
-to a MinHook trampoline — memory allocated at runtime and never registered as a
-valid call target — triggers `__fastfail(FAST_FAIL_GUARD_ICALL_CHECK_FAILURE)`,
-i.e. it takes the game down. That directly contradicts NFR-3.
+### H2 ◐ · `LoadLibrary` hook, the loader lock, and MinHook's thread suspension
 
-**P0 must determine:** whether MinHook's allocations need
-`SetProcessValidCallTargets`, whether the trampolines are reached by direct
-rather than indirect calls in practice (in which case CFG never checks them), or
-whether `/guard:cf` must be dropped for this target with the rationale recorded.
-Test in a host built with CFG, not just the harness default.
+**Partly answered — the safe path is verified, the hazard is still an argument.**
 
-### H2 · `LoadLibrary` hook, the loader lock, and MinHook's thread suspension
+`fl-probe-hookprofile` ran 20 MinHook enable/disable cycles, each suspending
+every other thread to patch, while a worker performed 4,510
+`LoadLibrary`/`FreeLibrary` cycles. No deadlock. So the **deferred** pattern
+`17_HOOK_ENGINE` §DLL entry mandates is sound under heavy loader contention.
 
-`17_HOOK_ENGINE` §DLL entry now states the rule — enqueue, install off the init
-thread — but it is unproven. MinHook suspends all threads to patch; a
-`LoadLibrary` hook body runs under the loader lock; any suspended thread holding
-or waiting on that lock deadlocks the game. Prove the deferred-install path under
-a game that loads D3D12 lazily, which is the case the hook exists for.
+What is *not* proven is that the naive inline install deadlocks. A probe that
+deadlocks cannot report its own result, and hanging CI to demonstrate a hazard
+we have already chosen to avoid buys nothing — so the case against inlining
+still rests on the mechanism (suspending a thread that holds the loader lock),
+not on a measurement.
 
-### H3 · `-D_HAS_EXCEPTIONS=0` with `<atomic>`
-
-`17_HOOK_ENGINE` and `12_BUILD` both mandate it for the Overlay target. This is
-not a configuration Microsoft's STL supports; `<atomic>` and other headers can
-fail to compile or behave unexpectedly. Since the ring writer is built on
-`std::atomic_ref`, this is load-bearing.
-
-**P0 must determine:** whether the combination compiles cleanly on the pinned
-MSVC, or whether to drop the define and rely on `/EHsc-` plus a no-throw
-discipline enforced by review.
+**Remaining:** exercise the deferred path against a real game that loads D3D12
+lazily, which is the case the hook exists for. Until then, keep the rule and do
+not let anyone "simplify" it back to an inline install on the grounds that the
+probe never showed a deadlock.
 
 ### H4 · Vtable index verification
 

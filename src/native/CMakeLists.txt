@@ -26,6 +26,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # we do not control (docs/17_HOOK_ENGINE.md §Build profile).
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# CMake injects /EHsc into CMAKE_CXX_FLAGS by default. Targets that disable
+# exceptions then get "/EHsc ... /EHsc-" on one command line: the later flag
+# wins so the result is correct, but it is confusing to read and one reorder
+# away from being silently wrong. Strip it and let each target state its own.
+string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+
 add_library(fl_native_flags INTERFACE)
 target_compile_options(fl_native_flags INTERFACE
     /W4 /WX
@@ -39,33 +45,55 @@ target_link_options(fl_native_flags INTERFACE
 )
 
 # ---------------------------------------------------------------------------
-# Two flags on the Overlay are unresolved and MUST be settled in P0 before hook
-# code is written. Both are recorded in docs/20_OPEN_QUESTIONS.md:
+# Overlay hardening flags — H1 and H3, both answered by fl-probe-hookprofile
+# before being applied here (docs/spike-notes.md §3).
 #
-#   H1  /guard:cf  — an indirect call to a MinHook trampoline is not a
-#       registered CFG call target, so in a CFG-enabled host it can
-#       __fastfail, i.e. take the game down. Directly contradicts NFR-3.
+#   H1  /guard:cf with MinHook trampolines: VERIFIED SAFE. The probe runs with
+#       CFG genuinely enforcing (PE header flag, an 84-entry guard function
+#       table, 114 guarded indirect call sites, and the process mitigation
+#       query confirming it) and the indirect call into MinHook's runtime-
+#       allocated trampoline survives. Windows marks VirtualAlloc'd executable
+#       memory as a valid call target by default.
+#       CAVEAT: measured with CFG *strict mode* OFF. A host that enables strict
+#       mode does not auto-validate dynamic code and could still __fastfail.
+#       The fault policy cannot catch that — __fastfail is uncatchable.
 #
-#   H3  -D_HAS_EXCEPTIONS=0 — not a configuration Microsoft's STL supports,
-#       and <atomic> is load-bearing here because the ring writer is built on
-#       std::atomic_ref.
-#
-# They are deliberately NOT applied to the Overlay target yet. Applying them
-# now would mean discovering the problem as a crash in a real game rather than
-# as a decision. Add them once P0 answers the questions.
+#   H3  -D_HAS_EXCEPTIONS=0 with <atomic>: VERIFIED. Compiles and runs, and
+#       std::atomic_ref is lock-free at both 32- and 64-bit widths — which is
+#       the part that matters, since a non-lock-free atomic would take a mutex
+#       and violate CLAUDE.md rule 5.
+#       Note what the define actually does: MSVC's STL turns _THROW into
+#       __fastfail(5) rather than removing the failure path. In an injected
+#       DLL that means "kill the host game", uncatchable by SEH. Safe only
+#       while the no-throwing-STL-in-hook-paths rule holds — which is why that
+#       rule is enforced, not merely stated.
 # ---------------------------------------------------------------------------
 
+# Applied to the Overlay and the Vulkan layer: both run inside a host process
+# we do not own. NOT applied to the Injector, which is our own code in our own
+# process and has no reason to give up exceptions.
+add_library(fl_hostile_env_flags INTERFACE)
+target_compile_definitions(fl_hostile_env_flags INTERFACE _HAS_EXCEPTIONS=0)
+target_compile_options(fl_hostile_env_flags INTERFACE /EHsc-)
+target_link_options(fl_hostile_env_flags INTERFACE /guard:cf)
+
+add_subdirectory(third_party)
 add_subdirectory(FrameLedger.Shm)
 add_subdirectory(FrameLedger.Overlay)
 add_subdirectory(FrameLedger.Injector)
 add_subdirectory(FrameLedger.VkLayer)
 
+# enable_testing() must be called from the TOP-LEVEL CMakeLists, not from a
+# subdirectory. Calling it only in tests/ configures without error and then
+# reports "No tests were found!!!" at ctest time — a green build with a
+# silently empty test gate.
+#
+# Unconditional, and before any add_subdirectory that registers a test: tools/
+# contributes fl_hook_profile, so gating this on FL_BUILD_TESTS would make
+# -DFL_BUILD_TOOLS=ON -DFL_BUILD_TESTS=OFF a configuration error.
+enable_testing()
+
 if(FL_BUILD_TESTS)
-    # enable_testing() must be called from the TOP-LEVEL CMakeLists, not from
-    # tests/. Calling it only in the subdirectory configures without error and
-    # then reports "No tests were found!!!" at ctest time — a green build with
-    # a silently empty test gate.
-    enable_testing()
     add_subdirectory(tests)
 endif()
 
