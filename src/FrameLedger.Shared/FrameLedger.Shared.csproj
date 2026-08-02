@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    IPC contracts (System.Text.Json source-generated contexts, docs/07_IPC.md)
+    and the C# mirrors of the native shared-memory structs.
+
+    The mirrors are the dangerous part: FlFrameRecord, FlShmHandshake,
+    FlWriterState and FlControlBlock each exist twice, once in C++ and once
+    here as [StructLayout(LayoutKind.Sequential)]. A test in
+    FrameLedger.Infrastructure.Tests asserts sizeof AND every field offset on
+    both sides against a dump emitted by the native build. Struct drift between
+    the two layers is the most dangerous silent bug in this architecture
+    (CLAUDE.md §Struct mirroring, docs/12_BUILD.md §Managed build).
+  -->
+
+</Project>

@@ -1,0 +1,83 @@
+<Project>
+
+  <!--
+    Shared MSBuild properties for every managed project. See docs/12_BUILD.md.
+
+    TargetFramework vs SupportedOSPlatformVersion are two different knobs and
+    must not be conflated:
+      - TargetFramework's platform version selects which Windows API
+        projections are available to compile against.
+      - SupportedOSPlatformVersion is the floor CA1416 enforces.
+    NFR-8 requires Windows 10 22H2 = build 19045. Letting the supported version
+    default to the TFM's 19041 would silently accept installs three releases
+    below the stated floor.
+
+    A bare `net10.0-windows` is wrong for a different reason: it resolves to
+    net10.0-windows7.0, and CA1416 would then error on Mica, MiniDumpWriteDump
+    and IDXGIAdapter3::QueryVideoMemoryInfo — every Windows-10-era API this
+    application is built on.
+
+    Why the target is 22621 and not 19045: the SDK enforces
+    SupportedOSPlatformVersion <= TargetPlatformVersion (NETSDK1135), and 19045
+    is not a Windows targeting-pack version in any case — the packs are cut at
+    19041, 20348, 22000, 22621, 26100. docs/12_BUILD.md already requires the
+    Windows 11 SDK >= 10.0.22621 as a prerequisite, so targeting it costs
+    nothing and CA1416 still enforces the 19045 floor at the API level.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19045.0</SupportedOSPlatformVersion>
+
+    <!-- x64 only (CLAUDE.md pinned stack, NFR-8). Previously asserted in prose
+         and enforced nowhere except an ad-hoc -r win-x64 on the publish line.
+         RuntimeIdentifier is set per-executable rather than here: forcing a RID
+         onto class libraries pulls RID-specific assets into their restore for
+         no benefit. -->
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-all</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- i18n: keep publish size down (docs/09_I18N.md). -->
+    <SatelliteResourceLanguages>en;vi;ja</SatelliteResourceLanguages>
+
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- Test projects: documentation comments are noise, and xUnit's own
+       analyzers already cover what matters there. -->
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- Analyzers everywhere (CLAUDE.md §Coding conventions). Build-time only,
+       so they do not violate Domain's "references nothing" rule. -->
+  <ItemGroup>
+    <PackageReference Include="Roslynator.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Meziantou.Analyzer">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

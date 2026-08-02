@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Use cases and ports. Infrastructure implements these; Application never
+       references Infrastructure (CLAUDE.md §Solution layout). -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\FrameLedger.Domain\FrameLedger.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

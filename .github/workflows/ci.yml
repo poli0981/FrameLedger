@@ -1,0 +1,74 @@
+# FrameLedger CI (docs/13_CI_CD.md).
+#
+# Repo-local rather than a caller stub, by necessity: the poli0981/.github
+# reusable `desktop-csharp` template runs dotnet restore/build/test directly and
+# exposes no input for a native pre-step, MSVC setup, or the Vulkan SDK.
+# FrameLedger's build is mixed-toolchain and native-first, and docs/12_BUILD.md
+# commits to CI running *the identical script* as local — a promise a
+# pure-managed template cannot keep.
+#
+# So this workflow does exactly one thing of substance: ./build.ps1 check.
+# Anything CI checks that local does not is a way for the two to disagree.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Permissions do not inherit into reusable workflows, and defaults are broader
+# than this job needs either way (docs/13_CI_CD.md).
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # Version comes from global.json. Pinning it twice is a way for the
+          # two pins to drift.
+          global-json-file: global.json
+
+      - name: Set up MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', 'global.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # TODO: cache the Vulkan SDK once FrameLedger.VkLayer has real content.
+      # It is a large download and the layer target currently intercepts
+      # nothing (blocked on docs/20_OPEN_QUESTIONS.md §S2).
+
+      - name: Quality gate
+        shell: pwsh
+        run: ./build.ps1 check
+        env:
+          CI: 'true'
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: '**/TestResults/**/coverage.cobertura.xml'
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Entities and metric calculators. CLAUDE.md §Solution layout:
+    "Domain references nothing." That is not a style preference — the metric
+    definitions in docs/03_METRICS.md are the single source of truth for every
+    number the product displays, and they are golden-tested (docs/14_TESTING.md
+    requires >= 95% coverage here or the PR fails). Keeping this project free of
+    infrastructure is what makes those tests fast and unambiguous.
+
+    Do not add a PackageReference here without changing CLAUDE.md first.
+  -->
+
+</Project>

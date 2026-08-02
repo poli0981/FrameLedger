@@ -40,7 +40,7 @@ Compiler/linker flags (enforced in CMake, not per-target ad hoc): `/std:c++20 /M
 
 - **`global.json` pins the SDK band** (`10.0.x`, `rollForward: latestFeature`). Without it `dotnet build` picks the newest installed SDK — on a machine with a .NET 11 preview installed that silently changes analyzer behaviour under `TreatWarningsAsErrors`, and makes local and CI disagree for reasons nobody can see in a diff.
 - `Directory.Build.props`:
-  - **`TargetFramework` = `net10.0-windows10.0.19041.0`** and **`SupportedOSPlatformVersion` = `10.0.19045.0`**. These are two different knobs and must not be conflated. The TFM platform version selects the Windows API projections available; the supported version is the floor CA1416 enforces. NFR-8 requires Windows 10 **22H2**, which is build **19045** — leaving it to default to the TFM's 19041 would silently accept installs three releases below the stated floor. A bare `net10.0-windows` is wrong for a different reason: it resolves to `net10.0-windows7.0`, and CA1416 would then error on Mica, `MiniDumpWriteDump` and `QueryVideoMemoryInfo` — every Windows-10-era API this app is built on.
+  - **`TargetFramework` = `net10.0-windows10.0.22621.0`** and **`SupportedOSPlatformVersion` = `10.0.19045.0`**. These are two different knobs and must not be conflated: the TFM platform version selects which Windows API projections are available to compile against, while the supported version is the floor CA1416 enforces. NFR-8 requires Windows 10 **22H2** = build **19045**; letting the supported version default to the TFM's would silently accept installs below the stated floor. Two constraints pin the target to 22621 rather than something closer to the floor: the SDK rejects `SupportedOSPlatformVersion` above `TargetPlatformVersion` (NETSDK1135), and 19045 is not a targeting-pack version in any case — the packs are cut at 19041, 20348, 22000, 22621, 26100. The Windows 11 SDK ≥ 10.0.22621 is already a prerequisite above, so this costs nothing. A bare `net10.0-windows` is wrong for a different reason: it resolves to `net10.0-windows7.0`, and CA1416 would then error on Mica, `MiniDumpWriteDump` and `QueryVideoMemoryInfo` — every Windows-10-era API this app is built on.
   - `Platforms`/`PlatformTarget` = `x64` and `RuntimeIdentifier` = `win-x64`. "x64 only" is asserted in CLAUDE.md and NFR-8 but was previously enforced nowhere except an ad-hoc `-r win-x64` on the publish command.
   - Nullable enable, ImplicitUsings enable, `TreatWarningsAsErrors=true`, `AnalysisLevel=latest-all`, deterministic, `ContinuousIntegrationBuild` on CI.
 - `Directory.Packages.props`: central package management, all versions pinned (including `WPF-UI` = 4.3.0 exactly — `16_WPFUI_SYNTAX` §Version hygiene).
@@ -96,8 +96,21 @@ document the app displays for acceptance (FR-11) is a defect, not a template.
 4. `dotnet restore` + build (warnings as errors)
 5. `dotnet format --verify-no-changes`
 6. `dotnet test` (incl. the struct-mirror check)
-7. `tools/rules-validate` (schema + `anticheat` block sanity — a malformed blocklist is a safety bug)
-8. `tools/license-check` — asserts every vendored third-party has a licence copy in `legal/licenses/`, and that no Intel IGCL / AMD ADLX material has appeared in the tree
+7. `tools/rules-validate.ps1` (schema + `anticheat` block sanity — a malformed or empty blocklist is a safety bug)
+8. `tools/license-check.ps1` — asserts every vendored third-party has a licence copy in `legal/licenses/`, and that no Intel IGCL / AMD ADLX material has appeared in the tree
 9. `tools/resx-audit`
+10. Placeholder guard — fails if any `{{` token other than `{{RELEASE_DATE}}` survives in `README.md` or `legal/*.md`
 
 CI runs the identical script (`13_CI_CD`), so local and CI can never disagree.
+
+**Gates skip loudly.** A gate whose tool is not installed (no `cl.exe`) or not
+yet written prints `SKIPPED`, is listed again in the summary, and the run ends
+with `PASSED WITH N SKIPPED GATE(S)` rather than a clean `ALL GATES PASSED`.
+A gate that silently passes because it did nothing is worse than no gate: it
+reads as "checked" in CI output when nothing was checked.
+
+**Gates are proven red-green, not just green.** `license-check` and
+`rules-validate` were each verified to fail on a planted violation — an IGCL
+header dropped into the tree, and an emptied `anticheat.modules` list — before
+being wired in. A safety gate that has only ever been observed passing has not
+been tested.

@@ -1,0 +1,93 @@
+# Referenced by docs/10_LOGGING_AND_BUG_REPORTS.md — the in-app "Report a bug"
+# flow deep-links here with app version and OS prefilled.
+name: Bug report
+description: Something in FrameLedger is broken
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **If you found a game with anti-cheat that FrameLedger failed to detect,
+        please use the "Safety gap" template instead.** That is treated with the
+        same priority as a security report.
+
+        The app can build a diagnostic bundle for you: **Help → Report a bug**.
+        It is created locally, shows you every file it contains before you do
+        anything, and is never uploaded automatically — you attach it yourself.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add game X
+        2. Enable hooking
+        3. Launch from FrameLedger
+        4. ...
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: FrameLedger version
+      description: Help → About, or prefilled if you came from the app
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Windows version
+      placeholder: 'Windows 11 26100.2314'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Capture tier
+      description: Shown on the session and on the Dashboard live card
+      options:
+        - 'Tier 1 (hooked)'
+        - 'Tier 2 (ETW / no injection)'
+        - 'Tier 3 (duration + sensors only)'
+        - "Don't know"
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver version
+      placeholder: 'RTX 4070, 566.36'
+
+  - type: input
+    id: game
+    attributes:
+      label: Game and graphics API
+      placeholder: 'Cyberpunk 2077, D3D12, DLSS Quality + FG'
+
+  - type: textarea
+    id: bundle
+    attributes:
+      label: Diagnostic bundle
+      description: |
+        Drag the zip from Help → Report a bug into this box. Injection bugs are
+        very hard to diagnose without the overlay log and hook fault details.
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before submitting
+      options:
+        - label: I reviewed the bundle contents before attaching it
+        - label: This is not a report about anti-cheat detection (that uses the Safety gap template)

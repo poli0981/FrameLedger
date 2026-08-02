@@ -1,0 +1,8 @@
+{
+  "$comment": "Pins the SDK band. Without this, dotnet picks the newest installed SDK — on a machine with a .NET 11 preview present that silently changes analyzer behaviour under TreatWarningsAsErrors and makes local and CI disagree for reasons invisible in a diff. See docs/12_BUILD.md.",
+  "sdk": {
+    "version": "10.0.100",
+    "rollForward": "latestFeature",
+    "allowPrerelease": false
+  }
+}

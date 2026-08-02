@@ -1,0 +1,52 @@
+# Gate changes to the detection + anti-cheat rules (docs/13_CI_CD.md).
+#
+# The raw file on `main` IS the distribution endpoint (docs/05_DETECTION.md),
+# so there is nothing to publish — this workflow only gates correctness. That
+# also means a bad merge ships to every user on their next rules check, which
+# is why the anticheat block gets extra scrutiny here.
+
+name: Rules
+
+on:
+  push:
+    branches: [main]
+    paths: ['rules/detection-rules.json']
+  pull_request:
+    paths: ['rules/detection-rules.json']
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Validate schema and anticheat block
+        shell: pwsh
+        run: ./tools/rules-validate.ps1
+
+      # Removing a blocklist entry is a safety change and requires the same
+      # review as a security fix. This surfaces removals so a reviewer has to
+      # look at them rather than scrolling past a large diff.
+      - name: Report anticheat removals
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          $base = git show "origin/${{ github.base_ref }}:rules/detection-rules.json" 2>$null
+          if (-not $base) { Write-Host 'No base version to compare.'; exit 0 }
+          $old = ($base | ConvertFrom-Json).anticheat
+          $new = (Get-Content rules/detection-rules.json -Raw | ConvertFrom-Json).anticheat
+          $oldFams = @($old.modules + $old.drivers | ForEach-Object { $_.family })
+          $newFams = @($new.modules + $new.drivers | ForEach-Object { $_.family })
+          $removed = $oldFams | Where-Object { $_ -notin $newFams }
+          if ($removed) {
+            Write-Host "::warning::Anti-cheat families removed: $($removed -join ', '). This is a SAFETY change — the PR body must justify each removal."
+          } else {
+            Write-Host 'No anti-cheat families removed.'
+          }

@@ -24,7 +24,7 @@ A C++ DLL (`FrameLedger.Overlay.dll`) is injected into games the user explicitly
 
 | Concern | Choice |
 |---|---|
-| Managed runtime | .NET 10 (LTS, pinned via `global.json`), C# 14, TFM `net10.0-windows10.0.19041.0` with `SupportedOSPlatformVersion=10.0.19045.0` (Win10 22H2 floor, NFR-8), x64 only — `docs/12_BUILD.md` |
+| Managed runtime | .NET 10 (LTS, pinned via `global.json`), C# 14, TFM `net10.0-windows10.0.22621.0` with `SupportedOSPlatformVersion=10.0.19045.0` (Win10 22H2 floor, NFR-8), x64 only — `docs/12_BUILD.md` |
 | Native | **C++20, MSVC v143+, `/MT` static CRT, `/GS`, `/guard:cf`, no RTTI, no C++ exceptions in hook paths** |
 | Hooking | **MinHook** (BSD-2-Clause) for inline hooks; direct vtable-entry swap for COM interfaces |
 | Vulkan | **Implicit Vulkan layer** (`VK_LAYER_frameledger_overlay`), not hooking — `17_HOOK_ENGINE` §Vulkan |
@@ -45,11 +45,13 @@ A C++ DLL (`FrameLedger.Overlay.dll`) is injected into games the user explicitly
 ## Solution layout
 
 ```
-FrameLedger.sln
+FrameLedger.slnx               # XML solution format (SDK default since .NET 10)
+global.json                    # pins the SDK band — see 12_BUILD
+build.ps1                      # the quality gate; CI runs this identical script
 src/
   native/
     FrameLedger.Overlay/       # C++20 DLL injected into the game (hooks + ring writer + optional overlay)
-    FrameLedger.Injector/      # C++20 static lib + tiny exe: launch/attach injection, AC guard probe
+    FrameLedger.Injector/      # C++20 static lib: launch/attach injection, AC guard probe
     FrameLedger.VkLayer/       # C++20 Vulkan implicit layer DLL + manifest JSON
     FrameLedger.Shm/           # header-only: ring buffer + record layout, shared by native & C# (mirrored)
   FrameLedger.Domain/          # entities, metric calculators — zero dependencies
@@ -61,8 +63,12 @@ src/
 tests/
   FrameLedger.Domain.Tests/  FrameLedger.Application.Tests/  FrameLedger.Infrastructure.Tests/
   native/FrameLedger.Overlay.Tests/   # Catch2: ring buffer, record encode, fault policy
-tools/                         # fixture recorder, rules validator, shm inspector, hook harness
-docs/  legal/
+tools/                         # rules-validate, license-check, resx-audit (PowerShell)
+                               # native tooling lives under src/native/tools:
+                               #   fl-layout-dump  -> struct offsets for the C# mirror test
+                               #   hook-harness    -> dummy D3D11/12/Vulkan/OpenGL app (P0)
+rules/detection-rules.json     # engine/platform/capability + anticheat blocklist
+docs/  legal/  legal/licenses/
 ```
 
 Dependency direction unchanged: `App/Agent → Application → Domain`; `Infrastructure` implements `Application` ports; Domain references nothing. **The native layer is reachable only through `Infrastructure`** — no P/Invoke anywhere else.

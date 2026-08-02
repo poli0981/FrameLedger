@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    WPF UI (docs/08_UI.md). All XAML follows docs/16_WPFUI_SYNTAX.md — read it
+    before writing any view. All user-visible strings come from .resx
+    (docs/09_I18N.md); no string literals in XAML or C#.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>FrameLedger</AssemblyName>
+    <RootNamespace>FrameLedger.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- NFR-9: Per-Monitor V2. Declared in app.manifest; kept here as the
+         reminder that it is a requirement, not a default. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FrameLedger.Application\FrameLedger.Application.csproj" />
+    <ProjectReference Include="..\FrameLedger.Infrastructure\FrameLedger.Infrastructure.csproj" />
+    <ProjectReference Include="..\FrameLedger.Shared\FrameLedger.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WPF-UI" />
+    <PackageReference Include="WPF-UI.Abstractions" />
+    <PackageReference Include="WPF-UI.DependencyInjection" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="ScottPlot.WPF" />
+    <PackageReference Include="H.NotifyIcon.Wpf" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Sinks.File" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,74 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml,xml,csproj,props,targets,sln}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false  # two trailing spaces is a markdown line break
+
+[*.{c,cpp,h,hpp}]
+indent_size = 4   # clang-format is authoritative here; see .clang-format
+
+[*.cs]
+# --- C# style (docs/12_BUILD.md: dotnet format must be clean) ---
+csharp_style_namespace_declarations = file_scoped:error
+csharp_using_directive_placement = outside_namespace:warning
+csharp_prefer_braces = true:warning
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+dotnet_style_readonly_field = true:warning
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:warning
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+
+# Naming
+dotnet_naming_rule.private_fields_underscore.severity = warning
+dotnet_naming_rule.private_fields_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+dotnet_naming_style.underscore_camel.required_prefix = _
+
+# --- Analyzer severities ---
+# CA1416 (platform compatibility) must stay an error: it is what enforces the
+# Windows 10 22H2 floor from NFR-8 against SupportedOSPlatformVersion.
+dotnet_diagnostic.CA1416.severity = error
+
+# Async hygiene (CLAUDE.md coding conventions).
+dotnet_diagnostic.CA2007.severity = warning   # ConfigureAwait
+dotnet_diagnostic.VSTHRD200.severity = none   # 'Async' suffix — enforced by review
+
+# All user-visible strings come from .resx (docs/09_I18N.md). MA0011 flags
+# IFormatProvider omissions, which is the adjacent bug; keep it loud.
+dotnet_diagnostic.MA0011.severity = warning
+
+# Documentation comments on public members: too noisy for internal projects,
+# and GenerateDocumentationFile is on for the shipping ones.
+dotnet_diagnostic.CS1591.severity = suggestion
+
+[src/FrameLedger.App/**.cs]
+# WPF codegen constraints, not style choices. The generated App.g.cs and
+# *.g.cs partials declare these types public, so making them internal is a
+# compile error; and the WPF idiom docs/16_WPFUI_SYNTAX.md is written against
+# (x:Class="FrameLedger.App.App") necessarily puts a type named App inside a
+# namespace named FrameLedger.App. Scoped to this project only.
+dotnet_diagnostic.CA1515.severity = none    # types could be internal
+dotnet_diagnostic.CA1724.severity = none    # type name conflicts with namespace
+dotnet_diagnostic.MA0049.severity = none    # type name matches containing namespace
+
+[tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none    # underscores in test method names
+dotnet_diagnostic.CA2007.severity = none
