@@ -2,6 +2,14 @@
 
 The hook rewrite front-loads risk: almost everything uncertain is in P0/P1. That is deliberate — a hook layer that doesn't work is not a feature you discover in week four.
 
+> **Read `docs/20_OPEN_QUESTIONS.md` alongside this file.** It holds the audit
+> findings that P0 exists to answer, plus a resequencing proposal for the item
+> order below — most importantly that **the guard (item 8) must move to item 0**,
+> since injecting into real games in items 1–2 before the guard exists
+> contradicts CLAUDE.md rule 2 and P1's own "it ships before the first real
+> injection, not after". The two licence checks in item 6 need no hardware and
+> can invalidate an entire telemetry layer; run them first.
+
 ## P0 — Spike (4–6 days) · *gates everything*
 
 Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit criteria pass.

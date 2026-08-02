@@ -97,3 +97,10 @@ Dependency direction unchanged: `App/Agent → Application → Domain`; `Infrast
 8. `docs/18_GPU_VENDOR_APIS.md` — layered GPU telemetry (DXGI/PDH · LHM · NVAPI) + vendor-SDK licence rules
 9. `docs/06_DATA_MODEL.md` · `docs/07_IPC.md` · `docs/08_UI.md` · `docs/16_WPFUI_SYNTAX.md`
 10. Remaining (`09`–`15`).
+
+**Before writing native or capture code, read `docs/20_OPEN_QUESTIONS.md`.** It
+lists the defects and gaps that survived the doc audit — things the other
+documents cannot answer because they need an empirical result or a decision. The
+S-series items are safety items and block the first real injection. If you are
+about to implement something in the hook layer, check whether it is already
+listed there as unresolved rather than implementing the version the doc describes.
