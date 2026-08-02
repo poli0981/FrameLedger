@@ -111,7 +111,7 @@ and service names unconfirmed) and Valve VAC (needs `blockedStoreIds`). Recorded
 in the seed's own `$comment`. The `heuristic.trustedSigners` list is a guess and
 is marked UNVERIFIED.
 
-### S12 · Where the guard lives, and whether a clearance ever escapes it
+### S13 · Where the guard lives, and whether a clearance ever escapes it
 
 Three coupled decisions surfaced by the guard design work (2026-08-02). All need
 the owner: each contradicts something already written down.
