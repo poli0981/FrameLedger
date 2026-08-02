@@ -45,6 +45,40 @@ Implemented in `FrameLedger.Injector` and re-checked by the Agent. Runs **before
    > against a suspended target (§S1). Neither is "no modules found". The read
    > handle rights above are confirmed sufficient for every target this call can
    > legitimately reach.
+   > **Which processes get scanned: the game's own subtree.** `04_CAPTURE`
+   > §The guard writes `Check(pid)` — singular — while `04_CAPTURE` §Process
+   > watcher says the capture target is a *descendant* elected from a ppid
+   > chain. Neither of the obvious readings is right (`20_OPEN_QUESTIONS` §S16,
+   > decided 2026-08-02):
+   >
+   > - **The presenting process alone is too narrow.** A game's own launcher
+   >   routinely initialises anti-cheat and *then* spawns the renderer. Scanning
+   >   only the process we inject into would miss exactly that arrangement, and
+   >   it is a common one.
+   > - **Every ancestor is far too broad.** The ancestor of every Steam title is
+   >   `steam.exe`, which loads `steamservice` and VAC modules. Scanning
+   >   ancestors without limit would refuse *every Steam game* — not "some false
+   >   refusals" but the product not working, which is precisely how a user ends
+   >   up hunting for the override that does not exist.
+   >
+   > So the scanned set is the **injection target, its descendants, and its
+   > ancestors up to but excluding the first known platform launcher**
+   > (`platforms` in `detection-rules.json`: Steam, GOG, Epic, itch). That is
+   > "the game's own tree" — everything the title itself brought with it,
+   > nothing belonging to shared platform infrastructure.
+   >
+   > A hit **anywhere** in that set refuses. A process in the set that cannot be
+   > inspected (`ERROR_ACCESS_DENIED`) refuses too — `19_SAFETY` has no "scanned
+   > what we could" state.
+   >
+   > Sibling *services* (BattlEye's `BEService`, EAC's service) are not in any
+   > process tree and are deliberately not chased here: check 3's `services`
+   > group covers them by name, which is more reliable than tree walking.
+   >
+   > The runtime re-scan (§During a session) recomputes this set each time
+   > rather than caching it: level-transition relaunches re-elect the presenting
+   > pid, and a newly spawned helper must be seen.
+
 2. **System driver scan** — enumerate loaded kernel drivers for always-on anti-cheat drivers that gate the whole machine (e.g. Vanguard's `vgk`). Present → refuse for **all** titles while it is running, not just the matching game.
 
    > 🔴 **`EnumDeviceDrivers` cannot do this unelevated, and it fails *open*.**

@@ -29,9 +29,54 @@ if(TARGET minhook)
 endif()
 
 # ---------------------------------------------------------------------------
+# jsmn (MIT) — the JSON parser the anti-cheat guard reads detection-rules.json
+# with (20_OPEN_QUESTIONS §S15 item 3).
+#
+# Chosen for what it does NOT do. jsmn is a single header, no allocation, no
+# exceptions, no recursion beyond a bounded token array we own, and it reports
+# failure as a return code rather than by throwing. In the guard those are not
+# stylistic preferences: this is the one component where a bug costs somebody
+# their account, so a parser whose entire failure surface is three enum values
+# is worth the slightly more verbose extraction code.
+#
+# Explicitly rejected: parsers that throw. -D_HAS_EXCEPTIONS=0 is Overlay-only,
+# so the Injector *could* have exceptions — but a throw crossing the guard would
+# be an unstructured exit from the one function that must always reach a verdict.
+FetchContent_Declare(
+    jsmn
+    GIT_REPOSITORY https://github.com/zserge/jsmn.git
+    GIT_TAG        fdcef3ebf886fa210d14956d3c068a653e76a24e    # v1.1.0
+    GIT_SHALLOW    FALSE
+)
+FetchContent_MakeAvailable(jsmn)
+
+add_library(fl_jsmn INTERFACE)
+target_include_directories(fl_jsmn SYSTEM INTERFACE "${jsmn_SOURCE_DIR}")
+# JSMN_STATIC keeps the implementation internal to each TU that asks for it;
+# JSMN_PARENT_LINKS is what makes object-key lookup possible without a second
+# pass over the token array.
+target_compile_definitions(fl_jsmn INTERFACE JSMN_STATIC JSMN_PARENT_LINKS)
+
+# ---------------------------------------------------------------------------
+# Catch2 (BSL-1.0) — 20_OPEN_QUESTIONS §S15 item 2 made this a prerequisite of
+# the guard rather than a P1 nicety: §S13(a) put the guard in C++, so
+# 14_TESTING's fail-closed matrix (forced EnumProcessModulesEx failures, partial
+# module lists, unreadable processes) is a NATIVE test suite, and none existed.
+FetchContent_Declare(
+    catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG        fa43b77429ba76c462b1898d6cd2f2d7a9416b14    # v3.7.1
+    GIT_SHALLOW    FALSE
+)
+FetchContent_MakeAvailable(catch2)
+if(TARGET Catch2)
+    set_target_properties(Catch2 Catch2WithMain PROPERTIES FOLDER "third_party")
+endif()
+
+# ---------------------------------------------------------------------------
 # Vulkan headers (Apache-2.0 OR MIT) — VENDORED, not fetched.
 #
-# Deliberately the opposite choice from MinHook above, for two reasons:
+# Deliberately the opposite choice from everything above, for two reasons:
 #
 #   1. CI must not need the Vulkan SDK. FrameLedger.VkLayer cannot compile
 #      without these, and the alternative was a ~1 GB SDK install on every run.

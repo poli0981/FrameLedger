@@ -261,6 +261,20 @@ function Invoke-ProjectGates {
         Skip-Gate 'versioninfo-check' 'tools/versioninfo-check.ps1 not implemented yet'
     }
 
+    # CLAUDE.md rule 2 made structural, not editorial: injection happens in one
+    # place, behind the guard. 14_TESTING asks for a test that no code path
+    # reaches the primitive without a passing verdict; §S8 showed the mechanism
+    # originally proposed for that (a token only the guard can produce) does not
+    # hold, because a token that escapes can simply be ignored.
+    Write-Step 'chokepoint-check'
+    $chokeTool = Join-Path $repo 'tools/chokepoint-check.ps1'
+    if (Test-Path $chokeTool) {
+        Invoke-Checked 'chokepoint-check' { & $chokeTool }
+    }
+    else {
+        Skip-Gate 'chokepoint-check' 'tools/chokepoint-check.ps1 not implemented yet'
+    }
+
     Write-Step 'license-check'
     $licenseTool = Join-Path $repo 'tools/license-check.ps1'
     if (Test-Path $licenseTool) {
