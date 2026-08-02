@@ -146,22 +146,41 @@ struct Sources {
 // THERE IS NO Check() THAT RETURNS A VERDICT FOR SOMEBODY ELSE TO ACT ON. That
 // shape was considered and rejected (§S13(b)): a clearance that escapes can be
 // ignored by a caller who never asks for one, whereas an injection primitive
-// with no external symbol cannot be reached at all. `Inject` lives in an
-// anonymous namespace inside fl_guard.cpp, and tools/chokepoint-check.ps1
-// fails the build if any other translation unit names it.
+// with no external symbol cannot be reached at all. It lives in an anonymous
+// namespace inside fl_guard.cpp, and tools/chokepoint-check.ps1 fails the build
+// if any other translation unit names it.
 //
-// `sources` exists so tests can drive failures; production callers pass
-// SystemSources(). It is not a way to weaken the gate — a fake that reports
-// everything clean still has to get past the rules-completeness check, and a
-// null source refuses.
-[[nodiscard]] Verdict GuardedInject(std::uint32_t targetPid, const wchar_t* dllPath, const Sources& sources) noexcept;
+// THE EVIDENCE IS NOT A PARAMETER EITHER. These take no Sources: they always
+// use SystemSources(). The seam that the fail-closed matrix needs is real, but
+// it is compiled out of every shipping target — see FL_GUARD_TESTABLE below.
+// While the injection primitive was a stub, a caller passing all-clean fakes
+// was a theoretical hole; the moment injection became real it would have been
+// a way into a game process that never consulted a single genuine signal.
+[[nodiscard]] Verdict GuardedInject(std::uint32_t targetPid, const wchar_t* dllPath) noexcept;
 
 // Evaluate the guard WITHOUT injecting. Exists for the 30 s in-session re-scan
 // (19_SAFETY §During a session), which must reach a verdict on a process it is
 // already inside and has nothing to inject. Deliberately cannot be used to
 // pre-authorise an injection: it takes no dll path and returns no token, so the
 // only way to act on a pass is to call GuardedInject, which re-collects.
-[[nodiscard]] Verdict Evaluate(std::uint32_t targetPid, const Sources& sources) noexcept;
+[[nodiscard]] Verdict Evaluate(std::uint32_t targetPid) noexcept;
+
+#ifdef FL_GUARD_TESTABLE
+// ---------------------------------------------------------------------------
+// TEST-ONLY. Defined by exactly one target — src/native/tests — and by nothing
+// that ships. tools/chokepoint-check.ps1 fails the build if any other
+// CMakeLists defines it.
+//
+// 14_TESTING's matrix requires forcing EnumProcessModulesEx failures, partial
+// module lists, unreadable processes and a denied service query. None of that
+// is reachable without injectable evidence, and an input whose failure path
+// cannot be exercised is an input whose failure path is unverified. So the seam
+// exists — and is unavailable to anything a user runs.
+// ---------------------------------------------------------------------------
+[[nodiscard]] Verdict EvaluateWithSources(std::uint32_t targetPid, const Sources& sources) noexcept;
+[[nodiscard]] Verdict GuardedInjectWithSources(std::uint32_t targetPid, const wchar_t* dllPath,
+                                               const Sources& sources) noexcept;
+#endif
 
 // Human-readable reason, for logs and for mapping to resx keys.
 [[nodiscard]] const char* ReasonName(Reason r) noexcept;

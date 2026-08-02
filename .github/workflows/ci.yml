@@ -47,6 +47,29 @@ jobs:
         with:
           arch: x64
 
+      # PIN clang-format. Its output is version-dependent (alignment especially),
+      # so an unpinned binary means the formatting gate can pass locally and
+      # fail here for a reason the failure message does not mention — which is
+      # exactly what happened, and cost a CI round trip to diagnose.
+      #
+      # 12_BUILD promises CI runs the identical script. The script was identical;
+      # the tool was not. The runner image ships its own clang-format on PATH,
+      # and build.ps1 only falls back to the VS-bundled one when nothing is
+      # there — so this must come first and must be the version developers get
+      # from the pinned VS C++ workload.
+      #
+      # The version below is whatever `./build.ps1 check` PRINTS locally, not
+      # whatever `clang-format --version` says in an arbitrary shell. Those are
+      # not the same binary: this pin was briefly wrong for exactly that reason,
+      # because a different clang-format was earlier on PATH in a Git Bash
+      # session than the one build.ps1 resolves. The gate printing its own
+      # version is what caught it.
+      - name: Pin clang-format
+        shell: pwsh
+        run: |
+          pip install --disable-pip-version-check "clang-format==22.1.3"
+          clang-format --version
+
       - name: Cache NuGet
         uses: actions/cache@v6
         with:
