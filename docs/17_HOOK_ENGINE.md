@@ -195,7 +195,8 @@ is not something this loader supports.
 > admin. Registering under HKCU (below) is the less common choice and the better
 > one: no elevation, and per-user scope.
 - Intercepts `vkQueuePresentKHR`, `vkCreateSwapchainKHR`, `vkCmdTraceRaysKHR`, `vkCmdBuildAccelerationStructuresKHR`, `vkCreateGraphicsPipelines`.
-- The layer respects the same guard: on init it checks the enable-list and stays fully passthrough for any process not opted in. **A layer is machine-wide by nature — this check is mandatory, not optional.**
+- The layer respects the same guard, in two steps at init: it checks the enable-list, and it scans **its own process** against the anti-cheat blocklist. Either one saying no means fully passthrough. **A layer is machine-wide by nature — these checks are mandatory, not optional.**
+- The self-scan uses the **same matcher and the same rules file as the injection guard** (`fl_ac_rules.h`, compiled into both targets). Not a copy: a layer with its own blocklist would be a second matcher that can disagree with the first. Every uncertainty — rules unreadable, malformed, enumeration failed, a truncated list — resolves to passthrough, which is the opposite polarity from the injection guard and the same principle: leave the host alone.
 - Registered only while at least one Vulkan game has hooking enabled; unregistered on uninstall (Velopack hook) and when the last such game is disabled. **Never at install time** — `12_BUILD` §The Vulkan layer is not registered at install time.
 
 ### The enable-list

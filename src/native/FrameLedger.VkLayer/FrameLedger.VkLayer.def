@@ -16,3 +16,4 @@ EXPORTS
     vkGetDeviceProcAddr
     FlVkLayerName
     FlVkLayerWouldActivate
+    FlVkLayerSelfScanSaysPassthrough

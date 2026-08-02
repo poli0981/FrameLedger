@@ -1,3 +1,7 @@
+#include <windows.h>
+
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fl_ac_rules.h>
 #include <jsmn.h>
@@ -357,6 +361,52 @@ bool IsTrustedSigner(const Rules& rules, const char* signerOrganisation) noexcep
         }
     }
     return false;
+}
+
+// --- The single rules location ---------------------------------------------
+//
+// Lives here, beside the matcher, so the injection guard and the Vulkan layer
+// cannot end up reading different files. A second rules path would be a second
+// blocklist by accident — the same defect as a second matcher, with none of the
+// visibility.
+
+bool RulesFilePath(char* out, std::size_t cap) noexcept {
+    if (out == nullptr || cap == 0) {
+        return false;
+    }
+    char*  base = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&base, &len, "LOCALAPPDATA") != 0 || base == nullptr) {
+        return false;
+    }
+    const int written = _snprintf_s(out, cap, _TRUNCATE, R"(%s\FrameLedger\rules\detection-rules.json)", base);
+    std::free(base);
+    return written > 0;
+}
+
+std::size_t ReadRulesFile(char* buffer, std::size_t cap) noexcept {
+    constexpr std::size_t kFailed = static_cast<std::size_t>(-1);
+    if (buffer == nullptr || cap == 0) {
+        return kFailed;
+    }
+    char path[MAX_PATH]{};
+    if (!RulesFilePath(path, sizeof(path))) {
+        return kFailed;
+    }
+
+    HANDLE h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return kFailed;
+    }
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(h, &size) || size.QuadPart <= 0 || static_cast<std::size_t>(size.QuadPart) >= cap) {
+        CloseHandle(h);
+        return kFailed;
+    }
+    DWORD      read = 0;
+    const BOOL ok = ReadFile(h, buffer, static_cast<DWORD>(size.QuadPart), &read, nullptr);
+    CloseHandle(h);
+    return ok ? read : kFailed;
 }
 
 }    // namespace fl::guard

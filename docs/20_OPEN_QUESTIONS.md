@@ -65,7 +65,7 @@ at startup) and a 2D GOG prologue; a number from either would not generalise,
 which is worse than recording it unmeasured. This is the one input §S13(c)
 still lacks.
 
-### S2 ◐ · The Vulkan layer has no guard — **first half done, second half open**
+### S2 ◐ · The Vulkan layer has no guard — **both halves done; mid-session unhook still open**
 
 An implicit layer is machine-wide and loads **before** anything of ours runs, so
 the injection guard cannot cover it: no module scan, no driver scan, no
@@ -88,11 +88,30 @@ enable us. The cost is accepted: **Vulkan Tier 1 is now launch-mode-only.**
 > outside our enable-list. The layer now always accepts and always forwards;
 > the enable-list decides what we *intercept*, never whether we *load*.
 
-**◐ Half two, still open: the in-layer blocklist scan.** The layer must scan its
-own process at init and go fully passthrough on any blocklist hit. Not built.
-It is not yet dangerous — the layer intercepts nothing at all today — but S2
-does not close until it lands, and it must land before `vkQueuePresentKHR` is
-hooked.
+**✅ Half two, done.** The layer scans its OWN process against the blocklist
+at init and goes fully passthrough on any hit, using the SAME matcher and the
+SAME rules file as the injection guard (`fl_ac_rules.h`, compiled into both). A
+layer with its own blocklist would be a second matcher that can disagree with
+the first, which is the defect the managed facade was built to avoid.
+
+Every uncertainty resolves to inert: rules unreadable, malformed or incomplete,
+module enumeration failed, a truncated list, a module that could not be named,
+or an actual hit. That is the opposite *polarity* from the injection guard —
+where an unknown means refuse to inject — but the same principle: do the thing
+that leaves the host alone.
+
+Verified by `fl-probe-vklayer` (ctest `fl_vklayer_selfscan`), which asserts
+**both** directions — a clean process is *not* forced inert, and a process
+carrying a planted module *is*. The planted module is our own DLL copied under a
+blocklisted name, per `14_TESTING` §Integration tests; no real anti-cheat
+software is shipped, downloaded or executed. Proven red by making the matcher
+stop matching.
+
+The probe installs the repository's seed rules to the product's one rules
+location when nothing is there, and removes them afterwards. That is deliberate:
+there is no way to point the layer at a different rules file (§S3), so without
+it the test silently skipped on any machine that had not run the product — and a
+ctest that always skips is a gate that cannot fail.
 
 **Also still open: mid-session unhook inside a layered process.** With no Agent
 running there is nothing to drive the 30 s re-scan that `19_SAFETY` calls the
