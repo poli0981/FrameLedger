@@ -644,8 +644,51 @@ Record the SDK version each name came from.
 
 ## 7 · First real injection *(requires the guard, §1)*
 
-- Title:
-- `/MT` DLL loaded without incident:
+### ✅ Done — 2026-08-03
+
+- **Title:** Lies of P (Steam, Unreal, x64, single-player, no anti-cheat).
+  Injected into `LOP-Win64-Shipping.exe`, the presenting process — `LOP.exe` at
+  the install root is a shim and was left alone.
+- **`/MT` DLL loaded without incident: yes.** `FlGuardEvaluate` → `Allow`;
+  `FlGuardedInject` → `Allow`; `FrameLedger.Overlay.dll` present in the target on
+  re-enumeration (143 → 144 modules), mapped at `0x7FFA60340000`, 820 KB.
+  Afterwards: alive, responding, **103.6 s of CPU over 6 s wall-clock** across
+  180 threads — still rendering, not stalled.
+- Reached through the shipped C ABI (`FrameLedger.Guard.dll`), so there was no
+  path that skipped the gate. There is still no injector CLI (§S9).
+
+**The three refusals that came first are the valuable part.** Every one was a
+real defect, and none would have surfaced without a real machine and a real
+title:
+
+| Attempt | Verdict | What it actually was |
+|---|---|---|
+| Deadly Heart Gambit, no rules installed | `RulesUnreadable` | Correct. A machine that has never run the product refuses by default. |
+| Same, rules installed | `BlockedService` `EasyAntiCheat_EOS` | **Defect.** A Stopped/Manual service installed by an unrelated EOS game made the guard refuse *every process on the machine*, `explorer.exe` included. Fixed: present now means running. |
+| Same, from the launching shell | `SuspiciousUnsigned` `FrameLedger.Guard.dll` | **Defect, open.** Our own DLL trips our own `guard` name fragment. See below. |
+| Same, from a non-ancestor process | `Allow` → injection refused | Correct, and now legible: **Deadly Heart Gambit is x86**, and the Overlay is x64-only. This fills `14_TESTING`'s manual-matrix row for a 32-bit title. |
+
+### 🔴 Open — the guard refuses itself in launch mode
+
+Isolated cleanly on the same title, same machine, same rules:
+
+| Evaluating process | Verdict |
+|---|---|
+| An **ancestor** of the game, with `FrameLedger.Guard.dll` loaded | `SuspiciousUnsigned` |
+| Not an ancestor | `Allow` |
+
+§S16 walks the game's ancestors up to the first platform launcher. The name
+`FrameLedger.Guard.dll` contains `guard`, which is one of the heuristic's
+`nameFragments`, and the signer half is not wired — so an unchecked signature is
+untrusted by definition and the pair refuses.
+
+**In launch mode the Agent *is* the parent** (`04_CAPTURE` §Launch mode) **and
+hosts that DLL**, so every launch-mode injection would refuse. Attach mode is
+unaffected, which is why the run above succeeded. Not fixed here; recorded as its
+own item.
+
+Note the project also ships **unsigned** (`12_BUILD`), so wiring the signer check
+would not rescue our own binaries — whatever the fix is, it cannot be "sign it".
 
 ## 8 · The accuracy question — why this rewrite exists
 

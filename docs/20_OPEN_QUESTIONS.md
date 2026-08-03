@@ -455,6 +455,46 @@ guard at all.** Every case in `guard_test.cpp` parses an inline fixture.
   and watching `/W4 /WX` build clean. That is a gate that existed only in prose.
   It is now ctest `fl_guard`'s "every Reason has a distinct name", proven red.
 
+### S18 · The guard refuses itself in launch mode
+
+Found 2026-08-03 during the first real injection (`spike-notes.md` §7), and
+isolated on one title with everything else held constant:
+
+| Evaluating process | Verdict |
+|---|---|
+| An **ancestor** of the game, with `FrameLedger.Guard.dll` loaded | `SuspiciousUnsigned`, signal `FrameLedger.Guard.dll` |
+| Not an ancestor | `Allow` |
+
+§S16 walks the game's ancestors up to the first platform launcher. The name
+`FrameLedger.Guard.dll` contains **`guard`**, one of the heuristic's
+`nameFragments`; the signer half is deliberately unwired, so an unchecked
+signature is untrusted by definition (`fl_guard.cpp`, "that is the correct
+direction") and fragment-plus-untrusted refuses.
+
+**In launch mode the Agent is the game's parent** (`04_CAPTURE` §Launch mode)
+**and hosts that exact DLL**, so every launch-mode injection would refuse. Attach
+mode is unaffected. This is the same shape as §S16 and as the
+`EasyAntiCheat_EOS` service defect: a gate that cannot pass is not strict, it is
+broken.
+
+**Not fixable by signing.** The project ships unsigned (`12_BUILD`
+§Packaging), so wiring the signer check would leave our own binaries untrusted
+too. Options, none chosen:
+
+- Exclude our own module names from the heuristic. Simple, and it is not an
+  override of the anti-cheat gate — refusing to treat our own code as somebody
+  else's anti-cheat is not the same as ignoring evidence. But a name check is
+  spoofable by a DLL that borrows the name.
+- Skip the Agent's own process when building the scan set. Narrower, and it needs
+  the guard to know which process is the Agent, which it currently does not.
+- Rename the DLL so it does not contain a fragment. Crude; the fragment list
+  would keep catching future names by accident.
+- Narrow `nameFragments`. `guard` and `protect` are short and common; the list
+  was already flagged as needing to stay narrow.
+
+Until it is decided, **launch mode cannot work**, which also blocks the
+early-init upscaler data §S1/§S13(c) are about.
+
 ### S14 ◐ · Pre-injection check 3 is **unwired**, and has no "cannot determine" state
 
 Found 2026-08-02 while hardening the rules toolchain. `19_SAFETY` §Pre-injection

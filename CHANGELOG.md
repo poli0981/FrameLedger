@@ -307,6 +307,24 @@ GitHub release body, so a missing section means an empty release note.
   pinned 0.9.6 package, not just the repository.
 
 ### Fixed
+- **A failed injection reported `Allow`.** `FlGuardedInject` returned
+  `reason = kAllow` with the truth in a free-text signal, above a comment saying
+  *"the caller distinguishes them by reason"* — and there was no reason to
+  distinguish by. A caller reading `Allowed()` got `true` for a DLL that was
+  never loaded. Found on the first real injection attempt, against a 32-bit
+  title.
+  - `Allowed()` now means **the DLL is loaded in the target**, which is the only
+    reading a caller can act on. Two new reasons say whose fault it was, because
+    the responses differ: **`InjectionFailed`** (the gate passed, the injection
+    did not take — may be transient) and **`TargetIsWow64`** (permanent and
+    expected; the Overlay is x64-only, so the answer is Tier 2, not "something
+    went wrong").
+  - The injection primitive returns a `Reason` instead of a `bool`.
+  - `dllPath == nullptr` also stopped reporting `RulesUnreadable`, which told
+    whoever had to fix it that the rules file was unreadable about a caller that
+    passed no path.
+  - Tested against a guaranteed 32-bit target (`SysWOW64\cmd.exe`), which fills
+    `14_TESTING`'s manual-matrix row for a 32-bit title on CI as well as here.
 - **The guard refused every process on the machine.** Found on the first attempt
   at P0 item 2, against a real title: check 2b reported a service as present when
   it was merely *installed*. `EasyAntiCheat_EOS` is installed machine-wide by any
