@@ -1,3 +1,4 @@
+add_subdirectory(fl-baseline-probe)
 add_subdirectory(fl-layout-dump)
 add_subdirectory(fl-probe-guard)
 add_subdirectory(fl-probe-hookprofile)
