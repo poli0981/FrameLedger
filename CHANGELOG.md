@@ -307,6 +307,28 @@ GitHub release body, so a missing section means an empty release note.
   pinned 0.9.6 package, not just the repository.
 
 ### Fixed
+- **The guard refused every process on the machine.** Found on the first attempt
+  at P0 item 2, against a real title: check 2b reported a service as present when
+  it was merely *installed*. `EasyAntiCheat_EOS` is installed machine-wide by any
+  EOS game and sits **Stopped/Manual** until its own title runs — so one such
+  game, anywhere, made the guard refuse `explorer.exe` and `steam.exe` as
+  readily as it refused a Unity indie game with no anti-cheat anywhere in its
+  install tree.
+  - `19_SAFETY`'s own words for this shape: *"a gate that refuses everything is
+    not a strict gate but a broken one, and it is how a user ends up looking for
+    the override CLAUDE.md rule 2 says does not exist."* The behaviour was
+    deliberate and documented in a comment; what nobody had measured was what it
+    does on a machine that has ever installed one EOS title.
+  - **Present now means running.** `SERVICE_STOPPED` is the only state treated as
+    absent; start-pending, paused and stop-pending all mean code is or was live.
+    The machine-wide guarantee does not rest on this check — a **loaded driver**
+    is check 2 and still refuses for all titles, modules inside the target are
+    check 1, and both fire when an EAC game actually runs.
+  - Tested against the **real** service control manager, because the fakes cannot
+    catch this one: what changed is what `present` *means*, and a fake has always
+    just echoed a list. The test enumerates live services, picks one running and
+    one stopped, and asserts the implementation distinguishes them — plus a third
+    case for absent. Proven red by restoring `*present = true`.
 - **The anti-cheat pre-scan was looking in the wrong directory** — a hole in a
   hard gate, found by running the detector against three real installs
   (`spike-notes` §8). Both the probe and `ImageDirectoryImpl` derived "the game

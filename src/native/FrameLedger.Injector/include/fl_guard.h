@@ -142,10 +142,15 @@ struct Sources {
     // Machine-wide loaded kernel drivers, by full native path.
     Collected (*EnumerateDrivers)(NameSink sink, void* ctx) = nullptr;
 
-    // A service by name. kOk + present=false means ABSENT (1060), which is a
-    // genuine "not there". kFailed means DENIED or anything else, which is
-    // "cannot determine" and refuses. That distinction is the whole reason this
-    // is not a bool (docs/19_SAFETY §Pre-injection checks item 2).
+    // A service by name. kOk + present=false means it is not RUNNING — either
+    // absent (1060) or installed and stopped. kFailed means DENIED or anything
+    // else, which is "cannot determine" and refuses. That distinction is the
+    // whole reason this is not a bool (docs/19_SAFETY §Pre-injection checks
+    // item 2).
+    //
+    // `present` means RUNNING, not installed. Measured: EasyAntiCheat_EOS is
+    // installed machine-wide by any EOS title and sits Stopped/Manual, so the
+    // installed-means-present reading refused every process on the machine.
     Collected (*QueryService)(const char* name, bool* present) = nullptr;
 
     // The scan set for §S16: the injection target, its descendants, and its

@@ -194,9 +194,28 @@ Collected QueryServiceImpl(const char* name, bool* present) noexcept {
     if (!ok) {
         return Collected::kFailed;
     }
-    // Installed but stopped still counts as present: 19_SAFETY refuses on the
-    // family being on the machine, not on it currently running.
-    *present = true;
+
+    // PRESENT MEANS RUNNING, NOT INSTALLED.
+    //
+    // This used to report present for a service that merely existed, on the
+    // reasoning that the family being on the machine was enough. MEASURED
+    // 2026-08-03, that reasoning breaks the product: `EasyAntiCheat_EOS` is
+    // installed machine-wide by any EOS title, sits Stopped/Manual until its own
+    // game runs, and one such title anywhere made the guard refuse EVERY process
+    // on the machine — explorer.exe and steam.exe included. 19_SAFETY's own
+    // words for this shape: "a gate that refuses everything is not a strict gate
+    // but a broken one, and it is how a user ends up looking for the override
+    // CLAUDE.md rule 2 says does not exist."
+    //
+    // The machine-wide guarantee does not rest on this check. A loaded
+    // anti-cheat DRIVER is check 2 and still refuses for all titles; modules
+    // inside the target are check 1. A stopped, manual-start service has no code
+    // in any process — when its game actually runs, both of those fire.
+    //
+    // STOPPED is the only state that counts as absent. Start-pending, paused and
+    // stop-pending all mean code is or was live, and the 30 s in-session re-scan
+    // closes the window between this call and a later start.
+    *present = st.dwCurrentState != SERVICE_STOPPED;
     return Collected::kOk;
 }
 
