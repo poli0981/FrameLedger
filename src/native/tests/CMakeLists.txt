@@ -55,4 +55,32 @@ add_dependencies(fl_guard_test hook-harness FrameLedger.Overlay)
 
 add_test(NAME fl_guard COMMAND fl_guard_test)
 
+# The rules file we actually SHIP, against the parser that has to read it.
+#
+# Only fl_ac_rules.cpp is compiled in — not the whole injector. This target has
+# no business near the injection primitive, and keeping it out means the test
+# cannot accidentally become a second place that reaches it.
+#
+# Deliberately NOT FL_GUARD_TESTABLE: there is no evidence seam here to need.
+add_executable(fl_rules_budget_test
+    rules_budget_test.cpp
+    "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/src/fl_ac_rules.cpp"
+)
+target_include_directories(fl_rules_budget_test PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/include")
+target_link_libraries(fl_rules_budget_test PRIVATE fl_native_flags fl_jsmn Catch2::Catch2WithMain)
+target_compile_options(fl_rules_budget_test PRIVATE /EHsc)
+
+# The repository seed, by absolute path at compile time.
+#
+# NOT the %LOCALAPPDATA% lookup fl-probe-vklayer uses. That probe reads the
+# product's one location because the layer has no override (§S3) and it skips
+# honestly when nothing is installed. This test asks a different question — does
+# the file IN THIS COMMIT parse — so reading anything but the repository copy
+# would let an unrelated file on the developer's machine answer it.
+target_compile_definitions(fl_rules_budget_test PRIVATE
+    FL_SEED_RULES="${CMAKE_SOURCE_DIR}/../../rules/detection-rules.json"
+)
+
+add_test(NAME fl_rules_budget COMMAND fl_rules_budget_test)
+
 # TODO(P1): ring-buffer and fault-policy suites, now that Catch2 is here.

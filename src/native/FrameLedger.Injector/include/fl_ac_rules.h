@@ -21,12 +21,48 @@ enum class MatchKind : std::uint8_t { kExact = 0, kPrefix };
 // same thing on the data side).
 enum class Group : std::uint8_t { kModules = 0, kDrivers, kDirectories, kServices, kFiles, kGroupCount };
 
+// EVERY CAP BELOW IS ALSO A SCHEMA BOUND. rules/detection-rules.schema.json must
+// not accept a file this parser then refuses: exceeding any of these is not a
+// rejected entry, it is ParseResult::kMalformed for the WHOLE FILE, which means
+// the guard refuses every title on the machine. Rules ship as updatable data
+// pushed to every client, so that is a fleet-wide outage published by a CI-green
+// edit. tools/rules-validate.ps1 reads these constants back out of this header
+// rather than restating them, and ctest fl_rules_budget generates its boundary
+// cases from them, so the two cannot drift again.
+//
+// Note the off-by-one: CopyToken reserves a byte for the NUL and rejects at
+// `len >= cap`, so kMaxValueLen 96 admits 95 characters, not 96.
 inline constexpr std::size_t kMaxFamilies = 64;
 inline constexpr std::size_t kMaxValuesPerFamily = 16;
 inline constexpr std::size_t kMaxValueLen = 96;
 inline constexpr std::size_t kMaxFamilyNameLen = 64;
-inline constexpr std::size_t kMaxPerTitle = 256;
+inline constexpr std::size_t kMaxNameFragments = 16;
+inline constexpr std::size_t kMaxTrustedSigners = 16;
 inline constexpr std::size_t kMaxRulesBytes = 1u << 20;    // 1 MiB
+
+// Per-title rules (check 3). These are OBJECTS in the schema, not bare strings:
+// 19_SAFETY requires the UI to name the check that fired and why, and a bare exe
+// name carries neither. kMaxTitleRules x kMaxValuesPerTitleRule = 512 blockable
+// names per array, more than the 256 the previous flat cap allowed.
+inline constexpr std::size_t kMaxTitleRules = 64;
+inline constexpr std::size_t kMaxValuesPerTitleRule = 8;
+inline constexpr std::size_t kMaxReasonLen = 128;
+
+// jsmn tokenises the WHOLE buffer before FindMember locates `anticheat` — it has
+// no skip mode — so every engine, platform and capability rule in the file
+// consumes the hard gate's parse budget, and overflow is JSMN_ERROR_NOMEM ->
+// kTooLarge -> refuse everything. The coupling is structural, not an
+// implementation choice.
+//
+// Measured 2026-08-03 on the shipped seed: 9,128 bytes, 475 tokens, of which 275
+// (58%) are $comment/engines/platforms/capabilities this parser never reads.
+//
+// The budget is deliberately HALF the capacity. Crossing it fails the build
+// while there is still room to act, forcing a considered choice — raise
+// kMaxTokens and pay the BSS, or split the file — rather than discovering the
+// wall as a machine-wide refusal in the field.
+inline constexpr std::size_t kMaxTokens = 8192;
+inline constexpr std::size_t kRulesTokenBudget = kMaxTokens / 2;
 
 // The shortest prefix we will honour. A 1-3 character prefix matches a large
 // share of ordinary Windows DLLs; over-matching fails CLOSED, so it cannot get
@@ -42,15 +78,32 @@ struct Family {
     std::size_t valueCount = 0;
 };
 
+// One per-title entry (check 3): which title, and what to tell the user.
+//
+// `reason` is not decoration. 19_SAFETY requires the refusal to name the check
+// that fired, and check 3 is the only one whose signal — an executable name —
+// explains nothing on its own: "BlockedExecutable: game.exe" tells a user
+// nothing they can act on, where "this title is a competitive online game"
+// does.
+struct TitleRule {
+    char        family[kMaxFamilyNameLen] = {};
+    char        reason[kMaxReasonLen] = {};
+    MatchKind   match = MatchKind::kExact;
+    char        values[kMaxValuesPerTitleRule][kMaxValueLen] = {};
+    std::size_t valueCount = 0;
+};
+
 struct Rules {
     Family      families[kMaxFamilies] = {};
     std::size_t familyCount = 0;
 
-    char        blockedExecutables[kMaxPerTitle][kMaxValueLen] = {};
+    TitleRule   blockedExecutables[kMaxTitleRules] = {};
     std::size_t blockedExecutableCount = 0;
 
-    // Store ids are strings ("steam:730") so one array covers every platform.
-    char        blockedStoreIds[kMaxPerTitle][kMaxValueLen] = {};
+    // The schema carries `store` and `id` separately; the parser composes them
+    // into the single joined form the matcher compares ("steam:730"), so one
+    // array covers every platform and the caller needs no per-store branch.
+    TitleRule   blockedStoreIds[kMaxTitleRules] = {};
     std::size_t blockedStoreIdCount = 0;
 
     // The unknown-but-suspicious heuristic. Signers are compared against the
@@ -58,9 +111,9 @@ struct Rules {
     // WHQL-signed binary including the NVIDIA display driver carries
     // CN='Microsoft Windows Hardware Compatibility Publisher' and a CN match
     // would make the whole driver stack read as untrusted (spike-notes.md §1).
-    char        nameFragments[16][kMaxValueLen] = {};
+    char        nameFragments[kMaxNameFragments][kMaxValueLen] = {};
     std::size_t nameFragmentCount = 0;
-    char        trustedSigners[16][kMaxValueLen] = {};
+    char        trustedSigners[kMaxTrustedSigners][kMaxValueLen] = {};
     std::size_t trustedSignerCount = 0;
 };
 
@@ -85,10 +138,17 @@ enum class ParseResult : std::uint8_t {
 // for drivers; drivers therefore match on the path's leaf.
 [[nodiscard]] const Family* MatchName(const Rules& rules, Group group, const char* observed) noexcept;
 
-// Per-title lists. Both are EMPTY in the shipped seed today, so check 3 matches
-// nothing — recorded as 20_OPEN_QUESTIONS §S14 rather than left to be inferred.
-[[nodiscard]] bool MatchesBlockedExecutable(const Rules& rules, const char* exeName) noexcept;
-[[nodiscard]] bool MatchesBlockedStoreId(const Rules& rules, const char* storeId) noexcept;
+// Per-title lists (check 3). Return the matching rule so the caller can report
+// the family and the reason, or nullptr.
+//
+// TWO SEPARATE REASONS THESE MATCH NOTHING TODAY, and §S14 records only the
+// first: both arrays are empty in the shipped seed, AND neither function has a
+// single call site anywhere in the tree — check 3 is UNWIRED, not merely
+// unpopulated, so filling the data would change nothing. `storeId` is the
+// joined form ("steam:730"); an unresolvable identity must reach the caller as
+// unknown, never as a clean miss (§S14's second question, still open).
+[[nodiscard]] const TitleRule* MatchesBlockedExecutable(const Rules& rules, const char* exeName) noexcept;
+[[nodiscard]] const TitleRule* MatchesBlockedStoreId(const Rules& rules, const char* storeId) noexcept;
 
 // True if `moduleName` contains a suspicious fragment. The caller pairs this
 // with a signer check; a fragment alone never refuses (19_SAFETY: "name

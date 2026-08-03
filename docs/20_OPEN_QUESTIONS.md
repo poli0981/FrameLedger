@@ -395,13 +395,88 @@ Also unspecified: what the guard does when the tree changes mid-session
 
 </details>
 
-### S14 · Pre-injection check 3 is inert, and has no "cannot determine" state
+### S17 ✅ · The schema accepted rules files the guard refuses to parse — **closed**
+
+Found 2026-08-03 while scoping P0 item 3. Recorded rather than fixed silently,
+because it was live in shipped artifacts and the shape recurs.
+
+`rules/detection-rules.schema.json` and `fl_ac_rules.h` bounded the same things
+with different numbers, and **the schema was looser in every case**. That matters
+more than it sounds: an over-cap entry does not drop the entry. `ReadFamily`
+returns false, `ParseRules` returns `kMalformed`, and `19_SAFETY` turns an
+unparseable rules file into **REFUSE — for every title on the machine**. Rules
+ship as updatable data pushed to every client and `tools/rules-validate.ps1`
+validated against the *loose* schema, so a CI-green rules edit could have taken
+the product out in the field.
+
+| Bound | Schema said | Parser accepts |
+|---|---|---|
+| `blockedExecutables` / `blockedStoreIds` element | **object** | **bare string** — shape, not size |
+| values per family | 64 | 16 (`kMaxValuesPerFamily`) |
+| token length | 128 | 95 — `CopyToken` rejects at `len >= cap` |
+| family name | 64 | 63, same off-by-one |
+| prefix floor | 3 | 4 (`kMinPrefixLen`) |
+| per-title arrays | 4096 | 256, now `kMaxTitleRules` |
+| `nameFragments` / `trustedSigners` | 32 / 64 | 16 / 16, hardcoded |
+| families across all five groups | 1280 | 64 (`kMaxFamilies`) |
+
+**Proven, not argued:** a 17-value family passes the *old* schema (`exit 0`)
+while making `ParseRules` return `kMalformed`; under the calibrated schema it
+fails. Same input, both directions.
+
+**The shape mismatch was the worst of them.** Both per-title arrays are objects
+in the schema (`family`, `match`, `values`, `reason`) and were read by
+`ReadStringArray` as bare strings. The first entry anyone added would either
+overflow `kMaxValueLen` with its JSON text and refuse the whole file, or fit and
+be stored as an unmatchable blob. Only the two empty arrays kept that theoretical.
+The parser now reads the objects and composes `store` + `id` into the joined
+`"steam:730"` form `fl_ac_rules.h` always promised.
+
+Closed by: calibrating the schema to the parser, deriving nothing by hand
+(`tools/rules-validate.ps1` reads the thresholds out of the header by regex and
+**fails rather than skips** if it cannot, and ctest `fl_rules_budget` generates
+its boundary cases from the same constants). That ctest also asserts something
+nothing asserted before — **that the rules file we actually ship parses in the
+guard at all.** Every case in `guard_test.cpp` parses an inline fixture.
+
+**Two things this turned up that are not the schema's fault:**
+
+- **A `static_assert` that could not fire on the change it existed to catch.**
+  `fl_guard_abi.cpp` pinned `kRulesIncomplete == 16` to protect
+  `FlGuardReasonCount() == 17` — but `kRulesIncomplete` was the *last*
+  enumerator, so appending a `Reason` left it at 16, the assert passed, the
+  exported count stayed stale, and the managed mirror test iterated 0–16 and
+  never compared the new value. Replaced with a `Reason::kCount` sentinel the
+  count is derived from. Verified: appending a reason now moves the count to 18
+  and `GuardMirrorTests` fails with a precise message.
+- **`ReasonName`'s exhaustiveness was not compiler-enforced, though a comment
+  said it was.** Omitting `default:` does *not* make MSVC object: C4061/C4062 are
+  off by default even at `/W4`, measured by appending an enumerator with no case
+  and watching `/W4 /WX` build clean. That is a gate that existed only in prose.
+  It is now ctest `fl_guard`'s "every Reason has a distinct name", proven red.
+
+### S14 ◐ · Pre-injection check 3 is **unwired**, and has no "cannot determine" state
 
 Found 2026-08-02 while hardening the rules toolchain. `19_SAFETY` §Pre-injection
 checks lists a per-title blocklist as check 3, but `anticheat.blockedExecutables`
 and `anticheat.blockedStoreIds` are **both empty arrays**, so the check matches
-nothing. The gate is not currently weakened — checks 1, 2 and 4 run, and every
-family in the seed is caught by a module, driver or directory signal — but a
+nothing.
+
+> **Corrected 2026-08-03, and the true cause is worse than the recorded one.**
+> The empty arrays are the *second* reason check 3 matches nothing. The first is
+> that `MatchesBlockedExecutable` and `MatchesBlockedStoreId` have **no call site
+> anywhere in the tree** — `EvaluateImpl` runs `LoadRules → CheckDrivers →
+> CheckServices → CheckModules` and stops. Populating the data would change
+> nothing. Check 3 is unwired, not unpopulated.
+>
+> The sentence below that read "checks 1, 2 and 4 run" was wrong twice: **check 4
+> has no implementation either** — `Reason::kAntiCheatDirectory` and
+> `kAntiCheatFile` are declared, named in `ReasonName` and mirrored into the
+> managed enum, and nothing produces either. Only checks 1, 2 and 2b run today.
+> Check 4 lands separately, inside the chokepoint rather than beside it.
+
+The gate is not currently weakened — checks 1, 2 and 2b run, and every
+family in the seed is caught by a module, driver or service signal — but a
 documented check that does nothing will read as "this title is not a known
 online title" to the next person who trusts it.
 

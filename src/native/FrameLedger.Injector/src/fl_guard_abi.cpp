@@ -48,15 +48,21 @@ const char* FlGuardReasonName(std::int32_t reason) {
 }
 
 std::int32_t FlGuardReasonCount(void) {
-    // Must equal the number of enumerators in fl::guard::Reason. Asserted below
-    // against the first name that would be missing if one were added.
-    return 17;
+    // DERIVED, never restated. This used to return a literal 17 guarded by a
+    // static_assert on kRulesIncomplete == 16 — but kRulesIncomplete was the
+    // last enumerator, so the one change the assert existed to catch (appending
+    // a Reason) left it at 16 and the assert passed while the count went stale.
+    // The managed mirror test iterates this value, so a stale count means the
+    // new reason is never compared against the managed enum either.
+    return static_cast<std::int32_t>(fl::guard::Reason::kCount);
 }
 
 }    // extern "C"
 
-// If a Reason is added without bumping the count, this fires at compile time
-// rather than at the managed mirror test — the earlier the better, since the
-// count is what the mirror test iterates.
-static_assert(static_cast<int>(fl::guard::Reason::kRulesIncomplete) == 16,
-              "fl::guard::Reason gained or lost a value — update FlGuardReasonCount and the managed mirror");
+// kAllow must stay 0: a default-constructed managed AntiCheatVerdict zeroes
+// every field, and the mirror only holds if 0 means the same thing on both
+// sides. fl_guard.h asserts this too; repeated here because this file is what
+// the managed side actually talks to.
+static_assert(static_cast<int>(fl::guard::Reason::kAllow) == 0,
+              "kAllow must stay 0 — the managed mirror depends on it");
+static_assert(static_cast<int>(fl::guard::Reason::kCount) > 0, "Reason::kCount must be the last enumerator");

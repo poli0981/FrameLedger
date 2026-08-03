@@ -375,7 +375,19 @@ const char* ReasonName(Reason r) noexcept {
         return "RulesMalformed";
     case Reason::kRulesIncomplete:
         return "RulesIncomplete";
+    case Reason::kCount:
+        break;    // not a reason; falls through to the guard below
     }
+    // "Unknown" is the tell, not a fallback. A Reason added without a case here
+    // lands on it, and ctest fl_guard's "every Reason has a distinct name" case
+    // fails.
+    //
+    // MEASURED, because the obvious assumption is wrong: omitting `default:`
+    // does NOT make the compiler enforce this. C4061/C4062 are off by default
+    // even at /W4, so appending an enumerator with no case built clean under
+    // /W4 /WX. The comment that used to sit here claimed the opposite — a gate
+    // that existed only in prose, which is the exact defect class this file's
+    // header warns about.
     return "Unknown";
 }
 

@@ -75,6 +75,17 @@ enum class Reason : std::uint8_t {
     kRulesUnreadable,
     kRulesMalformed,
     kRulesIncomplete,    // parsed, but a required family is missing
+
+    // NOT A REASON. The count, so appending above it updates the exported
+    // FlGuardReasonCount by construction.
+    //
+    // This replaces a static_assert that could not fire on the change it existed
+    // to catch: it pinned kRulesIncomplete == 16, and kRulesIncomplete was the
+    // LAST enumerator, so appending a reason left it at 16, the assert passed,
+    // the exported count stayed at 17, and the managed mirror test iterated 0-16
+    // and never compared the new value at all. Deriving the count removes the
+    // need for anyone to remember.
+    kCount,
 };
 
 // A refusal carries the signal that produced it, so the UI can say
