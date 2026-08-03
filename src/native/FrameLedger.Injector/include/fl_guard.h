@@ -76,6 +76,16 @@ enum class Reason : std::uint8_t {
     kRulesMalformed,
     kRulesIncomplete,    // parsed, but a required family is missing
 
+    // Check 4's "cannot determine": the game directory was absent, unlistable,
+    // truncated by a bound, or crossed a reparse point we will not follow.
+    //
+    // APPENDED, not slotted in beside kAntiCheatFile where it belongs
+    // logically. These values cross a C ABI into the managed mirror, so
+    // inserting one renumbers every reason after it — the whole tail would
+    // shift by one and every stored or logged value would mean something else.
+    // Grouping is worth less than a number that never moves.
+    kPreScanFailed,
+
     // NOT A REASON. The count, so appending above it updates the exported
     // FlGuardReasonCount by construction.
     //
@@ -120,6 +130,11 @@ enum class Collected : std::uint8_t {
 // enumeration early — used when a match has already been found.
 using NameSink = bool (*)(void* ctx, const char* name);
 
+// As NameSink, plus whether the entry is a directory. Check 4 matches
+// directories and files against different blocklist groups, and guessing from
+// the name would be a second, weaker classifier.
+using DirEntrySink = bool (*)(void* ctx, const char* name, bool isDirectory);
+
 struct Sources {
     // Loaded modules of one process, by base name.
     Collected (*EnumerateModules)(std::uint32_t pid, NameSink sink, void* ctx) = nullptr;
@@ -140,6 +155,19 @@ struct Sources {
     // Whole rules file into a caller-owned buffer. Returns bytes written, or
     // SIZE_MAX on any failure — unreadable, absent, or larger than the cap.
     std::size_t (*ReadRulesFile)(char* buffer, std::size_t cap) = nullptr;
+
+    // Check 4 — the static pre-scan.
+    //
+    // The directory the target's image lives in. kFailed means we could not
+    // name it, which refuses: check 4 cannot run against a directory we cannot
+    // find, and "we did not look" has never been a pass in this file.
+    Collected (*ImageDirectory)(std::uint32_t pid, wchar_t* out, std::size_t cap) = nullptr;
+
+    // Entries at and below `dir`, flattened, bounded by the caps in
+    // fl_prescan.h. `isDirectory` is what decides which blocklist group the
+    // name is matched against, so it is part of the evidence rather than
+    // something the caller infers from the string.
+    Collected (*EnumerateDirEntries)(const wchar_t* dir, DirEntrySink sink, void* ctx) = nullptr;
 };
 
 // The real Windows implementations. Behaviour measured in spike-notes.md §1;

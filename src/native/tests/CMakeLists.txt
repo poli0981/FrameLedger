@@ -55,6 +55,12 @@ add_dependencies(fl_guard_test hook-harness FrameLedger.Overlay)
 
 add_test(NAME fl_guard COMMAND fl_guard_test)
 
+# Check 4's fail-closed matrix, as its own ctest name so a regression in the
+# static pre-scan is legible in the ctest summary rather than buried in
+# fl_guard's total. Same binary, selected by tag — duplicating the evidence
+# fakes into a second target would be a second set of seams to keep in step.
+add_test(NAME fl_prescan COMMAND fl_guard_test "[prescan]")
+
 # The rules file we actually SHIP, against the parser that has to read it.
 #
 # Only fl_ac_rules.cpp is compiled in — not the whole injector. This target has

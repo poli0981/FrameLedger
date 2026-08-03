@@ -45,8 +45,9 @@ public enum AntiCheatRefusalReason
     /// <summary>Denied, rather than absent. Absent is a real answer; denied is not.</summary>
     ServiceQueryFailed = 8,
 
-    // Check 3 — per-title lists. Both are empty in the shipped seed today, so
-    // this check matches nothing (20_OPEN_QUESTIONS §S14).
+    // Check 3 — per-title lists. Two reasons this matches nothing today: both
+    // arrays are empty in the shipped seed, and the matchers have no call site
+    // — the check is UNWIRED, not merely unpopulated (20_OPEN_QUESTIONS §S14).
     BlockedExecutable = 9,
     BlockedStoreId = 10,
 
@@ -63,4 +64,22 @@ public enum AntiCheatRefusalReason
 
     /// <summary>Parsed, but a required family is missing. An empty blocklist is a fixture, never a ship state.</summary>
     RulesIncomplete = 16,
+
+    /// <summary>
+    /// Check 4 could not scan the game directory — absent, unlistable,
+    /// truncated by a bound, or crossing a reparse point we will not follow.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Its own value rather than reusing <see cref="AntiCheatDirectory"/>:
+    /// collapsing "we found anti-cheat" into "we could not look" is the exact
+    /// defect that produced this project's worst finding.
+    /// </para>
+    /// <para>
+    /// Appended rather than grouped with the other check-4 reasons. These
+    /// values cross a C ABI, so inserting one would renumber every reason after
+    /// it and silently change what a stored or logged value means.
+    /// </para>
+    /// </remarks>
+    PreScanFailed = 17,
 }

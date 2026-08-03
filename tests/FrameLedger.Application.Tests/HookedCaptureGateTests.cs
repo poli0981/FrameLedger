@@ -24,6 +24,15 @@ public sealed class HookedCaptureGateTests
             InjectCalls++;
             return ValueTask.FromResult(Next);
         }
+
+        public int PreScanCalls { get; private set; }
+
+        public ValueTask<AntiCheatVerdict> PreScanGameDirectoryAsync(string gameDirectory,
+            CancellationToken ct = default)
+        {
+            PreScanCalls++;
+            return ValueTask.FromResult(Next);
+        }
     }
 
     private static HookRequest Request(bool enabled = true, DateTimeOffset? consent = null,

@@ -55,6 +55,18 @@ FL_GUARD_ABI void FlGuardEvaluate(std::uint32_t targetPid, FlGuardResult* out);
 // in evidence — the guard collects its own.
 FL_GUARD_ABI void FlGuardedInject(std::uint32_t targetPid, const wchar_t* dllPath, FlGuardResult* out);
 
+// Check 4 against a directory, before anything is launched (FR-2.2). ADVISORY:
+// it answers "may this game's hooking toggle be offered at all", and gates
+// nothing. The same scan runs inside FlGuardEvaluate and FlGuardedInject
+// against a directory derived from the target's own pid, so a caller who never
+// asks this — or ignores the answer — changes nothing about what is allowed.
+//
+// It reports through FlGuardResult rather than an outcome enum of its own, so
+// there is ONE reason table and ONE mirror surface: kAllow means clean,
+// AntiCheatDirectory/AntiCheatFile name what was found, and PreScanFailed or a
+// Rules* reason means the scan could not reach an answer.
+FL_GUARD_ABI void FlStaticPreScan(const wchar_t* gameDirectory, FlGuardResult* out);
+
 // Stable name for a reason code. The managed mirror test compares these against
 // its own enum, so this is a contract and not a debugging aid.
 FL_GUARD_ABI const char* FlGuardReasonName(std::int32_t reason);

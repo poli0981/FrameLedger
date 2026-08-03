@@ -470,14 +470,22 @@ nothing.
 > nothing. Check 3 is unwired, not unpopulated.
 >
 > The sentence below that read "checks 1, 2 and 4 run" was wrong twice: **check 4
-> has no implementation either** — `Reason::kAntiCheatDirectory` and
-> `kAntiCheatFile` are declared, named in `ReasonName` and mirrored into the
-> managed enum, and nothing produces either. Only checks 1, 2 and 2b run today.
-> Check 4 lands separately, inside the chokepoint rather than beside it.
+> had no implementation either** — `Reason::kAntiCheatDirectory` and
+> `kAntiCheatFile` were declared, named in `ReasonName` and mirrored into the
+> managed enum, and nothing produced either.
+>
+> **Check 4 is now implemented** (`fl_prescan.cpp`, inside `EvaluateImpl`), so
+> checks 1, 2, 2b and 4 run. **Check 3 remains unwired** and this item stays
+> open on that.
+>
+> The parser now reads both per-title arrays in their real object shape, so the
+> data can be written before the wiring lands — it used to read them as bare
+> strings, and the first entry ever added would have refused the whole rules
+> file (§S17).
 
-The gate is not currently weakened — checks 1, 2 and 2b run, and every
-family in the seed is caught by a module, driver or service signal — but a
-documented check that does nothing will read as "this title is not a known
+The gate is not currently weakened — checks 1, 2, 2b and 4 run, and every
+family in the seed is caught by a module, driver, service or directory signal —
+but a documented check that does nothing will read as "this title is not a known
 online title" to the next person who trusts it.
 
 Two decisions, both the owner's:

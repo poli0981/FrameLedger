@@ -12,7 +12,7 @@ namespace FrameLedger.Application.AntiCheat;
 /// §S15 item 1 records the consequence: the moment anything managed matches a
 /// blocklist there are two matchers that can disagree, which is a fail-open by
 /// construction. So this port exposes no rules, no blocklist and no evidence —
-/// only the two questions the guard answers.
+/// only the questions the guard answers.
 /// </para>
 /// <para>
 /// Note what is absent: there is no <c>Check</c> that yields something a caller
@@ -35,4 +35,26 @@ public interface IAntiCheatGuard
     /// own, so a caller can ask but only the guard answers.
     /// </summary>
     ValueTask<AntiCheatVerdict> GuardedInjectAsync(int targetPid, string payloadPath, CancellationToken ct = default);
+
+    /// <summary>
+    /// Check 4 asked before anything is launched: does this game directory ship
+    /// anti-cheat? Answers FR-2.2's question — whether the hooking toggle may be
+    /// offered for this title at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ADVISORY ONLY. This does not gate injection; <see cref="EvaluateAsync"/>
+    /// and <see cref="GuardedInjectAsync"/> run the same scan inside the guard,
+    /// against a directory derived from the target's own pid rather than one a
+    /// caller named. A caller that skips this question, or lies about the
+    /// answer, changes nothing about whether injection is allowed.
+    /// </para>
+    /// <para>
+    /// It lives on this port rather than a second one deliberately. Splitting it
+    /// out would have kept <c>NoSecondMatcherTests</c>' method count at two
+    /// without that test ever seeing the new surface — the count would have gone
+    /// on passing while the thing it guards grew somewhere else.
+    /// </para>
+    /// </remarks>
+    ValueTask<AntiCheatVerdict> PreScanGameDirectoryAsync(string gameDirectory, CancellationToken ct = default);
 }

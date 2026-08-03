@@ -30,7 +30,9 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Root = (Split-Path $PSScriptRoot -Parent)
+    [string]$Root = (Split-Path $PSScriptRoot -Parent),
+    [string]$BuildDir = '',
+    [bool]$RequireBinaries = $false
 )
 
 Set-StrictMode -Version Latest
@@ -126,6 +128,50 @@ if ($definers.Count -eq 0) {
     $violations.Add("no CMakeLists defines FL_GUARD_TESTABLE — either the seam moved or this check is now inert")
 }
 
+# --- The seam must not EXIST in what ships, not merely be unused ------------
+# FL_GUARD_TESTABLE exposes EvaluateWithSources / GuardedInjectWithSources,
+# which let a caller hand the guard all-clean fakes. The CMake check above says
+# only the test target defines the macro; this says the shipped artifacts carry
+# no such symbol, which is the claim that actually matters.
+#
+# 20_OPEN_QUESTIONS §S15 recorded this as "verified with dumpbin, not assumed" —
+# but the verification was a command someone ran once and pasted into a PR body.
+# That is prose. A build that stops being true has to fail.
+if ($RequireBinaries) {
+    if (-not $BuildDir -or -not (Test-Path $BuildDir)) {
+        Write-Host "CHOKEPOINT CHECK FAILED: -RequireBinaries but no build at '$BuildDir'." -ForegroundColor Red
+        Write-Host '  The symbol half cannot run, and reporting success without it would be' -ForegroundColor Red
+        Write-Host '  the exact shape this check exists to prevent.' -ForegroundColor Red
+        exit 1
+    }
+    $dumpbin = Get-Command dumpbin -ErrorAction SilentlyContinue
+    if (-not $dumpbin) {
+        Write-Host 'CHOKEPOINT CHECK FAILED: dumpbin not on PATH (it ships with MSVC).' -ForegroundColor Red
+        Write-Host '  Refusing rather than skipping: an unrun symbol check is not a passing one.' -ForegroundColor Red
+        exit 1
+    }
+
+    $artifacts = @(
+        (Join-Path $BuildDir 'FrameLedger.Injector/FrameLedger.Injector.lib'),
+        (Join-Path $BuildDir 'FrameLedger.Injector/FrameLedger.Guard.dll')
+    )
+    $inspected = 0
+    foreach ($a in $artifacts) {
+        if (-not (Test-Path $a)) {
+            $violations.Add("expected artifact missing: $a — the symbol check cannot pass on something it did not read")
+            continue
+        }
+        $inspected++
+        $syms = & dumpbin /symbols /exports $a 2>&1 | Select-String -Pattern 'WithSources' -SimpleMatch
+        foreach ($s in $syms) {
+            $violations.Add("$(Split-Path $a -Leaf) exports or defines a *WithSources* symbol: $($s.Line.Trim())")
+        }
+    }
+    if ($inspected -eq 0) {
+        $violations.Add('no shipped artifact was inspected — the symbol check would pass vacuously')
+    }
+}
+
 if ($violations.Count -gt 0) {
     Write-Host 'CHOKEPOINT CHECK FAILED' -ForegroundColor Red
     $violations | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
@@ -136,5 +182,6 @@ if ($violations.Count -gt 0) {
     exit 1
 }
 
-Write-Host "chokepoint OK — $($sources.Count) native source(s); injection confined to $chokepoint" -ForegroundColor Green
+$symbolNote = if ($RequireBinaries) { '; shipped artifacts carry no *WithSources* symbol' } else { '' }
+Write-Host "chokepoint OK — $($sources.Count) native source(s); injection confined to $chokepoint$symbolNote" -ForegroundColor Green
 exit 0

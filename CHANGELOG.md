@@ -221,6 +221,36 @@ GitHub release body, so a missing section means an empty release note.
   pinned 0.9.6 package, not just the repository.
 
 ### Fixed
+- **Pre-injection check 4 was declared and never implemented.**
+  `Reason::kAntiCheatDirectory` and `kAntiCheatFile` were declared in
+  `fl_guard.h`, named in `ReasonName`, and mirrored into the managed enum —
+  while **nothing produced either**. `EvaluateImpl` ran drivers → services →
+  modules and stopped. `19_SAFETY` and `05_DETECTION` both described the check as
+  live and `14_TESTING` specified a test for it: three artifacts agreeing on a
+  behaviour no code had. `15_ROADMAP` called item 0 **✅ DONE** on that basis.
+  - **It now runs INSIDE the chokepoint**, as the last of four checks in
+    `EvaluateImpl`, against a directory derived from the target's own pid via
+    `QueryFullProcessImageNameW` — never a caller-supplied path. Building it as
+    a UI advisory was the first plan and was wrong: with no persistence layer
+    its verdict would have had nowhere to go, so `hook_blocked_reason` could not
+    have carried it and the check would have gated nothing.
+  - **No new matching.** Entry names go through the same `MatchName` as every
+    other check — directories against the `directories` group, files against
+    `files`. A test removes a family from the rules and asserts the hit
+    disappears, which is what proves one matcher rather than two that agree.
+  - **Every uncertainty is `kPreScanFailed`**, never a hit and never a pass:
+    absent or unlistable directory, either bound exceeded, an unconvertible
+    name, or a reparse point — which is never followed, because a junction can
+    hide an `EasyAntiCheat/` beneath it.
+  - `FlStaticPreScan` exposes it for FR-2.2, **advisory only**. It reports
+    through the existing `FlGuardResult` so there is one reason table and one
+    mirror surface. `IAntiCheatGuard` gained a third method and
+    `NoSecondMatcherTests`' count was raised to 3 **as a reviewed act** — a
+    separate port would have kept that number at 2 while the new surface grew
+    where the test never looks.
+  - `15_ROADMAP` item 0 is corrected from ✅ to ◐. **Check 3 is still unwired**
+    — its matchers have no call site, so it is not merely unpopulated, and the
+    status will not read ✅ again on the strength of "most of it works".
 - **The schema accepted rules files the guard refuses to parse** (`20_OPEN_QUESTIONS`
   §S17). Eight bounds, and the schema was looser in every one. An over-cap entry
   is not a dropped entry: `ParseRules` returns `kMalformed` and `19_SAFETY` turns

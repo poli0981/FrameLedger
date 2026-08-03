@@ -122,6 +122,14 @@ The UI wording is deliberate: **"Supports DLSS-G"** (capability, from files) ver
 
 Before a game is ever launched with hooking enabled, the static scan checks for anti-cheat SDKs shipped alongside it (`EasyAntiCheat/` directory, BattlEye binaries, EOS anti-cheat components, etc.). A hit **disables the hooking toggle for that game entirely** in the UI, with an explanation — the user cannot enable it, so the guard never even has to fire at launch. Prevention beats interception.
 
+**Implemented in the native guard, not here** (`fl_prescan.cpp`, exposed as `FlStaticPreScan`). It uses the same `MatchName` and the same rules file as the injection guard, matching directory names against the `anticheat.directories` group and file names against `anticheat.files`. Nothing managed matches a blocklist (§S15 item 1).
+
+Three things this section previously implied that are not true, and are worth stating:
+
+- **The UI answer is advisory.** It decides whether the toggle is *offered*; it does not gate injection. The same scan runs a second time inside the guard's chokepoint against a directory derived from the target's own pid, so "prevention beats interception" is a convenience, not the enforcement.
+- **A hit disables the toggle; "could not scan" must not.** The scan is tri-state. `Reason::kPreScanFailed` — directory absent, unlistable, past a bound, or behind a reparse point — is *neither* a hit nor a pass. It must surface as "could not verify", distinct from "anti-cheat found": disabling the toggle on it would be a false refusal with no appeal, and clearing it would be a fail-open.
+- **The token list is thin.** `directories` and `files` carry three tokens today. Widening needs verified names; a guessed token fails closed by never firing, which is a silent hole (`19_SAFETY` §Blocklist seed).
+
 ## Caching & privacy constraints
 
 - Detection results cached per game; refreshed when exe timestamp/size changes or `rulesVersion` changes.
