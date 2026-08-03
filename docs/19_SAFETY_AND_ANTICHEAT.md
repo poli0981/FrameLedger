@@ -126,6 +126,24 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
    > (`ERROR_SERVICE_DOES_NOT_EXIST`, 1060) from *denied* — a distinction the
    > guard needs, because denied must fail closed while absent must not.
    >
+   > **A service counts as present when it is RUNNING, not when it is
+   > installed.** Measured 2026-08-03 and it is not a small distinction:
+   > `EasyAntiCheat_EOS` is installed machine-wide by any EOS title, sits
+   > **Stopped/Manual** until its own game runs, and under the
+   > installed-means-present reading the guard refused **every process on the
+   > machine** — `explorer.exe` and `steam.exe` included — for a Unity indie game
+   > with no anti-cheat anywhere in its install tree. That is this document's own
+   > failure mode: *a gate that refuses everything is not a strict gate but a
+   > broken one.*
+   >
+   > The machine-wide guarantee does not rest on this check. A **loaded driver**
+   > is check 2 and still refuses for all titles; modules inside the target are
+   > check 1. A stopped, manual-start service has no code in any process, and
+   > when its game actually runs both of those fire. `SERVICE_STOPPED` is the
+   > only state treated as absent — start-pending, paused and stop-pending all
+   > mean code is or was live — and the 30 s in-session re-scan closes the window
+   > between the check and a later start.
+   >
    > `NtQuerySystemInformation` is a documented-as-unsupported API and its
    > `RTL_PROCESS_MODULE_INFORMATION` layout is version-sensitive; the struct
    > offsets must be asserted, not assumed. Treat a parse failure as *refuse*,

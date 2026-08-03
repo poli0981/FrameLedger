@@ -10,6 +10,8 @@
 // project has found (spike-notes.md §1: a driver enumeration that succeeds,
 // reports 258 drivers, and yields nothing usable).
 
+#include <windows.h>
+
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <cstring>
@@ -902,6 +904,73 @@ TEST_CASE("the advisory pre-scan reaches the same verdict as the one inside the 
     // A null directory is not an empty one.
     ResetFake();
     CHECK(StaticPreScanWithSources(nullptr, FakeSources()).reason == Reason::kPreScanFailed);
+}
+
+// ===========================================================================
+// Check 2b against the REAL service control manager.
+//
+// The fakes cannot catch this one: what changed is what `present` MEANS, and
+// the fake has always just echoed a list. Only the live implementation can be
+// asked whether it distinguishes a running service from an installed one.
+// ===========================================================================
+TEST_CASE("a service that is installed but STOPPED is not present", "[guard][services]") {
+    // MEASURED 2026-08-03: EasyAntiCheat_EOS is installed machine-wide by any
+    // EOS title and sits Stopped/Manual until its own game runs. Reporting it as
+    // present made the guard refuse EVERY process on the machine — explorer.exe
+    // and steam.exe included — for a Unity indie game with no anti-cheat
+    // anywhere in its install tree.
+    //
+    // 19_SAFETY on exactly this shape: "a gate that refuses everything is not a
+    // strict gate but a broken one, and it is how a user ends up looking for the
+    // override CLAUDE.md rule 2 says does not exist."
+    const Sources s = SystemSources();
+    REQUIRE(s.QueryService != nullptr);
+
+    SC_HANDLE scm = OpenSCManagerA(nullptr, nullptr, SC_MANAGER_ENUMERATE_SERVICE);
+    REQUIRE(scm != nullptr);
+
+    DWORD needed = 0;
+    DWORD returned = 0;
+    DWORD resume = 0;
+    EnumServicesStatusExA(scm, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_STATE_ALL, nullptr, 0, &needed, &returned,
+                          &resume, nullptr);
+    std::vector<unsigned char> buf(needed + 1024);
+    const BOOL ok = EnumServicesStatusExA(scm, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_STATE_ALL, buf.data(),
+                                          static_cast<DWORD>(buf.size()), &needed, &returned, &resume, nullptr);
+    CloseServiceHandle(scm);
+    REQUIRE(ok);
+
+    const auto* entries = reinterpret_cast<const ENUM_SERVICE_STATUS_PROCESSA*>(buf.data());
+    std::string running;
+    std::string stopped;
+    for (DWORD i = 0; i < returned && (running.empty() || stopped.empty()); ++i) {
+        const DWORD state = entries[i].ServiceStatusProcess.dwCurrentState;
+        if (state == SERVICE_RUNNING && running.empty()) {
+            running = entries[i].lpServiceName;
+        } else if (state == SERVICE_STOPPED && stopped.empty()) {
+            stopped = entries[i].lpServiceName;
+        }
+    }
+
+    // Deliberately NOT a skip. Every Windows install has both, and a machine
+    // that somehow has neither would make this test meaningless rather than
+    // inapplicable — which is the state that should be loud.
+    INFO("running='" << running << "' stopped='" << stopped << "'");
+    REQUIRE_FALSE(running.empty());
+    REQUIRE_FALSE(stopped.empty());
+
+    bool present = false;
+    CHECK(s.QueryService(running.c_str(), &present) == Collected::kOk);
+    CHECK(present);
+
+    present = true;    // poison it, so a no-op implementation fails
+    CHECK(s.QueryService(stopped.c_str(), &present) == Collected::kOk);
+    CHECK_FALSE(present);
+
+    // And absent is still absent — the third state, distinguishable from both.
+    present = true;
+    CHECK(s.QueryService("FrameLedgerDefinitelyNotAService", &present) == Collected::kOk);
+    CHECK_FALSE(present);
 }
 
 // ===========================================================================
