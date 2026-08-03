@@ -23,6 +23,7 @@ internal static class DetectionFixtures
         IEnumerable<string>? needles = null,
         IReadOnlyDictionary<string, string>? captures = null,
         IReadOnlyDictionary<string, string>? manifest = null,
+        bool listingComplete = true,
         IEnumerable<DetectionSignalType>? uncollected = null) =>
         new()
         {
@@ -31,6 +32,7 @@ internal static class DetectionFixtures
             GameDirectory = gameDir,
             RelativeFiles = files?.ToList() ?? [],
             RelativeDirectories = dirs?.ToList() ?? [],
+            FileListingComplete = listingComplete,
             PeCompanyName = company,
             PeProductName = product,
             PeFileVersion = fileVersion,

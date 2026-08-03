@@ -66,6 +66,7 @@ public sealed class StaticGameDetectorTests
         GameDirectory = "C:/Games/Example",
         RelativeFiles = files,
         RelativeDirectories = [],
+        FileListingComplete = true,
         SiblingFileVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
         MatchedStringNeedles = new HashSet<string>(StringComparer.Ordinal),
         StringsRegexCaptures = new Dictionary<string, string>(StringComparer.Ordinal),

@@ -346,10 +346,13 @@ Collected ImageDirectoryImpl(std::uint32_t pid, wchar_t* out, std::size_t cap) n
     }
     *lastSep = L'\0';
 
-    if (wcslen(path) + 1 > cap) {
+    // The INSTALL ROOT, not the executable's directory. Unreal puts the exe at
+    // <root>\<Project>\Binaries\Win64\, and EasyAntiCheat/ sits at the root —
+    // measured on Lies of P, where the pre-scan saw seven files none of which
+    // could have been an anti-cheat SDK.
+    if (!ResolveInstallRoot(path, out, cap)) {
         return Collected::kFailed;    // truncating a path yields a DIFFERENT directory
     }
-    wcscpy_s(out, cap, path);
     return Collected::kOk;
 }
 

@@ -38,6 +38,28 @@ public sealed record GameFileSnapshot
     /// <summary>Directories beneath <see cref="GameDirectory"/>, relative and forward-slashed.</summary>
     public required IReadOnlyList<string> RelativeDirectories { get; init; }
 
+    /// <summary>
+    /// Whether the walk saw the whole tree, or stopped on a bound.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This makes a miss unreliable, never a hit.</strong> A file the
+    /// walk listed is a file that is there, however early it stopped afterwards;
+    /// only <em>absence</em> is in doubt. So a signal that matched is
+    /// <see cref="SignalOutcome.Match"/> regardless, and a signal that did not
+    /// match is <see cref="SignalOutcome.Unknown"/> rather than
+    /// <see cref="SignalOutcome.NoMatch"/> when this is false.
+    /// </para>
+    /// <para>
+    /// The first version treated an incomplete walk as poisoning every
+    /// file-based signal, which measured against three real games made the
+    /// detector useless: real depths were 5, 6 and 9 against a cap of 4, so
+    /// everything came back <c>Unknown</c> and no engine was ever identified.
+    /// Failing safe is right; failing safe on every input is just not working.
+    /// </para>
+    /// </remarks>
+    public required bool FileListingComplete { get; init; }
+
     /// <summary>PE <c>CompanyName</c>, or null if it could not be read.</summary>
     public string? PeCompanyName { get; init; }
 

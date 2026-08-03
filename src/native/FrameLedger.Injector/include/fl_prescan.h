@@ -47,6 +47,30 @@ inline constexpr std::size_t kMaxPreScanEntries = 4096;
 // else — so this is generous and overflow refuses.
 inline constexpr std::size_t kMaxPreScanPathLen = 1024;
 
+// Resolve a game's INSTALL ROOT from the directory its executable lives in.
+//
+// Not the same thing. Unreal puts the exe at <root>\<Project>\Binaries\Win64\,
+// so scanning the executable's own directory looks at a folder containing the
+// shipping binary and nothing else — and `EasyAntiCheat/` sits at the install
+// root. MEASURED on Lies of P (2026-08-03): the exe is three levels below the
+// root, and the pre-scan saw seven files, none of which could ever have been an
+// anti-cheat SDK. For exactly the layout most likely to carry EAC, check 4 was
+// looking in the wrong place.
+//
+// Walks up to a hardcoded platform boundary (`steamapps\common\<X>` and
+// friends) and returns that game's folder. Boundaries are hardcoded for the same
+// reason IsPlatformLauncher is: a data-driven boundary would let a rules update
+// move where the hard gate looks.
+//
+// WHEN NO BOUNDARY IS RECOGNISED, `exeDir` IS RETURNED UNCHANGED. Walking up
+// blindly is worse than staying put — one level above a game installed loose in
+// `D:\games\Title\` is a folder of other games, and refusing this title because
+// a sibling ships anti-cheat is a false refusal with no appeal.
+//
+// Returns false if the result does not fit, which the caller treats as
+// "cannot determine".
+[[nodiscard]] bool ResolveInstallRoot(const wchar_t* exeDir, wchar_t* out, std::size_t cap) noexcept;
+
 // Check 4, as EvaluateImpl runs it: derive the target's directory from its pid,
 // then scan it.
 //

@@ -713,13 +713,93 @@ checkable. **Owner decision, recorded here rather than assumed.**
 - **Quantified improvement (belongs in the README):** *not a percentage — see
   above. Fill the per-title table once an offline title is chosen.*
 
+### ✅ The static half, measured on three real titles (2026-08-03)
+
+First run of the detector against real installs. **It failed on three of four
+cases, and the failures were the point** — both were real defects that only a
+real layout could expose.
+
+| Title | Store / engine | On disk (scanned by hand) | Detector, after the fixes |
+|---|---|---|---|
+| Deadly Heart Gambit | Steam / Unity | `UnityPlayer.dll`, `steam_api.dll` | `unity` **2022.3.32.13119501**, `steam` |
+| Lies of P | Steam / Unreal | `nvngx_dlss.dll`, `amd_fidelityfx_dx12.dll`, `steam_api64.dll` | `unreal`, `steam`, **dlss + fsr** |
+| Alan Wake 2 | Epic / *(Northlight)* | `EOSSDK-Win64-Shipping.dll`, 6 NGX/Streamline DLLs | `epic`, **dlss + dlss_g + dlss_rr + streamline** |
+
+Alan Wake 2 reports **no engine**, correctly: Remedy's Northlight is not in the
+rules table, and "no rule matched" is a real answer rather than a failure. Lies
+of P reports no engine *version* because its `LOP-Win64-Shipping.exe` carries no
+`ProductVersion` for the regex to read — also honest.
+
+**None of the three carries anti-cheat**, so all three are legitimate candidates
+for the first real injection (item 2).
+
+#### 🔴 Defect A — a depth cap that made the detector useless
+
+`GameFileProbe` capped the walk at depth 4. Measured real depths: **Deadly Heart
+Gambit 6, Alan Wake 2 5, Lies of P 9.** Every real game exceeded it.
+
+Worse than the cap was what incompleteness *meant*: an unfinished walk marked
+`FileExists`, `SiblingGlob` and `DirExists` all uncollected, so **every**
+file-based signal became `Unknown`, the engine walk stopped at its first rule,
+and nothing was ever identified. Failing safe is right; failing safe on every
+input is not working.
+
+Fixed by separating the two questions. A file the walk **listed** is a file that
+is there, however early it stopped afterwards — only *absence* is in doubt. So a
+hit stays `Match` regardless, and only a miss becomes `Unknown` when the listing
+did not finish. Caps raised to depth 16 / 200,000 entries, with the entry count
+as the real bound.
+
+#### 🔴 Defect B — the pre-scan was looking in the wrong directory
+
+**This one is a hole in a hard gate, not a detection miss.**
+
+Both the probe and `ImageDirectoryImpl` derived "the game directory" by stripping
+the filename from the executable's path. Unreal puts the exe at
+`<root>\<Project>\Binaries\Win64\` — measured on Lies of P, that directory holds
+**seven files**, none of which could ever have been an anti-cheat SDK, because
+`EasyAntiCheat/` sits at the install root three levels up.
+
+So for exactly the layout most likely to carry EAC, **check 4 scanned a folder
+that could not contain what it was looking for** and returned clean. It also cost
+Lies of P its DLSS capability, which is how the defect was noticed at all.
+
+Fixed by `ResolveInstallRoot`: walk up from the executable to a hardcoded
+platform boundary (`steamapps\common\<X>`, `GOG Galaxy\Games\<X>`,
+`Epic Games\<X>`) and scan from there. Hardcoded for the same reason
+`IsPlatformLauncher` is — a data-driven boundary would let a rules update move
+where the hard gate looks.
+
+**When no boundary is recognised the executable's own directory is kept.** Alan
+Wake 2 is installed at `D:\another\epic\AlanWake2` with no store marker in the
+path; walking up blindly would reach a folder of unrelated games, and refusing a
+title because a *sibling* ships anti-cheat is a false refusal with no appeal.
+That residual is stated rather than hidden: a nested executable outside a
+recognised store layout is still scanned from its own directory.
+
+#### The entry point must not change the answer — and now it does not
+
+Unreal titles conventionally ship **two** executables: a shim at the install root
+and the real shipping binary nested under `<Project>\Binaries\Win64\`. Lies of P
+has `LOP.exe` and `LOP-Win64-Shipping.exe`.
+
+That matters because a user adds one of them to the watchlist, and the guard is
+handed whichever process it is handed. Before this resolution existed the two
+disagreed:
+
+| Entered via | Before | After |
+|---|---|---|
+| `LOP.exe` (root shim) | engine **undetermined**, capabilities **none** | `unreal`, `steam`, `dlss + fsr` |
+| `LOP-Win64-Shipping.exe` | `unreal`, `steam`, **`fsr` only** | `unreal`, `steam`, `dlss + fsr` |
+
+Both now resolve to the same install root and produce identical results, which is
+asserted in both languages rather than left as an observation.
+
 ### Still unmeasured
 
-The table above is **empty on purpose**. The probe's mechanism is proven against
-our own process; the per-title rows need a real, offline, anti-cheat-free game,
-which is the same thing P0 item 2's remaining half needs. Filling them from
-`hook-harness` would produce a number that does not generalise, which is worse
-than recording them as unmeasured.
+The runtime table above is empty on purpose. The static half is now real, but
+the per-title runtime rows need a hooked session, which is P0 item 2's remaining
+half.
 
 ## 9 · Frame generation
 
