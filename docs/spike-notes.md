@@ -695,8 +695,43 @@ hosts that DLL**, so every launch-mode injection would refuse. Attach mode is
 unaffected, which is why the run above succeeded. Not fixed here; recorded as its
 own item.
 
-Note the project also ships **unsigned** (`12_BUILD`), so wiring the signer check
-would not rescue our own binaries — whatever the fix is, it cannot be "sign it".
+Note the project also ships **unsigned** (CLAUDE.md rule 9 and the pinned-stack
+Packaging row — *not* `12_BUILD`, which this line used to cite and which contains
+no signing text at all), so wiring the signer check would not rescue our own
+binaries. Whatever the fix is, it cannot be "sign it".
+
+> **Decided 2026-08-03 — identity by install root, and §S18 stays open.** A
+> four-lens panel, three refuters and a completeness critic. All three refuters
+> broke the panel's first answer. What survived: suppress the fuzzy fragment tier
+> for any scan-set process whose image resolves inside our own install directory,
+> never for the target, ancestor walk left intact. `GetCurrentProcessId()` was
+> rejected because the defect is a property of the **binary** and
+> `FrameLedger.App` carries it too; the platform-launcher-style boundary was
+> rejected because everything above the Agent is an undefined category, so
+> truncating there is "could not look" recorded as clean. Full reasoning and the
+> rejected options in §S18.
+>
+> **The panel also measured that this is worth more than it looked.** §S18 is the
+> sole blocker of the entire **Vulkan Tier-1 path**: the layer is gated by
+> `FRAMELEDGER_ENABLE_VK_LAYER=1`, which only the launching process can set, and
+> §S1 does not apply there because the Vulkan path performs no injection at all.
+
+#### 🔴 And the same tier refuses in ATTACH mode — measured
+
+Re-measured by hand, unelevated, Windows 11 26300: **331 processes, 0
+access-denied, 4 modules matching the `protect` fragment, none of them
+anti-cheat.** `mskeyprotect.dll` — *Microsoft Key Protection Provider*,
+`C:\WINDOWS\system32\` — is loaded in ordinary user processes. A game that loads
+it is refused today, in the mode that ships.
+
+Also measured: **`gameguard` can never fire.** The match is a case-insensitive
+substring and `guard` is a substring of `gameguard`, so the shorter token always
+wins first. A shipped rule incapable of firing independently, inside the safety
+gate.
+
+Both are §S19. Neither is fixed by deleting a fragment — that is a detection
+removal in a hard gate — and both wait on the signer half being wired, which
+suppresses `O=Microsoft Corporation` structurally instead.
 
 ## 8 · The accuracy question — why this rewrite exists
 

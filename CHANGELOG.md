@@ -11,6 +11,36 @@ GitHub release body, so a missing section means an empty release note.
 
 ## [Unreleased]
 
+### Known issues
+- **The anti-cheat guard's fuzzy "unknown-but-suspicious" tier produces false
+  refusals, and one of its rules can never fire** (`20_OPEN_QUESTIONS` §S19).
+  Measured unelevated on Windows 11 26300, 331 processes, 0 access-denied: four
+  modules match the `protect` name fragment and **none is anti-cheat** —
+  including `mskeyprotect.dll`, the Microsoft Key Protection Provider from
+  `system32`, loaded in ordinary user processes. A title that loads it is refused
+  today, **in attach mode**, the mode that ships. Separately, `gameguard` cannot
+  fire: the match is a case-insensitive substring and `guard` is a substring of
+  `gameguard`, so the shorter token always wins first.
+  - **Not fixed by deleting a fragment.** That is a detection removal in a hard
+    gate, and this tier is the only coverage for families the seed has no data
+    for. The fix is to wire the signer half, which suppresses
+    `O=Microsoft Corporation` structurally instead of by deleting a token.
+  - Also recorded: `signerField` and `action` are required by the schema and read
+    by no code, so "warn instead of refuse" was never actually available; the
+    fragment list exists in three unreconciled copies; and `rules-validate.ps1`
+    has no checks on the heuristic at all, so a rules push can delete the whole
+    tier with every gate green.
+- **The guard refuses itself, so launch mode does not work** (§S18). Decided
+  2026-08-03 — suppress the fuzzy tier for processes whose image resolves inside
+  FrameLedger's own install directory, never for the injection target — and
+  **not yet implemented**. This blocks the entire **Vulkan Tier-1** path, not
+  just early-init data: the layer's only enable path runs through launch mode,
+  and §S1 does not cover it because the Vulkan path performs no injection.
+- **Nothing installs the rules file the guard reads** (§S20). The guard reads
+  `%LOCALAPPDATA%\FrameLedger\rules\detection-rules.json`; no code in the
+  repository seeds, copies or downloads it, and the guard never reads
+  `rulesVersion`, so a binary fix and a data fix have no handshake.
+
 ### Added
 - Design documents (`CLAUDE.md`, `docs/01`–`20`, `legal/`) and the repository
   skeleton: solution, project stubs, CMake presets, `build.ps1` quality gate,

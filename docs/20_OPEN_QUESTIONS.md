@@ -35,6 +35,15 @@ Each item below is a place where the documents themselves leak a gap.
 
 ### S1 · The guard is structurally blind in launch mode
 
+> **§S1 does not gate the Vulkan path.** Added 2026-08-03, because "launch mode
+> is blocked by §S1 anyway" was being used as a reason to deprioritise §S18 and
+> it is false for an entire Tier-1 API family. The Vulkan layer performs **no
+> injection**: there is no `CREATE_SUSPENDED` target, no empty module list, and
+> the session goes `Detected → Guarded → Capturing` without ever entering
+> `Injecting`. Vulkan Tier 1 is nevertheless launch-mode-only
+> (`17_HOOK_ENGINE:161` — only the launching process can set
+> `FRAMELEDGER_ENABLE_VK_LAYER=1`), so **§S18 is its sole blocker**.
+
 `04_CAPTURE` §Launch mode prefers `CreateProcess(CREATE_SUSPENDED)` → guard →
 inject → `ResumeThread`. But a suspended process has **loaded no modules yet**,
 so `EnumProcessModulesEx` returns essentially nothing and the primary
@@ -80,6 +89,11 @@ runtime guard inside a layered process at all.
 the DLL — and it compares the variable's *value*, so a stray `=0` does not
 enable us. The cost is accepted: **Vulkan Tier 1 is now launch-mode-only.**
 `tools/vklayer-blastradius.ps1` runs the check and unregisters in a `finally`.
+
+> **That cost is larger than it read.** Launch mode is blocked by §S18, and §S1
+> does *not* cover the Vulkan path (no injection, no suspended target), so §S18
+> alone blocks every Vulkan Tier-1 session. Recorded 2026-08-03; it is why §S18
+> is not merely "launch mode, which is blocked anyway".
 
 > **The measurement also killed the design that looked obvious.** Declining
 > `vkNegotiateLoaderLayerInterfaceVersion` for a process that did not opt in
@@ -455,7 +469,7 @@ guard at all.** Every case in `guard_test.cpp` parses an inline fixture.
   and watching `/W4 /WX` build clean. That is a gate that existed only in prose.
   It is now ctest `fl_guard`'s "every Reason has a distinct name", proven red.
 
-### S18 · The guard refuses itself in launch mode
+### S18 ◐ · The guard refuses itself — **decided, not closed**
 
 Found 2026-08-03 during the first real injection (`spike-notes.md` §7), and
 isolated on one title with everything else held constant:
@@ -469,31 +483,198 @@ isolated on one title with everything else held constant:
 `FrameLedger.Guard.dll` contains **`guard`**, one of the heuristic's
 `nameFragments`; the signer half is deliberately unwired, so an unchecked
 signature is untrusted by definition (`fl_guard.cpp`, "that is the correct
-direction") and fragment-plus-untrusted refuses.
+direction") and fragment-plus-untrusted refuses. In launch mode the Agent is the
+game's parent (`04_CAPTURE` §Launch mode) and hosts that exact DLL. Same shape as
+the `EasyAntiCheat_EOS` service defect: **a gate that cannot pass is not strict,
+it is broken.**
 
-**In launch mode the Agent is the game's parent** (`04_CAPTURE` §Launch mode)
-**and hosts that exact DLL**, so every launch-mode injection would refuse. Attach
-mode is unaffected. This is the same shape as §S16 and as the
-`EasyAntiCheat_EOS` service defect: a gate that cannot pass is not strict, it is
-broken.
+**Not fixable by signing.** The project ships unsigned — CLAUDE.md rule 9 and the
+pinned-stack Packaging row. (§S18 and `spike-notes.md` §7 previously cited
+`12_BUILD` §Packaging for this; that section contains no signing text. Citation
+corrected, conclusion unchanged.)
 
-**Not fixable by signing.** The project ships unsigned (`12_BUILD`
-§Packaging), so wiring the signer check would leave our own binaries untrusted
-too. Options, none chosen:
+#### The decision — identity by **install root**, heuristic tier only
 
-- Exclude our own module names from the heuristic. Simple, and it is not an
-  override of the anti-cheat gate — refusing to treat our own code as somebody
-  else's anti-cheat is not the same as ignoring evidence. But a name check is
-  spoofable by a DLL that borrows the name.
-- Skip the Agent's own process when building the scan set. Narrower, and it needs
-  the guard to know which process is the Agent, which it currently does not.
-- Rename the DLL so it does not contain a fragment. Crude; the fragment list
-  would keep catching future names by accident.
-- Narrow `nameFragments`. `guard` and `protect` are short and common; the list
-  was already flagged as needing to stay narrow.
+Taken 2026-08-03 after a four-lens panel, three adversarial refuters and a
+completeness critic. **All three refuters refuted the panel's own first answer**;
+what follows is what survived.
 
-Until it is decided, **launch mode cannot work**, which also blocks the
-early-init upscaler data §S1/§S13(c) are about.
+Suppress **only** the `sawSuspicious` fragment tier, **only** for a scan-set
+process whose image path resolves under FrameLedger's own install directory, and
+**never** for the injection target. Everything else in `CheckModules` is
+untouched: the exact blocklist (`st.hit`) still returns first, `kFailed` still
+gives `kProcessUnreadable`, `kIncomplete` still gives `kModuleScanFailed`. The
+ancestor walk keeps climbing **past** us rather than stopping at us.
+
+Why install root and not the three obvious alternatives:
+
+- **Not by module name** (the original option 1). `HasSuspiciousFragment` is
+  called for every process in the scan set, so a name allowlist suppresses that
+  name *inside the game too* — and it is spoofable by a DLL that borrows the name.
+- **Not by `GetCurrentProcessId()`** (the panel's first answer). It identifies
+  the process *executing* the guard; the defect is a property of the **binary**.
+  `FrameLedger.App` also carries `FrameLedger.Guard.dll` — `Infrastructure.csproj`
+  copies it to "everything that references it", and FR-2.2's pre-launch question
+  loads it in the UI process. A second FrameLedger process in the ancestor chain
+  refuses exactly as before. This is what the third refuter broke, correctly.
+- **Not by stopping the ancestor walk at us**, the way `IsPlatformLauncher` stops
+  it at `steam.exe`. That boundary is justified because everything above
+  `steam.exe` is shared platform infrastructure that legitimately loads VAC.
+  Everything above the Agent is an *undefined* category — a shell, an IDE,
+  Playnite — so truncating there deletes processes we merely did not want to
+  think about. That is "could not look" recorded as "looked and it was clean",
+  which this file exists to prevent. Skipping one process and continuing costs
+  the same and is strictly more conservative.
+
+Install root has the trust base the other three lack: an attacker who can place
+a binary inside our install directory can already replace `FrameLedger.Guard.dll`
+itself, which `NativeAntiCheatGuard.cs:48` calls a worse outcome than any other
+DLL-hijack in the application. It also costs one `QueryFullProcessImageNameW` per
+scanned pid — the call `ImageDirectoryImpl` already makes for check 4 — and it
+covers `FrameLedger.exe`, `FrameLedger.Agent.exe` and every future FrameLedger
+process for free. "Could not read the path" refuses, as everywhere else.
+
+**Explicitly rejected, with the reason, so nobody re-proposes them:**
+
+- **Re-parenting the launched game** (`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`) so
+  we are never an ancestor. This is lineage spoofing: anti-cheat reads parent
+  lineage precisely to see who started the game. CLAUDE.md rule 3 — rejected on
+  principle before merit. Recorded because it is the clever answer someone
+  proposes next.
+- **Running the fragment tier on the target subtree only, never on ancestors.**
+  Attack cost zero: ship the anti-cheat in the launcher under a name not in
+  `modules`. It deletes coverage for exactly the arrangement §S16 was written to
+  catch.
+- **Deleting the `protect` fragment** to cure the false positive in §S19 below.
+  It is a detection removal in a hard gate, on the mode that ships. See §S19.
+- **Deferral alone** — "attach mode only, launch mode deferred". Correct as a
+  scope statement, not an answer: §S19 shows the same code path refuses
+  *attach*-mode titles.
+
+#### Why this is worth more than it looked
+
+The old text said §S18 blocks "the early-init upscaler data §S1/§S13(c) are
+about". That understated it. **§S18 is the sole blocker of the entire Vulkan
+Tier-1 path.** The layer is gated by `enable_environment`
+(`FRAMELEDGER_ENABLE_VK_LAYER=1`), which only the process that *starts* the game
+can set — `17_HOOK_ENGINE:161` states this makes Vulkan Tier 1 launch-mode-only.
+And §S1 does **not** apply there: the Vulkan path performs no injection, so there
+is no suspended target and no `ERROR_PARTIAL_COPY`. "Launch mode is blocked by
+§S1 anyway" is therefore false for an entire Tier-1 API family.
+
+#### Why it stays ◐ and not ✅
+
+The decision is taken; the code is not written, and closing it would need three
+things that do not exist:
+
+1. **A test vehicle.** No target in the repo runs the real guard from a process
+   with `FrameLedger.Guard.dll` mapped — `fl-probe-guard` links `fl_native_flags`
+   only and deliberately is not a guard driver; `fl_guard_test` compiles the guard
+   sources in, so it has no Guard DLL in its module list either.
+2. **The case that catches the half this fixes and the half it does not:** a scan
+   set with **two** distinct FrameLedger pids, both carrying the DLL, target
+   clean. A one-pid fixture cannot go red on it.
+3. **A decision on which binary launches the game.** `FrameLedger.Agent` and
+   `FrameLedger.App` both reference Infrastructure and both receive the guard DLL;
+   `04_CAPTURE:60`'s Steam launch-option wrapper reproduces this in *attach* mode.
+   The narrower alternative — route FR-2.2's advisory pre-scan through the Agent
+   over IPC and stop loading the guard in the App at all — **reduces** the exposed
+   surface instead of adding a carve-out, and would make process identity
+   sufficient by construction. It is the only candidate that shrinks the problem.
+
+**A safety item closed on the condition that someone remembers to reopen it is
+the gates-that-cannot-fail pattern applied to process rather than to code.** So
+it stays open until the arrangement is constrained by a test.
+
+### S19 · The unknown-but-suspicious heuristic has four defects of its own
+
+Found 2026-08-03 by the §S18 panel and **re-measured by hand before recording**,
+because three of the four change what a shipped gate does. They are separate from
+§S18 — no self-exclusion touches any of them — and (b) lands in **attach** mode,
+the only mode that ships today.
+
+**(a) `gameguard` can never fire.** `HasSuspiciousFragment` is case-insensitive
+`IContains`, and `"gameguard"` **contains** `"guard"`. With both in the list, the
+`guard` fragment matches everything `gameguard` would, first. A shipped rule
+incapable of firing independently — the file's own recurring defect, sitting
+inside the safety gate. No coverage is lost today (`guard` subsumes it), so this
+is cosmetic *until* someone removes `guard` believing `gameguard` still covers
+nProtect. Fix by deleting the redundant entry or by documenting the subsumption
+where the list is defined; do not leave it looking like two rules.
+
+**(b) `protect` produces measured false refusals, and they are not hypothetical.**
+Unelevated, Windows 11 26300, **331 processes, 0 access-denied, 4 hits, none
+anti-cheat**:
+
+| Process | Module matching `protect` |
+|---|---|
+| `WhatsApp.Root` | `mskeyprotect.dll` — *Microsoft Key Protection Provider*, 10.0.26100.1746, `C:\WINDOWS\system32\` |
+| `WidgetService` | `mskeyprotect.dll` |
+| `ProtonVPN.Client` | `System.Security.Cryptography.ProtectedData.dll` |
+| `Malwarebytes` | `Malwarebytes.Protection.Interop.dll` |
+
+A game that loads a Windows key-protection provider is refused today, in attach
+mode. **The fix is not to delete the fragment** — that is a detection removal in
+a hard gate, and `antitamper`/`protect` is the only tier covering families the
+seed admits it has no data for (Ricochet, VAC). Three refuters agreed. The fix is
+to **wire the signer half** (`IsTrustedSigner`, `fl_ac_rules.cpp:494`), which
+suppresses `O=Microsoft Corporation` *structurally* rather than by deleting a
+token. That is what makes it safe to keep — or widen — the fragment list at all.
+
+> Note what this costs: the signer check needs `WinVerifyTrust`/`CryptQueryObject`
+> in a TU compiled with **no exception model**, a per-module signature cost inside
+> a gate that re-runs every 30 s (§S6), and a new fail-closed matrix row for
+> "signature could not be checked". It is its own PR.
+
+**(c) `signerField` and `action` are required by the schema and parsed by
+nobody.** Both are `required` in `detection-rules.schema.json`, both carry
+safety-relevant `$comment`s — `action` "is a const, not an enum, so `allow` and
+`warn` are unrepresentable" — and neither appears anywhere in `fl_ac_rules.cpp`.
+The heuristic's policy is hardcoded at `fl_guard.cpp:293`. So the
+**warn-and-refuse** behaviour `19_SAFETY:264` describes is not configurable and
+never was; the field that would express it has no consumer.
+
+**(d) The fragment list has three unreconciled copies and no floor.**
+`rules/detection-rules.json`, `guard_test.cpp` (the inline `GoodRulesJson()`
+fixture) and `rules_budget_test.cpp` each carry their own. `tools/rules-validate.ps1`
+has **zero** checks on the heuristic — no fragment, no `nameFragment`, nothing —
+so a rules push can empty `nameFragments`, or delete the whole `heuristic` block,
+and every gate stays green while the tier silently stops existing. `ParseRules`
+accepts all three as `kOk`.
+
+> Adding a floor is right but not free: routing it through the existing
+> `kRulesIncomplete` would make that reason's hardcoded signal — *"a required
+> anti-cheat family is missing"* — a lie, which is the exact defect the
+> `InjectionFailed` fix closed one commit earlier. And `layer.cpp` treats any
+> non-`kOk` parse as **inert passthrough**, so a heuristic-only floor failure
+> would silently disable the Vulkan layer machine-wide. Both need a `ParseResult`
+> that carries its cause.
+
+**(e) `19_SAFETY:264` is already wrong.** It lists four fragments — `anticheat`,
+`antitamper`, `guard`, `protect` — and the data carries five. `gameguard` is
+missing from the normative doc. The doc/data cross-check in `rules-validate.ps1`
+parses only the §Blocklist seed *table*; fragments are invisible to it.
+
+### S20 · Nothing in the repo installs the rules file the guard reads
+
+`RulesFilePath`/`ReadRulesFile` read only
+`%LOCALAPPDATA%\FrameLedger\rules\detection-rules.json`, and
+`DetectionRulesFile.cs` reads the same path. **No code in this repository seeds,
+copies or downloads that file**, and no rules-update client exists. The
+repository's `rules/detection-rules.json` is therefore a file no shipped
+component currently reads.
+
+Two consequences worth stating before someone edits the seed expecting an effect:
+
+- A rules edit changes nothing on any machine until a delivery path exists. This
+  is why the first real injection's opening refusal was `RulesUnreadable` —
+  correct behaviour, and also the whole story.
+- **The guard never reads `rulesVersion` or `schemaVersion`.** `ParseRules` walks
+  only the `anticheat` subtree. So the binary half of any fix and the data half
+  have **no handshake**: a machine can hold a new `FrameLedger.Guard.dll` and a
+  year-old rules file forever with nothing detecting it. `13_CI_CD` says the raw
+  file on `main` *is* the distribution endpoint, so the two halves ship on
+  independent clocks.
 
 ### S14 ◐ · Pre-injection check 3 is **unwired**, and has no "cannot determine" state
 

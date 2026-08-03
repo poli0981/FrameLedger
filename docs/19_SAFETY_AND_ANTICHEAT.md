@@ -67,14 +67,31 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
    >   up hunting for the override that does not exist.
    >
    > So the scanned set is the **injection target, its descendants, and its
-   > ancestors up to but excluding the first known platform launcher**
-   > (`platforms` in `detection-rules.json`: Steam, GOG, Epic, itch). That is
+   > ancestors up to but excluding the first known platform launcher**. That is
    > "the game's own tree" — everything the title itself brought with it,
    > nothing belonging to shared platform infrastructure.
    >
+   > **The launcher list is a hardcoded array in `fl_guard_sources.cpp`, and
+   > that is deliberate.** This line used to say the cutoff comes from
+   > `platforms` in `detection-rules.json`. It does not, and it must not: that
+   > key holds sibling-glob signals for engine attribution, the guard never reads
+   > it, and a data-driven cutoff would let a rules push **widen the hard gate's
+   > blind spot** — one more launcher name in an updatable file and an entire
+   > branch of the tree stops being scanned. Same reasoning as §S8's
+   > absence-of-override: the boundary of what the gate looks at is code.
+   >
    > A hit **anywhere** in that set refuses. A process in the set that cannot be
-   > inspected (`ERROR_ACCESS_DENIED`) refuses too — `19_SAFETY` has no "scanned
-   > what we could" state.
+   > inspected (`ERROR_ACCESS_DENIED`) refuses too — there is no "scanned what we
+   > could" state.
+   >
+   > **Decided 2026-08-03, not yet implemented (§S18):** one reviewed exception
+   > is coming — a process whose image resolves inside FrameLedger's own install
+   > directory will not trip the *fuzzy* fragment tier, because our own module
+   > set is identical in every session and therefore cannot discriminate between
+   > titles; it can produce false refusals and never a true one. The exact
+   > blocklist will still apply to it in full, and the exception will never apply
+   > to the injection target. **Until that ships, the sentence above is the whole
+   > behaviour** — including the part where the guard refuses itself.
    >
    > Sibling *services* (BattlEye's `BEService`, EAC's service) are not in any
    > process tree and are deliberately not chased here: check 3's `services`
@@ -261,7 +278,16 @@ admitted gap is reviewable; a deleted row is invisible.
 > *every* title, which is how a user ends up hunting for the override that
 > CLAUDE.md rule 2 says does not exist.
 
-The list is data, versioned in `detection-rules.json`, expandable without a release. Unknown-but-suspicious modules (filename containing `anticheat`, `antitamper`, `guard`, `protect` + unsigned-by-known-vendor) produce a **warn-and-refuse** with a "report this to us" link rather than silently allowing.
+The list is data, versioned in `detection-rules.json`, expandable without a release. Unknown-but-suspicious modules (filename containing one of the `nameFragments` — today `anticheat`, `antitamper`, `gameguard`, `guard`, `protect` — plus unsigned-by-known-vendor) produce a **warn-and-refuse** with a "report this to us" link rather than silently allowing.
+
+> **Three corrections to that sentence, all recorded in §S19.** It listed four
+> fragments while the data carried five (`gameguard` was missing here, and
+> nothing in CI cross-checks this list against the file). `gameguard` **cannot
+> fire** — the match is a case-insensitive substring and `guard` is a substring
+> of `gameguard`, so the shorter token always wins first. And **warn-and-refuse
+> is not configurable**: the schema requires an `action` field, but no code reads
+> it; the policy is hardcoded in `fl_guard.cpp`. The behaviour described here is
+> what happens, but not for the reason the sentence implies.
 
 **The signer comparison uses the certificate subject's `O=` field, not `CN=`**
 (`anticheat.heuristic.signerField`, a schema `const`). Measured 2026-08-02 on

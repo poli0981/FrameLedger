@@ -20,7 +20,10 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > yet** (4, 5, 6, 7 — a throwaway build, per the exit criteria, not all of P1),
 > absent hardware (8, and the AMD/Intel half of the capability matrix), or is P1
 > by construction (the layer's presentation hooks). Item 0's residual is check 3;
-> **launch mode is blocked by §S18** and attach mode is not.
+> **launch mode is blocked by §S18** — decided 2026-08-03, not yet implemented —
+> and attach mode is not. §S18 also turns out to block **all of Vulkan Tier 1**,
+> not just early-init data, and §S19 records that the same heuristic tier refuses
+> real titles in *attach* mode too.
 
 0. **The guard.** Module + driver enumeration, blocklist matching, fail-closed behaviour on every error path. **Moved from item 8**: items 1 and 6 below inject into real games, and CLAUDE.md rule 2 plus P1's own "it ships before the first real injection, not after" both forbid that ordering. **◐ Three of four pre-injection checks.** The guard is built (`FrameLedger.Injector`, native per §S13(a)), owns the chokepoint, and its fail-closed matrix is Catch2-driven. The injection primitive landed after it, in that order. Reached from managed code through one P/Invoke facade — never a second matcher (§S15). Evidence: `spike-notes.md` §1; §S7, §S8, §S16 closed.
 
@@ -40,7 +43,8 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 
    > **Attach mode only.** Launch mode is blocked by §S18 — the Agent is the
    > game's parent and hosts `FrameLedger.Guard.dll`, whose name trips the
-   > guard's own `guard` fragment. Found by this run.
+   > guard's own `guard` fragment. Found by this run; **decided 2026-08-03**
+   > (identity by install root, fuzzy tier only) and **not yet implemented**.
    >
    > Three refusals came before the success, and each was a real defect: a
    > machine-wide `EasyAntiCheat_EOS` service that refused every process on the
