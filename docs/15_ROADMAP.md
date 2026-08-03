@@ -13,11 +13,14 @@ The hook rewrite front-loads risk: almost everything uncertain is in P0/P1. That
 
 Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit criteria pass.
 
-> **Status as of 2026-08-03.** Items 0, 1 and 2 partly. Everything still
-> open needs either a real game (2, 4, 5, 6, 7), absent hardware (8, and the
-> AMD/Intel half of the capability matrix), or is P1 by construction (the
-> layer's presentation hooks). The safety work that had to precede the first
-> injection — the guard, its matrix, the chokepoint, the layer's gates — is in.
+> **Status as of 2026-08-03.** Items **2 and 3 done**; 0 and 1 partly. The
+> safety work that had to precede the first injection — the guard, its matrix,
+> the chokepoint, the layer's gates — is in, and the first real injection has
+> happened. Everything still open needs either **feature hooks that do not exist
+> yet** (4, 5, 6, 7 — a throwaway build, per the exit criteria, not all of P1),
+> absent hardware (8, and the AMD/Intel half of the capability matrix), or is P1
+> by construction (the layer's presentation hooks). Item 0's residual is check 3;
+> **launch mode is blocked by §S18** and attach mode is not.
 
 0. **The guard.** Module + driver enumeration, blocklist matching, fail-closed behaviour on every error path. **Moved from item 8**: items 1 and 6 below inject into real games, and CLAUDE.md rule 2 plus P1's own "it ships before the first real injection, not after" both forbid that ordering. **◐ Three of four pre-injection checks.** The guard is built (`FrameLedger.Injector`, native per §S13(a)), owns the chokepoint, and its fail-closed matrix is Catch2-driven. The injection primitive landed after it, in that order. Reached from managed code through one P/Invoke facade — never a second matcher (§S15). Evidence: `spike-notes.md` §1; §S7, §S8, §S16 closed.
 
@@ -43,7 +46,26 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
    > machine-wide `EasyAntiCheat_EOS` service that refused every process on the
    > machine, a failed injection that reported `Allow`, and §S18. None would have
    > surfaced without a real machine and a real title.
-3. **The accuracy baseline.** Build a **minimal static-hint detector** — passive file/module scanning, no injection — as the thing item 4 measures against. Added to P0 scope 2026-08-02 (`20_OPEN_QUESTIONS` §M9): the "old detection" this roadmap assumed as a baseline does not exist in this repository, and without it the comparison below cannot be made and ADR-7's founding claim is unfalsifiable. It needs no guard and no injection, so it can be built at any point before item 4. **◐ The module/file half is built** — `fl-baseline-probe`, ctest `fl_baseline_probe`, proven in both directions and reusing the guard's own measured enumerator (`spike-notes.md` §8). What it produces is the baseline *record*; the per-title rows need the same offline title item 2 does. **The engine/platform/capability rule evaluator is not built** — that is the inference half, and it answers none of item 4's runtime questions.
+3. **The accuracy baseline.** Build a **minimal static-hint detector** — passive file/module scanning, no injection — as the thing item 4 measures against. Added to P0 scope 2026-08-02 (`20_OPEN_QUESTIONS` §M9): the "old detection" this roadmap assumed as a baseline does not exist in this repository, and without it the comparison below cannot be made and ADR-7's founding claim is unfalsifiable. It needs no guard and no injection, so it can be built at any point before item 4. **✅ DONE — both halves, and run on real installs.** The module half is `fl-baseline-probe` (ctest `fl_baseline_probe`, proven in both directions, reusing the guard's own measured enumerator). The inference half is `Domain.Detection.RuleEvaluator` over `Infrastructure.Detection.GameFileProbe`, with a fixture corpus and both an over-match and an under-match canary. Measured against **three real titles** — Deadly Heart Gambit, Lies of P, Alan Wake 2 (`spike-notes.md` §8).
+
+   > **This line said "the rule evaluator is not built" until 2026-08-03**, after
+   > the PR that built it. Recording the drift rather than quietly correcting it:
+   > a roadmap that lags its own repository is the same defect as a doc that
+   > describes an unimplemented check as live, which is what started this phase.
+   >
+   > **What did *not* land, and what each costs.** Platform metadata extractors
+   > (Steam `.acf`, GOG `.info`, Epic `.item`) — every platform rule is
+   > `sibling_glob`/`path_contains`, so identification is unaffected but
+   > **`store_id` is null for every title**. No SQLite, so nothing is persisted
+   > and `field_provenance` is decided-but-unimplemented (P2). The engine and
+   > platform fixture families are **P4 library metadata shipped early** under
+   > P0's name.
+   >
+   > First contact with real installs failed on three of four cases and both
+   > causes were real: a depth cap of 4 against measured depths of 6, 5 and 9,
+   > and an install-root resolution that scanned `Binaries\Win64\` for files that
+   > live at the root. Both failed *safe* — and failing safe on every input is
+   > not working.
 
    > **A finding from building it, recorded before the README is drafted:** the
    > baseline can answer **none** of item 4's four runtime questions (upscaler
