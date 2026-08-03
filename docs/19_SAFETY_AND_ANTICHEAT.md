@@ -132,15 +132,54 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
    > never as *clean*. `20_OPEN_QUESTIONS` §S7 tracks the remaining work.
 3. **Rules blocklist** — `detection-rules.json` carries `anticheat.blockedExecutables` (exe names) and `anticheat.blockedStoreIds` (Steam appids etc.) for known competitive/online titles, updatable independently of app releases (`05_DETECTION` §Rules updates).
 
-   > ⚠ **Both arrays are empty today, so this check matches nothing.** The gate
-   > is not weakened — checks 1, 2 and 4 still run, and every family in the seed
-   > below is caught by a module, driver or directory signal — but the per-title
-   > layer this bullet describes does not exist yet. Which titles to list, and
-   > what an *unresolvable* store id means (it must read **unknown**, never
-   > *clean*), are decisions tracked as `20_OPEN_QUESTIONS` §S14. Stated here so
-   > that "check 3 passed" is not read as "the title is not a known online
-   > title".
+   > ⚠ **This check is UNWIRED, which is worse than empty.** Both arrays are
+   > empty, *and* `MatchesBlockedExecutable`/`MatchesBlockedStoreId` have no call
+   > site anywhere — `EvaluateImpl` never asks them. Populating the data would
+   > therefore change nothing. The gate is not weakened, because checks 1, 2 and
+   > 4 run and every family in the seed below is caught by a module, driver,
+   > service or directory signal — but the per-title layer this bullet describes
+   > does not exist yet, in two independent ways. Which titles to list, and what
+   > an *unresolvable* store id means (it must read **unknown**, never *clean*),
+   > are decisions tracked as `20_OPEN_QUESTIONS` §S14. Stated here so that
+   > "check 3 passed" is not read as "the title is not a known online title".
+   >
+   > The parser now reads both arrays in their real, documented shape (objects
+   > carrying `family`, `match`/`store`+`id`, `values` and `reason`), so the data
+   > can be written before the wiring lands. It used to read them as bare
+   > strings, which meant the first entry ever added would have refused the whole
+   > rules file — and therefore every title on the machine (§S17).
 4. **Multiplayer heuristic** — if the pre-launch file scan finds an anti-cheat SDK shipped alongside the game (e.g. EOS anti-cheat binaries, `EasyAntiCheat/` directory) even when not currently loaded → refuse and explain.
+
+   > **Implemented, and stated narrowly.** `fl_prescan.cpp` walks the target's
+   > own directory (derived from its pid, never from a caller-supplied path) to
+   > depth 2, matching entry names through the **same** `MatchName` as every
+   > other check: directory names against the `directories` group, file names
+   > against `files`. `Reason::kAntiCheatDirectory` and `kAntiCheatFile` are
+   > produced here — until now they were declared, named and mirrored while
+   > nothing produced either.
+   >
+   > **It runs inside the chokepoint**, as the last of the four checks in
+   > `EvaluateImpl`. `FlStaticPreScan` also exposes it to the UI for FR-2.2's
+   > pre-launch question, but that export is **advisory**: it gates nothing, and
+   > a caller who never asks it — or ignores the answer — changes nothing about
+   > what injection allows.
+   >
+   > **What it does not cover.** The residual is an anti-cheat SDK sitting on
+   > disk whose service is not installed and whose module is not loaded; checks
+   > 1, 2 and 2b already cover the rest. And today the `directories` + `files`
+   > groups carry only three tokens between them, so "check 4 ran" is a much
+   > narrower statement than "this game ships no anti-cheat". Widening it needs
+   > **verified** file and directory names — the seed table below deliberately
+   > carries "no data yet" rows rather than guesses, because a wrong token fails
+   > closed by never firing, which is a silent hole.
+   >
+   > **Every uncertainty refuses**, with `Reason::kPreScanFailed` rather than a
+   > hit: directory absent or unlistable, either bound exceeded, a name we could
+   > not convert, or a reparse point — which is never followed, because a
+   > junction can hide an `EasyAntiCheat/` beneath it. **Unmeasured:** how often
+   > a legitimate library trips the reparse-point rule or the 4096-entry bound.
+   > That needs a real game library, and it is a false-refusal path, so it is
+   > recorded rather than assumed benign.
 
 Any check failing ⇒ **injection is refused**. The UI shows which check fired and offers Tier-2 (ETW) capture instead, which requires no injection — but does require an elevated Agent, so the offer must state that plainly and fall through to Tier 3 rather than appearing to succeed and recording nothing (`04_CAPTURE` §Frame source abstraction).
 

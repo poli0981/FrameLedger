@@ -20,6 +20,7 @@
 #include <cstring>
 #include <fl_ac_rules.h>
 #include <fl_guard.h>
+#include <fl_prescan.h>
 #include <psapi.h>
 #include <tlhelp32.h>
 #include <winsvc.h>
@@ -309,6 +310,147 @@ std::size_t ReadRulesFileImpl(char* buffer, std::size_t cap) noexcept {
     return ReadRulesFile(buffer, cap);
 }
 
+// Check 4 — where the game lives.
+//
+// Read-only rights, the same PROCESS_QUERY_LIMITED_INFORMATION the module scan
+// uses. QueryFullProcessImageNameW rather than GetModuleFileNameEx: it needs no
+// VM_READ and works against a target we may only query.
+Collected ImageDirectoryImpl(std::uint32_t pid, wchar_t* out, std::size_t cap) noexcept {
+    if (out == nullptr || cap == 0) {
+        return Collected::kFailed;
+    }
+    out[0] = L'\0';
+
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (h == nullptr) {
+        return Collected::kFailed;    // ACCESS_DENIED on a protected target: cannot determine
+    }
+
+    wchar_t    path[kMaxPreScanPathLen] = {};
+    DWORD      len = static_cast<DWORD>(kMaxPreScanPathLen);
+    const BOOL ok = QueryFullProcessImageNameW(h, 0, path, &len);
+    CloseHandle(h);
+    if (!ok || len == 0) {
+        return Collected::kFailed;
+    }
+
+    // Strip the file name. A path with no separator is not a path we understand.
+    wchar_t* lastSep = nullptr;
+    for (wchar_t* p = path; *p != L'\0'; ++p) {
+        if (*p == L'\\' || *p == L'/') {
+            lastSep = p;
+        }
+    }
+    if (lastSep == nullptr || lastSep == path) {
+        return Collected::kFailed;
+    }
+    *lastSep = L'\0';
+
+    if (wcslen(path) + 1 > cap) {
+        return Collected::kFailed;    // truncating a path yields a DIFFERENT directory
+    }
+    wcscpy_s(out, cap, path);
+    return Collected::kOk;
+}
+
+// One level of the walk. Returns false if the caller asked us to stop.
+bool WalkDir(const wchar_t* dir, std::size_t depth, DirEntrySink sink, void* ctx, std::size_t& budget, bool& truncated,
+             bool& stopped) noexcept {
+    wchar_t pattern[kMaxPreScanPathLen] = {};
+    if (_snwprintf_s(pattern, kMaxPreScanPathLen, _TRUNCATE, L"%s\\*", dir) < 0) {
+        truncated = true;
+        return true;
+    }
+
+    WIN32_FIND_DATAW fd{};
+    HANDLE           h = FindFirstFileW(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        // An unreadable subdirectory is a part of the tree we did not see.
+        truncated = true;
+        return true;
+    }
+
+    do {
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) {
+            continue;
+        }
+        if (budget == 0) {
+            truncated = true;
+            break;
+        }
+        --budget;
+
+        const bool isDir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        const bool isReparse = (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+
+        // Names are matched as ASCII (acToken is a strict ASCII allowlist), but
+        // a name we cannot convert is a name we could not inspect — record it as
+        // an incomplete listing rather than skipping it silently.
+        char      name[260] = {};
+        const int n = WideCharToMultiByte(CP_UTF8, 0, fd.cFileName, -1, name, sizeof(name), nullptr, nullptr);
+        if (n <= 0) {
+            truncated = true;
+            continue;
+        }
+
+        if (!sink(ctx, name, isDir)) {
+            stopped = true;
+            break;
+        }
+
+        if (isDir) {
+            if (isReparse) {
+                // NEVER followed. A junction can point anywhere, including back
+                // into this tree, and a symlink walk that loops is the classic
+                // bug here. Its presence means we did not see everything under
+                // it, so the scan cannot come back clean.
+                truncated = true;
+                continue;
+            }
+            if (depth + 1 < kMaxPreScanDepth) {
+                wchar_t child[kMaxPreScanPathLen] = {};
+                if (_snwprintf_s(child, kMaxPreScanPathLen, _TRUNCATE, L"%s\\%s", dir, fd.cFileName) < 0) {
+                    truncated = true;
+                    continue;
+                }
+                WalkDir(child, depth + 1, sink, ctx, budget, truncated, stopped);
+                if (stopped) {
+                    break;
+                }
+            }
+        }
+    } while (FindNextFileW(h, &fd) != 0);
+
+    const DWORD err = GetLastError();
+    FindClose(h);
+    if (!stopped && err != ERROR_NO_MORE_FILES && err != ERROR_SUCCESS) {
+        truncated = true;
+    }
+    return true;
+}
+
+Collected EnumerateDirEntriesImpl(const wchar_t* dir, DirEntrySink sink, void* ctx) noexcept {
+    if (dir == nullptr || sink == nullptr) {
+        return Collected::kFailed;
+    }
+    const DWORD attrs = GetFileAttributesW(dir);
+    if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+        return Collected::kFailed;    // gone, or not a directory: cannot determine
+    }
+
+    std::size_t budget = kMaxPreScanEntries;
+    bool        truncated = false;
+    bool        stopped = false;
+    WalkDir(dir, 0, sink, ctx, budget, truncated, stopped);
+
+    // A sink that stopped us found what it was looking for; the listing being
+    // short after that is not a gap.
+    if (stopped) {
+        return Collected::kOk;
+    }
+    return truncated ? Collected::kIncomplete : Collected::kOk;
+}
+
 }    // namespace
 
 Sources SystemSources() noexcept {
@@ -318,6 +460,8 @@ Sources SystemSources() noexcept {
     s.QueryService = &QueryServiceImpl;
     s.EnumerateScanSet = &EnumerateScanSetImpl;
     s.ReadRulesFile = &ReadRulesFileImpl;
+    s.ImageDirectory = &ImageDirectoryImpl;
+    s.EnumerateDirEntries = &EnumerateDirEntriesImpl;
     return s;
 }
 

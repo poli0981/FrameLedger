@@ -3,6 +3,7 @@
 #include <cstring>
 #include <fl_ac_rules.h>
 #include <fl_guard.h>
+#include <fl_prescan.h>
 #include <psapi.h>
 
 namespace fl::guard {
@@ -367,6 +368,8 @@ const char* ReasonName(Reason r) noexcept {
         return "AntiCheatDirectory";
     case Reason::kAntiCheatFile:
         return "AntiCheatFile";
+    case Reason::kPreScanFailed:
+        return "PreScanFailed";
     case Reason::kSuspiciousUnsigned:
         return "SuspiciousUnsigned";
     case Reason::kRulesUnreadable:
@@ -412,6 +415,19 @@ Verdict EvaluateImpl(std::uint32_t targetPid, const Sources& sources) noexcept {
         return v;
     }
     if (Verdict v = CheckModules(sources, rules, targetPid); !v.Allowed()) {
+        return v;
+    }
+    // Check 4, INSIDE the chokepoint rather than beside it.
+    //
+    // 19_SAFETY and 05_DETECTION both describe this as gating injection, and it
+    // is placed here so that stays true. Running it as an advisory the UI
+    // consults would make it a check that gates nothing — and there is no
+    // persistence layer yet, so its verdict would have nowhere to be stored and
+    // `hook_blocked_reason` could not carry it either.
+    //
+    // Last of the four because it is the only one that touches the filesystem;
+    // the three cheaper checks have already had their say.
+    if (Verdict v = CheckStaticPreScan(sources, rules, targetPid); !v.Allowed()) {
         return v;
     }
     return Allow();

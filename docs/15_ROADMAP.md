@@ -13,13 +13,25 @@ The hook rewrite front-loads risk: almost everything uncertain is in P0/P1. That
 
 Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit criteria pass.
 
-> **Status as of 2026-08-03.** Items 0 done, 1 and 2 partly. Everything still
+> **Status as of 2026-08-03.** Items 0, 1 and 2 partly. Everything still
 > open needs either a real game (2, 4, 5, 6, 7), absent hardware (8, and the
 > AMD/Intel half of the capability matrix), or is P1 by construction (the
 > layer's presentation hooks). The safety work that had to precede the first
 > injection — the guard, its matrix, the chokepoint, the layer's gates — is in.
 
-0. **The guard.** Module + driver enumeration, blocklist matching, fail-closed behaviour on every error path. **Moved from item 8**: items 1 and 6 below inject into real games, and CLAUDE.md rule 2 plus P1's own "it ships before the first real injection, not after" both forbid that ordering. **✅ DONE.** The guard is built (`FrameLedger.Injector`, native per §S13(a)), owns the chokepoint, and its fail-closed matrix is 27 Catch2 cases. The injection primitive landed after it, in that order. Reached from managed code through one P/Invoke facade — never a second matcher (§S15). Evidence: `spike-notes.md` §1; §S7, §S8, §S16 closed.
+0. **The guard.** Module + driver enumeration, blocklist matching, fail-closed behaviour on every error path. **Moved from item 8**: items 1 and 6 below inject into real games, and CLAUDE.md rule 2 plus P1's own "it ships before the first real injection, not after" both forbid that ordering. **◐ Three of four pre-injection checks.** The guard is built (`FrameLedger.Injector`, native per §S13(a)), owns the chokepoint, and its fail-closed matrix is Catch2-driven. The injection primitive landed after it, in that order. Reached from managed code through one P/Invoke facade — never a second matcher (§S15). Evidence: `spike-notes.md` §1; §S7, §S8, §S16 closed.
+
+   > **This line said ✅ DONE, and it was wrong in a way worth recording.**
+   > `19_SAFETY` specifies four pre-injection checks. **Check 4** (the static
+   > pre-scan) had no implementation at all — its two reason codes were
+   > declared, named and mirrored into the managed enum while nothing produced
+   > either, so three artifacts agreed on a behaviour no code had. **Check 3**
+   > (per-title lists) is worse than §S14 recorded: its matchers have no call
+   > site, so it is *unwired*, not merely unpopulated.
+   >
+   > Check 4 is now implemented and runs inside the chokepoint. **Check 3 is
+   > still unwired**, so this item stays ◐ until it is, and the status will not
+   > read ✅ again on the strength of "most of it works".
 1. **Vulkan layer passthrough.** Minimal implicit layer registered under `HKCU`, with the opt-in checks that keep it passthrough for non-enabled processes. **Moved from item 7**: a passthrough bug loads FrameLedger into every Vulkan process on the machine, which is the highest blast radius in the spike. **◐ Gates done, interception not started.** `enable_environment` measured against loader 1.4.357, blast radius verified, in-layer blocklist self-scan built and proven both directions. `vkQueuePresentKHR` is **not** hooked — that is P1, and §S2's in-layer supervision check lands with it.
 2. **Hook viability.** `hook-harness` (D3D11 + D3D12) + MinHook: dummy-device vtable probe, verify present indices at runtime, install/uninstall cleanly, measure per-present cost. Confirm `/MT` DLL loads into a real (offline, non-AC) game without incident. **◐ Everything except the real game.** Vtable indices proved by behaviour (§H4), unhook proved not to clobber a later hooker (§H7), per-present cost measured at 8.4 ns against a 1,000 ns budget. **The `/MT` DLL has never been loaded into a real title** — the injection primitive is proven only against `hook-harness`. That is the single largest remaining P0 item and it needs a chosen offline, anti-cheat-free game.
 3. **The accuracy baseline.** Build a **minimal static-hint detector** — passive file/module scanning, no injection — as the thing item 4 measures against. Added to P0 scope 2026-08-02 (`20_OPEN_QUESTIONS` §M9): the "old detection" this roadmap assumed as a baseline does not exist in this repository, and without it the comparison below cannot be made and ADR-7's founding claim is unfalsifiable. It needs no guard and no injection, so it can be built at any point before item 4.

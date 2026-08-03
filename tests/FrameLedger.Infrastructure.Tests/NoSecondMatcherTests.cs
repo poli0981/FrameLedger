@@ -1,6 +1,7 @@
 using System.Reflection;
 using FluentAssertions;
 using FrameLedger.Application.AntiCheat;
+using FrameLedger.Domain.AntiCheat;
 
 namespace FrameLedger.Infrastructure.Tests;
 
@@ -70,11 +71,29 @@ public sealed class NoSecondMatcherTests
         // seam out of everything that ships.
         MethodInfo[] methods = typeof(IAntiCheatGuard).GetMethods();
 
-        methods.Should().HaveCount(2);
+        // Raised from 2 to 3 as a reviewed act when the static pre-scan landed.
+        //
+        // The alternative was a second port, which would have kept this number
+        // at 2 while the new surface grew somewhere this test never looks — the
+        // count would have gone on passing precisely because the thing it
+        // guards had moved. A number that has to be edited deliberately is the
+        // point of it.
+        methods.Should().HaveCount(3);
+
+        // Stronger than the count, and it survives the port growing: every
+        // parameter must be a primitive the caller cannot smuggle evidence
+        // through, and every return must be a verdict.
         foreach (MethodInfo m in methods)
         {
+            m.ReturnType.Should().Be<ValueTask<AntiCheatVerdict>>(
+                $"{m.Name} must answer with a verdict and nothing else");
+
             foreach (ParameterInfo p in m.GetParameters())
             {
+                p.ParameterType.Should().Match(t =>
+                        t == typeof(int) || t == typeof(string) || t == typeof(CancellationToken),
+                    $"{m.Name}.{p.Name} is a {p.ParameterType.Name}; the guard collects its own evidence");
+
                 p.ParameterType.Name.Should().NotContainEquivalentOf("rule");
                 p.ParameterType.Name.Should().NotContainEquivalentOf("source");
                 p.ParameterType.Name.Should().NotContainEquivalentOf("evidence");

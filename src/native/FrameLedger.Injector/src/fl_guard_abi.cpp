@@ -1,6 +1,7 @@
 #include <cstring>
 #include <fl_guard.h>
 #include <fl_guard_abi.h>
+#include <fl_prescan.h>
 
 namespace {
 
@@ -35,6 +36,13 @@ void FlGuardedInject(std::uint32_t targetPid, const wchar_t* dllPath, FlGuardRes
         return;
     }
     Fill(out, fl::guard::GuardedInject(targetPid, dllPath));
+}
+
+void FlStaticPreScan(const wchar_t* gameDirectory, FlGuardResult* out) {
+    if (!Usable(out)) {
+        return;
+    }
+    Fill(out, fl::guard::StaticPreScan(gameDirectory));
 }
 
 const char* FlGuardReasonName(std::int32_t reason) {

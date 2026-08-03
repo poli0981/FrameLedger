@@ -11,6 +11,7 @@ set(FL_INJECTOR_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/fl_ac_rules.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/fl_guard.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/fl_guard_sources.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/fl_prescan.cpp"
     PARENT_SCOPE
 )
 
@@ -19,6 +20,7 @@ add_library(FrameLedger.Injector STATIC
     src/fl_ac_rules.cpp
     src/fl_guard.cpp
     src/fl_guard_sources.cpp
+    src/fl_prescan.cpp
 )
 target_include_directories(FrameLedger.Injector PUBLIC include)
 target_link_libraries(FrameLedger.Injector
@@ -43,6 +45,7 @@ add_library(FrameLedger.Guard SHARED
     src/fl_ac_rules.cpp
     src/fl_guard.cpp
     src/fl_guard_sources.cpp
+    src/fl_prescan.cpp
     src/fl_guard_abi.cpp
 )
 target_include_directories(FrameLedger.Guard PUBLIC include)

@@ -277,7 +277,15 @@ function Invoke-ProjectGates {
     Write-Step 'chokepoint-check'
     $chokeTool = Join-Path $repo 'tools/chokepoint-check.ps1'
     if (Test-Path $chokeTool) {
-        Invoke-Checked 'chokepoint-check' { & $chokeTool }
+        # -RequireBinaries drives the SYMBOL half: FL_GUARD_TESTABLE's seam must
+        # not merely be unused in the shipped lib, it must not EXIST there. That
+        # needs something built, so it is skipped loudly rather than silently
+        # when the native build was.
+        Invoke-Checked 'chokepoint-check' {
+            & $chokeTool -BuildDir (Join-Path $repo "build/native/x64-$($Configuration.ToLower())") `
+                -RequireBinaries:(-not $SkipNative)
+        }
+        if ($SkipNative) { Skip-Gate 'chokepoint-check (symbols)' 'native build skipped, so there is no lib to inspect' }
     }
     else {
         Skip-Gate 'chokepoint-check' 'tools/chokepoint-check.ps1 not implemented yet'

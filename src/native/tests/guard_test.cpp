@@ -13,9 +13,12 @@
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <cstring>
+#include <cwchar>
 #include <fl_ac_rules.h>
 #include <fl_guard.h>
+#include <fl_prescan.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace fl::guard;
@@ -77,6 +80,14 @@ struct Fake {
 
     std::vector<std::uint32_t> scanSet{1234};
     Collected                  scanSetResult = Collected::kOk;
+
+    // Check 4 — the static pre-scan. Entries are (name, isDirectory), because
+    // directories and files are matched against different blocklist groups and
+    // guessing from the string would be a second, weaker classifier.
+    std::vector<std::pair<std::string, bool>> dirEntries;
+    Collected                                 dirEntriesResult = Collected::kOk;
+    std::wstring                              imageDirectory = L"C:\\Games\\Example";
+    Collected                                 imageDirectoryResult = Collected::kOk;
 };
 
 Fake g;
@@ -129,6 +140,26 @@ Collected FakeEnumScanSet(std::uint32_t, bool (*sink)(void*, std::uint32_t), voi
     return g.scanSetResult;
 }
 
+Collected FakeImageDirectory(std::uint32_t, wchar_t* out, std::size_t cap) {
+    if (g.imageDirectoryResult != Collected::kOk) {
+        return g.imageDirectoryResult;
+    }
+    if (g.imageDirectory.size() + 1 > cap) {
+        return Collected::kFailed;
+    }
+    wcscpy_s(out, cap, g.imageDirectory.c_str());
+    return Collected::kOk;
+}
+
+Collected FakeEnumDirEntries(const wchar_t*, DirEntrySink sink, void* ctx) {
+    for (const auto& e : g.dirEntries) {
+        if (!sink(ctx, e.first.c_str(), e.second)) {
+            break;
+        }
+    }
+    return g.dirEntriesResult;
+}
+
 Sources FakeSources() {
     Sources s;
     s.ReadRulesFile = &FakeReadRules;
@@ -136,6 +167,8 @@ Sources FakeSources() {
     s.EnumerateDrivers = &FakeEnumDrivers;
     s.QueryService = &FakeQueryService;
     s.EnumerateScanSet = &FakeEnumScanSet;
+    s.ImageDirectory = &FakeImageDirectory;
+    s.EnumerateDirEntries = &FakeEnumDirEntries;
     return s;
 }
 
@@ -632,6 +665,187 @@ TEST_CASE("a missing payload is refused before any process is opened", "[guard][
 }
 
 #endif    // FL_HARNESS_EXE && FL_OVERLAY_DLL
+
+// ===========================================================================
+// Check 4 — the static pre-scan (19_SAFETY item 4, 05_DETECTION §Anti-cheat
+// pre-scan). ctest fl_prescan runs exactly this block by tag.
+//
+// This check was DECLARED and never implemented: kAntiCheatDirectory and
+// kAntiCheatFile were named in ReasonName and mirrored into the managed enum
+// while nothing produced either. Most of what follows is the fail-closed half,
+// because the dangerous direction here is not "it refused" — it is "it came
+// back clean without having looked".
+// ===========================================================================
+TEST_CASE("a blocklisted DIRECTORY beside the game is a hit", "[guard][prescan]") {
+    ResetFake();
+    g.dirEntries = {{"Binaries", true}, {"EasyAntiCheat", true}, {"game.exe", false}};
+
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kAntiCheatDirectory);
+    CHECK(std::strcmp(v.family, "Easy Anti-Cheat") == 0);
+    CHECK(std::strcmp(v.signal, "EasyAntiCheat") == 0);
+}
+
+TEST_CASE("a blocklisted FILE beside the game is a hit, through a different group", "[guard][prescan]") {
+    ResetFake();
+    g.dirEntries = {{"game.exe", false}, {"x3.xem", false}};
+
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kAntiCheatFile);
+    CHECK(std::strcmp(v.family, "Xigncode3") == 0);
+}
+
+TEST_CASE("group membership is load-bearing: a directory named like a FILE entry is not a hit",
+          "[guard][prescan][blocklist]") {
+    // x3.xem is in `files`. Seeing a DIRECTORY of that name must not fire the
+    // file rule, or a data edit could move one gate into the other silently.
+    ResetFake();
+    g.dirEntries = {{"x3.xem", true}};
+    CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
+
+    // ...and the converse: EasyAntiCheat is in `directories`, not `files`.
+    ResetFake();
+    g.dirEntries = {{"EasyAntiCheat", false}};
+    CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
+}
+
+TEST_CASE("a clean game directory is allowed — the direction that can pass by accident", "[guard][prescan]") {
+    // Without this, every case above would pass against a pre-scan that refuses
+    // unconditionally, and the whole matrix would be decorative.
+    ResetFake();
+    g.dirEntries = {{"game.exe", false}, {"Binaries", true}, {"Content", true}, {"UnityPlayer.dll", false}};
+
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
+    INFO("reason was " << ReasonName(v.reason) << " signal=" << v.signal);
+    CHECK(v.Allowed());
+}
+
+TEST_CASE("pre-scan matching is case-insensitive in both directions", "[guard][prescan][blocklist]") {
+    ResetFake();
+    g.dirEntries = {{"easyanticheat", true}};
+    CHECK(EvaluateWithSources(1234, FakeSources()).reason == Reason::kAntiCheatDirectory);
+
+    ResetFake();
+    g.dirEntries = {{"EASYANTICHEAT", true}};
+    CHECK(EvaluateWithSources(1234, FakeSources()).reason == Reason::kAntiCheatDirectory);
+
+    // A near miss must NOT fire, or case-insensitivity would be indistinguishable
+    // from matching everything.
+    ResetFake();
+    g.dirEntries = {{"EasyAntiCheatery", true}};
+    CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
+}
+
+TEST_CASE("a directory listing that FAILED is undetermined, not clean", "[guard][prescan][failclosed]") {
+    ResetFake();
+    g.dirEntries = {};
+    g.dirEntriesResult = Collected::kFailed;
+
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kPreScanFailed);
+}
+
+TEST_CASE("a TRUNCATED directory listing is undetermined, not clean", "[guard][prescan][failclosed]") {
+    // The entry cap, the depth cap and an unfollowed reparse point all arrive
+    // here as kIncomplete. An empty-but-incomplete listing is the exact shape
+    // of this project's worst defect: it reads as "nothing found" when it means
+    // "we did not finish looking".
+    ResetFake();
+    g.dirEntries = {{"game.exe", false}};
+    g.dirEntriesResult = Collected::kIncomplete;
+
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kPreScanFailed);
+}
+
+TEST_CASE("a hit still wins over a truncated listing", "[guard][prescan][failclosed]") {
+    // Both refuse, but the reason the user is shown should be the one we are
+    // sure about.
+    ResetFake();
+    g.dirEntries = {{"EasyAntiCheat", true}};
+    g.dirEntriesResult = Collected::kIncomplete;
+
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kAntiCheatDirectory);
+    CHECK(std::strcmp(v.family, "Easy Anti-Cheat") == 0);
+}
+
+TEST_CASE("a target whose directory cannot be established is undetermined", "[guard][prescan][failclosed]") {
+    ResetFake();
+    g.dirEntries = {{"game.exe", false}};
+    g.imageDirectoryResult = Collected::kFailed;
+
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kPreScanFailed);
+}
+
+TEST_CASE("a missing pre-scan evidence source refuses", "[guard][prescan][failclosed]") {
+    // The seam being absent must not mean the check quietly does not run. This
+    // is what caught the wiring the first time it was built.
+    ResetFake();
+    Sources s = FakeSources();
+    s.EnumerateDirEntries = nullptr;
+    CHECK(EvaluateWithSources(1234, s).reason == Reason::kPreScanFailed);
+
+    s = FakeSources();
+    s.ImageDirectory = nullptr;
+    CHECK(EvaluateWithSources(1234, s).reason == Reason::kPreScanFailed);
+}
+
+TEST_CASE("unusable rules make the pre-scan undetermined, never clean", "[guard][prescan][failclosed][rules]") {
+    ResetFake();
+    g.dirEntries = {{"EasyAntiCheat", true}};
+    g.rulesReadable = false;
+    CHECK(EvaluateWithSources(1234, FakeSources()).reason == Reason::kRulesUnreadable);
+
+    ResetFake();
+    g.dirEntries = {{"EasyAntiCheat", true}};
+    g.rulesJson = "{ not json";
+    CHECK(EvaluateWithSources(1234, FakeSources()).reason == Reason::kRulesMalformed);
+}
+
+TEST_CASE("the pre-scan uses the SAME matcher: removing a family stops it firing", "[guard][prescan][blocklist]") {
+    // The claim "it reuses fl_ac_rules" is proved rather than reviewed. Drop the
+    // directories group from the data and the directory hit must disappear —
+    // if it survived, there would be a second matcher somewhere.
+    ResetFake();
+    g.dirEntries = {{"EasyAntiCheat", true}};
+    REQUIRE(EvaluateWithSources(1234, FakeSources()).reason == Reason::kAntiCheatDirectory);
+
+    std::string       stripped = GoodRulesJson();
+    const std::string dirs = R"("directories": [ { "family": "Easy Anti-Cheat", "values": ["EasyAntiCheat"] } ],)";
+    const std::size_t at = stripped.find(dirs);
+    REQUIRE(at != std::string::npos);    // the fixture moved; this test is not testing what it thinks
+    stripped.replace(at, dirs.size(), R"("directories": [ { "family": "BattlEye", "values": ["BattlEye"] } ],)");
+
+    ResetFake();
+    g.dirEntries = {{"EasyAntiCheat", true}};
+    g.rulesJson = stripped;
+    CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
+}
+
+TEST_CASE("the advisory pre-scan reaches the same verdict as the one inside the guard", "[guard][prescan]") {
+    // FR-2.2's UI question. Same matcher, same polarity — the only difference is
+    // that it takes a directory instead of a pid.
+    ResetFake();
+    g.dirEntries = {{"EasyAntiCheat", true}};
+    const Verdict v = StaticPreScanWithSources(L"C:\\Games\\Example", FakeSources());
+    CHECK(v.reason == Reason::kAntiCheatDirectory);
+
+    ResetFake();
+    g.dirEntries = {{"game.exe", false}};
+    CHECK(StaticPreScanWithSources(L"C:\\Games\\Example", FakeSources()).Allowed());
+
+    // A null directory is not an empty one.
+    ResetFake();
+    CHECK(StaticPreScanWithSources(nullptr, FakeSources()).reason == Reason::kPreScanFailed);
+}
 
 // ===========================================================================
 // The reason table. This is the gate that FlGuardReasonCount and the managed
