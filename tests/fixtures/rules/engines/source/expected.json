@@ -1,0 +1,1 @@
+{ "engine": "source", "platform": null, "capabilities": [], "$why": "An ALL group - gameinfo.txt AND bin/engine.dll. The only fixture here whose rule needs both signals, which is what makes it worth having: an evaluator that treated all like any would still pass every other engine fixture." }

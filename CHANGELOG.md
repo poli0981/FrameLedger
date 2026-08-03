@@ -69,6 +69,22 @@ GitHub release body, so a missing section means an empty release note.
   not the product; the Overlay's real cost is `14_TESTING` item 2 on a real
   game. Not a ctest — a timing threshold on a shared runner fails for reasons
   unrelated to the code.
+- **CryEngine and Source engine rules** (`rulesVersion 2026.08.2`), landed
+  deliberately *after* the fixture-coverage gate so that adding them had to
+  exercise it. It fired: both rules were rejected until their fixtures existed —
+  *"engines id 'cryengine' has no fixture under tests/fixtures/rules"* — which is
+  the cheapest available proof that the gate is real rather than decorative.
+  - Source's is the first `all` group in the corpus (`gameinfo.txt` **and**
+    `bin/engine.dll`). Worth having for that alone: an evaluator that treated
+    `all` like `any` would still pass every other engine fixture.
+  - **Two rows in `05_DETECTION`'s table are now marked inexpressible in
+    schemaVersion 2** rather than half-implemented, because a rule that exists
+    and never fires reads as coverage. RPG Maker MV/MZ needs a nested signal
+    group, which `maxProperties: 1` forbids, and a version from a sibling `.js`
+    that `strings_regex` cannot be aimed at. RPG Maker XP/VX/VXAce's signals are
+    expressible but its version is "which signal matched", which no extractor
+    produces; splitting it into three rules is a product decision, not a
+    mechanical fill-in.
 - **The static-hint rule evaluator and its fixture corpus** — the inference half
   of `15_ROADMAP` item 3. `RuleEvaluator` (Domain, no package references) over a
   `GameFileSnapshot` the probe collects in one pass; ports and a

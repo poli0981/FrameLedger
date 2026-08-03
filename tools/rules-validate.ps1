@@ -321,6 +321,30 @@ foreach ($section in 'engines', 'platforms') {
     }
 }
 
+# NO FIXTURE FILE MAY BE GITIGNORED.
+#
+# Found the hard way: `tests/fixtures/rules/engines/source/bin/engine.dll` mirrors
+# a real Source layout, and `.gitignore`'s `[Bb]in/` swallowed it. The file
+# existed on the machine that wrote it, so the fixture passed locally and failed
+# on a fresh clone with "engine: null" — and `git add -A` said nothing, because an
+# ignored file is not an untracked one. The corpus is DATA; a fixture git refuses
+# to carry is a test that only works where it was written.
+if (Get-Command git -ErrorAction SilentlyContinue) {
+    # ls-files rather than check-ignore --stdin: no round-trip, so no path
+    # quoting to undo. (check-ignore echoed the path back with git's own `\r`
+    # escape for the CR the pipe added, which then rendered as a literal `/r`.)
+    # This lists exactly the files git is currently refusing to carry.
+    $repoRoot = Split-Path $PSScriptRoot -Parent
+    $ignored = @(& git -C $repoRoot ls-files --others --ignored --exclude-standard -- 'tests/fixtures/rules' 2>$null)
+    foreach ($rel in $ignored) {
+        if ([string]::IsNullOrWhiteSpace($rel)) { continue }
+        $errors.Add("fixture '$("$rel".Trim())' is gitignored — it will not survive a fresh clone, and the test that reads it will pass only on the machine that wrote it")
+    }
+}
+else {
+    $errors.Add('git not on PATH — cannot check that fixtures are committable, and an unrun check is not a passing one')
+}
+
 # The other direction: a fixture for a rule that no longer exists is dead weight
 # that still reports green.
 $liveIds = @()
