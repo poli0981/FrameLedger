@@ -848,9 +848,14 @@ asserted in both languages rather than left as an observation.
 
 ### Still unmeasured
 
-The runtime table above is empty on purpose. The static half is now real, but
-the per-title runtime rows need a hooked session, which is P0 item 2's remaining
-half.
+The runtime table above is empty on purpose. The static half is now real and has
+been run on three real installs; the per-title runtime rows still need a
+**hooked** session.
+
+**That is no longer item 2.** Item 2 closed on 2026-08-03 — the Overlay loads
+into a real title and the process survives it (§7). But nothing is hooked yet:
+`Present` interception, the ring writer and the fault policy are P1 by
+construction. So these rows are blocked on P1, not on finding a game.
 
 ## 9 · Frame generation
 
