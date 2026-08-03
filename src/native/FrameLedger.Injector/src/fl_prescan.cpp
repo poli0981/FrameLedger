@@ -1,4 +1,5 @@
 #include <cstring>
+#include <cwchar>
 #include <fl_prescan.h>
 
 namespace fl::guard {
@@ -94,7 +95,80 @@ Verdict ScanWith(const Sources& s, const Rules& rules, const wchar_t* dir) noexc
     return Passed();
 }
 
+// Case-insensitive comparison of one path segment.
+bool SegmentIs(const wchar_t* begin, const wchar_t* end, const wchar_t* literal) noexcept {
+    const std::size_t n = static_cast<std::size_t>(end - begin);
+    return wcslen(literal) == n && _wcsnicmp(begin, literal, n) == 0;
+}
+
 }    // namespace
+
+bool ResolveInstallRoot(const wchar_t* exeDir, wchar_t* out, std::size_t cap) noexcept {
+    if (exeDir == nullptr || out == nullptr || cap == 0) {
+        return false;
+    }
+
+    // Split into segments without allocating.
+    constexpr std::size_t kMaxSegments = 64;
+    const wchar_t*        starts[kMaxSegments] = {};
+    const wchar_t*        ends[kMaxSegments] = {};
+    std::size_t           count = 0;
+
+    const wchar_t* p = exeDir;
+    while (*p != L'\0' && count < kMaxSegments) {
+        while (*p == L'\\' || *p == L'/') {
+            ++p;
+        }
+        if (*p == L'\0') {
+            break;
+        }
+        starts[count] = p;
+        while (*p != L'\0' && *p != L'\\' && *p != L'/') {
+            ++p;
+        }
+        ends[count] = p;
+        ++count;
+    }
+
+    // Boundaries whose CHILD is the install root. Hardcoded, per the header.
+    struct Boundary {
+        const wchar_t* seg[2];
+        std::size_t    len;
+    };
+    static const Boundary kBoundaries[] = {
+        {{L"steamapps", L"common"}, 2},
+        {{L"GOG Galaxy", L"Games"}, 2},
+        {{L"Epic Games", nullptr}, 1},
+    };
+
+    for (const Boundary& b : kBoundaries) {
+        for (std::size_t i = 0; i + b.len < count; ++i) {
+            bool hit = true;
+            for (std::size_t k = 0; k < b.len && hit; ++k) {
+                hit = SegmentIs(starts[i + k], ends[i + k], b.seg[k]);
+            }
+            if (!hit) {
+                continue;
+            }
+            // Root ends at the segment AFTER the boundary.
+            const wchar_t* rootEnd = ends[i + b.len];
+            const auto     n = static_cast<std::size_t>(rootEnd - exeDir);
+            if (n + 1 > cap) {
+                return false;    // a truncated path is a path to somewhere else
+            }
+            std::wmemcpy(out, exeDir, n);
+            out[n] = L'\0';
+            return true;
+        }
+    }
+
+    // No boundary recognised: the executable's own directory, unchanged.
+    if (wcslen(exeDir) + 1 > cap) {
+        return false;
+    }
+    wcscpy_s(out, cap, exeDir);
+    return true;
+}
 
 Verdict CheckStaticPreScan(const Sources& s, const Rules& rules, std::uint32_t targetPid) noexcept {
     if (s.ImageDirectory == nullptr) {

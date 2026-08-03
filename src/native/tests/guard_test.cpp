@@ -830,6 +830,63 @@ TEST_CASE("the pre-scan uses the SAME matcher: removing a family stops it firing
     CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
 }
 
+TEST_CASE("the install root is resolved from the exe directory, not used as-is", "[guard][prescan]") {
+    // MEASURED 2026-08-03. Lies of P puts its executable at
+    // <root>\LiesofP\Binaries\Win64\, and the pre-scan saw seven files there —
+    // none of which could ever have been an anti-cheat SDK, because
+    // EasyAntiCheat/ sits at the install root. For exactly the layout most
+    // likely to carry EAC, check 4 was looking in the wrong directory.
+    wchar_t out[kMaxPreScanPathLen] = {};
+
+    REQUIRE(ResolveInstallRoot(LR"(D:\SteamLibrary\steamapps\common\Lies of P\LiesofP\Binaries\Win64)", out,
+                               kMaxPreScanPathLen));
+    CHECK(std::wcscmp(out, LR"(D:\SteamLibrary\steamapps\common\Lies of P)") == 0);
+
+    // A game already at its root stays there.
+    REQUIRE(ResolveInstallRoot(LR"(D:\SteamLibrary\steamapps\common\Deadly Heart Gambit)", out, kMaxPreScanPathLen));
+    CHECK(std::wcscmp(out, LR"(D:\SteamLibrary\steamapps\common\Deadly Heart Gambit)") == 0);
+
+    // Unreal titles conventionally ship TWO executables — a shim at the install
+    // root and the real shipping binary nested underneath (Lies of P has LOP.exe
+    // and LOP-Win64-Shipping.exe). BOTH must resolve to the same place, or which
+    // process the guard happens to be handed decides where check 4 looks.
+    wchar_t viaShim[kMaxPreScanPathLen] = {};
+    wchar_t viaShipping[kMaxPreScanPathLen] = {};
+    REQUIRE(ResolveInstallRoot(LR"(D:\SteamLibrary\steamapps\common\Lies of P)", viaShim, kMaxPreScanPathLen));
+    REQUIRE(ResolveInstallRoot(LR"(D:\SteamLibrary\steamapps\common\Lies of P\LiesofP\Binaries\Win64)", viaShipping,
+                               kMaxPreScanPathLen));
+    CHECK(std::wcscmp(viaShim, LR"(D:\SteamLibrary\steamapps\common\Lies of P)") == 0);
+    CHECK(std::wcscmp(viaShim, viaShipping) == 0);
+
+    // Case-insensitive, and forward slashes are separators too.
+    REQUIRE(ResolveInstallRoot(LR"(D:/SteamLibrary/STEAMAPPS/Common/Title/Bin)", out, kMaxPreScanPathLen));
+    CHECK(std::wcscmp(out, LR"(D:/SteamLibrary/STEAMAPPS/Common/Title)") == 0);
+
+    REQUIRE(ResolveInstallRoot(LR"(C:\Program Files\Epic Games\SomeTitle\Sub\Dir)", out, kMaxPreScanPathLen));
+    CHECK(std::wcscmp(out, LR"(C:\Program Files\Epic Games\SomeTitle)") == 0);
+}
+
+TEST_CASE("an unrecognised layout keeps the exe's own directory", "[guard][prescan][failclosed]") {
+    // Walking up blindly is WORSE than staying put: one level above
+    // D:\another\epic\AlanWake2 is a folder of unrelated games, and refusing
+    // this title because a sibling ships anti-cheat is a false refusal with no
+    // appeal — which is how a user goes looking for the override rule 2 says
+    // does not exist.
+    wchar_t out[kMaxPreScanPathLen] = {};
+
+    REQUIRE(ResolveInstallRoot(LR"(D:\another\epic\AlanWake2)", out, kMaxPreScanPathLen));
+    CHECK(std::wcscmp(out, LR"(D:\another\epic\AlanWake2)") == 0);
+
+    // A boundary needs a child after it; a trailing `steamapps` is not one.
+    REQUIRE(ResolveInstallRoot(LR"(D:\backup\steamapps)", out, kMaxPreScanPathLen));
+    CHECK(std::wcscmp(out, LR"(D:\backup\steamapps)") == 0);
+
+    // A result that does not fit is a refusal, never a truncation.
+    wchar_t tiny[8] = {};
+    CHECK_FALSE(ResolveInstallRoot(LR"(D:\SteamLibrary\steamapps\common\Some Title\Bin)", tiny, 8));
+    CHECK_FALSE(ResolveInstallRoot(nullptr, out, kMaxPreScanPathLen));
+}
+
 TEST_CASE("the advisory pre-scan reaches the same verdict as the one inside the guard", "[guard][prescan]") {
     // FR-2.2's UI question. Same matcher, same polarity — the only difference is
     // that it takes a directory instead of a pid.

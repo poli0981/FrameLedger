@@ -88,6 +88,38 @@ public sealed class SignalOutcomeTriStateTests
     }
 
     [Fact]
+    public void AnIncompleteListing_MakesAMissUnknown_ButNotAHit()
+    {
+        // The distinction the first version got wrong. A file the walk listed is
+        // a file that is there, however early it stopped afterwards — only
+        // ABSENCE is in doubt.
+        //
+        // Treating incompleteness as poisoning every file signal was measured
+        // against three real games (depths 5, 6 and 9 against a cap of 4) and
+        // made the detector useless: every engine came back Undetermined.
+        // Failing safe is right; failing safe on every input is not working.
+        GameFileSnapshot partial = Snapshot(files: ["there.dll"], listingComplete: false);
+
+        RuleEvaluator.Evaluate(Signal(DetectionSignalType.SiblingGlob, "there.dll"), partial)
+            .Should().Be(SignalOutcome.Match, "we saw it; a short walk does not unsee it");
+
+        RuleEvaluator.Evaluate(Signal(DetectionSignalType.SiblingGlob, "absent.dll"), partial)
+            .Should().Be(SignalOutcome.Unknown, "we did not finish looking, so absence proves nothing");
+    }
+
+    [Fact]
+    public void ACompleteListing_MakesAMissDefinite()
+    {
+        // Without this the test above would pass against an evaluator that
+        // answered Unknown for every miss, and a clean directory would never be
+        // a usable answer.
+        GameFileSnapshot complete = Snapshot(files: ["there.dll"], listingComplete: true);
+
+        RuleEvaluator.Evaluate(Signal(DetectionSignalType.SiblingGlob, "absent.dll"), complete)
+            .Should().Be(SignalOutcome.NoMatch);
+    }
+
+    [Fact]
     public void APeReadThatSucceededAndMissed_IsNoMatch_NotUnknown()
     {
         // The other direction, without which the test above would pass against

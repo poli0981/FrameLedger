@@ -307,6 +307,44 @@ GitHub release body, so a missing section means an empty release note.
   pinned 0.9.6 package, not just the repository.
 
 ### Fixed
+- **The anti-cheat pre-scan was looking in the wrong directory** — a hole in a
+  hard gate, found by running the detector against three real installs
+  (`spike-notes` §8). Both the probe and `ImageDirectoryImpl` derived "the game
+  directory" by stripping the filename from the executable's path. Unreal puts
+  the exe at `<root>\<Project>\Binaries\Win64\`; measured on Lies of P that
+  folder holds **seven files**, none of which could ever have been an anti-cheat
+  SDK, because `EasyAntiCheat/` sits at the install root three levels up. **For
+  exactly the layout most likely to carry EAC, check 4 scanned a directory that
+  could not contain what it was looking for and returned clean.**
+  - `ResolveInstallRoot` walks up to a hardcoded platform boundary
+    (`steamapps\common\<X>`, `GOG Galaxy\Games\<X>`, `Epic Games\<X>`) —
+    hardcoded for the same reason `IsPlatformLauncher` is, since a data-driven
+    boundary lets a rules update move where the hard gate looks.
+  - **An unrecognised layout keeps the executable's own directory.** Walking up
+    blindly would reach a folder of unrelated games, and refusing a title
+    because a *sibling* ships anti-cheat is a false refusal with no appeal. Alan
+    Wake 2 installed at `D:\another\epic\AlanWake2` is exactly that case.
+  - **The entry point no longer changes the answer.** Unreal titles ship two
+    executables — a shim at the install root and the shipping binary nested
+    under `<Project>\Binaries\Win64\` — and a user adds one, while the guard is
+    handed whichever process it is handed. Measured on Lies of P's `LOP.exe` vs
+    `LOP-Win64-Shipping.exe`, the two used to disagree (undetermined vs `fsr`
+    only); both now resolve to the same root and produce identical results,
+    asserted in Catch2 and xUnit rather than left as an observation.
+- **A depth cap that made static detection useless on every real game.** The
+  probe capped its walk at depth 4; measured real depths are **6, 5 and 9**. And
+  an unfinished walk marked all three file signal types uncollected, so *every*
+  file-based signal became `Unknown`, the engine walk stopped at its first rule,
+  and nothing was ever identified. Failing safe is right; failing safe on every
+  input is just not working.
+  - Fixed by separating the two questions: a file the walk **listed** is there
+    however early it stopped, so a hit stays `Match` and only a **miss** becomes
+    `Unknown` when the listing did not finish. `GameFileSnapshot` carries
+    `FileListingComplete` instead. Caps raised to depth 16 / 200,000 entries,
+    with the entry count as the real bound.
+  - After both fixes, all three titles detect correctly: Unity 2022.3.32 +
+    Steam; Unreal + Steam + DLSS + FSR; Epic + DLSS + DLSS-G + Ray
+    Reconstruction + Streamline.
 - **Two documents claimed CI evaluated rules against fixture trees; it never did,
   and the trees did not exist.** `05_DETECTION` §Static hints and `13_CI_CD`
   §rules-publish both said `tools/rules-validate` "runs rules against fixture

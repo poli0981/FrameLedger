@@ -27,11 +27,20 @@ public sealed class GameFileProbe : IGameFileProbe
     /// <summary>The strings-scan bound from <c>05_DETECTION</c>.</summary>
     public const int StringsScanBytes = 8 * 1024 * 1024;
 
-    /// <summary>How deep below the game directory the walk goes.</summary>
-    public const int MaxDepth = 4;
+    /// <summary>How deep below the install root the walk goes.</summary>
+    /// <remarks>
+    /// Measured against three real installs before choosing: Deadly Heart Gambit
+    /// is 6 deep, Alan Wake 2 is 5, Lies of P is 9. The first version capped at
+    /// 4, which meant every real game came back incomplete.
+    /// </remarks>
+    public const int MaxDepth = 16;
 
     /// <summary>How many entries the walk will look at before giving up.</summary>
-    public const int MaxEntries = 20_000;
+    /// <remarks>
+    /// The real bound. Those three installs hold 254, 271 and 122 files; this
+    /// leaves room for a very large title while still stopping a runaway walk.
+    /// </remarks>
+    public const int MaxEntries = 200_000;
 
     private static readonly TimeSpan _regexBudget = TimeSpan.FromMilliseconds(250);
 
@@ -43,7 +52,9 @@ public sealed class GameFileProbe : IGameFileProbe
         ArgumentNullException.ThrowIfNull(rules);
         ct.ThrowIfCancellationRequested();
 
-        string dir = Path.GetDirectoryName(Path.GetFullPath(exePath)) ?? string.Empty;
+        // The INSTALL ROOT, not the executable's own directory — an Unreal exe
+        // sits three levels below everything that identifies the game.
+        string dir = InstallRoot.Resolve(exePath);
 
         // manifest_field is uncollected from the start: the store-manifest
         // extractors are not built, so every such signal must evaluate Unknown
@@ -52,12 +63,10 @@ public sealed class GameFileProbe : IGameFileProbe
 
         List<string> files = [];
         List<string> dirs = [];
-        if (!TryWalk(dir, files, dirs))
-        {
-            uncollected.Add(DetectionSignalType.FileExists);
-            uncollected.Add(DetectionSignalType.SiblingGlob);
-            uncollected.Add(DetectionSignalType.DirExists);
-        }
+
+        // An incomplete walk is NOT recorded as an uncollected fact. It makes a
+        // miss unreliable, not a hit — see GameFileSnapshot.FileListingComplete.
+        bool listingComplete = TryWalk(dir, files, dirs);
 
         VersionInfo pe = ReadVersionInfo(exePath);
         if (pe.IsEmpty)
@@ -80,6 +89,7 @@ public sealed class GameFileProbe : IGameFileProbe
             GameDirectory = dir.Replace('\\', '/'),
             RelativeFiles = files,
             RelativeDirectories = dirs,
+            FileListingComplete = listingComplete,
             PeCompanyName = pe.Company,
             PeProductName = pe.Product,
             PeFileVersion = pe.FileVersion,

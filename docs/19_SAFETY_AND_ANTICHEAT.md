@@ -164,9 +164,28 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
    > a caller who never asks it — or ignores the answer — changes nothing about
    > what injection allows.
    >
-   > **What it does not cover.** The residual is an anti-cheat SDK sitting on
-   > disk whose service is not installed and whose module is not loaded; checks
-   > 1, 2 and 2b already cover the rest. And today the `directories` + `files`
+   > **Which directory.** The **install root**, resolved by walking up from the
+   > executable to a known platform boundary (`steamapps\common\<X>` and
+   > friends) — *not* the directory the executable sits in.
+   >
+   > Measured 2026-08-03 on Lies of P, and the difference is the whole check:
+   > Unreal puts the exe at `<root>\<Project>\Binaries\Win64\`, a folder holding
+   > **seven files**, none of which could ever have been an anti-cheat SDK —
+   > while `EasyAntiCheat/` sits at the root three levels up. For exactly the
+   > layout most likely to carry EAC, this check scanned a directory that could
+   > not contain what it was looking for, and returned clean.
+   >
+   > The boundaries are hardcoded, like `IsPlatformLauncher`, because a
+   > data-driven boundary lets a rules update move where the hard gate looks.
+   > **When no boundary is recognised the executable's own directory is used** —
+   > walking up blindly would reach a folder of unrelated games, and refusing a
+   > title because a *sibling* ships anti-cheat is a false refusal with no
+   > appeal. A nested executable outside a recognised store layout is therefore
+   > still scanned narrowly; that residual is stated, not closed.
+   >
+   > **What it does not cover.** Beyond the above, the residual is an anti-cheat
+   > SDK sitting on disk whose service is not installed and whose module is not
+   > loaded; checks 1, 2 and 2b already cover the rest. And today the `directories` + `files`
    > groups carry only three tokens between them, so "check 4 ran" is a much
    > narrower statement than "this game ships no anti-cheat". Widening it needs
    > **verified** file and directory names — the seed table below deliberately

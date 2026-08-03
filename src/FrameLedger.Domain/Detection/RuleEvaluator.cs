@@ -51,9 +51,12 @@ public sealed class RuleEvaluator
 
         return signal.Type switch
         {
+            // A hit survives an incomplete walk; a miss does not. We saw what we
+            // saw — it is only absence that a short walk casts doubt on.
             DetectionSignalType.FileExists or DetectionSignalType.SiblingGlob =>
-                Found(snapshot.RelativeFiles, needle),
-            DetectionSignalType.DirExists => Found(snapshot.RelativeDirectories, needle),
+                Found(snapshot.RelativeFiles, needle, snapshot.FileListingComplete),
+            DetectionSignalType.DirExists =>
+                Found(snapshot.RelativeDirectories, needle, snapshot.FileListingComplete),
             DetectionSignalType.PathContains => Outcome(
                 snapshot.GameDirectory.Contains(needle.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)),
             DetectionSignalType.PeCompanyContains => Contains(snapshot.PeCompanyName, needle),
@@ -265,7 +268,7 @@ public sealed class RuleEvaluator
             ? SignalOutcome.Unknown
             : Outcome(haystack.Contains(needle, StringComparison.OrdinalIgnoreCase));
 
-    private static SignalOutcome Found(IReadOnlyList<string> entries, string pattern)
+    private static SignalOutcome Found(IReadOnlyList<string> entries, string pattern, bool listingComplete)
     {
         foreach (string e in entries)
         {
@@ -275,7 +278,9 @@ public sealed class RuleEvaluator
             }
         }
 
-        return SignalOutcome.NoMatch;
+        // Not found. Whether that means "it is not there" depends entirely on
+        // whether we finished looking.
+        return listingComplete ? SignalOutcome.NoMatch : SignalOutcome.Unknown;
     }
 
     private static string LeafOf(string path)
