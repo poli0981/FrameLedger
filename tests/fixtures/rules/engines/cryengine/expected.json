@@ -1,0 +1,1 @@
+{ "engine": "cryengine", "platform": null, "capabilities": [], "$why": "CrySystem.dll sibling. Version is null: CrySystem.dll here is a zero-byte marker, and pe_file_version reads the sibling its `from` names rather than the executable." }

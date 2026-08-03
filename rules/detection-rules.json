@@ -29,7 +29,7 @@
     "rather than left to be inferred from two empty arrays."
   ],
   "schemaVersion": 2,
-  "rulesVersion": "2026.08.1",
+  "rulesVersion": "2026.08.2",
 
   "engines": [
     {
@@ -71,6 +71,23 @@
       "signals": { "any": [
         { "type": "dir_exists", "value": "renpy" },
         { "type": "sibling_glob", "value": "*.rpa" }
+      ] },
+      "version": null
+    },
+    {
+      "id": "cryengine",
+      "name": "CryEngine",
+      "signals": { "any": [
+        { "type": "sibling_glob", "value": "CrySystem.dll" }
+      ] },
+      "version": { "type": "pe_file_version", "from": "CrySystem.dll" }
+    },
+    {
+      "id": "source",
+      "name": "Source",
+      "signals": { "all": [
+        { "type": "sibling_glob", "value": "gameinfo.txt" },
+        { "type": "sibling_glob", "value": "bin/engine.dll" }
       ] },
       "version": null
     }

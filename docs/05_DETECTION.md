@@ -99,14 +99,23 @@ Recorded as a residual risk, not as a solved problem.
 | Unreal 4/5 | exe matches `*-Win64-Shipping.exe` **or** `*/Content/Paks/*.pak` | ProductVersion regex `\+\+UE(4\|5)\+Release-(\d+\.\d+)` |
 | Godot | `.pck` sibling **or** `strings_contains("Godot Engine v")` | strings regex `Godot Engine v(\d+\.\d+[\.\d]*)` |
 | GameMaker | `data.win` | `N/A` |
-| RPG Maker MV/MZ | `nw.dll` + `www/` or `package.json` | `rpg_core.js` / `rmmz_core.js` header |
-| RPG Maker XP/VX/VXAce | `RGSS10*`/`RGSS20*`/`RGSS30*.dll` | dll name → XP/VX/VXAce |
+| RPG Maker MV/MZ ⛔ | `nw.dll` + `www/` or `package.json` | `rpg_core.js` / `rmmz_core.js` header |
+| RPG Maker XP/VX/VXAce ⛔ | `RGSS10*`/`RGSS20*`/`RGSS30*.dll` | dll name → XP/VX/VXAce |
 | Ren'Py | `renpy/` dir **or** `*.rpa` | `renpy/__init__` strings / `log.txt` first line |
 | CryEngine | `CrySystem.dll` | FileVersion |
 | Source | `gameinfo.txt` + `bin/engine.dll` | `N/A` |
 | Unknown | fallback | — |
 
 Order matters (first match wins). Engine is user-overridable.
+
+**The array order in `detection-rules.json` *is* that precedence**, and the only thing in the repository that notices a reorder is `tests/fixtures/rules/ordering/unity_markers_with_ue_structure` — a directory carrying Unity markers *and* Unreal structure, which is the case `14_TESTING` names.
+
+⛔ **Two rows cannot be expressed in schemaVersion 2**, and are documented rather than half-implemented — a rule that exists but never fires is worse than one that is absent, because it reads as coverage:
+
+- **RPG Maker MV/MZ.** The signal is `nw.dll` **and** (`www/` **or** `package.json`) — a nested group, and `signalGroup` sets `maxProperties: 1` with its own `$comment` saying nesting is unsupported in v2. Its version is a header inside a sibling `.js`, and `strings_regex` carries no `from`, so it cannot be aimed at a file other than the executable.
+- **RPG Maker XP/VX/VXAce.** The signals *are* expressible (`any` over the three `RGSS*` prefixes), but the version is "which of them matched" — an answer no extractor produces. Splitting it into three engine rules with `version: null` and the variant in the display name would work and is a product decision about how the engine reads in the UI, not a mechanical fill-in.
+
+Everything else in the table is in the data and has a fixture; `rules-validate.ps1` fails if a rule id has no fixture directory, or a fixture no rule.
 
 ### Platform signatures & metadata
 

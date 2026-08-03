@@ -5,6 +5,18 @@
 # --- .NET / MSBuild --------------------------------------------------------
 [Bb]in/
 [Oo]bj/
+
+# The rule fixture corpus is DATA, not build output, and some of it has to be
+# named after the thing it imitates. `tests/fixtures/rules/engines/source/bin/`
+# mirrors a real Source layout, and `[Bb]in/` above silently swallowed it: the
+# file existed on the machine that wrote it, so the fixture passed locally and
+# failed on a fresh clone with "engine: null". `git add -A` reported nothing,
+# because an ignored file is not an untracked one.
+#
+# Negations must come after the pattern they undo, and the parent directory has
+# to be re-included first or git never descends into it.
+!tests/fixtures/rules/**/bin/
+!tests/fixtures/rules/**/bin/**
 [Dd]ebug/
 [Rr]elease/
 [Xx]64/
