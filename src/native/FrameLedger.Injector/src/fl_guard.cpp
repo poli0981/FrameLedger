@@ -35,13 +35,18 @@ namespace {
 // it arrives through the documented loader like RTSS, OBS and ReShade do.
 //
 // Reached only from GuardedInject, below, after every check has passed.
-bool InjectViaLoadLibrary(std::uint32_t pid, const wchar_t* dllPath) noexcept {
+//
+// Returns kAllow on success, or WHY it did not happen. It used to return bool,
+// and the caller turned false into an Allow verdict carrying a free-text signal
+// — so a failed injection was indistinguishable from a successful one at the
+// type level.
+Reason InjectViaLoadLibrary(std::uint32_t pid, const wchar_t* dllPath) noexcept {
     // The payload must exist and be a file before we ask another process to
     // load it. A missing DLL turns into a remote LoadLibraryW that fails inside
     // the game rather than an error we can report here.
     const DWORD attrs = GetFileAttributesW(dllPath);
     if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-        return false;
+        return Reason::kInjectionFailed;
     }
 
     // Only exactly the rights needed. PROCESS_ALL_ACCESS would work and would
@@ -51,7 +56,7 @@ bool InjectViaLoadLibrary(std::uint32_t pid, const wchar_t* dllPath) noexcept {
                          PROCESS_QUERY_LIMITED_INFORMATION;
     HANDLE      proc = OpenProcess(rights, FALSE, pid);
     if (proc == nullptr) {
-        return false;
+        return Reason::kInjectionFailed;
     }
 
     // An x64 DLL cannot load into a 32-bit process, and kernel32 sits at a
@@ -60,9 +65,15 @@ bool InjectViaLoadLibrary(std::uint32_t pid, const wchar_t* dllPath) noexcept {
     // somebody else's address space. (This is also why D3D9 is not Tier 1:
     // 20_OPEN_QUESTIONS §Scope.)
     BOOL targetIsWow64 = FALSE;
-    if (!IsWow64Process(proc, &targetIsWow64) || targetIsWow64) {
+    if (!IsWow64Process(proc, &targetIsWow64)) {
         CloseHandle(proc);
-        return false;
+        return Reason::kInjectionFailed;
+    }
+    if (targetIsWow64) {
+        CloseHandle(proc);
+        // Its own reason. This is permanent and expected for a whole class of
+        // titles, and the UI's answer is "Tier 2", not "something went wrong".
+        return Reason::kTargetIsWow64;
     }
 
     // kernel32 is mapped at the same base in every 64-bit process for the life
@@ -72,13 +83,13 @@ bool InjectViaLoadLibrary(std::uint32_t pid, const wchar_t* dllPath) noexcept {
     const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
     if (kernel32 == nullptr) {
         CloseHandle(proc);
-        return false;
+        return Reason::kInjectionFailed;
     }
     auto loadLibrary =
         reinterpret_cast<LPTHREAD_START_ROUTINE>(reinterpret_cast<void*>(GetProcAddress(kernel32, "LoadLibraryW")));
     if (loadLibrary == nullptr) {
         CloseHandle(proc);
-        return false;
+        return Reason::kInjectionFailed;
     }
 
     const std::size_t bytes = (wcslen(dllPath) + 1) * sizeof(wchar_t);
@@ -88,7 +99,7 @@ bool InjectViaLoadLibrary(std::uint32_t pid, const wchar_t* dllPath) noexcept {
     void* remote = VirtualAllocEx(proc, nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (remote == nullptr) {
         CloseHandle(proc);
-        return false;
+        return Reason::kInjectionFailed;
     }
 
     bool   ok = false;
@@ -145,7 +156,7 @@ bool InjectViaLoadLibrary(std::uint32_t pid, const wchar_t* dllPath) noexcept {
     }
 
     CloseHandle(proc);
-    return ok;
+    return ok ? Reason::kAllow : Reason::kInjectionFailed;
 }
 
 Verdict Refuse(Reason reason, const char* family, const char* signal) noexcept {
@@ -370,6 +381,10 @@ const char* ReasonName(Reason r) noexcept {
         return "AntiCheatFile";
     case Reason::kPreScanFailed:
         return "PreScanFailed";
+    case Reason::kInjectionFailed:
+        return "InjectionFailed";
+    case Reason::kTargetIsWow64:
+        return "TargetIsWow64";
     case Reason::kSuspiciousUnsigned:
         return "SuspiciousUnsigned";
     case Reason::kRulesUnreadable:
@@ -439,15 +454,21 @@ Verdict GuardedInjectImpl(std::uint32_t targetPid, const wchar_t* dllPath, const
         return v;
     }
     if (dllPath == nullptr) {
-        return Refuse(Reason::kRulesUnreadable, nullptr, "no payload path");
+        // Was kRulesUnreadable, which said the rules file could not be read
+        // about a caller that passed no path. A mislabelled reason is a wrong
+        // answer for whoever has to fix it.
+        return Refuse(Reason::kInjectionFailed, nullptr, "no payload path");
     }
-    if (!InjectViaLoadLibrary(targetPid, dllPath)) {
-        // Injection failing is not a guard refusal — the gate passed. The
-        // caller distinguishes them by reason; this one is reported as an
-        // allow whose injection did not take, and CaptureError carries it.
-        Verdict failed = Allow();
-        strncpy_s(failed.signal, "injection failed after a passing guard", _TRUNCATE);
-        return failed;
+    // Injection failing is not a guard refusal — the gate passed — but it is
+    // also NOT an allow. Allowed() means "the DLL is loaded in the target",
+    // which is the only reading a caller can act on. The reason says whose
+    // fault it was, because the responses differ.
+    const Reason injected = InjectViaLoadLibrary(targetPid, dllPath);
+    if (injected == Reason::kTargetIsWow64) {
+        return Refuse(injected, nullptr, "target is a 32-bit process; the Overlay is x64-only");
+    }
+    if (injected != Reason::kAllow) {
+        return Refuse(injected, nullptr, "the guard passed but the injection did not take");
     }
     return v;
 }

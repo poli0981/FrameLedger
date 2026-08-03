@@ -660,10 +660,55 @@ TEST_CASE("a missing payload is refused before any process is opened", "[guard][
     g.scanSet = {GetCurrentProcessId()};
 
     const Verdict v = GuardedInjectWithSources(GetCurrentProcessId(), LR"(C:\definitely\not\here.dll)", FakeSources());
-    // The gate passed; the injection did not take, and that is reported rather
-    // than being mistaken for a refusal.
-    CHECK(v.Allowed());
-    CHECK(std::strstr(v.signal, "injection failed") != nullptr);
+
+    // The gate passed and the injection still did not happen — and that is NOT
+    // an allow. This case used to assert v.Allowed(), which meant a caller
+    // reading Allowed() got `true` for a DLL that was never loaded.
+    CHECK_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kInjectionFailed);
+
+    // Distinguishable from a refusal: no anti-cheat family is named, because
+    // none was found.
+    CHECK(v.family[0] == '\0');
+}
+
+TEST_CASE("a 32-bit target gets its own reason, not a generic failure", "[guard][inject][wow64]") {
+    // 14_TESTING's manual matrix: "a 32-bit title, asserting it is correctly
+    // refused and routed to Tier 2". MEASURED against a real one first —
+    // Deadly Heart Gambit is an x86 Unity title, and the old code reported the
+    // refusal as Allow with the truth in a string.
+    //
+    // SysWOW64\cmd.exe is a guaranteed 32-bit process on any x64 Windows,
+    // including CI.
+    wchar_t sysWow64[MAX_PATH]{};
+    REQUIRE(GetSystemWow64DirectoryW(sysWow64, MAX_PATH) != 0);
+    std::wstring cmd = std::wstring(sysWow64) + L"\\cmd.exe";
+
+    STARTUPINFOW        si{};
+    PROCESS_INFORMATION pi{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    std::wstring cmdline = L"\"" + cmd + L"\" /c pause";
+    REQUIRE(CreateProcessW(nullptr, cmdline.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &pi) != 0);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {pi.dwProcessId};
+
+    // Our own Overlay: a real, existing x64 DLL, so the refusal below is about
+    // the TARGET's bitness and nothing else.
+    const Verdict v = GuardedInjectWithSources(pi.dwProcessId, FL_OVERLAY_DLL, FakeSources());
+
+    TerminateProcess(pi.hProcess, 0);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+
+    INFO("reason was " << ReasonName(v.reason) << " signal=" << v.signal);
+    CHECK_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kTargetIsWow64);
+    CHECK(v.reason != Reason::kInjectionFailed);    // specific, not the catch-all
 }
 
 #endif    // FL_HARNESS_EXE && FL_OVERLAY_DLL

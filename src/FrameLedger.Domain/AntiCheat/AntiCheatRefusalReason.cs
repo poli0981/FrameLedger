@@ -82,4 +82,33 @@ public enum AntiCheatRefusalReason
     /// </para>
     /// </remarks>
     PreScanFailed = 17,
+
+    /// <summary>
+    /// Every check passed and the injection still did not happen.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This is not an allow.</strong> The native side used to report a
+    /// failed injection as <see cref="Allow"/> with the truth in a free-text
+    /// signal, so <c>IsAllowed</c> was <c>true</c> for an injection that never
+    /// occurred. Measured 2026-08-03 against a real title.
+    /// </para>
+    /// <para>
+    /// Distinct from a refusal because the response differs: a refusal is
+    /// permanent and names an anti-cheat family; this one may be transient and
+    /// names none.
+    /// </para>
+    /// </remarks>
+    InjectionFailed = 18,
+
+    /// <summary>
+    /// The target is a 32-bit process, so an x64 Overlay cannot load into it.
+    /// </summary>
+    /// <remarks>
+    /// Permanent and expected rather than an error — the Overlay is x64-only
+    /// (<c>20_OPEN_QUESTIONS</c> §Scope decisions), which is also why D3D9 is not
+    /// a Tier-1 API. The UI should say so and offer Tier 2 rather than reporting
+    /// a failure the user could act on.
+    /// </remarks>
+    TargetIsWow64 = 19,
 }

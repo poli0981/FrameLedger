@@ -86,6 +86,27 @@ enum class Reason : std::uint8_t {
     // Grouping is worth less than a number that never moves.
     kPreScanFailed,
 
+    // The guard PASSED and the injection still did not happen.
+    //
+    // These exist because the previous code returned kAllow with the truth in a
+    // free-text signal, above a comment claiming "the caller distinguishes them
+    // by reason" — and there was no reason to distinguish by. A caller reading
+    // Allowed() got `true` for an injection that never occurred. Measured
+    // 2026-08-03 against a real 32-bit title.
+    //
+    // Allowed() is now false for both: it means "the DLL is loaded in the
+    // target", which is the only reading a caller can act on safely. The reason
+    // says whose fault it was, because the responses differ — a refusal is
+    // permanent, a failed injection may be worth retrying, and WOW64 is
+    // permanent but for an entirely different reason.
+    kInjectionFailed,
+
+    // The target is a 32-bit process. Permanent and expected, not an error:
+    // the Overlay is x64-only, so an x64 DLL cannot load there
+    // (20_OPEN_QUESTIONS §Scope decisions). The UI should say so and offer
+    // Tier 2 rather than reporting a failure the user could act on.
+    kTargetIsWow64,
+
     // NOT A REASON. The count, so appending above it updates the exported
     // FlGuardReasonCount by construction.
     //
