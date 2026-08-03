@@ -654,6 +654,14 @@ Record the SDK version each name came from.
   re-enumeration (143 → 144 modules), mapped at `0x7FFA60340000`, 820 KB.
   Afterwards: alive, responding, **103.6 s of CPU over 6 s wall-clock** across
   180 threads — still rendering, not stalled.
+- **It also shut down cleanly with the Overlay still mapped.** `WM_CLOSE`, and
+  both `LOP-Win64-Shipping.exe` and the `LOP.exe` shim exited on their own; no
+  hang, no crash dialog, no orphan. Worth stating because process exit runs
+  `DllMain(DLL_PROCESS_DETACH)` on a loader-locked thread, which is the one
+  lifecycle path a `/MT` static-CRT DLL is most likely to fail on, and it is not
+  exercised by `hook-harness` — the harness is killed, not closed. **Nothing is
+  hooked yet**, so this clears the loader, not the unhook path; P1's fault
+  policy and unhook still need the same check once `Present` is hooked.
 - Reached through the shipped C ABI (`FrameLedger.Guard.dll`), so there was no
   path that skipped the gate. There is still no injector CLI (§S9).
 
