@@ -284,6 +284,102 @@ if ((Test-Path $DocPath) -and (Test-Member $rules 'anticheat')) {
     }
 }
 
+# --- Parser capacity: the caps a JSON Schema cannot express -----------------
+# Two of the guard's limits are invisible to the schema:
+#
+#   * kMaxFamilies bounds the SUM of five separate arrays. `maxItems` is
+#     per-array, so the schema can only stop one array breaching the total alone.
+#   * kRulesTokenBudget bounds the WHOLE FILE, including engines/platforms/
+#     capabilities the guard never reads — jsmn tokenises everything before it
+#     locates `anticheat`.
+#
+# Both are checked here as well as in ctest fl_rules_budget, because a rules-only
+# PR routes through rules-publish.yml, which never builds native. Neither cap is
+# a truncation: exceeding one is ParseResult::kTooLarge for the whole file, which
+# the guard turns into "refuse every title on this machine".
+#
+# THE THRESHOLDS ARE READ OUT OF THE HEADER, never restated. A number copied into
+# this script is the third place it can drift, and drift between the schema and
+# the parser is the entire defect this check exists to prevent. If the header or
+# a constant cannot be read, that FAILS — a capacity check that silently stops
+# checking is worse than no check, because it reads as coverage.
+$headerPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'src/native/FrameLedger.Injector/include/fl_ac_rules.h'
+if (-not (Test-Path $headerPath)) {
+    Write-Host "RULES VALIDATION FAILED: cannot find fl_ac_rules.h at $headerPath" -ForegroundColor Red
+    Write-Host '  The parser capacities are read from that header. If it moved, this check' -ForegroundColor Red
+    Write-Host '  must move with it — refusing rather than silently checking nothing.' -ForegroundColor Red
+    exit 1
+}
+$headerText = Get-Content $headerPath -Raw
+
+function Get-HeaderConstant([string]$Name) {
+    # Matches `inline constexpr std::size_t kName = <int>;` and the derived
+    # `= kOther / 2;` form, so kRulesTokenBudget is resolved rather than skipped.
+    if ($headerText -match "(?m)^\s*inline\s+constexpr\s+std::size_t\s+$Name\s*=\s*([^;]+);") {
+        $expr = $Matches[1].Trim()
+        if ($expr -match '^\d+$') { return [int]$expr }
+        if ($expr -match '^(k\w+)\s*/\s*(\d+)$') {
+            $base = Get-HeaderConstant $Matches[1]
+            if ($null -eq $base) { return $null }
+            return [int]($base / [int]$Matches[2])
+        }
+        if ($expr -match '^1u?\s*<<\s*(\d+)$') { return [int][math]::Pow(2, [int]$Matches[1]) }
+    }
+    return $null
+}
+
+$maxFamilies = Get-HeaderConstant 'kMaxFamilies'
+$tokenBudget = Get-HeaderConstant 'kRulesTokenBudget'
+foreach ($c in @(@{ n = 'kMaxFamilies'; v = $maxFamilies }, @{ n = 'kRulesTokenBudget'; v = $tokenBudget })) {
+    if ($null -eq $c.v) {
+        Write-Host "RULES VALIDATION FAILED: could not read $($c.n) from fl_ac_rules.h" -ForegroundColor Red
+        Write-Host '  Either the constant was renamed or its form changed. Refusing rather than' -ForegroundColor Red
+        Write-Host '  skipping: an unread threshold is a check that passes without looking.' -ForegroundColor Red
+        exit 1
+    }
+}
+
+if (Test-Member $rules 'anticheat') {
+    $totalFamilies = 0
+    foreach ($g in 'modules', 'drivers', 'directories', 'services', 'files') {
+        if (Test-Member $rules.anticheat $g) { $totalFamilies += @($rules.anticheat.$g).Count }
+    }
+    if ($totalFamilies -gt $maxFamilies) {
+        $errors.Add("$totalFamilies anticheat families across all groups exceeds fl::guard::kMaxFamilies ($maxFamilies) — ParseRules returns kTooLarge and the guard refuses EVERY title")
+    }
+}
+
+# jsmn's counting rules: object, array, each string (key and value alike) and
+# each primitive cost one token.
+function Measure-JsmnTokens($Element) {
+    switch ($Element.ValueKind) {
+        'Object' {
+            $n = 1
+            foreach ($p in $Element.EnumerateObject()) { $n += 1 + (Measure-JsmnTokens $p.Value) }
+            return $n
+        }
+        'Array' {
+            $n = 1
+            foreach ($i in $Element.EnumerateArray()) { $n += Measure-JsmnTokens $i }
+            return $n
+        }
+        default { return 1 }
+    }
+}
+
+$tokenCount = $null
+try {
+    $doc = [System.Text.Json.JsonDocument]::Parse($rulesRaw)
+    $tokenCount = Measure-JsmnTokens $doc.RootElement
+}
+catch {
+    Write-Host "RULES VALIDATION FAILED: could not count tokens — $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+if ($tokenCount -gt $tokenBudget) {
+    $errors.Add("$tokenCount jsmn tokens exceeds the guard's budget of $tokenBudget — every engine/platform/capability rule counts, because jsmn tokenises the whole file before it locates the anticheat block")
+}
+
 # --- Report -----------------------------------------------------------------
 if ($errors.Count -gt 0) {
     Write-Host 'RULES VALIDATION FAILED' -ForegroundColor Red
@@ -294,4 +390,7 @@ if ($errors.Count -gt 0) {
 $moduleCount = @($rules.anticheat.modules).Count
 $driverCount = @($rules.anticheat.drivers).Count
 Write-Host "rules OK — schema v$($rules.schemaVersion), rules $($rules.rulesVersion), $moduleCount anticheat module families, $driverCount driver families" -ForegroundColor Green
+# Printed on every run, not only on failure: the hazard is a capacity nobody
+# looks at until it is already breached.
+Write-Host "  capacity — $totalFamilies/$maxFamilies families, $tokenCount/$tokenBudget parse tokens" -ForegroundColor DarkGray
 exit 0

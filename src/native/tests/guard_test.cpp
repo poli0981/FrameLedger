@@ -10,6 +10,7 @@
 // project has found (spike-notes.md §1: a driver enumeration that succeeds,
 // reports 258 drivers, and yields nothing usable).
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <cstring>
 #include <fl_ac_rules.h>
@@ -631,3 +632,36 @@ TEST_CASE("a missing payload is refused before any process is opened", "[guard][
 }
 
 #endif    // FL_HARNESS_EXE && FL_OVERLAY_DLL
+
+// ===========================================================================
+// The reason table. This is the gate that FlGuardReasonCount and the managed
+// mirror both stand on.
+// ===========================================================================
+TEST_CASE("every Reason has a distinct name, and the count is derived", "[guard][mirror]") {
+    // Reason::kCount replaced a static_assert that could not fire on the one
+    // change it existed to catch: it pinned kRulesIncomplete == 16, and
+    // kRulesIncomplete was the LAST enumerator, so appending a reason left it
+    // at 16, the assert passed, FlGuardReasonCount stayed at 17, and the
+    // managed mirror test iterated 0-16 and never compared the new value.
+    const int count = static_cast<int>(Reason::kCount);
+    CHECK(count > 0);
+    CHECK(static_cast<int>(Reason::kAllow) == 0);
+
+    // Naming is NOT compiler-enforced. C4061/C4062 are off by default even at
+    // /W4 — verified by appending an enumerator with no case and watching the
+    // build stay green — so ReasonName's exhaustiveness is checked here or
+    // nowhere. An unnamed reason falls through to "Unknown".
+    std::vector<std::string> seen;
+    for (int i = 0; i < count; ++i) {
+        const char* name = ReasonName(static_cast<Reason>(i));
+        REQUIRE(name != nullptr);
+        const std::string s = name;
+
+        INFO("Reason " << i << " reported '" << s << "'");
+        CHECK_FALSE(s.empty());
+        CHECK(s != "Unknown");    // the fallthrough: this reason has no case label
+        CHECK(std::find(seen.begin(), seen.end(), s) == seen.end());
+        seen.push_back(s);
+    }
+    CHECK(seen.size() == static_cast<std::size_t>(count));
+}

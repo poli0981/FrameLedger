@@ -69,6 +69,21 @@ GitHub release body, so a missing section means an empty release note.
   not the product; the Overlay's real cost is `14_TESTING` item 2 on a real
   game. Not a ctest — a timing threshold on a shared runner fails for reasons
   unrelated to the code.
+- **ctest `fl_rules_budget`** — asserts the thing nothing asserted: **that the
+  rules file we actually ship parses in the guard.** Every case in
+  `guard_test.cpp` parses an inline fixture, so `rules/detection-rules.json` had
+  never been through `ParseRules` in a test. Its boundary cases are **generated
+  from the constants in `fl_ac_rules.h`** rather than hand-copied, so the schema,
+  the parser and the test cannot drift apart a second time.
+  - It also counts jsmn tokens against a stated budget and **prints the headroom
+    on every run**, because the hazard is a capacity nobody looks at until it is
+    already breached. Measured today: 9,128 bytes, **475 of 8,192 tokens**, of
+    which **275 (58%) are `$comment`/`engines`/`platforms`/`capabilities` the
+    guard never reads** — jsmn tokenises the whole file before it locates
+    `anticheat`, so growing detection data spends the safety gate's budget. The
+    budget is half the capacity so that crossing it fails while there is still
+    room to act. Stated plainly: with ~8× headroom this assertion will not fire
+    for a long time, and the seed parse is what earns the test its place.
 - **`tools/coverage-gate.ps1`** — `14_TESTING`'s ≥80% / ≥95% thresholds were
   called PR-failing while the cobertura reports had been produced and ignored
   since the repository was scaffolded. The gate is **self-arming**: it reports
@@ -206,6 +221,37 @@ GitHub release body, so a missing section means an empty release note.
   pinned 0.9.6 package, not just the repository.
 
 ### Fixed
+- **The schema accepted rules files the guard refuses to parse** (`20_OPEN_QUESTIONS`
+  §S17). Eight bounds, and the schema was looser in every one. An over-cap entry
+  is not a dropped entry: `ParseRules` returns `kMalformed` and `19_SAFETY` turns
+  that into **REFUSE for every title on the machine**. Rules ship as updatable
+  data pushed to every client and `rules-validate.ps1` validated against the
+  *loose* schema, so a CI-green rules edit could have taken the product out in
+  the field. Proven both directions on one input: a 17-value family passes the
+  old schema and fails the calibrated one.
+  - **The worst was a shape mismatch, not a size one.** `blockedExecutables` and
+    `blockedStoreIds` are arrays of objects in the schema and were read as bare
+    strings. The first entry anyone added would either overflow `kMaxValueLen`
+    with its JSON text and refuse the whole file, or fit and sit there
+    unmatchable. Only the two empty arrays kept that theoretical. The parser now
+    reads the objects, keeps `family` and `reason` — `19_SAFETY` requires the UI
+    to name the check that fired, and an exe name explains nothing on its own —
+    and composes `store` + `id` into the joined `"steam:730"` form.
+  - The thresholds are **read out of `fl_ac_rules.h` by regex** rather than
+    restated, and an unreadable header or a renamed constant **fails rather than
+    skips**: an unread threshold is a check that passes without looking.
+- **A `static_assert` that could not fire on the change it existed to catch.**
+  `fl_guard_abi.cpp` pinned `kRulesIncomplete == 16` to protect
+  `FlGuardReasonCount() == 17` — but `kRulesIncomplete` was the **last**
+  enumerator, so appending a `Reason` left it at 16, the assert passed, the
+  exported count stayed stale, and the managed mirror iterated 0–16 and never
+  compared the new value. Now derived from a `Reason::kCount` sentinel; verified
+  by appending a reason and watching `GuardMirrorTests` report 18 against 17.
+- **`ReasonName`'s exhaustiveness was claimed in a comment and enforced by
+  nothing.** Omitting `default:` does not make MSVC object — C4061/C4062 are off
+  by default even at `/W4`, measured by appending an enumerator with no case and
+  watching `/W4 /WX` build clean. Replaced by ctest `fl_guard`'s "every Reason
+  has a distinct name", proven red the same way.
 - **A ctest that could never go red.** `fl_proxy_swapchain` ended in
   `Check(true, "observation recorded")`, so the H5 regression net was green by
   construction and would have stayed green if a forwarding proxy ever stopped

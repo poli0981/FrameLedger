@@ -9,7 +9,9 @@
 namespace fl::guard {
 namespace {
 
-inline constexpr std::size_t kMaxTokens = 8192;
+// kMaxTokens lives in the header now: tools/rules-validate.ps1 reads it back out
+// to apply the same budget without building anything, and a private copy here
+// would be the second number that drifts from the first.
 
 bool IEquals(const char* a, const char* b) noexcept {
     return _stricmp(a, b) == 0;
@@ -167,6 +169,138 @@ bool ReadStringArray(const char* json, const jsmntok_t* toks, int count, int arr
     return true;
 }
 
+// Read one blockedExecutables entry: { family, match, values[], reason }.
+//
+// The schema has always required all four (acBlockedExecutable), while this
+// parser read the array as bare strings — so the FIRST entry anyone added would
+// either overflow kMaxValueLen with its JSON text and refuse the whole file, or
+// fit and be stored as an unmatchable blob of punctuation. Both empty arrays are
+// the only reason that never happened.
+bool ReadTitleRule(const char* json, const jsmntok_t* toks, int count, int objIndex, TitleRule& out) noexcept {
+    if (objIndex < 0 || objIndex >= count || toks[objIndex].type != JSMN_OBJECT) {
+        return false;
+    }
+    const int famTok = FindMember(json, toks, count, objIndex, "family");
+    if (famTok < 0 || !CopyToken(json, toks[famTok], out.family, kMaxFamilyNameLen)) {
+        return false;
+    }
+    const int reasonTok = FindMember(json, toks, count, objIndex, "reason");
+    if (reasonTok < 0 || !CopyToken(json, toks[reasonTok], out.reason, kMaxReasonLen)) {
+        return false;
+    }
+
+    const int matchTok = FindMember(json, toks, count, objIndex, "match");
+    if (matchTok < 0) {
+        return false;    // required here, unlike the name-only groups
+    }
+    char matchBuf[16] = {};
+    if (!CopyToken(json, toks[matchTok], matchBuf, sizeof(matchBuf))) {
+        return false;
+    }
+    if (IEquals(matchBuf, "prefix")) {
+        out.match = MatchKind::kPrefix;
+    } else if (IEquals(matchBuf, "exact")) {
+        out.match = MatchKind::kExact;
+    } else {
+        return false;
+    }
+
+    const int valuesTok = FindMember(json, toks, count, objIndex, "values");
+    if (valuesTok < 0 || toks[valuesTok].type != JSMN_ARRAY || toks[valuesTok].size <= 0) {
+        return false;
+    }
+    if (static_cast<std::size_t>(toks[valuesTok].size) > kMaxValuesPerTitleRule) {
+        return false;
+    }
+
+    out.valueCount = 0;
+    for (int i = valuesTok + 1; i < count; ++i) {
+        if (toks[i].parent != valuesTok) {
+            continue;
+        }
+        if (!CopyToken(json, toks[i], out.values[out.valueCount], kMaxValueLen)) {
+            return false;
+        }
+        const std::size_t len = std::strlen(out.values[out.valueCount]);
+        if (len == 0) {
+            return false;    // a blank value would match every title
+        }
+        if (out.match == MatchKind::kPrefix && len < kMinPrefixLen) {
+            return false;    // the same floor ReadFamily applies, for the same reason
+        }
+        if (++out.valueCount >= kMaxValuesPerTitleRule) {
+            break;
+        }
+    }
+    return out.valueCount > 0;
+}
+
+// Read one blockedStoreIds entry: { store, id, family, reason }.
+//
+// The schema keeps store and id apart so it can constrain each (a Steam appid is
+// digits); the matcher wants the joined form fl_ac_rules.h promises. Composing
+// here means exactly one place knows the separator.
+bool ReadStoreRule(const char* json, const jsmntok_t* toks, int count, int objIndex, TitleRule& out) noexcept {
+    if (objIndex < 0 || objIndex >= count || toks[objIndex].type != JSMN_OBJECT) {
+        return false;
+    }
+    const int famTok = FindMember(json, toks, count, objIndex, "family");
+    if (famTok < 0 || !CopyToken(json, toks[famTok], out.family, kMaxFamilyNameLen)) {
+        return false;
+    }
+    const int reasonTok = FindMember(json, toks, count, objIndex, "reason");
+    if (reasonTok < 0 || !CopyToken(json, toks[reasonTok], out.reason, kMaxReasonLen)) {
+        return false;
+    }
+
+    char      store[kMaxValueLen] = {};
+    char      id[kMaxValueLen] = {};
+    const int storeTok = FindMember(json, toks, count, objIndex, "store");
+    const int idTok = FindMember(json, toks, count, objIndex, "id");
+    if (storeTok < 0 || !CopyToken(json, toks[storeTok], store, sizeof(store))) {
+        return false;
+    }
+    if (idTok < 0 || !CopyToken(json, toks[idTok], id, sizeof(id))) {
+        return false;
+    }
+    if (store[0] == '\0' || id[0] == '\0') {
+        return false;
+    }
+
+    // _snprintf_s truncates on overflow; a truncated store id is a SHORTER
+    // string that matches MORE titles, so refuse rather than store it.
+    const int written = _snprintf_s(out.values[0], kMaxValueLen, _TRUNCATE, "%s:%s", store, id);
+    if (written < 0) {
+        return false;
+    }
+    out.match = MatchKind::kExact;    // a store id is an identity, never a prefix
+    out.valueCount = 1;
+    return true;
+}
+
+using TitleReader = bool (*)(const char*, const jsmntok_t*, int, int, TitleRule&) noexcept;
+
+bool ReadTitleArray(const char* json, const jsmntok_t* toks, int count, int arrayTok, TitleReader read, TitleRule* out,
+                    std::size_t& outCount) noexcept {
+    outCount = 0;
+    if (arrayTok < 0 || toks[arrayTok].type != JSMN_ARRAY) {
+        return false;
+    }
+    if (static_cast<std::size_t>(toks[arrayTok].size) > kMaxTitleRules) {
+        return false;
+    }
+    for (int i = arrayTok + 1; i < count && outCount < kMaxTitleRules; ++i) {
+        if (toks[i].parent != arrayTok) {
+            continue;
+        }
+        if (!read(json, toks, count, i, out[outCount])) {
+            return false;
+        }
+        ++outCount;
+    }
+    return true;
+}
+
 // The gate has to be usable, not merely well-formed. A syntactically perfect
 // file with an empty `modules` array blocks nothing.
 bool IsCompleteEnoughToGate(const Rules& r) noexcept {
@@ -245,15 +379,16 @@ ParseResult ParseRules(const char* json, std::size_t length, Rules& out) noexcep
     }
 
     // Per-title lists may legitimately be empty (§S14), but must be present and
-    // must be arrays if they exist at all.
+    // must be arrays if they exist at all. Both are arrays of OBJECTS — see
+    // ReadTitleRule for what reading them as strings would have done.
     const int execTok = FindMember(json, toks, count, acTok, "blockedExecutables");
-    if (execTok >= 0 && !ReadStringArray(json, toks, count, execTok, out.blockedExecutables, kMaxPerTitle,
-                                         out.blockedExecutableCount)) {
+    if (execTok >= 0 && !ReadTitleArray(json, toks, count, execTok, &ReadTitleRule, out.blockedExecutables,
+                                        out.blockedExecutableCount)) {
         return ParseResult::kMalformed;
     }
     const int storeTok = FindMember(json, toks, count, acTok, "blockedStoreIds");
     if (storeTok >= 0 &&
-        !ReadStringArray(json, toks, count, storeTok, out.blockedStoreIds, kMaxPerTitle, out.blockedStoreIdCount)) {
+        !ReadTitleArray(json, toks, count, storeTok, &ReadStoreRule, out.blockedStoreIds, out.blockedStoreIdCount)) {
         return ParseResult::kMalformed;
     }
 
@@ -261,12 +396,12 @@ ParseResult ParseRules(const char* json, std::size_t length, Rules& out) noexcep
     if (heurTok >= 0 && toks[heurTok].type == JSMN_OBJECT) {
         const int fragTok = FindMember(json, toks, count, heurTok, "nameFragments");
         if (fragTok >= 0 &&
-            !ReadStringArray(json, toks, count, fragTok, out.nameFragments, 16, out.nameFragmentCount)) {
+            !ReadStringArray(json, toks, count, fragTok, out.nameFragments, kMaxNameFragments, out.nameFragmentCount)) {
             return ParseResult::kMalformed;
         }
         const int signTok = FindMember(json, toks, count, heurTok, "trustedSigners");
-        if (signTok >= 0 &&
-            !ReadStringArray(json, toks, count, signTok, out.trustedSigners, 16, out.trustedSignerCount)) {
+        if (signTok >= 0 && !ReadStringArray(json, toks, count, signTok, out.trustedSigners, kMaxTrustedSigners,
+                                             out.trustedSignerCount)) {
             return ParseResult::kMalformed;
         }
     }
@@ -309,28 +444,39 @@ const Family* MatchName(const Rules& rules, Group group, const char* observed) n
     return nullptr;
 }
 
-bool MatchesBlockedExecutable(const Rules& rules, const char* exeName) noexcept {
-    if (exeName == nullptr) {
-        return false;
+const TitleRule* MatchesBlockedExecutable(const Rules& rules, const char* exeName) noexcept {
+    if (exeName == nullptr || exeName[0] == '\0') {
+        return nullptr;
     }
     for (std::size_t i = 0; i < rules.blockedExecutableCount; ++i) {
-        if (IEquals(exeName, rules.blockedExecutables[i])) {
-            return true;
+        const TitleRule& r = rules.blockedExecutables[i];
+        for (std::size_t v = 0; v < r.valueCount; ++v) {
+            const bool hit =
+                (r.match == MatchKind::kPrefix) ? IStartsWith(exeName, r.values[v]) : IEquals(exeName, r.values[v]);
+            if (hit) {
+                return &r;
+            }
         }
     }
-    return false;
+    return nullptr;
 }
 
-bool MatchesBlockedStoreId(const Rules& rules, const char* storeId) noexcept {
-    if (storeId == nullptr) {
-        return false;
+const TitleRule* MatchesBlockedStoreId(const Rules& rules, const char* storeId) noexcept {
+    if (storeId == nullptr || storeId[0] == '\0') {
+        return nullptr;
     }
     for (std::size_t i = 0; i < rules.blockedStoreIdCount; ++i) {
-        if (IEquals(storeId, rules.blockedStoreIds[i])) {
-            return true;
+        const TitleRule& r = rules.blockedStoreIds[i];
+        // Always exact: ReadStoreRule composes one joined value and forces
+        // kExact, because a store id is an identity and a prefix over identities
+        // would block "steam:7300" for an entry naming "steam:730".
+        for (std::size_t v = 0; v < r.valueCount; ++v) {
+            if (IEquals(storeId, r.values[v])) {
+                return &r;
+            }
         }
     }
-    return false;
+    return nullptr;
 }
 
 bool HasSuspiciousFragment(const Rules& rules, const char* moduleName) noexcept {

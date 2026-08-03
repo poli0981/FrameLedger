@@ -64,15 +64,23 @@
       "$comment": "STRICT. Every value the hard gate matches on - module, driver, service, directory, file, executable - must be one of these. Deliberately a positive ASCII allowlist rather than a 'not blank' denylist, because (a) `minLength: 1` does NOT reject whitespace and (b) this validator's regex engine treats \\S as ASCII-only, so U+0085, U+00A0, U+1680, U+2000-U+200B, U+202F, U+205F, U+3000 and U+FEFF all satisfy a \\S-based non-blank check. An allowlist makes every one of them unrepresentable, and a blank prefix is the single worst value this file can contain. It also rejects glob syntax: a maintainer copying `EasyAntiCheat*.dll` verbatim out of the 19_SAFETY seed table would otherwise create an entry matched literally, which never fires - a silent hole in the blocklist. Path separators, wildcards and the Windows-illegal filename characters are excluded, so `..\\..\\x`, `C:/x` and `*` are rejected too.",
       "type": "string",
       "minLength": 1,
-      "maxLength": 128,
+      "maxLength": 95,
       "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 ._+()-]*[A-Za-z0-9._+()-])?(?![\\s\\S])"
     },
 
+    "acReason": {
+      "$comment": "Why a per-title rule fired, shown to the user. Bounded by fl::guard::kMaxReasonLen - 1, which is tighter than freeText because it lands in a fixed buffer the guard allocates nothing for. freeText stays at 300 for `note`, which the parser never reads.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 127,
+      "pattern": "^[^\\u0000-\\u0020\\u007F\\u0085\\u00A0\\u1680\\u2000-\\u200B\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF](?:[^\\u0000-\\u001F\\u007F]*[^\\u0000-\\u0020\\u007F\\u0085\\u00A0\\u1680\\u2000-\\u200B\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF])?(?![\\s\\S])"
+    },
+
     "familyName": {
-      "$comment": "Vendor family. Shown to the user as the reason the guard fired, and the key the required-family checks match on, so it is held to the same ASCII discipline as acToken.",
+      "$comment": "Vendor family. Shown to the user as the reason the guard fired, and the key the required-family checks match on, so it is held to the same ASCII discipline as acToken. maxLength is fl::guard::kMaxFamilyNameLen - 1: CopyToken reserves a byte for the NUL and rejects at `len >= cap`, so 64 admits 63 characters.",
       "type": "string",
       "minLength": 2,
-      "maxLength": 64,
+      "maxLength": 63,
       "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 ._'&/+-]*[A-Za-z0-9._'&/+-])?(?![\\s\\S])"
     },
 
@@ -235,17 +243,27 @@
     },
 
     "acValueList": {
+      "$comment": "maxItems is fl::guard::kMaxValuesPerFamily. ReadFamily refuses the WHOLE FILE when an entry exceeds it, so a 17th value here does not drop one value - it makes the guard refuse every title on every client that fetched the update.",
       "type": "array",
       "minItems": 1,
-      "maxItems": 64,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/acToken" }
+    },
+
+    "acTitleValueList": {
+      "$comment": "Per-title rules land in a smaller buffer than families: fl::guard::kMaxValuesPerTitleRule. A title is named by a handful of executables, not sixteen.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/acToken" }
     },
 
     "prefixMinimumLength": {
-      "$comment": "A 1-2 character prefix matches a large share of ordinary Windows DLLs. Over-matching fails closed so it cannot get anyone banned - but it refuses every title on the machine, which is how a user ends up hunting for the override CLAUDE.md rule 2 says does not exist. 19_SAFETY's own table writes PunkBuster as `pb*.dll`; the seed correctly narrows that to PnkBstr/pbcl/pbsv and this rule makes the narrow form mandatory. Shortest prefix in the current seed is 4. `exact` values are unaffected - `vgk.sys` needs no floor.",
+      "$comment": "A 1-3 character prefix matches a large share of ordinary Windows DLLs. Over-matching fails closed so it cannot get anyone banned - but it refuses every title on the machine, which is how a user ends up hunting for the override CLAUDE.md rule 2 says does not exist. 19_SAFETY's own table writes PunkBuster as `pb*.dll`; the seed correctly narrows that to PnkBstr/pbcl/pbsv and this rule makes the narrow form mandatory. Shortest prefix in the current seed is 4. `exact` values are unaffected - `vgk.sys` needs no floor. The floor is fl::guard::kMinPrefixLen, which ReadFamily also enforces at load time because a fetched rules file may never have been through tools/rules-validate.ps1; this schema said 3 while both of those said 4, so a 3-character prefix validated in CI and then refused every title at injection time.",
       "if": { "properties": { "match": { "const": "prefix" } }, "required": ["match"] },
-      "then": { "properties": { "values": { "items": { "minLength": 3 } } } }
+      "then": { "properties": { "values": { "items": { "minLength": 4 } } } }
     },
 
     "acMatchGroup": {
@@ -297,8 +315,8 @@
       "properties": {
         "family": { "$ref": "#/$defs/familyName" },
         "match": { "$ref": "#/$defs/matchKind" },
-        "values": { "$ref": "#/$defs/acValueList" },
-        "reason": { "$ref": "#/$defs/freeText" }
+        "values": { "$ref": "#/$defs/acTitleValueList" },
+        "reason": { "$ref": "#/$defs/acReason" }
       },
       "allOf": [{ "$ref": "#/$defs/prefixMinimumLength" }]
     },
@@ -312,7 +330,7 @@
         "store": { "enum": ["steam", "gog", "epic", "itch"] },
         "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(?![\\s\\S])" },
         "family": { "$ref": "#/$defs/familyName" },
-        "reason": { "$ref": "#/$defs/freeText" }
+        "reason": { "$ref": "#/$defs/acReason" }
       },
       "allOf": [
         {
@@ -334,9 +352,10 @@
           "$comment": "Which certificate subject field trustedSigners is compared against. A const, not an enum, because the choice is safety-relevant and measured: on Windows 11 26300 every WHQL-signed binary - including the NVIDIA display driver - carries CN='Microsoft Windows Hardware Compatibility Publisher', which is not a vendor name. Matching CN would make the whole driver stack read as untrusted and, combined with the 'guard'/'protect' nameFragments, refuse titles for no reason. O= survives WHQL re-signing. Changing this requires editing the schema, which is a reviewed act."
         },
         "nameFragments": {
+          "$comment": "maxItems is fl::guard::kMaxNameFragments. It was 32 here against a hardcoded 16 in the parser, so a 17th fragment refused the whole file.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 32,
+          "maxItems": 16,
           "uniqueItems": true,
           "items": {
             "type": "string",
@@ -347,14 +366,15 @@
           }
         },
         "trustedSigners": {
+          "$comment": "maxItems is fl::guard::kMaxTrustedSigners, maxLength is kMaxValueLen - 1. Both were looser here than in the parser, and over-running either refused the whole file rather than the entry - which for an ALLOWLIST would have been doubly perverse: the array whose job is to suppress false refusals was itself a way to refuse everything.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 64,
+          "maxItems": 16,
           "uniqueItems": true,
           "items": {
             "type": "string",
             "minLength": 3,
-            "maxLength": 128,
+            "maxLength": 95,
             "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 .,'&()/+-]*[A-Za-z0-9.,')])?(?![\\s\\S])",
             "$comment": "The certificate subject field named by `signerField` (O=), compared in full and case-insensitively - never as a prefix or substring, because a substring signer rule is a forgery surface ('NVIDIA Corporation Ltd' would match 'NVIDIA Corporation'). This previously said CN, which measurement showed to be the wrong field."
           }
@@ -381,9 +401,10 @@
         "$comment": { "$ref": "#/$defs/commentBlock" },
 
         "modules": {
+          "$comment": "maxItems is fl::guard::kMaxFamilies, and it bounds the SUM of all five groups, not this one array - the parser fills a single families[kMaxFamilies] from all of them. A schema cannot express a cross-array total, so the per-array cap is set to the total (no single array can breach it alone) and tools/rules-validate.ps1 checks the sum imperatively. Exceeding it is ParseResult::kTooLarge for the whole file, i.e. the guard refuses every title.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 256,
+          "maxItems": 64,
           "items": { "$ref": "#/$defs/acMatchGroup" },
           "allOf": [
             {
@@ -399,7 +420,7 @@
         "drivers": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 256,
+          "maxItems": 64,
           "items": { "$ref": "#/$defs/acDriverGroup" },
           "allOf": [
             {
@@ -408,29 +429,29 @@
           ]
         },
 
-        "directories": { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/acNameGroup" } },
-        "services":    { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/acNameGroup" } },
+        "directories": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/acNameGroup" } },
+        "services":    { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/acNameGroup" } },
 
         "files": {
           "$comment": "NEW in this schema. 19_SAFETY lists Xigncode3's `x3.xem`, which is a data file shipped beside the game rather than a loadable module - the previous seed had nowhere to put it. Also the home for the anti-cheat SDK payloads that 19_SAFETY check 4 (multiplayer heuristic) looks for during the static pre-scan.",
           "type": "array",
           "minItems": 1,
-          "maxItems": 256,
+          "maxItems": 64,
           "items": { "$ref": "#/$defs/acNameGroup" }
         },
 
         "heuristic": { "$ref": "#/$defs/heuristic" },
 
         "blockedExecutables": {
-          "$comment": "May legitimately be empty - a per-title list, not the family blocklist. minItems is deliberately absent here and deliberately present on modules/drivers.",
+          "$comment": "May legitimately be empty - a per-title list, not the family blocklist. minItems is deliberately absent here and deliberately present on modules/drivers. maxItems is fl::guard::kMaxTitleRules; at kMaxValuesPerTitleRule values each that is 512 blockable names, more than the 4096 this used to claim could ever have survived the parser.",
           "type": "array",
-          "maxItems": 4096,
+          "maxItems": 64,
           "items": { "$ref": "#/$defs/acBlockedExecutable" }
         },
 
         "blockedStoreIds": {
           "type": "array",
-          "maxItems": 4096,
+          "maxItems": 64,
           "items": { "$ref": "#/$defs/acBlockedStoreId" }
         }
       }
