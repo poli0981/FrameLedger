@@ -69,6 +69,32 @@ GitHub release body, so a missing section means an empty release note.
   not the product; the Overlay's real cost is `14_TESTING` item 2 on a real
   game. Not a ctest — a timing threshold on a shared runner fails for reasons
   unrelated to the code.
+- **`fl-baseline-probe` — the measurement baseline P0 item 4 compares against**
+  (`15_ROADMAP` item 3, closing §M9's half of it). `15_ROADMAP` asks for "passive
+  file/**module** scanning", and the module half is the part that matters:
+  *"`nvngx_dlssg.dll` is loaded in this process"* is a claim of the same kind a
+  hook makes, where *"a file of that name is on disk"* is not.
+  - **Reuses the guard's enumerator** (`SystemSources().EnumerateModules`,
+    `LIST_MODULES_ALL`) rather than carrying a second module walk, so the
+    baseline and the product see the same list and the same fail-closed
+    behaviour. An `INCOMPLETE` scan is printed as such and never read as "no
+    capability loaded".
+  - Reads the `capabilities` group in **its own translation unit**. The guard's
+    parser deliberately reads only `anticheat`, and teaching it a group the hard
+    gate does not need would spend the gate's parse budget on inference data.
+  - **Proven in both directions** (ctest `fl_baseline_probe`): a clean process
+    reports nothing loaded, a planted module *is* detected, and the answer flips
+    back after unload rather than latching. The planted module is our own
+    `FrameLedger.Guard.dll` under a capability name — no vendor binary is
+    shipped, downloaded or executed. Proven red twice.
+  - **The finding it produced matters more than the tool.** The baseline can
+    answer **none** of item 4's four runtime questions — upscaler identity,
+    quality preset, render→output resolution, FG activity. A loaded
+    `nvngx_dlss.dll` means the title *can* use DLSS, not that it is on. So
+    ADR-7's README claim cannot honestly be a percentage; the defensible form is
+    "the baseline cannot answer four of these five questions at all".
+    `spike-notes.md` §8 and `15_ROADMAP` item 3 both say so, before any README
+    wording exists to be corrected later.
 - **ctest `fl_rules_budget`** — asserts the thing nothing asserted: **that the
   rules file we actually ship parses in the guard.** Every case in
   `guard_test.cpp` parses an inline fixture, so `rules/detection-rules.json` had

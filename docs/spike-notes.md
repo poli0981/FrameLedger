@@ -655,10 +655,71 @@ Record the SDK version each name came from.
 |---|---|---|---|---|---|---|
 | | | | | | | |
 
-- **Baseline problem (§M9):** `15_ROADMAP` requires comparing against the old
-  file/module-based detection, but no prior implementation exists in this
-  repository. Baseline used instead:
-- **Quantified improvement (belongs in the README):**
+### ✅ The baseline exists — `fl-baseline-probe` (2026-08-03)
+
+**§M9's problem is closed.** `15_ROADMAP` required comparing against "the old
+file/module-based detection", which does not exist in this repository, so item 4
+had no left-hand side and ADR-7's founding claim was unfalsifiable. The baseline
+is now a real tool rather than a memory of one.
+
+- **Baseline used instead:** `src/native/tools/fl-baseline-probe`, reading the
+  `capabilities` group of `rules/detection-rules.json` (`rulesVersion 2026.08.1`,
+  **7 capabilities**: DLSS, DLSS-G, Ray Reconstruction, Streamline, FSR, XeSS,
+  XeSS-FG). It answers two questions per capability — is it **on disk** beside
+  the game, and is it **loaded** right now.
+- It **reuses the guard's module enumerator** (`SystemSources().EnumerateModules`,
+  `LIST_MODULES_ALL`, §1) rather than carrying a second walk, so the baseline and
+  the product see the same module list — including the same fail-closed
+  behaviour. An `INCOMPLETE` or `FAILED` scan is printed as such and must never
+  be read as "no capability loaded".
+- It reads the capability data in its **own translation unit**. The guard's jsmn
+  parser deliberately reads only the `anticheat` subtree, and teaching it a group
+  the hard gate does not need would spend the gate's parse budget (§S17) on
+  inference data.
+- **Proven both directions**, ctest `fl_baseline_probe`: a clean process reports
+  nothing loaded, a planted module *is* detected, and the answer flips back after
+  unload rather than latching. The planted module is **our own
+  `FrameLedger.Guard.dll` copied under a capability name** (`14_TESTING`
+  §Integration tests) — no NVIDIA, AMD or Intel binary is shipped, downloaded or
+  executed, and none needs to be installed for the test to mean something.
+- Proven red twice: a probe that never reports `loaded`, and findings that latch
+  across scans.
+
+### 🔴 The comparison item 4 asks for cannot be a percentage
+
+**Stated before any README wording is drafted, because the roadmap's phrasing
+("quantify the improvement") invites a number that would have to be invented.**
+
+Item 4 asks the baseline about upscaler identity, quality preset, render vs
+output resolution, and DLSS-G activity. The baseline can answer **none of them**:
+
+| Item 4 asks | Baseline answers | Hooks answer |
+|---|---|---|
+| upscaler identity | *ships / loads* DLSS — a different statement (`05_DETECTION`:10) | measured |
+| quality preset | **nothing** | measured |
+| render vs output resolution | **nothing** | measured |
+| DLSS-G active | *ships / loads* DLSS-G | measured |
+| engine · platform · version | detected | not measured by hooks at all |
+
+A loaded `nvngx_dlss.dll` means the title *can* use DLSS this run. It does not
+say whether DLSS is on, at what preset, or at what render resolution — and a
+title that ships the DLL and has it disabled in the menu is indistinguishable
+from one using it.
+
+So the honest form of ADR-7's claim is **"the baseline cannot answer four of
+these five questions at all"**, not "N% more accurate". That is both stronger and
+checkable. **Owner decision, recorded here rather than assumed.**
+
+- **Quantified improvement (belongs in the README):** *not a percentage — see
+  above. Fill the per-title table once an offline title is chosen.*
+
+### Still unmeasured
+
+The table above is **empty on purpose**. The probe's mechanism is proven against
+our own process; the per-title rows need a real, offline, anti-cheat-free game,
+which is the same thing P0 item 2's remaining half needs. Filling them from
+`hook-harness` would produce a number that does not generalise, which is worse
+than recording them as unmeasured.
 
 ## 9 · Frame generation
 
