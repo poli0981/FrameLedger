@@ -1,0 +1,1 @@
+{ "engine": "unreal", "platform": null, "capabilities": [], "$why": "*-Win64-Shipping.exe. The Content/Paks signal is written */Content/Paks/*.pak and needs a leading path segment, so the exe name is what fires." }

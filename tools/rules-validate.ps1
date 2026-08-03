@@ -284,6 +284,59 @@ if ((Test-Path $DocPath) -and (Test-Member $rules 'anticheat')) {
     }
 }
 
+# --- Fixture COVERAGE (not evaluation) --------------------------------------
+# Every engine and platform id must have a directory in the corpus, and every
+# corpus directory must correspond to a live rule id.
+#
+# THIS SCRIPT DELIBERATELY DOES NOT EVALUATE A RULE. Re-implementing glob, PE and
+# strings matching here would be a SECOND EVALUATOR — the same defect shape as a
+# second blocklist matcher, and it would drift from RuleEvaluator the moment
+# either gained a signal type. The evaluation is RuleFixtureCorpusTests, which
+# runs the real evaluator through the real probe, under `build.ps1 check`.
+#
+# 05_DETECTION and 13_CI_CD both used to claim this script ran rules against
+# fixture trees. It never did, and the trees did not exist.
+$fixtureRoot = Join-Path (Split-Path $PSScriptRoot -Parent) 'tests/fixtures/rules'
+if (-not (Test-Path $fixtureRoot)) {
+    Write-Host "RULES VALIDATION FAILED: no fixture corpus at $fixtureRoot" -ForegroundColor Red
+    Write-Host '  Refusing rather than skipping: a coverage check with nothing to cover is' -ForegroundColor Red
+    Write-Host '  a check that passes without looking.' -ForegroundColor Red
+    exit 1
+}
+
+$fixtureDirs = @(Get-ChildItem $fixtureRoot -Directory -Recurse |
+        Where-Object { Test-Path (Join-Path $_.FullName 'expected.json') })
+if ($fixtureDirs.Count -eq 0) {
+    Write-Host 'RULES VALIDATION FAILED: the fixture corpus contains no fixtures.' -ForegroundColor Red
+    exit 1
+}
+$fixtureNames = @($fixtureDirs | ForEach-Object { $_.Name })
+
+foreach ($section in 'engines', 'platforms') {
+    if (-not (Test-Member $rules $section)) { continue }
+    foreach ($id in @($rules.$section | ForEach-Object { $_.id })) {
+        if ($id -notin $fixtureNames) {
+            $errors.Add("$section id '$id' has no fixture under tests/fixtures/rules — a rule nobody evaluates is a rule nobody checks")
+        }
+    }
+}
+
+# The other direction: a fixture for a rule that no longer exists is dead weight
+# that still reports green.
+$liveIds = @()
+foreach ($section in 'engines', 'platforms', 'capabilities') {
+    if (Test-Member $rules $section) { $liveIds += @($rules.$section | ForEach-Object { $_.id }) }
+}
+# Directories that are deliberately not rule ids: the ordering case and the two
+# canaries are named for what they PROVE, not for a rule.
+$nonRuleFixtures = @('unity_markers_with_ue_structure', 'no_engine', 'every_engine_marker',
+    'dlss_stack', 'fsr_globs')
+foreach ($name in $fixtureNames) {
+    if ($name -notin $liveIds -and $name -notin $nonRuleFixtures) {
+        $errors.Add("fixture '$name' matches no live rule id and is not a named special case — stale fixtures report green forever")
+    }
+}
+
 # --- Parser capacity: the caps a JSON Schema cannot express -----------------
 # Two of the guard's limits are invisible to the schema:
 #
@@ -393,4 +446,5 @@ Write-Host "rules OK — schema v$($rules.schemaVersion), rules $($rules.rulesVe
 # Printed on every run, not only on failure: the hazard is a capacity nobody
 # looks at until it is already breached.
 Write-Host "  capacity — $totalFamilies/$maxFamilies families, $tokenCount/$tokenBudget parse tokens" -ForegroundColor DarkGray
+Write-Host "  fixtures — $($fixtureDirs.Count) corpus directories cover every engine and platform id" -ForegroundColor DarkGray
 exit 0

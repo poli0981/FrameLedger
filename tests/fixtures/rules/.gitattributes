@@ -1,0 +1,7 @@
+# Byte-exact fixtures. Line-ending normalisation must not touch anything here.
+#
+# Today every marker is zero-byte so there is nothing to mangle — but a
+# strings_contains fixture carries load-bearing ASCII, and that is precisely the
+# fixture that would pass on the machine that wrote it and fail on a clone.
+# Setting this now costs nothing; discovering it later costs an afternoon.
+* -text

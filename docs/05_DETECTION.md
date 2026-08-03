@@ -46,9 +46,25 @@ Rules are **data, not code**: `rules/detection-rules.json`, bundled and updatabl
 
 The `anticheat` block is the same file that feeds the hard guard in `19_SAFETY` — shipping it as updatable data is what lets a newly-protected game be blocked without waiting for an app release. **Rules updates that touch the `anticheat` block are treated as security updates:** applied on next check regardless of the user's auto-update preference for other rules.
 
-Signal types evaluated by `RuleEvaluator` (Domain): `file_exists`, `dir_exists`, `sibling_glob`, `pe_company_contains`, `pe_product_contains`, `strings_contains` (bounded 8 MB scan), `manifest_field`. Combine with `all` / `any`. Version extractors: `pe_file_version`, `pe_product_version_regex`, `manifest_field`.
+Signal types evaluated by `RuleEvaluator` (Domain): `file_exists`, `dir_exists`, `sibling_glob`, **`path_contains`**, `pe_company_contains`, `pe_product_contains`, `strings_contains` (bounded 8 MB scan), `manifest_field`. Combine with `all` / `any` — **not nested**, which schemaVersion 2 forbids. Version extractors: `pe_file_version` (of the sibling its `from` names, not of the executable), `pe_product_version_regex`, **`strings_regex`**, `manifest_field`.
 
-`tools/rules-validate` checks schema and runs rules against fixture trees in CI.
+> `path_contains` and `strings_regex` were in the shipped data and the schema
+> and missing from this list; the schema's own `$comment` said so and nobody had
+> made the edit.
+
+**Every signal is three-valued.** `Match` / `NoMatch` / **`Unknown`**, and `Unknown` is what the evaluator returns whenever the probe could not establish that class of fact — a PE that would not read, a strings pass that did not finish, a bound that stopped the walk. A signal the probe never answered must never evaluate to `false`: that is the same collapse of "could not look" into "looked and it was clean" that `19_SAFETY` exists to prevent, applied to inference. A group is `Unknown` unless the signals it *did* read already decide it, and **an engine rule that evaluates `Unknown` stops the ordered walk** rather than falling through — otherwise a later rule gets reported as the first match when it was not.
+
+**The evaluator does no I/O, but it is not a pure function of the directory.** It reads a `GameFileSnapshot` collected in one pass, and that snapshot is *rules-dependent*: the strings scan has to know which needles and regexes to look for before it reads. Worth stating because the tidier claim — "a pure evaluator over an arbitrary directory" — is what the design looks like from a distance and is not what it is.
+
+**How the rules are checked, precisely:**
+
+- `tools/rules-validate.ps1` checks the schema (with a canary, because `Test-Json` fails open on a malformed one), the imperative constraints a schema cannot express, the parser's capacity bounds, and **fixture coverage** — every engine and platform id has a fixture directory, and every fixture corresponds to a live id.
+- **The evaluation is `RuleFixtureCorpusTests`** (`FrameLedger.Infrastructure.Tests`), which runs the real `RuleEvaluator` through the real `GameFileProbe` against `tests/fixtures/rules/**`. It runs under `build.ps1 check`, and therefore in CI.
+
+> This section previously said the validator "runs rules against fixture trees in
+> CI". It never evaluated a rule, and there were no fixture trees — a gate
+> described in a normative document and implemented nowhere. `13_CI_CD` carried
+> the same claim.
 
 ### Trust and staleness of the rules feed
 
@@ -132,7 +148,8 @@ Three things this section previously implied that are not true, and are worth st
 
 ## Caching & privacy constraints
 
-- Detection results cached per game; refreshed when exe timestamp/size changes or `rulesVersion` changes.
+- Detection results cached per game; refreshed when exe timestamp/size changes or `rulesVersion` changes. Implemented as `DetectionCacheKey` (path + size + mtime + `rulesVersion`).
+- **A re-run never overwrites a field the user supplied.** `games.field_provenance` records where each value came from; anything not marked `detected` is left alone, and an absent or unrecognised provenance reads as *user*. Without this rule the re-run triggered by every rules update silently clobbers every correction the user has ever made — a data-loss bug that surfaces weeks later on somebody else's machine. Stated here because no document said it before, and the safe default is the one that costs a badge rather than a value.
 - Strings scans bounded to 8 MB, local only.
 - Module enumeration uses read-only handles (`PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ`); never a handle with write access outside the injection call itself.
 - No game memory is read for detection purposes — all runtime facts come from arguments to APIs we hooked (CLAUDE.md rule 4).

@@ -1,0 +1,1 @@
+{ "engine": "unity", "platform": null, "capabilities": [], "$why": "UNDER-MATCH CANARY. Markers for unity, gamemaker, godot and renpy are all present. Exactly one engine must be reported and it must be the first in the array - an evaluator returning a set, or the last match, fails here and nowhere else." }

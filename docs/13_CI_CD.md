@@ -24,7 +24,16 @@ FrameLedger uses the **`poli0981/.github` ops repo** where its templates fit, an
 - `permissions: contents: write`.
 
 ### `rules-publish.yml` — on change to `rules/detection-rules.json` in `main`
-- Runs `tools/rules-validate` against fixtures → bumps `rulesVersion` check → the raw file on `main` **is** the distribution endpoint (05_DETECTION), so this workflow only gates correctness.
+- Runs `tools/rules-validate` → bumps `rulesVersion` check → the raw file on `main` **is** the distribution endpoint (05_DETECTION), so this workflow only gates correctness.
+
+  > **The validator does not evaluate rules**, and this line used to say it ran
+  > "against fixtures". It checks the schema, the imperative constraints, the
+  > parser's capacity bounds, and **fixture coverage** — that every rule id has a
+  > fixture and every fixture has a rule. The evaluation is
+  > `RuleFixtureCorpusTests` in `ci.yml`'s `check` job, which drives the real
+  > evaluator through the real probe. Both halves run on the same PR; only the
+  > coverage half fires on a rules-only change, which is why the two are
+  > described separately rather than as one gate.
 - **The `anticheat` block gets extra scrutiny:** schema-valid, non-empty, no entry removed without a justification in the PR body. Removing a blocklist entry is a safety change and requires the same review as a security fix.
 - `permissions: contents: read`.
 

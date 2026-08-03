@@ -1,0 +1,1 @@
+{ "engine": null, "platform": null, "capabilities": ["fsr"], "$why": "Two different globs of the same capability. ffx_api*.dll and ffx_fsr2_*.dll both belong to fsr, and it must appear once." }

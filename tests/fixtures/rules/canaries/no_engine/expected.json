@@ -1,0 +1,1 @@
+{ "engine": null, "platform": null, "capabilities": [], "$why": "OVER-MATCH CANARY. If the evaluator ever matches everything - a glob compiled to .*, an `any` over an empty list returning true, a path bug making dir_exists always true - every positive fixture still passes and only this one goes red." }
