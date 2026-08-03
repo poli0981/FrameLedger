@@ -33,8 +33,33 @@ CREATE TABLE games (
   rr_default TEXT NOT NULL DEFAULT 'na',
 
   detection_rules_version TEXT,
+  field_provenance TEXT,                       -- JSON: {"engine":"detected","publisher":"user",...}
+                                               -- absent or unrecognised reads as "user"
   added_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
+```
+
+> **`field_provenance` — decided now, implemented in P2.** FR-1.3 requires
+> auto-detected fields to be badged and overridable, and there was nowhere to
+> record which was which. One JSON column rather than a column per field, matching
+> the `capability_flags` precedent in the same table: the overridable set is small
+> and fixed (`engine`, `engine_version`, `platform`, `store_id`, `publisher`,
+> `game_version`, `name`, `cover_path`), and a normalised override table would mean
+> a join on every library-card render.
+>
+> **Absent reads as `user`, deliberately.** Of the two ways to be wrong, badging a
+> human's typed value as auto-detected is a lie they cannot see through; failing to
+> badge a detected value merely costs a badge on something they can still edit. The
+> rule it exists to support — *detection never overwrites a `user` field* — is in
+> `05_DETECTION` §Caching and is enforced by `StaticDetectionResult.ShouldWrite`,
+> which is tested even though nothing persists yet.
+>
+> No migration is written here. There is no SQLite layer at all, and §Migrations
+> forbids editing an applied script — so guessing the shape into `0001_init.sql`
+> before its consumers exist maximises the chance of baking in a wrong guess that
+> can only be appended to.
+
+```sql
 
 CREATE TABLE hardware_snapshots (
   id INTEGER PRIMARY KEY,

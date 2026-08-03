@@ -69,6 +69,50 @@ GitHub release body, so a missing section means an empty release note.
   not the product; the Overlay's real cost is `14_TESTING` item 2 on a real
   game. Not a ctest — a timing threshold on a shared runner fails for reasons
   unrelated to the code.
+- **The static-hint rule evaluator and its fixture corpus** — the inference half
+  of `15_ROADMAP` item 3. `RuleEvaluator` (Domain, no package references) over a
+  `GameFileSnapshot` the probe collects in one pass; ports and a
+  `StaticGameDetector` in Application; the rules reader and bounded probe in
+  Infrastructure.
+  - **Every signal is three-valued.** `Unknown` is what a signal returns when the
+    probe could not establish that class of fact — a PE that would not read, a
+    strings pass that did not finish, a bound that stopped the walk. A group is
+    `Unknown` unless the signals it *did* read already decide it, and **an engine
+    rule that evaluates `Unknown` stops the ordered walk** rather than falling
+    through, because otherwise a later rule gets reported as the first match when
+    it was not.
+  - **`pe_file_version` reads the sibling its `from` names, not the executable.**
+    Unity's rule reads `UnityPlayer.dll`; answering from the game exe would have
+    reported a version that is *wrong* rather than merely missing.
+  - **The purity claim is dropped rather than quietly kept.** The evaluator does
+    no I/O, but the snapshot is rules-dependent — the strings pass must know its
+    needles before it reads — so it is not a pure function of a directory.
+    `05_DETECTION` says so.
+  - **`tests/fixtures/rules/**` with two canaries.** `no_engine` catches an
+    evaluator that matches everything, which every positive fixture would still
+    pass; `every_engine_marker` carries four engines' markers at once and asserts
+    exactly one is reported, catching one that returns a set or the last match.
+    Plus a corpus-not-empty fact, because a `[Theory]` yielding zero cases is a
+    green suite that tested nothing. Zero-byte markers only, `.gitattributes
+    -text`, and the README says plainly which signal types the corpus does *not*
+    cover.
+  - **Evaluation runs in xUnit, not in the validator.** Re-implementing glob, PE
+    and strings matching in PowerShell would be a second evaluator — the same
+    defect shape as a second blocklist matcher. `rules-validate.ps1` gains
+    fixture *coverage* only: every rule id has a fixture, every fixture has a
+    rule.
+  - The evaluator's unit tests live in **Domain.Tests**, not with the corpus:
+    `coverage-gate.ps1` takes the best rate per assembly and never merges
+    reports, so Domain code exercised only from Infrastructure.Tests could not
+    reach its floor however thorough the corpus got.
+  - **FR-1.3 provenance decided, no migration written.** `games.field_provenance`
+    (JSON, absent reads as `user`) with the rule that **detection never
+    overwrites a user-supplied field** — stated in no document before, and
+    without it the re-run every rules update triggers silently clobbers every
+    correction the user has made. The type and the rule are implemented and
+    tested; persistence is P2, because §Migrations forbids editing an applied
+    script and guessing a shape before its consumers exist is how a wrong guess
+    becomes permanent.
 - **`fl-baseline-probe` — the measurement baseline P0 item 4 compares against**
   (`15_ROADMAP` item 3, closing §M9's half of it). `15_ROADMAP` asks for "passive
   file/**module** scanning", and the module half is the part that matters:
@@ -247,6 +291,16 @@ GitHub release body, so a missing section means an empty release note.
   pinned 0.9.6 package, not just the repository.
 
 ### Fixed
+- **Two documents claimed CI evaluated rules against fixture trees; it never did,
+  and the trees did not exist.** `05_DETECTION` §Static hints and `13_CI_CD`
+  §rules-publish both said `tools/rules-validate` "runs rules against fixture
+  trees in CI" — a gate described in normative documentation and implemented
+  nowhere. The validator now does fixture *coverage* and says so; the evaluation
+  is `RuleFixtureCorpusTests`, which drives the real evaluator through the real
+  probe under `build.ps1 check`.
+  - `05_DETECTION`'s signal-type list was also missing `path_contains` and
+    `strings_regex`, both of which are in the shipped data *and* the schema — the
+    schema's own `$comment` said so and nobody had made the edit.
 - **Pre-injection check 4 was declared and never implemented.**
   `Reason::kAntiCheatDirectory` and `kAntiCheatFile` were declared in
   `fl_guard.h`, named in `ReasonName`, and mirrored into the managed enum —

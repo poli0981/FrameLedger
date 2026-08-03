@@ -1,0 +1,1 @@
+{ "engine": null, "platform": null, "capabilities": ["dlss", "dlss_g", "dlss_rr", "streamline"], "$why": "Every capability matches independently - there is no precedence here, unlike engines, because a game ships several." }

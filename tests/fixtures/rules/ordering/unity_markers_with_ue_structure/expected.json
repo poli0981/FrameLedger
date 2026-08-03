@@ -1,0 +1,1 @@
+{ "engine": "unity", "platform": null, "capabilities": [], "$why": "14_TESTING: Unity markers present but UE structure too. Both rules match; unity is first in the array and the array order IS the precedence. Swap engines[0] and engines[1] in the seed and this fixture is the only thing in the repository that notices." }

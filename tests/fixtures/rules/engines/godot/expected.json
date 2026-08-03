@@ -1,0 +1,1 @@
+{ "engine": "godot", "platform": null, "capabilities": [], "$why": "*.pck sibling. The strings_contains half cannot fire against a zero-byte exe, which is why the rule is an `any`." }
