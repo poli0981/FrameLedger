@@ -37,10 +37,17 @@ public sealed class RuleFixtureCorpusTests
     private sealed record Expected(string? Engine, string? Platform, IReadOnlyList<string> Capabilities);
 
     /// <summary>Walks up from the test binary to the repository root.</summary>
+    /// <remarks>
+    /// Keyed on the solution file, not on a directory called <c>rules</c>. §S20
+    /// made the seed a build artifact, so the test's OWN output directory now
+    /// contains <c>rules\detection-rules.json</c> — the walk stopped immediately
+    /// and every fixture went missing. A marker that exists in exactly one place
+    /// cannot be shadowed that way.
+    /// </remarks>
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "rules")))
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "FrameLedger.slnx")))
         {
             dir = dir.Parent;
         }

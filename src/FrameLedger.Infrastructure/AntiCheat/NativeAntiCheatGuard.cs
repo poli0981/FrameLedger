@@ -80,6 +80,10 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
     [DllImport(_guardDll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
     private static extern int FlGuardRulesFilePath([Out] char[] buffer, int cap);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport(_guardDll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int FlGuardCheckRules(byte[] json, int length);
+
     static NativeAntiCheatGuard()
     {
         NativeLibrary.SetDllImportResolver(typeof(NativeAntiCheatGuard).Assembly, Resolve);
@@ -154,6 +158,28 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
     /// the shape §S21 was — a seeder that writes where the gate does not read
     /// reports success and leaves the guard refusing every title.
     /// </remarks>
+    /// <summary>
+    /// Would the native guard accept this rules document? Returns
+    /// <c>fl::guard::ParseResult</c>; <c>0</c> is <c>kOk</c>.
+    /// </summary>
+    /// <remarks>
+    /// §S20's seeder needs this because nothing managed can answer it:
+    /// <c>DetectionRulesFile</c> reads engines/platforms/capabilities and, by
+    /// explicit design, never the <c>anticheat</c> block (§S15 — no second
+    /// matcher). Validating a candidate with the managed reader would check
+    /// everything except the half the hard gate consumes.
+    /// <para>
+    /// Observation only: buffer in, enum out, no path parameter, nothing
+    /// installed. It calls the same <c>ParseRules</c> the gate parses with, so
+    /// the thing that validates and the thing that parses are one.
+    /// </para>
+    /// </remarks>
+    public static int NativeCheckRules(byte[] json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        return FlGuardCheckRules(json, json.Length);
+    }
+
     public static string NativeRulesFilePath()
     {
         // 1024 mirrors fl::guard::kMaxRulesPathLen. A short buffer would come
