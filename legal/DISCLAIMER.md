@@ -4,13 +4,16 @@
 
 > ⚠ Draft for review. Not legal advice. Review before first public release — this version covers code injection and should be read carefully.
 
-> ⚠ **Accuracy audit, 2026-08-04. Three statements below describe behaviour the software does not yet have**, and they are flagged here rather than quietly reworded because a document the user accepts must not over-promise:
+> ⚠ **Accuracy audit — last checked 2026-08-05. FOUR statements below describe behaviour the software does not yet have**, and they are flagged here rather than quietly reworded because a document the user accepts must not over-promise:
 >
 > - §2's *"and every 30 seconds afterwards … it stops at the next scan"* — the pre-injection guard is real and refuses; the **in-session re-scan and stop are not implemented**. `GuardSupervisor` has no production caller and nothing writes the shared-memory field the capture side would read.
+> - §2's *"waits **65 seconds** before concluding that contact is lost"* — **added 2026-08-05 and also unimplemented.** The deadline is a constant (`FL_GUARD_TICK_DEADLINE_MS`) with no reader: `FrameLedger.Overlay` is two files, exports one function, maps no shared memory and reads no control block.
 > - §3's *"automatically stops injecting into a game that crashes shortly after injection twice"* — the only trace of this anywhere is a `hook_crash_count` column in a schema for which no `.sql` file exists. There is no design for it.
-> - §1's claim that FrameLedger loads `FrameLedger.Overlay.dll` **is now true as written** (§S22): the injection path refuses any library outside FrameLedger's own directory. It was not true before that change, which is why it is listed here.
+> - §1's *"Only FrameLedger's own component is ever loaded"* — **narrower than it sounds, and the qualification is now in §1 itself.** The check is a directory test: the payload must resolve into FrameLedger's own install directory. It does not compare a filename, a version or any content, deliberately — a name check would be defeated by any DLL that borrowed the name. A published self-contained build puts several hundred files in that directory.
 >
 > **None of this may ship as-is.** Either the behaviour exists at first release or these sentences change. Tracked in `docs/20_OPEN_QUESTIONS.md`.
+>
+> **This block is maintained by hand and nothing verifies it.** Every other document here is bound to the code by something — `rules-validate` cross-checks the blocklist, `static_assert`s bind `fl_shm.h` to `07_IPC`, `versioninfo-check` and `chokepoint-check` bind claims to binaries. `legal/` is bound by nothing, and this block went stale within hours of being written: the 65-second sentence was added directly beneath a header that said "Three". **Whoever edits any promise in this file must re-count.**
 
 ## 1. How FrameLedger measures (read this first)
 
@@ -18,7 +21,15 @@ To measure what a game is *actually* doing — its real render resolution, which
 
 None of this information is obtainable from outside the process, which is why the software works this way.
 
-**Only FrameLedger's own component is ever loaded.** The injection path refuses any library that does not come from FrameLedger's own installation directory, and there is no setting that changes this. Be aware of the limit of that promise: it establishes where the file came from, not what is in it, and FrameLedger is distributed unsigned — so anyone able to write to your FrameLedger installation could alter what gets loaded. Install it somewhere only you can write to, and verify the published SHA-256 checksums.
+**FrameLedger only loads a library from its own installation directory.** The injection path refuses anything else, and there is no setting that changes this.
+
+Be precise about what that does and does not promise, because the shorter version — *"only FrameLedger's own component is ever loaded"* — claims more than the check performs:
+
+- It establishes **where the file came from**, not what is in it. There is no filename, version or content comparison, and that is deliberate: a check on the name `FrameLedger.Overlay.dll` would be satisfied by any library that borrowed the name.
+- A FrameLedger installation contains **several hundred files**, because the application ships self-contained with the .NET runtime beside it. Any library in that directory satisfies the check.
+- FrameLedger is distributed **unsigned**, so nothing attests to that directory's contents. Anyone able to write there could alter what gets loaded — and could equally replace the component that performs this check.
+
+Install it somewhere only you can write to, and verify the published SHA-256 checksums.
 
 **What it observes:** arguments the game passes to graphics APIs we intercept (presentation, upscaling, ray tracing, pipeline creation) and video-memory usage reported by the graphics runtime.
 

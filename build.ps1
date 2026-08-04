@@ -146,16 +146,28 @@ function Import-MsvcEnvironment {
 }
 
 # --- 1-3. Native ------------------------------------------------------------
+# Everything the native build gates. On any early return below, these do not run
+# — and this script's own contract is that a gate which does not run SAYS SO.
+# Returning after Skip-Gate'ing only "native build" left the Catch2 suite and
+# clang-format silently absent while the summary reported one skipped gate where
+# three had not run. That is the exact shape build.ps1 exists to prevent, in
+# build.ps1.
+function Skip-NativeDependents([string]$Why) {
+    Skip-Gate 'Native tests' $Why
+    Skip-Gate 'clang-format' $Why
+}
+
 function Invoke-Native([bool]$FixFormat = $false) {
     Write-Step 'Native build (C++ /W4 /WX)'
-    if ($SkipNative) { Skip-Gate 'native build' '-SkipNative'; return }
+    if ($SkipNative) { Skip-Gate 'native build' '-SkipNative'; Skip-NativeDependents '-SkipNative'; return }
     if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-        Skip-Gate 'native build' 'cmake not on PATH'; return
+        Skip-Gate 'native build' 'cmake not on PATH'; Skip-NativeDependents 'cmake not on PATH'; return
     }
     if (-not (Import-MsvcEnvironment)) {
         # Do not fall back to another compiler: the Overlay's whole point is
         # the MSVC build profile (/MT, /GS, /guard:cf, /Qspectre).
         Skip-Gate 'native build' 'MSVC not found — install the "Desktop development with C++" workload'
+        Skip-NativeDependents 'the native build did not run'
         return
     }
     Write-Host "MSVC: $((Get-Command cl).Source)" -ForegroundColor DarkGray
