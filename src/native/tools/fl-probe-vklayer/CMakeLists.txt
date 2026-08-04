@@ -14,7 +14,8 @@
 add_executable(fl-probe-vklayer main.cpp
     "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/src/fl_ac_rules.cpp")
 target_include_directories(fl-probe-vklayer PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/include")
-target_link_libraries(fl-probe-vklayer PRIVATE fl_native_flags fl_jsmn Shell32 Ole32)
+target_link_libraries(fl-probe-vklayer PRIVATE fl_native_flags fl_jsmn Shell32 Ole32 fl_ac_floor)
+add_dependencies(fl-probe-vklayer fl_ac_floor_gen)
 target_compile_definitions(fl-probe-vklayer PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX
     # The repository seed, installed to %LOCALAPPDATA% only when nothing is
     # there and removed afterwards. The layer reads from the ONE product

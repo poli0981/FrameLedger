@@ -152,23 +152,17 @@ TEST_CASE("the rules file that SHIPS parses in the guard", "[rules][seed]") {
     std::printf("[seed] %zu bytes, %zu families of %zu\n", seed.size(), rules.familyCount, kMaxFamilies);
 }
 
-// §S21. The compiled-in floor is a blocklist that lives in the binary, which
-// makes it a candidate to become the FOURTH unreconciled copy of this data
-// (§S19(d) already counts three of the fragment list). This is what stops that:
-// every floor value must be present in the file we ship, under the same family
-// and the same group.
+// §S21. The floor is generated from rules/detection-rules.json, so it cannot be
+// a fourth unreconciled copy of the blocklist — but a GENERATOR can still drift
+// from its input, by dropping a group, mangling a match kind or losing a value.
 //
-// Deliberately a SUBSET assertion, not equality. The floor carries only the
-// values that carry coverage — "EasyAntiCheat" is a prefix rule and already
-// subsumes "EasyAntiCheat_EOS" — so requiring the two lists to match would force
-// the floor to grow every time the seed does, which is the drift it exists to
-// avoid.
-//
-// Direction matters: this goes red if someone edits the floor to something the
-// seed does not carry, AND if someone deletes one of the three required families
-// from the seed. tools/rules-validate.ps1 already refuses the second in CI; this
-// is the half that runs against the parser.
-TEST_CASE("every compiled-in floor value is present in the shipped seed", "[rules][seed][floor]") {
+// This is the assertion that catches all of it at once, and it is stronger than
+// the subset check it replaces: parse the SHIPPED seed and require that it added
+// NOTHING. ParseRules skips a data family only when it is identical to a floor
+// entry — name, group, match kind and every value — so a stored count equal to
+// the floor count means the floor reproduces the file exactly. Any drift shows up
+// as an extra family, whatever the direction of the drift.
+TEST_CASE("the generated floor reproduces the shipped seed exactly", "[rules][seed][floor]") {
     const std::string seed = ReadSeed();
 
     Rules rules;
@@ -176,28 +170,76 @@ TEST_CASE("every compiled-in floor value is present in the shipped seed", "[rule
 
     std::size_t   floorCount = 0;
     const Family* floor = FloorFamilies(floorCount);
-    REQUIRE(floorCount == kFloorFamilyCount);
-    REQUIRE(rules.familyCount > kFloorFamilyCount);
+    REQUIRE(floorCount > 0);
+    (void)floor;
 
-    for (std::size_t f = 0; f < floorCount; ++f) {
-        for (std::size_t v = 0; v < floor[f].valueCount; ++v) {
-            bool found = false;
-            // Start past the floor: ParseRules seeded it into `rules` itself, so
-            // scanning from 0 would match the floor against itself and pass no
-            // matter what the seed says. That is the whole failure mode here.
-            for (std::size_t i = kFloorFamilyCount; i < rules.familyCount && !found; ++i) {
-                if (rules.families[i].group != floor[f].group || _stricmp(rules.families[i].name, floor[f].name) != 0) {
-                    continue;
-                }
-                for (std::size_t j = 0; j < rules.families[i].valueCount && !found; ++j) {
-                    found = _stricmp(rules.families[i].values[j], floor[f].values[v]) == 0;
-                }
-            }
-            INFO("floor family '" << floor[f].name << "' value '" << floor[f].values[v]
-                                  << "' is not in rules/detection-rules.json");
-            CHECK(found);
-        }
+    INFO("the seed contributed " << (rules.familyCount - floorCount)
+                                 << " families the generated floor does not already carry");
+    CHECK(rules.familyCount == floorCount);
+
+    std::size_t        fragCount = 0;
+    const char* const* frags = FloorFragments(fragCount);
+    REQUIRE(fragCount > 0);
+    (void)frags;
+    INFO("the seed contributed " << (rules.nameFragmentCount - fragCount) << " name fragments beyond the floor");
+    CHECK(rules.nameFragmentCount == fragCount);
+
+    std::printf("[floor] %zu families, %zu fragments — generated from the seed\n", floorCount, fragCount);
+}
+
+// The property the floor exists for, asserted against the gate rather than
+// against the generator: a rules file that names the three required families and
+// nothing else must still block everything the shipped seed blocks.
+//
+// This is what §S21's hand-written floor did NOT do. It carried 4 of the seed's
+// 22 values, so this same document left Denuvo, GameGuard, Xigncode3, mhyprot,
+// FACEIT, ESEA, PunkBuster, EAC's directories and services, BattlEye's
+// directories, Vanguard's service and the whole fuzzy tier unmatched.
+TEST_CASE("a minimal rules file cannot shrink the blocklist", "[rules][floor][failclosed]") {
+    const std::string minimal = R"({"anticheat": {
+        "modules": [
+          { "family": "Easy Anti-Cheat", "match": "exact", "values": ["zzzz-not-real.dll"] },
+          { "family": "BattlEye",        "match": "exact", "values": ["zzzz-also-not.dll"] }
+        ],
+        "drivers": [ { "family": "Riot Vanguard", "match": "exact", "values": ["zzzz-nothing.sys"] } ],
+        "directories": [], "services": [], "files": [],
+        "blockedExecutables": [], "blockedStoreIds": []
+    }})";
+
+    Rules rules;
+    REQUIRE(ParseRules(minimal.c_str(), minimal.size(), rules) == ParseResult::kOk);
+
+    struct Case {
+        Group       group;
+        const char* observed;
+        const char* family;
+    };
+    // One per group, and every one of these was unmatched under the old floor.
+    static constexpr Case kCases[] = {
+        {Group::kModules, "denuvo64.dll", "Denuvo Anti-Cheat"},
+        {Group::kModules, "GameGuard.des", "nProtect GameGuard"},
+        {Group::kModules, "xhunter1.sys", "Xigncode3"},
+        {Group::kModules, "PnkBstrA.exe", "PunkBuster"},
+        {Group::kModules, "faceitclient.dll", "FACEIT"},
+        {Group::kDrivers, "\\SystemRoot\\system32\\drivers\\mhyprot3.sys", "mihoyo protect"},
+        {Group::kDirectories, "EasyAntiCheat", "Easy Anti-Cheat"},
+        {Group::kDirectories, "BattlEye", "BattlEye"},
+        {Group::kServices, "vgc", "Riot Vanguard"},
+        {Group::kFiles, "x3.xem", "Xigncode3"},
+    };
+
+    for (const auto& c : kCases) {
+        const Family* hit = MatchName(rules, c.group, c.observed);
+        INFO("'" << c.observed << "' should still match " << c.family);
+        REQUIRE(hit != nullptr);
+        CHECK(std::string(hit->name) == c.family);
     }
+
+    // The fuzzy tier survives a file with no `heuristic` block at all — §S19(d)'s
+    // hole, closed by the floor rather than by a new refusal.
+    CHECK(HasSuspiciousFragment(rules, "SomeAntiTamper64.dll"));
+    CHECK(HasSuspiciousFragment(rules, "xprotect.dll"));
+    CHECK_FALSE(HasSuspiciousFragment(rules, "d3d11.dll"));
 }
 
 TEST_CASE("the shipped seed is inside the guard's parse budget", "[rules][seed][budget]") {
@@ -277,12 +319,21 @@ TEST_CASE("the file holds exactly kMaxFamilies families, and not one more", "[ru
     // Derived from the header constant rather than restated, for the same reason
     // every other bound here is: this test went red the moment the floor landed,
     // which is exactly what it exists to do.
-    constexpr std::size_t kFixtureFamilies = 6;
-    constexpr std::size_t kFileBudget = kMaxFamilies - kFloorFamilyCount;
-    Rules                 rules;
+    // MEASURED, not computed. Two things now stand between "kMaxFamilies" and
+    // "how many more this document may carry": the generated floor occupies slots
+    // before the file is read, and a file family identical to a floor entry is
+    // deduplicated rather than stored. Arithmetic over kFixtureFamilies would
+    // have to model both and would go stale the next time the seed changes — so
+    // the baseline is taken from the parser itself.
+    Rules rules;
+    Doc   baseline;
+    REQUIRE(ParseDoc(Build(baseline), rules) == ParseResult::kOk);
+    const std::size_t used = rules.familyCount;
+    REQUIRE(used < kMaxFamilies);
+    const std::size_t room = kMaxFamilies - used;
 
     Doc ok;
-    ok.extraModules = ExtraFamilies(kFileBudget - kFixtureFamilies);
+    ok.extraModules = ExtraFamilies(room);
     REQUIRE(ParseDoc(Build(ok), rules) == ParseResult::kOk);
     CHECK(rules.familyCount == kMaxFamilies);
 
@@ -290,7 +341,7 @@ TEST_CASE("the file holds exactly kMaxFamilies families, and not one more", "[ru
     // because "this file is bigger than we can hold" and "this file is not the
     // shape we require" are different problems for whoever has to fix them.
     Doc over;
-    over.extraModules = ExtraFamilies(kFileBudget - kFixtureFamilies + 1);
+    over.extraModules = ExtraFamilies(room + 1);
     CHECK(ParseDoc(Build(over), rules) == ParseResult::kTooLarge);
 }
 
@@ -322,12 +373,20 @@ TEST_CASE("a heuristic array holds its cap, and not one more", "[rules][bounds]"
         return s + "]";
     };
 
+    // Same measured baseline as the family cap: the floor's fragments are already
+    // in the array before the file is read, and only the ones the file repeats
+    // are deduplicated. `list()` generates names the floor does not carry, so
+    // every one of them costs a slot.
+    Doc fragBase;
+    REQUIRE(ParseDoc(Build(fragBase), rules) == ParseResult::kOk);
+    const std::size_t fragRoom = kMaxNameFragments - rules.nameFragmentCount;
+
     Doc okFrags;
-    okFrags.nameFragments = list("frag", kMaxNameFragments);
+    okFrags.nameFragments = list("frag", fragRoom);
     CHECK(ParseDoc(Build(okFrags), rules) == ParseResult::kOk);
 
     Doc overFrags;
-    overFrags.nameFragments = list("frag", kMaxNameFragments + 1);
+    overFrags.nameFragments = list("frag", fragRoom + 1);
     CHECK(ParseDoc(Build(overFrags), rules) == ParseResult::kMalformed);
 
     Doc okSigners;

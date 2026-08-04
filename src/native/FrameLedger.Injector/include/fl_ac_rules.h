@@ -35,11 +35,13 @@ enum class Group : std::uint8_t { kModules = 0, kDrivers, kDirectories, kService
 inline constexpr std::size_t kMaxFamilies = 64;
 inline constexpr std::size_t kMaxValuesPerFamily = 16;
 
-// The floor occupies family slots before any data is read, so the budget
-// available to the FILE is kMaxFamilies - kFloorFamilyCount. tools/rules-validate.ps1
-// reads this constant out of this header and subtracts it, rather than restating
-// the arithmetic.
-inline constexpr std::size_t kFloorFamilyCount = 3;
+// The floor is GENERATED from rules/detection-rules.json and occupies family
+// slots before any data is read, so the budget available to the FILE is
+// kMaxFamilies minus the floor. Since the floor IS the shipped seed's blocklist,
+// the worst case is a file that duplicates none of it: 2 x its families must fit.
+// tools/rules-validate.ps1 checks exactly that, computed from the same JSON
+// rather than from a constant here — a count in this header would be the copy
+// that drifts.
 
 inline constexpr std::size_t kMaxValueLen = 96;
 inline constexpr std::size_t kMaxFamilyNameLen = 64;
@@ -152,12 +154,33 @@ enum class ParseResult : std::uint8_t {
 // or reachable from anything the file says. The file adds families and values;
 // it can take nothing away.
 //
-// Deliberately minimal — exactly the three families `IsCompleteEnoughToGate`
-// already required. A larger floor would be a second blocklist that drifts from
-// rules/detection-rules.json; ctest fl_rules_budget asserts every value here is
-// present in the shipped seed under the same family and group, so the two cannot
-// disagree without failing the build.
+// GENERATED from rules/detection-rules.json at build time by
+// tools/gen-ac-floor.ps1. §S21 shipped a hand-written floor of three families,
+// kept minimal because a larger hand-written table would be a second copy of the
+// blocklist that drifts from the data.
+//
+// Measured afterwards, that reasoning bought **4 of the seed's 22 values, 2 of
+// its 5 groups and none of its 5 name fragments** — so §S21 closed "a crafted
+// rules file makes the guard allow everything" and left open "a crafted rules
+// file removes most of the blocklist": Denuvo, GameGuard, Xigncode3, mhyprot,
+// FACEIT, ESEA, PunkBuster, EAC's directories and services, BattlEye's
+// directories, Vanguard's service, and the whole fuzzy tier.
+//
+// Generating it removes the objection that kept it small. A table derived from
+// the data at build time cannot drift from it, so the floor is now the whole
+// shipped blocklist and "data may extend, never shrink" means what it says.
 [[nodiscard]] const Family* FloorFamilies(std::size_t& count) noexcept;
+
+// The floored half of the unknown-but-suspicious heuristic, same source and same
+// reasoning — which is also §S19(d)'s substance, arriving as a floor rather than
+// as the parse refusal that entry proposed. A refusal would have needed a new
+// `ParseResult` cause, made `kRulesIncomplete`'s signal a lie, and driven
+// `layer.cpp` to machine-wide inert passthrough. A floor needs none of that: the
+// tier cannot stop existing because the data never supplied it.
+//
+// `trustedSigners` is deliberately NOT floored. It is an ALLOW-widening list, so
+// "data may only add" has the wrong polarity there.
+[[nodiscard]] const char* const* FloorFragments(std::size_t& count) noexcept;
 
 // Parse, then verify the result is USABLE AS A GATE. A syntactically valid
 // rules file with an empty `modules` array parses fine and blocks nothing, so

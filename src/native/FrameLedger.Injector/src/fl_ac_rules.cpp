@@ -13,6 +13,12 @@
 #include <objbase.h>
 #include <shlobj_core.h>
 
+// Its own block, below the sorted one, because it needs Family/Group/MatchKind
+// from fl_ac_rules.h and clang-format sorts each block independently.
+// Generated at build time from rules/detection-rules.json — see
+// tools/gen-ac-floor.ps1 and src/native/CMakeLists.txt §the floor.
+#include <fl_ac_floor.generated.h>
+
 namespace fl::guard {
 namespace {
 
@@ -155,23 +161,70 @@ bool ReadFamily(const char* json, const jsmntok_t* toks, int count, int objIndex
     return out.valueCount > 0;
 }
 
+// Copy a NUL-terminated literal into a fixed buffer, refusing rather than
+// truncating. Used for the generated floor, whose entries the schema already
+// bounds — but a generator bug must not produce a SHORTER token that matches
+// MORE, which is the same rule CopyToken follows.
+bool CopyLiteral(const char* text, char (&out)[kMaxValueLen]) noexcept {
+    if (text == nullptr) {
+        return false;
+    }
+    const std::size_t len = std::strlen(text);
+    if (len == 0 || len >= kMaxValueLen) {
+        return false;
+    }
+    std::memcpy(out, text, len + 1);
+    return true;
+}
+
+// APPENDS from the caller's current count rather than resetting it, because the
+// floor is already in the array by the time the file is read (§S21). Duplicates
+// are skipped case-insensitively: the floor is generated FROM the shipped seed,
+// so an unmodified file repeats every entry, and storing both would spend the cap
+// twice over — a seed with 9 fragments would then need 18 of kMaxNameFragments 16
+// and refuse the whole file.
 bool ReadStringArray(const char* json, const jsmntok_t* toks, int count, int arrayTok, char (*out)[kMaxValueLen],
                      std::size_t cap, std::size_t& outCount) noexcept {
-    outCount = 0;
     if (arrayTok < 0 || toks[arrayTok].type != JSMN_ARRAY) {
         return false;
     }
-    if (static_cast<std::size_t>(toks[arrayTok].size) > cap) {
-        return false;
-    }
-    for (int i = arrayTok + 1; i < count && outCount < cap; ++i) {
+    for (int i = arrayTok + 1; i < count; ++i) {
         if (toks[i].parent != arrayTok) {
             continue;
         }
-        if (!CopyToken(json, toks[i], out[outCount], kMaxValueLen)) {
+        char buf[kMaxValueLen] = {};
+        if (!CopyToken(json, toks[i], buf, kMaxValueLen)) {
             return false;
         }
+        bool already = false;
+        for (std::size_t j = 0; j < outCount && !already; ++j) {
+            already = IEquals(out[j], buf);
+        }
+        if (already) {
+            continue;
+        }
+        if (outCount >= cap) {
+            return false;    // genuinely more distinct entries than we can hold
+        }
+        std::memcpy(out[outCount], buf, kMaxValueLen);
         ++outCount;
+    }
+    return true;
+}
+
+// True when `candidate` is already in the floor, entry for entry. The floor is
+// generated from the shipped seed, so an unmodified rules file repeats all of it;
+// appending both copies would spend kMaxFamilies twice and refuse any seed larger
+// than half the cap. A family that differs in ANY respect is not a duplicate and
+// is kept — matching then sees both, which is what "data may extend" means.
+bool SameFamily(const Family& a, const Family& b) noexcept {
+    if (a.group != b.group || a.match != b.match || a.valueCount != b.valueCount || !IEquals(a.name, b.name)) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.valueCount; ++i) {
+        if (!IEquals(a.values[i], b.values[i])) {
+            return false;
+        }
     }
     return true;
 }
@@ -308,16 +361,19 @@ bool ReadTitleArray(const char* json, const jsmntok_t* toks, int count, int arra
     return true;
 }
 
-// The gate has to be usable, not merely well-formed. A syntactically perfect
-// file with an empty `modules` array blocks nothing.
+// What the FILE supplied, recorded as it is read.
 //
-// `first` is where the FILE's families begin. Everything below it is the floor,
-// which satisfies this check by construction — so scanning from 0 would make
-// this a gate that cannot fail, which is the defect class 20_OPEN_QUESTIONS
-// exists to record. The floor protects the GATE; this check polices the DATA,
-// and "the rules file you shipped is missing BattlEye" is still worth refusing
-// over and telling someone about.
-bool IsCompleteEnoughToGate(const Rules& r, std::size_t first) noexcept {
+// The gate has to be usable, not merely well-formed, and a syntactically perfect
+// file with an empty `modules` array blocks nothing — so completeness is checked
+// here rather than left to whoever wrote the file.
+//
+// It is asked of what the file OFFERED, never of what ended up in `Rules`. Two
+// reasons, and both have already bitten a version of this code: the floor
+// satisfies the check by construction, so scanning the merged set would make this
+// a gate that cannot fail; and the floor is generated FROM the shipped seed, so
+// an unmodified file is entirely duplicate and stores nothing, which would make
+// the correct seed report kIncomplete.
+struct SuppliedFamilies {
     struct Required {
         const char* family;
         Group       group;
@@ -328,41 +384,43 @@ bool IsCompleteEnoughToGate(const Rules& r, std::size_t first) noexcept {
         {"BattlEye", Group::kModules},
         {"Riot Vanguard", Group::kDrivers},
     };
+    static constexpr std::size_t kRequiredCount = sizeof(kRequired) / sizeof(kRequired[0]);
 
-    for (const auto& req : kRequired) {
-        bool found = false;
-        for (std::size_t i = first; i < r.familyCount && !found; ++i) {
-            found = r.families[i].group == req.group && IEquals(r.families[i].name, req.family);
-        }
-        if (!found) {
-            return false;
+    bool seen[kRequiredCount] = {};
+    bool any = false;
+
+    void Note(const Family& f) noexcept {
+        any = true;
+        for (std::size_t i = 0; i < kRequiredCount; ++i) {
+            if (f.group == kRequired[i].group && IEquals(f.name, kRequired[i].family)) {
+                seen[i] = true;
+            }
         }
     }
-    return true;
-}
+
+    [[nodiscard]] bool Complete() const noexcept {
+        if (!any) {
+            return false;
+        }
+        for (std::size_t i = 0; i < kRequiredCount; ++i) {
+            if (!seen[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
 
 }    // namespace
 
 const Family* FloorFamilies(std::size_t& count) noexcept {
-    // §S21. Exactly the three families IsCompleteEnoughToGate already required —
-    // no more, because every extra entry here is a blocklist that can drift from
-    // rules/detection-rules.json, and ctest fl_rules_budget pins these against the
-    // shipped seed for that reason.
-    //
-    // Values are the ones that carry the coverage, not every value in the seed:
-    // "EasyAntiCheat" is a PREFIX rule, so it already subsumes
-    // "EasyAntiCheat_EOS". The subset assertion is "every value here appears in
-    // the seed", never "these two lists are equal".
-    static constexpr Family kFloor[kFloorFamilyCount] = {
-        {"Easy Anti-Cheat", Group::kModules, MatchKind::kPrefix, {"EasyAntiCheat"}, 1},
-        {"BattlEye", Group::kModules, MatchKind::kPrefix, {"BEClient", "BEService"}, 2},
-        {"Riot Vanguard", Group::kDrivers, MatchKind::kExact, {"vgk.sys"}, 1},
-    };
-    static_assert(sizeof(kFloor) / sizeof(kFloor[0]) == kFloorFamilyCount,
-                  "kFloorFamilyCount must match the table; rules-validate.ps1 subtracts it from the file's budget");
+    count = sizeof(generated::kFloorFamilies) / sizeof(generated::kFloorFamilies[0]);
+    return generated::kFloorFamilies;
+}
 
-    count = kFloorFamilyCount;
-    return kFloor;
+const char* const* FloorFragments(std::size_t& count) noexcept {
+    count = sizeof(generated::kFloorFragments) / sizeof(generated::kFloorFragments[0]);
+    return generated::kFloorFragments;
 }
 
 ParseResult ParseRules(const char* json, std::size_t length, Rules& out) noexcept {
@@ -379,6 +437,23 @@ ParseResult ParseRules(const char* json, std::size_t length, Rules& out) noexcep
     }
     const std::size_t dataFirst = out.familyCount;
 
+    // The fuzzy tier is floored too. §S19(d) records that a rules file with no
+    // `heuristic` block parses kOk and the tier silently stops existing, and
+    // proposed fixing it with a new ParseResult cause — which its own text says
+    // would make kRulesIncomplete's signal a lie and would drive layer.cpp to
+    // machine-wide inert passthrough. A floor needs neither: the tier cannot stop
+    // existing, because the data never supplied it.
+    //
+    // trustedSigners is deliberately NOT floored. It is an ALLOW-widening list,
+    // so "data may only add" has the wrong polarity there — forcing entries in
+    // would be forcing suppressions in.
+    std::size_t        fragCount = 0;
+    const char* const* frags = FloorFragments(fragCount);
+    for (std::size_t i = 0; i < fragCount && out.nameFragmentCount < kMaxNameFragments; ++i) {
+        if (CopyLiteral(frags[i], out.nameFragments[out.nameFragmentCount])) {
+            ++out.nameFragmentCount;
+        }
+    }
     if (json == nullptr || length == 0) {
         return ParseResult::kMalformed;
     }
@@ -401,6 +476,8 @@ ParseResult ParseRules(const char* json, std::size_t length, Rules& out) noexcep
         return ParseResult::kMalformed;
     }
 
+    SuppliedFamilies supplied;
+
     static constexpr const char* kGroupNames[] = {"modules", "drivers", "directories", "services", "files"};
     for (const char* groupName : kGroupNames) {
         bool        ok = false;
@@ -416,13 +493,29 @@ ParseResult ParseRules(const char* json, std::size_t length, Rules& out) noexcep
             if (toks[i].parent != arrTok || toks[i].type != JSMN_OBJECT) {
                 continue;
             }
+            Family fam;
+            if (!ReadFamily(json, toks, count, i, group, fam)) {
+                return ParseResult::kMalformed;
+            }
+
+            // Completeness is judged on what the FILE supplied, so it is recorded
+            // here — before the duplicate check. The floor is generated from the
+            // shipped seed, so an unmodified file duplicates all of it and stores
+            // nothing; judging completeness by what was STORED would then report
+            // the correct seed as incomplete.
+            supplied.Note(fam);
+
+            bool duplicate = false;
+            for (std::size_t f = 0; f < dataFirst && !duplicate; ++f) {
+                duplicate = SameFamily(out.families[f], fam);
+            }
+            if (duplicate) {
+                continue;
+            }
             if (out.familyCount >= kMaxFamilies) {
                 return ParseResult::kTooLarge;
             }
-            if (!ReadFamily(json, toks, count, i, group, out.families[out.familyCount])) {
-                return ParseResult::kMalformed;
-            }
-            ++out.familyCount;
+            out.families[out.familyCount++] = fam;
         }
     }
 
@@ -454,12 +547,11 @@ ParseResult ParseRules(const char* json, std::size_t length, Rules& out) noexcep
         }
     }
 
-    // Both questions are asked of the FILE, not of the merged set (see
-    // IsCompleteEnoughToGate). A file that supplies no families at all is still
-    // kIncomplete even though the floor would gate perfectly well without it:
-    // shipping an empty blocklist is a mistake worth surfacing, and the floor is
-    // a backstop, not a substitute.
-    if (out.familyCount == dataFirst || !IsCompleteEnoughToGate(out, dataFirst)) {
+    // Asked of the FILE, never of the merged set (see SuppliedFamilies). A file
+    // that supplies no families at all is still kIncomplete even though the floor
+    // would gate perfectly well without it: shipping an empty blocklist is a
+    // mistake worth surfacing, and the floor is a backstop, not a substitute.
+    if (!supplied.Complete()) {
         return ParseResult::kIncomplete;
     }
     return ParseResult::kOk;
@@ -616,11 +708,21 @@ std::size_t ReadRulesFile(char* buffer, std::size_t cap) noexcept {
 
     // FILE_SHARE_DELETE matters as much as the other two, and it is the half that
     // is easy to leave out. §S20's delivery path must replace this file
-    // atomically (temp file + MoveFileExW(MOVEFILE_REPLACE_EXISTING)) rather than
-    // rewriting it in place, or a reader can see it half-written and refuse every
-    // title mid-session. A rename cannot proceed against a handle that denies
-    // delete sharing, so denying it here would turn every routine rules update
-    // into a failed update — silently, since the writer's error goes nowhere.
+    // atomically rather than rewriting it in place, or a reader can see it
+    // half-written and refuse every title mid-session.
+    //
+    // **The primitive is ReplaceFileW, and this comment used to prescribe the
+    // wrong one.** It said MoveFileExW(MOVEFILE_REPLACE_EXISTING), reasoning that
+    // delete sharing is what lets a rename proceed against a live reader.
+    // Measured 2026-08-04 against a handle opened exactly as below:
+    //
+    //     MoveFileExW(MOVEFILE_REPLACE_EXISTING)  ERROR_ACCESS_DENIED (5)
+    //     ReplaceFileW, backup file named         succeeds
+    //
+    // Delete sharing is NECESSARY and nowhere near sufficient. Naming the wrong
+    // call here would have sent whoever implements §S20 to a primitive that fails
+    // on exactly the machines where the guard is busy — and its error goes
+    // nowhere, so the update would simply not happen.
     //
     // The guard and the Vulkan layer previously disagreed here (READ vs
     // READ|WRITE) about what fl_ac_rules.h calls "the ONE location": by that
