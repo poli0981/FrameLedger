@@ -277,6 +277,41 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
 
 Any check failing ⇒ **injection is refused**. The UI shows which check fired and offers Tier-2 (ETW) capture instead, which requires no injection — but does require an elevated Agent, so the offer must state that plainly and fall through to Tier 3 rather than appearing to succeed and recording nothing (`04_CAPTURE` §Frame source abstraction).
 
+### The payload is checked too, and for a long time it was not
+
+Checks 1–4 all answer *"is it safe to be inside this process"*. **None of them
+asks what we are putting there**, and until 2026-08-04 nothing did: the exported
+`FlGuardedInject` took a caller-supplied `dllPath` and asked only whether a file
+existed at it. Measured through the shipped `FrameLedger.Guard.dll` with no test
+seam, `C:\Windows\System32\winmm.dll` went into a live process and the verdict
+was `Allow`. That is the standalone injector `20_OPEN_QUESTIONS` §S9 refused to
+ship, re-exported with a published calling convention — the worst possible shape
+under this document's own threat model, because an anti-cheat vendor auditing the
+binary would find a general-purpose loader and the rational response is to block
+FrameLedger outright.
+
+So there is now a fifth thing the guard establishes before it injects: **the
+payload resolves into the same directory the guard's own code was loaded from**,
+compared by file id, through symlinks and 8.3 names and junctions. Refusal is
+`Reason::kPayloadNotOurs`. A seam that cannot answer refuses, exactly as
+everywhere else here.
+
+It is deliberately **not** listed as "check 5". Checks 1–4 are numbered in
+`05_DETECTION`, in the managed mirror and in the reason codes, and renumbering a
+gate is how stored values start meaning something else. It is a precondition of
+the injection primitive, not a fifth question about the title.
+
+**What this does not buy**, stated here rather than left to be assumed:
+
+- It proves *where the bytes live*, not that they are `FrameLedger.Overlay.dll`.
+  Whoever can write to that directory can already replace the guard itself, so
+  the check is exactly as strong as the install location — and the project ships
+  unsigned (CLAUDE.md rule 9), so nothing attests to that directory's contents.
+- It is not atomic with the load: the remote `LoadLibraryW` resolves the path
+  again. Same trust base.
+- **Absent** is still `kInjectionFailed`, not `kPayloadNotOurs`. A damaged install
+  and a misuse of the ABI are different problems and must not share a reason.
+
 > There is no override. No hidden setting, no config-file flag, no CLI switch, no "advanced users" escape hatch. If a user disagrees with a specific entry, the path is a GitHub issue against the rules file, reviewed in public — not a local bypass.
 
 ### The floor data cannot remove

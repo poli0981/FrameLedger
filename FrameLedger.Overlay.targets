@@ -1,0 +1,56 @@
+<Project>
+
+  <!--
+    Ships FrameLedger.Overlay.dll beside the importing project's output.
+
+    §S22. The guard now refuses a payload that does not resolve into the
+    directory the guard's own code was loaded from — so the Overlay must LAND
+    there, or the constraint is a gate that cannot pass and the product refuses
+    its own injection.
+
+    Nothing copied the Overlay anywhere before this file existed. It was built
+    into build/native/x64-release/FrameLedger.Overlay/ and left there, so
+    `dotnet publish` produced an out/app containing the Agent, the guard and the
+    rules seed but no payload at all. That was invisible while the Agent had no
+    injector control, and it would have surfaced as an unexplained
+    kPayloadNotOurs the first time one was wired — which is the diagnosis §S22
+    warns is easy to misread as the guard being over-eager.
+
+    Imported by FrameLedger.Agent only, and for the same reason
+    FrameLedger.Guard.targets is: the Agent is the sole host of the guard (§S18
+    blocker 3, ratified). FrameLedger.App has no injector and must not carry a
+    payload it cannot use.
+
+    NOT imported by the native test suite. src/native/tests/CMakeLists.txt stages
+    its own copy beside fl_guard_test, because there the guard is compiled INTO
+    the test binary and "the guard's own directory" is the test's directory.
+
+    UNEXERCISED TODAY, stated rather than implied: the Agent builds no host, no
+    watcher and no injector control (Program.cs seeds the rules file and exits),
+    so nothing in a published build injects anything yet. This places the payload
+    where the gate will look when that lands; it does not make injection work.
+  -->
+  <PropertyGroup>
+    <FlNativeOverlayDir>$(MSBuildThisFileDirectory)build\native\x64-release\FrameLedger.Overlay\</FlNativeOverlayDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(FlNativeOverlayDir)FrameLedger.Overlay.dll"
+          Condition="Exists('$(FlNativeOverlayDir)FrameLedger.Overlay.dll')">
+      <Link>FrameLedger.Overlay.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!--
+    Warn rather than fail, exactly as FrameLedger.Guard.targets does: build.ps1
+    runs the native build first, so by the time this evaluates the DLL exists. A
+    hard error would make `dotnet build` on a fresh clone fail for a reason that
+    has nothing to do with the managed code.
+  -->
+  <Target Name="FlWarnOnMissingOverlay" AfterTargets="Build"
+          Condition="!Exists('$(FlNativeOverlayDir)FrameLedger.Overlay.dll')">
+    <Warning Text="FrameLedger.Overlay.dll was not found at $(FlNativeOverlayDir). Run build.ps1 native first; the guard refuses a payload that is not beside it (§S22)." />
+  </Target>
+
+</Project>

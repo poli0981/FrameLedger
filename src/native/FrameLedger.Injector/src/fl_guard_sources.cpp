@@ -598,6 +598,65 @@ Collected EnumerateDirEntriesImpl(const wchar_t* dir, DirEntrySink sink, void* c
     return truncated ? Collected::kIncomplete : Collected::kOk;
 }
 
+// §S22 — the payload identity check.
+//
+// Deliberately resolves the FILE and asks where it ACTUALLY is, rather than
+// parsing the string it was handed. `C:\ours\..\evil\x.dll`, an 8.3 short name,
+// a junction, a subst drive and a symlink under our own directory pointing
+// somewhere else all name a location the string does not admit to — and the
+// remote LoadLibraryW is going to resolve them, not us.
+//
+// Every failure returns kFailed, which the caller turns into a refusal. There is
+// no branch here that answers "ours" without having opened the file.
+Collected PayloadIsOurOwnImpl(const wchar_t* dllPath, bool* isOurs) noexcept {
+    if (isOurs == nullptr || dllPath == nullptr || dllPath[0] == L'\0') {
+        return Collected::kFailed;
+    }
+    *isOurs = false;
+
+    wchar_t mine[kMaxPreScanPathLen] = {};
+    if (!OwnDirectory(mine, kMaxPreScanPathLen)) {
+        return Collected::kFailed;
+    }
+
+    // FILE_READ_ATTRIBUTES is all GetFinalPathNameByHandleW needs, and asking
+    // for no more is the same discipline the module scan applies to OpenProcess.
+    //
+    // No FILE_FLAG_BACKUP_SEMANTICS, deliberately: without it this open FAILS on
+    // a directory, which subsumes the "exists and is not a directory" test the
+    // injection primitive used to do on its own. Share every mode, as every
+    // other reader in this file now does (§S21) — denying delete sharing here
+    // would make us the reason an updater could not replace our own DLL.
+    HANDLE h = CreateFileW(dllPath, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return Collected::kFailed;
+    }
+
+    wchar_t     resolved[kMaxPreScanPathLen] = {};
+    const DWORD n = GetFinalPathNameByHandleW(h, resolved, static_cast<DWORD>(kMaxPreScanPathLen),
+                                              FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    CloseHandle(h);
+    // n >= cap means truncation, and a truncated path names a different file.
+    if (n == 0 || n >= kMaxPreScanPathLen) {
+        return Collected::kFailed;
+    }
+
+    wchar_t* lastSep = nullptr;
+    for (wchar_t* p = resolved; *p != L'\0'; ++p) {
+        if (*p == L'\\' || *p == L'/') {
+            lastSep = p;
+        }
+    }
+    if (lastSep == nullptr || lastSep == resolved) {
+        return Collected::kFailed;
+    }
+    *lastSep = L'\0';
+
+    *isOurs = SameDirectory(resolved, mine);
+    return Collected::kOk;
+}
+
 }    // namespace
 
 Sources SystemSources() noexcept {
@@ -610,6 +669,7 @@ Sources SystemSources() noexcept {
     s.ImageDirectory = &ImageDirectoryImpl;
     s.EnumerateDirEntries = &EnumerateDirEntriesImpl;
     s.ProcessIsOurOwn = &ProcessIsOurOwnImpl;
+    s.PayloadIsOurOwn = &PayloadIsOurOwnImpl;
     return s;
 }
 

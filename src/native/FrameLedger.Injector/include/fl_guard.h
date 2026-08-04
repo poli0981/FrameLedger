@@ -107,6 +107,21 @@ enum class Reason : std::uint8_t {
     // Tier 2 rather than reporting a failure the user could act on.
     kTargetIsWow64,
 
+    // The PAYLOAD is not ours (§S22).
+    //
+    // Every other reason in this enum is about the TARGET or about the machine.
+    // This one is about the DLL we were asked to load, and it exists because the
+    // gate had a hole exactly that shape: FlGuardedInject takes a caller-supplied
+    // path and, until this reason existed, the only thing asked of it was
+    // GetFileAttributesW — "exists and is not a directory". A caller could hand
+    // the shipped, exported guard any DLL on the machine and have it loaded into
+    // any x64 process that happened to carry no anti-cheat.
+    //
+    // Refusing here is not a failed injection: nothing was attempted. It is the
+    // guard declining, which is why it is a Reason and not a kInjectionFailed
+    // variant — a mislabelled reason is a wrong answer for whoever has to fix it.
+    kPayloadNotOurs,
+
     // NOT A REASON. The count, so appending above it updates the exported
     // FlGuardReasonCount by construction.
     //
@@ -218,6 +233,40 @@ struct Sources {
     // QueryService is: "no" and "could not tell" are different answers and the
     // caller has to be able to distinguish them.
     Collected (*ProcessIsOurOwn)(std::uint32_t pid, bool* isOurs) = nullptr;
+
+    // §S22 — is the DLL we were asked to inject one of OUR OWN binaries?
+    //
+    // The guard gated the target and nothing gated the payload. Every check
+    // above answers "is it safe to be inside this process"; none of them asks
+    // "and what are we putting there". `dllPath` arrives from the caller across
+    // the C ABI, so without this the shipped FrameLedger.Guard.dll exports a
+    // documented "load an arbitrary DLL into an arbitrary x64 process" primitive
+    // — which is §S9's user-runnable injector, the exact thing this project
+    // refused to ship, wearing a different shape.
+    //
+    // "Ours" means: the payload resolves — through symlinks, 8.3 names and
+    // junctions — into the SAME DIRECTORY the guard's own code was loaded from,
+    // compared by file id, exactly as §S18 compares directories. Equality, not
+    // containment, for the same reason §S18 chose it.
+    //
+    // kFailed and a null seam both mean REFUSE. This is the ordinary polarity of
+    // every other seam here, not the inverted one ProcessIsOurOwn needs: there,
+    // "could not tell" must not SUPPRESS a refusal; here, "could not tell" must
+    // not AUTHORISE a load.
+    //
+    // What it does NOT cover, stated here rather than discovered later:
+    //   - It is not proof the payload is FrameLedger.Overlay.dll. It is proof of
+    //     WHERE the bytes live. Anyone who can write to that directory can
+    //     already replace FrameLedger.Guard.dll itself, which
+    //     NativeAntiCheatGuard calls a worse outcome than any other DLL-hijack in
+    //     this application — so the check is exactly as strong as the install
+    //     location and no stronger. The project ships unsigned (CLAUDE.md rule
+    //     9), so there is no integrity check on that directory's contents.
+    //   - It is not atomic with the load. The remote LoadLibraryW re-resolves the
+    //     path, so a file swapped between the check and the call is not caught.
+    //     Same trust base as above: that swap needs write access we have already
+    //     conceded.
+    Collected (*PayloadIsOurOwn)(const wchar_t* dllPath, bool* isOurs) = nullptr;
 };
 
 // The real Windows implementations. Behaviour measured in spike-notes.md §1;

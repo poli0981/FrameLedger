@@ -51,11 +51,47 @@ target_compile_definitions(fl_guard_test PRIVATE FL_GUARD_TESTABLE)
 
 # Real cross-process injection, against our own dummy D3D11 app — no game and
 # no anti-cheat surface (14_TESTING §Integration tests).
+#
+# THE PAYLOAD IS STAGED BESIDE THE TEST BINARY, and that is load-bearing rather
+# than tidiness (§S22). The guard now refuses a payload that does not resolve
+# into the directory the guard's own code was loaded from, and in this target the
+# guard IS the test executable — the injector sources are compiled in (above), so
+# OwnDirectory() answers with the test's directory. Pointing FL_OVERLAY_DLL at
+# $<TARGET_FILE:FrameLedger.Overlay> would name a sibling build directory, and
+# every injection test would refuse kPayloadNotOurs. It would also stop matching
+# the shipped arrangement, where 12_BUILD publishes the Agent, the guard and the
+# Overlay into one out/app.
+#
+# Staged through a target that DEPENDS ON THE OVERLAY rather than a POST_BUILD
+# step on fl_guard_test. A POST_BUILD copy only refreshes when the TEST relinks,
+# so a rebuilt Overlay would leave a stale payload in place and the suite would
+# keep testing the previous DLL — the stale-artifact defect 20_OPEN_QUESTIONS
+# records having already shipped once.
+# A plain path, not $<TARGET_FILE_DIR:fl_guard_test>: add_custom_command's OUTPUT
+# may not carry a target-dependent generator expression. No target here sets
+# RUNTIME_OUTPUT_DIRECTORY, so fl_guard_test lands in CMAKE_CURRENT_BINARY_DIR —
+# and that assumption is not left to hold quietly. The "payload check can PASS"
+# case REQUIREs that FL_OVERLAY_DLL resolves into the running binary's own
+# directory, so if the two ever diverge the suite goes red instead of the staging
+# silently landing somewhere the guard does not look.
+set(FL_STAGED_OVERLAY "${CMAKE_CURRENT_BINARY_DIR}/FrameLedger.Overlay.dll")
+add_custom_command(
+    OUTPUT "${FL_STAGED_OVERLAY}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:FrameLedger.Overlay>" "${FL_STAGED_OVERLAY}"
+    DEPENDS FrameLedger.Overlay
+    COMMENT "Staging FrameLedger.Overlay.dll beside fl_guard_test (payload identity, §S22)"
+    VERBATIM
+)
+add_custom_target(fl_stage_overlay_payload DEPENDS "${FL_STAGED_OVERLAY}")
+
 target_compile_definitions(fl_guard_test PRIVATE
     FL_HARNESS_EXE=L"$<TARGET_FILE:hook-harness>"
-    FL_OVERLAY_DLL=L"$<TARGET_FILE:FrameLedger.Overlay>"
+    FL_OVERLAY_DLL=L"${FL_STAGED_OVERLAY}"
+    # The un-staged original, so a test can prove the check discriminates on
+    # DIRECTORY rather than on filename: same bytes, same name, wrong place.
+    FL_OVERLAY_DLL_ELSEWHERE=L"$<TARGET_FILE:FrameLedger.Overlay>"
 )
-add_dependencies(fl_guard_test hook-harness FrameLedger.Overlay)
+add_dependencies(fl_guard_test hook-harness FrameLedger.Overlay fl_stage_overlay_payload)
 
 add_test(NAME fl_guard COMMAND fl_guard_test)
 

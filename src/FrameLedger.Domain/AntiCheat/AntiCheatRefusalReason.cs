@@ -111,4 +111,25 @@ public enum AntiCheatRefusalReason
     /// a failure the user could act on.
     /// </remarks>
     TargetIsWow64 = 19,
+
+    /// <summary>
+    /// The DLL the caller asked us to inject is not one of FrameLedger's own
+    /// binaries.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every other value here is about the target process or the machine. This
+    /// one is about the <em>payload</em>, and it exists because the gate had a
+    /// hole of exactly that shape (<c>20_OPEN_QUESTIONS</c> §S22): the exported
+    /// <c>FlGuardedInject</c> took a caller-supplied path and asked only whether
+    /// a file was there, so the shipped guard was a documented "load any DLL
+    /// into any x64 process without anti-cheat" primitive.
+    /// </para>
+    /// <para>
+    /// Nothing was attempted when this is returned, which is why it is not a
+    /// flavour of <see cref="InjectionFailed"/>. It means the payload does not
+    /// resolve into the directory the guard itself was loaded from.
+    /// </para>
+    /// </remarks>
+    PayloadNotOurs = 20,
 }
