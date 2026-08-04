@@ -268,12 +268,12 @@ struct alignas(64) FlFrameRecord {   // 64 bytes exactly, static_assert'd
     uint32_t dispatchRaysVolume;     // @32 Σ (W×H×D) over DispatchRays calls this frame
     uint16_t psoCreatedThisFrame;    // @36
     uint8_t  maxTraceRecursionDepth; // @38 from the live RT PSO config, 0 = none
-    uint8_t  _pad0;                  // @39 explicit; keeps vramUsedBytes 8-aligned
+    uint8_t  measuredMask;           // @39 FlMeasured: which fields this frame MEASURED
     uint64_t vramUsedBytes;          // @40
     uint32_t reflexLatencyUs;        // @48 0 = unavailable
     uint32_t fgEvaluations;          // @52 FG feature evaluations observed this frame
     uint32_t seq;                    // @56 seqlock counter (see 07_IPC §Protocol rules)
-    uint32_t _pad1;                  // @60 explicit
+    uint32_t swapchainId;            // @60 which swapchain this present came through; 0 = unidentified
 };
 static_assert(sizeof(FlFrameRecord) == 64);
 ```
@@ -290,10 +290,27 @@ Field notes — each of these was a defect in an earlier revision:
 - **`maxTraceRecursionDepth`** is the second of the four stated inputs to
   `pt_confidence`. It is read at `CreateStateObject` (§Hook inventory) but
   previously had no transport to the Agent and no column to land in.
-- **`_pad0` and `_pad1` are explicit.** Natural alignment would insert padding
-  here anyway; naming it is required because CLAUDE.md §Struct mirroring asserts
-  *every field offset* on both the C++ and C# sides, and an unnamed hole cannot
-  be asserted.
+- **`_pad0` and `_pad1` were explicit holes and are now carrying data.** Both were
+  named only so every offset could be asserted; spending them costs nothing,
+  because both bytes ranges were already inside the record and already written
+  every frame. Neither needs a `FL_SHM_LAYOUT_VERSION` bump — and both had to be
+  decided BEFORE a writer or a C# mirror exists, because after that the same
+  change is user-visible: the Agent refuses to attach and tells the user to
+  restart the game.
+  - **`measuredMask` (@39)** distinguishes *"we looked and there was none"* from
+    *"we did not look"*. The zero-defaults are affirmative negatives —
+    `FL_UPSCALER_NONE`, `FL_FG_NONE`, `rtFlags = 0` — so a present-only writer
+    with no feature hooks would otherwise assert "no upscaler, no FG, no ray
+    tracing" as measured fact, 118 times a second, on the exact title chosen to
+    prove ADR-7. `03_METRICS` would then produce `fg_factor 1.0`, the single
+    inflated number CLAUDE.md rule 6 forbids, and map a whole session to a
+    definite RT `No`, which rule 7 forbids.
+  - **`swapchainId` (@60)** says which swapchain the present came through.
+    Patching a vtable slot patches the SHARED `dxgi.dll` class vtable — measured
+    across five configurations, D3D11 and D3D12, WARP and hardware, composition
+    and HWND, all identical — so one hook sees every swapchain in the process. A
+    title with a separate UI or video swapchain inflates `F_disp`, and
+    `03_METRICS` has no way to tell the streams apart without this.
 - **There is no `gpuBusyUs`.** Its only possible source is GPU timestamp queries
   injected into the game's command lists, which `15_ROADMAP` defers to v2 as
   "more invasive than anything in v1". A version-locked 64-byte record must not

@@ -33,6 +33,8 @@ FrameLedger is designed to reduce that risk substantially:
 - Injection is **off by default** and must be enabled by you **per game**.
 - Before injecting, and every 30 seconds afterwards, FrameLedger scans for known anti-cheat and anti-tamper components. **If it finds one, it refuses to inject; if a session is already running, it stops at the next scan.** There is no setting to override this. Because the scan runs every 30 seconds rather than continuously, anti-cheat that loads mid-session may be present for **up to 30 seconds** before FrameLedger detects it and stops.
 
+  **And there is a second, longer window you should know about.** The part of FrameLedger running inside the game also stops on its own if it loses contact with the part doing the scanning — because a scanner that has stopped cannot protect you. It waits **65 seconds** before concluding that contact is lost, so that one delayed scan on a busy machine does not end your session. In the worst case those windows combine: if the scanner stops at the moment anti-cheat appears, the component inside the game may keep running for up to **65 seconds** afterwards. That number is 65 and not 30, and this document says so rather than leaving the 30 above to imply it.
+
 - **What "stops" means differs by graphics API, and the difference is worth
   stating plainly.** For Direct3D and OpenGL titles FrameLedger injects a
   library and genuinely removes its hooks. Vulkan titles use a Khronos *layer*

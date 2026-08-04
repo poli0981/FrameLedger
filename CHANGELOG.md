@@ -123,6 +123,37 @@ GitHub release body, so a missing section means an empty release note.
   policy. Over-disclosure in a document the user relies on is a defect in the
   same way an omission is.
 
+- **The shm layout's unmade decisions are made, while they are still free.** Five
+  of them, all in the last window before a C# mirror exists — after that the same
+  changes cost a `FL_SHM_LAYOUT_VERSION` bump, which `fl_shm.h` defines as
+  user-visible: the Agent refuses to attach and tells the user to restart the game.
+  - **`measuredMask`** (was `_pad0` @39) distinguishes "we looked and there was
+    none" from "we did not look". The zero-defaults are affirmative negatives, so
+    a present-only writer with no feature hooks would have asserted "no upscaler,
+    no FG, no ray tracing" as measured fact 118 times a second — producing
+    `fg_factor 1.0`, the single inflated number CLAUDE.md rule 6 forbids, and a
+    definite RT `No`, which rule 7 forbids. `FL_RT_NOT_MEASURED` is the same fix
+    inside `rtFlags`.
+  - **`swapchainId`** (was `_pad1` @60). One hook sees every swapchain in the
+    process — patching a vtable slot patches the shared `dxgi.dll` class vtable,
+    measured identical across five configurations — so a title with a separate UI
+    swapchain inflates `F_disp` and nothing could tell the streams apart.
+  - **`adapterLuid` is published at first present, not at init**, and `0` now
+    means "not yet known". The handshake is documented write-once at init, which
+    is two steps before the graphics modules are even resolved; our throwaway
+    dummy device's adapter is not the game's.
+  - **`buildId` has a producer**: `FL_BUILD_ID`, from `git describe`. It had none
+    — three references in the tree, all declaration or dump — while `07_IPC` makes
+    a mismatch a hard refuse-to-attach. A check whose input nobody writes compares
+    `""` with `""` forever. `fl_shm_layout` now fails if it is missing, empty, or
+    too long for the field.
+  - **The supervision deadline is 65 s** (`FL_GUARD_TICK_DEADLINE_MS`). `07_IPC`
+    §Supervision loss depended on a number it never stated. 65 s is two missed
+    30 s scans: ~35 s would end a session on one late tick, and a tick is late
+    whenever the machine is busy. The cost — the worst-case unsupervised window
+    doubles — is now in `legal/DISCLAIMER.md` in those words rather than left to
+    imply 30.
+
 ### Known issues
 - **A real VAC title is allowed by the guard today** (`spike-notes.md` §13).
   Counter-Strike 2 measures `Allow`: VAC is neither a machine-wide driver nor a
