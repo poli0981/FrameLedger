@@ -61,10 +61,17 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
    > scan-set process whose directory is ours, never for the target, and the Agent
    > is now the sole host of the DLL.
    >
-   > **Launch mode is not therefore working.** §S18 was one of its blockers;
-   > §S1 and §S13(c) are still open owner decisions. Nothing here has been
-   > re-run against a real title in launch mode, so this row stays "attach mode",
-   > measured, rather than being upgraded on the strength of a removed blocker.
+   > **The fix is measured on three real titles** in the launch-mode arrangement
+   > — our binary as the game's ancestor, carrying the guard DLL — and every one
+   > goes `SuspiciousUnsigned` → `Allow`: Deadly Heart Gambit, Lies of P, Alan
+   > Wake 2 (`spike-notes.md` §7). **Evaluate only; nothing was injected.**
+   >
+   > **Launch mode is still not working, and that is a different sentence.** The
+   > guard now passes, which is all §S18 was about. Launch-mode *injection* also
+   > needs §S1 and §S13(c), both open owner decisions, and there is no Agent to
+   > drive it — `Program.cs` is `return 0`. This row therefore stays "attach mode"
+   > for the *injection* claim; what is upgraded is the guard's verdict, which is
+   > the only thing that was measured.
    >
    > Three refusals came before the success, and each was a real defect: a
    > machine-wide `EasyAntiCheat_EOS` service that refused every process on the

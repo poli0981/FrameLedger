@@ -700,7 +700,44 @@ Packaging row — *not* `12_BUILD`, which this line used to cite and which conta
 no signing text at all), so wiring the signer check would not rescue our own
 binaries. Whatever the fix is, it cannot be "sign it".
 
-> **Decided 2026-08-03 — identity by install root, and §S18 stays open.** A
+#### ✅ Fixed and re-measured on three real titles — 2026-08-04
+
+The arrangement was reproduced end to end rather than argued: a stand-in for the
+Agent, built into `FrameLedger.Agent`'s own output directory **beside a real
+`FrameLedger.Guard.dll`**, loads that DLL and then **launches the game**. So our
+binary is the game's ancestor and carries the module whose name trips the guard's
+own `guard` fragment — the 2026-08-03 shape, with a real title on the other end.
+
+Evaluate only. `FlGuardedInject` was never called; nothing was injected into any
+game.
+
+| Title | Store / engine | Pre-fix (`bb0da0a`) | Post-fix |
+|---|---|---|---|
+| Deadly Heart Gambit | Steam / Unity, x86 | `SuspiciousUnsigned` — `FrameLedger.Guard.dll` | **`Allow`** |
+| Lies of P | Steam / Unreal, x64 | `SuspiciousUnsigned` — `FrameLedger.Guard.dll` | **`Allow`** |
+| Alan Wake 2 | Epic / Northlight | `SuspiciousUnsigned` — `FrameLedger.Guard.dll` | **`Allow`** |
+
+Two things about the harness that are worth keeping, because both produced a
+confident wrong answer first:
+
+- **The evaluator must not be in the target's ancestor chain.** The first attempt
+  used `Start-Process`, so the evaluating process — which had P/Invoked into the
+  guard and therefore carried `FrameLedger.Guard.dll` itself — was the game's
+  grandparent. Post-fix still refused, and it looked like the fix did not work.
+  It did; the refusal was about the evaluator, whose image is in
+  `C:\Program Files\PowerShell`, correctly *not* ours. The script now walks the
+  chain and asserts the evaluator is absent from it before reporting.
+- **Launching the stand-in through WMI put `WmiPrvSE.exe` in the scan set**,
+  which an unelevated guard cannot open — a correct `ProcessUnreadable` about
+  something irrelevant. Orphaning it via `cmd /c start` terminates the ancestor
+  walk at the stand-in instead.
+
+An earlier iteration also stopped at `PreScanFailed` because the target was
+`cmd.exe` and check 4 then tried to list `System32`. That is check 4 answering
+correctly about the wrong directory — noted because it is the shape of a green
+that means nothing.
+
+> **Decided 2026-08-03 — identity by install root.** A
 > four-lens panel, three refuters and a completeness critic. All three refuters
 > broke the panel's first answer. What survived: suppress the fuzzy fragment tier
 > for any scan-set process whose image resolves inside our own install directory,

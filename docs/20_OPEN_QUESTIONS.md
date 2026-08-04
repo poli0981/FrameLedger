@@ -614,6 +614,19 @@ a specific plausible mistake — dropping the target exclusion (`guard_test.cpp:
 suppressing regardless of the tri-state (`:527`), and an implementation that calls
 every process ours (`:612`).
 
+**Measured on three real titles, not only in fixtures** (`spike-notes.md` §7). A
+stand-in for the Agent, built into the Agent's own output directory beside a real
+`FrameLedger.Guard.dll`, loads it and launches the game — so our binary is the
+game's ancestor and carries the offending module name. Deadly Heart Gambit, Lies
+of P and Alan Wake 2 all go `SuspiciousUnsigned` → **`Allow`**. Evaluate only;
+`FlGuardedInject` was never called.
+
+That measurement also validated the assumption the fix rests on and the unit
+tests structurally cannot reach: **the Agent's executable and the guard DLL land
+in the same directory**, which is what makes "equality, not containment" the right
+comparison. `12_BUILD` publishes both executables into one `out/app`, so the
+shipped shape matches.
+
 ### S19 · The unknown-but-suspicious heuristic has five defects of its own
 
 Found 2026-08-03 by the §S18 panel and **re-measured by hand before recording**,
