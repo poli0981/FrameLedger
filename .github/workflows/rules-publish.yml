@@ -92,6 +92,25 @@ jobs:
                 }
               }
             }
+
+            # THE HEURISTIC BLOCK IS NOT ONE OF THE FIVE GROUPS, and leaving it
+            # out was a hole the same size as the one this job was just repaired
+            # to close. `nameFragments` can be cut from five entries to one with
+            # every gate in the repository green — the schema only enforces
+            # minItems: 1 — and because tools/gen-ac-floor.ps1 generates
+            # kFloorFragments from this very array, the §S21 compiled-in floor
+            # shrinks with it. The floor exists so data can ADD and cannot
+            # remove; a removal channel that bypasses it defeats the whole
+            # mechanism.
+            #
+            # trustedSigners is included for the opposite polarity: it is the one
+            # ALLOW-widening list, deliberately excluded from the floor, and a
+            # silent ADDITION there suppresses refusals. §S19(d) already records
+            # that rules-publish cannot see such an addition. It can now.
+            if ($null -ne $ac.PSObject.Properties['heuristic']) {
+              foreach ($v in @($ac.heuristic.nameFragments)) { $out += "heuristic/nameFragments/$v" }
+              foreach ($v in @($ac.heuristic.trustedSigners)) { $out += "heuristic/trustedSigners/$v" }
+            }
             return $out
           }
           $removed = @(Get-Tokens $old | Where-Object { $_ -notin (Get-Tokens $new) })

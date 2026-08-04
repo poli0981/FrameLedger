@@ -66,7 +66,7 @@ tests/
 tools/                         # rules-validate, license-check, resx-audit (PowerShell)
                                # native tooling lives under src/native/tools:
                                #   fl-layout-dump  -> struct offsets for the C# mirror test
-                               #   hook-harness    -> dummy D3D11/12/Vulkan/OpenGL app (P0)
+                               #   hook-harness    -> dummy D3D11 + D3D12 app (Vulkan/OpenGL unwritten)
 rules/detection-rules.json     # engine/platform/capability + anticheat blocklist
 docs/  legal/  legal/licenses/
 ```
@@ -81,7 +81,7 @@ Dependency direction unchanged: `App/Agent → Application → Domain`; `Infrast
 
 **Struct mirroring —** `FlFrameRecord` exists twice (C++ header, C# `[StructLayout(LayoutKind.Sequential)]`). A test asserts `sizeof` and every field offset on both sides; a version constant in the shm header must match or the Agent refuses to attach.
 
-**Dev mode —** `FL_MOCK=1` is **specified but not implemented** — `grep -rn FL_MOCK src tests tools build.ps1` returns nothing (recorded 2026-08-04). When it exists it runs the whole app with a synthetic frame source and no injection at all, and it is how the UI is meant to be developed; until then, do not plan work on the assumption that it is there. `tools/hook-harness` is a dummy **D3D11** app used to exercise hooks without a real game — D3D12 and Vulkan modes are also unwritten (`docs/12_BUILD.md` §Targets is the accurate list).
+**Dev mode —** `FL_MOCK=1` is **specified but not implemented** — `grep -rn FL_MOCK src tests tools build.ps1` returns nothing (recorded 2026-08-04). When it exists it runs the whole app with a synthetic frame source and no injection at all, and it is how the UI is meant to be developed; until then, do not plan work on the assumption that it is there. `tools/hook-harness` is a dummy **D3D11 + D3D12** app used to exercise hooks without a real game; Vulkan and OpenGL modes are unwritten (`docs/12_BUILD.md` §Targets is the accurate list).
 
 ## Definition of done (per PR)
 

@@ -233,7 +233,10 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
 
    > **Implemented, and stated narrowly.** `fl_prescan.cpp` walks the target's
    > own directory (derived from its pid, never from a caller-supplied path) to
-   > depth 2, matching entry names through the **same** `MatchName` as every
+   > **depth 3** — raised from 2 on 2026-08-04 (§S22, `spike-notes.md` §13), because a
+   > title shipping its own kernel driver two levels below the install root was
+   > invisible from where the scan starts, so the blocklist row naming it could not
+   > fire — matching entry names through the **same** `MatchName` as every
    > other check: directory names against the `directories` group, file names
    > against `files`. `Reason::kAntiCheatDirectory` and `kAntiCheatFile` are
    > produced here — until now they were declared, named and mirrored while

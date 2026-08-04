@@ -398,6 +398,8 @@ verification a dev-machine-only affair before:
 - **WARP** (`D3D_DRIVER_TYPE_WARP`) — a software rasteriser, so no adapter is required.
 - **`CreateSwapChainForComposition`** — no `HWND`, so no dependency on a window station or an interactive session.
 
-Current modes: `--probe-vtable` (§H4, ctest `fl_vtable_indices`), `--probe-proxy` (§H5, ctest `fl_proxy_swapchain`), `--present N`.
+Current modes: `--probe-vtable` (§H4, ctest `fl_vtable_indices`), `--probe-proxy` (§H5, ctest `fl_proxy_swapchain`), `--probe-unhook` (§H7, ctest `fl_unhook_preserves_foreign`), `--probe-cost` (NFR-1, measurement only), **`--probe-frames`** (ctest `fl_frame_identity` — what counts as a frame, against `GetLastPresentCount`), **`--probe-d3d12`** (ctest `fl_d3d12_acquisition` — device → command queue → swapchain), `--present N`, `--hold N`, **`--real`** and **`--plus-ui K``**.
 
-Still to add as the hook layer grows: D3D12 and Vulkan devices, RT PSO creation and ray dispatch, stub upscaler exports with the real vendor names, a PSO-compile spike generator, and a fault-injecting hook body for the self-disable path (`14_TESTING` §Integration tests).
+> **Every present here used to carry `DXGI_PRESENT_TEST`, which submits nothing.** Measured: 500 of them leave `GetLastPresentCount` at 0 while 37 real presents move it by 37. "N presents → N records" was therefore satisfiable only by a writer counting non-frames. `--real` issues real presents; the test-present path is kept as a named mode because it is what an alt-tabbed title actually runs.
+
+Still to add as the hook layer grows: Vulkan devices, RT PSO creation and ray dispatch, stub upscaler exports with the real vendor names, a PSO-compile spike generator, and a fault-injecting hook body for the self-disable path (`14_TESTING` §Integration tests).

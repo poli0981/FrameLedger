@@ -120,8 +120,13 @@ foreach ($src in $sources) {
 # left the build green. CLAUDE.md's "the native layer is reachable only through
 # Infrastructure" is about ORGANISATION; this is about the primitives themselves,
 # and managed code has no chokepoint to be exempt in.
-$managedRoot = Join-Path $Root 'src'
-$managedSources = @(Get-ChildItem $managedRoot -Recurse -File -Include '*.cs' |
+# src AND tests. The native pass scans all of src/native — including its tests
+# and tools, both confirmed to go red — so scoping the managed pass to src/ alone
+# was an asymmetry with no justification: a P/Invoke in a test project reaches
+# exactly the same Win32 calls, and test code is where "just for a moment" edits
+# live.
+$managedRoots = @((Join-Path $Root 'src'), (Join-Path $Root 'tests')) | Where-Object { Test-Path $_ }
+$managedSources = @(Get-ChildItem $managedRoots -Recurse -File -Include '*.cs' |
         Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' })
 
 if ($managedSources.Count -eq 0) {

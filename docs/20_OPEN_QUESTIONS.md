@@ -607,7 +607,7 @@ is no suspended target and no `ERROR_PARTIAL_COPY`. "Launch mode is blocked by
 #### ✅ Closed 2026-08-04 — implemented, and all three blockers answered
 
 1. **The test vehicle exists, and it is not the one this entry asked for.**
-   `fl_guard_test` calls `SystemSources().ProcessIsOurOwn` directly, both
+   ~~`fl_guard_test` calls `SystemSources().ProcessIsOurOwn` directly~~ — **that seam was deleted by §S22(b)**; the live test is now "§S22(b) — the real ModuleIsOurOwn answers both directions" and calls `SystemSources().ModuleIsOurOwn`, both
    directions: this process (which runs the guard code from its own directory)
    is ours; a freshly spawned `System32\cmd.exe` is not. That tests the
    *predicate* against a real machine, which is what the exception rests on —
@@ -1280,6 +1280,64 @@ failure ignored.
 > entirely** — so it proved "removing the seam call breaks the suite", not "a
 > seam failure that is ignored breaks the suite". The precise form ignores only
 > the failure code and leaves the call in place; it is red too.
+
+### S23 · What the 2026-08-05 handoff audit found and did NOT fix
+
+Eight PRs merged in one session; the audit ran afterwards, as
+[adversarial review] prescribes, and found 53 items. The staleness was fixed in
+the same PR that records this. What follows is the residue — real gaps, recorded
+so the next session finds them by reading rather than by tripping over them.
+
+**1. `FL_BUILD_ID` has a writer and no reader.** §S22-era work gave
+`FlShmHandshake::buildId` a producer, which it had never had. But the contract is
+a *comparison* — `07_IPC` "the Agent compares … against its own",
+`04_CAPTURE` "validate layout version + build id against our own" — and the
+managed side has no build id and no way to obtain one: `FL_BUILD_ID` is a CMake
+INTERFACE compile definition visible only to native targets, and `grep -rni
+buildid` over `src/**/*.cs`, `*.csproj` and `*.props` returns **zero**. So the
+refuse-to-attach-on-mismatch gate still cannot run. Half a mechanism reads as a
+whole one in the CHANGELOG, and that is corrected here rather than there.
+
+**2. `rules-publish`'s removal check is not a required status check.** `main`'s
+required contexts are exactly `check`, `analyze (csharp, none)` and
+`analyze (cpp, manual)`. The `validate` job is path-filtered and runs on
+`pull_request` only, so a red removal check **does not block the merge button** —
+the gate that exists to make the anti-cheat blocklist un-removable is advisory.
+Fixing it is a branch-protection change, i.e. the owner's, not a code change.
+
+**3. `08_UI` describes a refusal notice that is wrong in the commonest case.** It
+promises "the specific signal named in plain language". Measured (`spike-notes`
+§13): while any Easy Anti-Cheat title is running, **every** target — including a
+freshly spawned, unrelated process — refuses with `BlockedService` naming
+`EasyAntiCheat_EOS`, because checks 2 and 2b are machine-wide. The user is shown
+the name of a game they are not playing. The requirement created by that
+measurement was written only into the spike log; it needs to reach `08_UI` and
+the `Safety_*` resx keys before any UI exists.
+
+**4. The runtime re-scan loop is described as two checks and implements four.**
+`19_SAFETY` §During a session reasons explicitly about the loop's composition and
+names the module and driver scans. `GuardSupervisor.ScanOnceAsync` →
+`FlGuardEvaluate` → `EvaluateImpl` runs drivers, **services** and the **static
+pre-scan** as well. That omits the only tier ever measured firing on real
+anti-cheat (services) and the only one touching the filesystem (check 4) — whose
+cost this session raised by deepening the walk. The paragraph that decides what
+the loop costs is missing the expensive half.
+
+**5. A fourth statement of the gate's composition lives in the shipped data.**
+`rules/detection-rules.json`'s own `$comment` describes checks "1, 2 and 4",
+omitting 2b and omitting `services` from the signals that catch the seed — in the
+one copy that ships to users. Three doc-side variants were reconciled this
+session; this one was not, and `rules-validate`'s doc/data cross-check reads the
+blocklist table, not the comment.
+
+**6. `legal/` is audited by nothing.** Every other document is bound to the code
+by something — `rules-validate` cross-checks the blocklist against `19_SAFETY`,
+`static_assert`s bind `fl_shm.h` to `07_IPC`, `versioninfo-check` and
+`chokepoint-check` bind claims to binaries. `legal/` has one hand-written
+accuracy block, in one of four files, with a hardcoded count. It went stale
+within hours: a fourth unimplemented promise was added directly beneath a header
+saying "Three". The block now says so about itself, which is a note and not a
+gate.
 
 ### S14 ◐ · Pre-injection check 3 is **unwired**, and has no "cannot determine" state
 

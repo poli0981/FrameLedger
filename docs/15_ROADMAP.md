@@ -17,7 +17,7 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > safety work that had to precede the first injection — the guard, its matrix,
 > the chokepoint, the layer's gates — is in, and the first real injection has
 > happened. Everything still open needs either **feature hooks that do not exist
-> yet** (4, 5, 6, 7 — a throwaway build, per the exit criteria, not all of P1),
+> yet** (4, 6, 7 — a throwaway build, per the exit criteria, not all of P1),
 > absent hardware (8, and the AMD/Intel half of the capability matrix), or is P1
 > by construction (the layer's presentation hooks). Item 0's residual is check 3.
 >
@@ -117,7 +117,7 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
    > defensible claim is **"the baseline cannot answer four of these five
    > questions at all"**. `spike-notes.md` §8 carries the reasoning.
 4. **The accuracy question — the reason this rewrite exists.** On the dev machine (RTX 5080), verify against ≥ 3 real offline titles that hooks recover: NGX/Streamline feature identity, render vs output resolution, quality preset, and DLSS-G activity. Compare against what the item-3 baseline reports. **Quantify the improvement** — this number justifies the whole trade-off and belongs in the README.
-5. **Vendor SDK reality check.** Resolve actual exported symbol names for NGX, Streamline, FFX (`ffx_api` vs legacy FSR2/3), XeSS on the dev machine. The names in `17_HOOK_ENGINE` are conventions, not verified facts — correct the doc.
+5. **Vendor SDK reality check. ✅ DONE.** Measured across 34 distinct modules in 162 files from installed titles; `tools/vendor-exports.ps1` regenerates and `docs/vendor-exports.json` is committed. `17_HOOK_ENGINE` §Upscaling is corrected and its caveat discharged. **It needed no feature hooks** — it reads files with `dumpbin` — so the status header above was wrong to group it with 4/6/7. The finding: `sl.common.dll` exports the NGX parameter **accessors**, while the NGX core exports only the **factories**, so NGX-direct titles need a different hook class (`17_HOOK_ENGINE` §The NGX parameter surface splits into two hook classes).
 6. **RT detection.** Harness + a real DXR title: `DispatchRays` counting *and* `BuildRaytracingAccelerationStructure`; verify the AS-build path catches an inline-RayQuery title that dispatch counting misses.
 7. **Frame Generation ground truth.** Compare rung 1 (FG feature evaluations per present) against Tier-2 ETW `FrameType` on a DLSS-G title. ~~rung 2 (`GetFrameStatistics` present delta)~~ was removed as structurally impossible, not merely unreliable (`03_METRICS` §Frame Generation). Driver-level FG (AFMF) is undetectable at Tier 1 in v1; whether PresentMon 2.x `FrameType` sees it at Tier 2 is `20_OPEN_QUESTIONS` §M1 — and is untestable on this dev machine, which has no AMD GPU.
 8. **Telemetry layering.** Fill the `18_GPU_VENDOR_APIS` capability matrix on real hardware:

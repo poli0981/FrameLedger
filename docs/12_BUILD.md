@@ -135,7 +135,7 @@ document the app displays for acceptance (FR-11) is a defect, not a template.
 3. `clang-format --dry-run -Werror` over `src/native`
 4. `dotnet restore` + build (warnings as errors)
 5. `dotnet format --verify-no-changes`
-6. `dotnet test` (incl. the struct-mirror check)
+6. `dotnet test` — **not** including the struct-mirror check, which does not exist; `build.ps1` declares and skips it loudly (§R10)
 7. `tools/rules-validate.ps1` (schema + `anticheat` block sanity — a malformed or empty blocklist is a safety bug)
 8. `tools/license-check.ps1` — asserts every vendored third-party has a licence copy in `legal/licenses/`, and that no Intel IGCL / AMD ADLX material has appeared in the tree
 9. `tools/resx-audit`
