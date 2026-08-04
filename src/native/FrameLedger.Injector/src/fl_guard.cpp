@@ -470,6 +470,12 @@ const char* ReasonName(Reason r) noexcept {
         return "TargetIsWow64";
     case Reason::kPayloadNotOurs:
         return "PayloadNotOurs";
+    case Reason::kHookNotEnabled:
+        return "HookNotEnabled";
+    case Reason::kConsentMissing:
+        return "ConsentMissing";
+    case Reason::kPreviouslyBlocked:
+        return "PreviouslyBlocked";
     case Reason::kSuspiciousUnsigned:
         return "SuspiciousUnsigned";
     case Reason::kRulesUnreadable:

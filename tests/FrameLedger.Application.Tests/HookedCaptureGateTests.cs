@@ -35,14 +35,20 @@ public sealed class HookedCaptureGateTests
         }
     }
 
+    // `withConsent: false` is the only way to express ABSENT consent, and it had
+    // to be added: `consent ?? DateTimeOffset.UnixEpoch` meant passing
+    // `consent: null` produced a request that HAD consented, so the case FR-2.1
+    // exists for was inexpressible in this fixture. Same shape as §S18's
+    // FakeEnumModules, which ignored its pid and made the arrangement §S16 was
+    // written to catch impossible to write down.
     private static HookRequest Request(bool enabled = true, DateTimeOffset? consent = null,
-        string? blocked = null) =>
+        string? blocked = null, bool withConsent = true) =>
         new()
         {
             TargetPid = 1234,
             PayloadPath = @"C:\FrameLedger\FrameLedger.Overlay.dll",
             HookEnabled = enabled,
-            ConsentedAt = consent ?? DateTimeOffset.UnixEpoch,
+            ConsentedAt = withConsent ? consent ?? DateTimeOffset.UnixEpoch : null,
             BlockedReason = blocked,
         };
 
@@ -137,6 +143,35 @@ public sealed class HookedCaptureGateTests
         HookedCaptureGate gate = new(guard);
 
         (await gate.ShouldUnhookAsync(1234, TestContext.Current.CancellationToken)).Should().BeFalse();
+    }
+
+    // Each managed refusal must be DISTINGUISHABLE. All three used to return
+    // BlockedExecutable — check 3's code, which the native guard cannot produce
+    // at all (§S14: the matchers have no call site), so a user who had not
+    // accepted the consent dialog would have been told the title was on the
+    // per-title blocklist. Nothing asserted the reason, which is why nothing
+    // noticed.
+    [Fact]
+    public async Task EachManagedRefusal_CarriesItsOwnReason()
+    {
+        var guard = new RecordingGuard();
+        var gate = new HookedCaptureGate(guard);
+
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        AntiCheatVerdict notEnabled = await gate.StartAsync(Request(enabled: false), ct);
+        AntiCheatVerdict noConsent = await gate.StartAsync(Request(withConsent: false), ct);
+        AntiCheatVerdict blocked = await gate.StartAsync(Request(blocked: "EasyAntiCheat appeared after a patch"), ct);
+
+        notEnabled.Reason.Should().Be(AntiCheatRefusalReason.HookNotEnabled);
+        noConsent.Reason.Should().Be(AntiCheatRefusalReason.ConsentMissing);
+        blocked.Reason.Should().Be(AntiCheatRefusalReason.PreviouslyBlocked);
+
+        // ...and none of them borrows a reason the native guard owns.
+        new[] { notEnabled.Reason, noConsent.Reason, blocked.Reason }
+            .Should().OnlyHaveUniqueItems()
+            .And.NotContain(AntiCheatRefusalReason.BlockedExecutable);
+
+        guard.InjectCalls.Should().Be(0, "a refusal here must never reach the guard, let alone the primitive");
     }
 
     [Fact]

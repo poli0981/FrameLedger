@@ -30,7 +30,7 @@ public sealed class HookedCaptureGate(IAntiCheatGuard guard)
         if (!request.HookEnabled)
         {
             return AntiCheatVerdict.Refused(
-                AntiCheatRefusalReason.BlockedExecutable,
+                AntiCheatRefusalReason.HookNotEnabled,
                 "not enabled",
                 "hooking is off for this game; nothing is injected because a game was merely added");
         }
@@ -38,7 +38,7 @@ public sealed class HookedCaptureGate(IAntiCheatGuard guard)
         if (request.ConsentedAt is null)
         {
             return AntiCheatVerdict.Refused(
-                AntiCheatRefusalReason.BlockedExecutable,
+                AntiCheatRefusalReason.ConsentMissing,
                 "no consent",
                 "the per-game consent dialog has not been accepted");
         }
@@ -49,7 +49,7 @@ public sealed class HookedCaptureGate(IAntiCheatGuard guard)
             // patch adds anti-cheat, or updated rules newly match. hook_enabled
             // is forced to 0 and this is set; honouring it here means a stale
             // in-memory watchlist cannot resurrect the game.
-            return AntiCheatVerdict.Refused(AntiCheatRefusalReason.BlockedExecutable, "previously blocked", blocked);
+            return AntiCheatVerdict.Refused(AntiCheatRefusalReason.PreviouslyBlocked, "previously blocked", blocked);
         }
 
         return await _guard.GuardedInjectAsync(request.TargetPid, request.PayloadPath, ct).ConfigureAwait(false);

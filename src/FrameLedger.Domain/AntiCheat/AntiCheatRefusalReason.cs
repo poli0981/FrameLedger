@@ -132,4 +132,37 @@ public enum AntiCheatRefusalReason
     /// </para>
     /// </remarks>
     PayloadNotOurs = 20,
+
+    /// <summary>Hooking is off for this game — a game was added, not enabled.</summary>
+    /// <remarks>
+    /// <para>
+    /// The three values below are refusals the <em>capture gate</em> makes and
+    /// the native guard structurally cannot: consent and per-game enablement are
+    /// records of something a human did, and they live in the Agent's database.
+    /// They are mirrored anyway so there is one reason table and one place the
+    /// UI maps to a string.
+    /// </para>
+    /// <para>
+    /// All three used to return <see cref="BlockedExecutable"/> — check 3's
+    /// code, which the native guard cannot produce at all (§S14: the matchers
+    /// have no call site). The UI would have said "this title is on the
+    /// per-title blocklist" when the truth was "you have not accepted the
+    /// consent dialog".
+    /// </para>
+    /// </remarks>
+    HookNotEnabled = 21,
+
+    /// <summary>The per-game consent dialog has not been accepted (FR-2.1).</summary>
+    ConsentMissing = 22,
+
+    /// <summary>
+    /// The game was enabled once and has since become blocked — a patch added
+    /// anti-cheat, or updated rules newly match (<c>19_SAFETY</c> §A game already
+    /// enabled can become blocked later).
+    /// </summary>
+    /// <remarks>
+    /// Honouring this in the capture gate is what stops a stale in-memory
+    /// watchlist resurrecting the game after <c>hook_enabled</c> was forced to 0.
+    /// </remarks>
+    PreviouslyBlocked = 23,
 }

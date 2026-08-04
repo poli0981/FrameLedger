@@ -122,6 +122,30 @@ enum class Reason : std::uint8_t {
     // variant — a mislabelled reason is a wrong answer for whoever has to fix it.
     kPayloadNotOurs,
 
+    // Refusals the CAPTURE GATE makes, which this guard structurally cannot.
+    //
+    // Consent and per-game enablement are records of something a human did;
+    // they live in the Agent's database and the native guard never sees them.
+    // They are nevertheless reasons a Tier-1 capture was refused, and they
+    // belong in THIS enum for the reason FlStaticPreScan already reports
+    // through FlGuardResult: one reason table, one mirror surface, one place
+    // the UI maps to a string.
+    //
+    // Before these existed the managed gate returned kBlockedExecutable for all
+    // three — check 3's code, which the native guard cannot produce at all
+    // (§S14: the matchers have no call site). So the UI would have told a user
+    // "this title is on the per-title blocklist" when the truth was "you have
+    // not accepted the consent dialog", and a logged kBlockedExecutable meant
+    // one of four unrelated things.
+    //
+    // The guard itself never returns these. That is not a defect: the enum is
+    // the vocabulary of the whole gate path, and it already carries
+    // kInjectionFailed and kTargetIsWow64, which are not blocklist matches
+    // either.
+    kHookNotEnabled,
+    kConsentMissing,
+    kPreviouslyBlocked,
+
     // NOT A REASON. The count, so appending above it updates the exported
     // FlGuardReasonCount by construction.
     //
