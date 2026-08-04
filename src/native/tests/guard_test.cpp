@@ -20,6 +20,7 @@
 #include <fl_guard.h>
 #include <fl_prescan.h>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -106,6 +107,12 @@ struct Fake {
     Collected                                 dirEntriesResult = Collected::kOk;
     std::wstring                              imageDirectory = L"C:\\Games\\Example";
     Collected                                 imageDirectoryResult = Collected::kOk;
+
+    // §S18 — which pids the seam reports as FrameLedger's own, and whether it can
+    // answer at all. Empty by default, so no existing case is silently exempted
+    // from the fragment tier by adding this.
+    std::set<std::uint32_t> ourOwnPids;
+    Collected               ourOwnResult = Collected::kOk;
 };
 
 Fake g;
@@ -181,6 +188,14 @@ Collected FakeEnumDirEntries(const wchar_t*, DirEntrySink sink, void* ctx) {
     return g.dirEntriesResult;
 }
 
+Collected FakeProcessIsOurOwn(std::uint32_t pid, bool* isOurs) {
+    if (g.ourOwnResult != Collected::kOk) {
+        return g.ourOwnResult;
+    }
+    *isOurs = g.ourOwnPids.count(pid) != 0;
+    return Collected::kOk;
+}
+
 Sources FakeSources() {
     Sources s;
     s.ReadRulesFile = &FakeReadRules;
@@ -190,6 +205,7 @@ Sources FakeSources() {
     s.EnumerateScanSet = &FakeEnumScanSet;
     s.ImageDirectory = &FakeImageDirectory;
     s.EnumerateDirEntries = &FakeEnumDirEntries;
+    s.ProcessIsOurOwn = &FakeProcessIsOurOwn;
     return s;
 }
 
@@ -453,6 +469,151 @@ TEST_CASE("EVERY process in the scan set is scanned, not just the target", "[gua
         std::vector<std::uint32_t> sorted = seen;
         std::sort(sorted.begin(), sorted.end());
         CHECK(sorted == std::vector<std::uint32_t>{1000, 1001, 1234});
+    }
+}
+
+// ===========================================================================
+// §S18 — the guard refused ITSELF.
+//
+// FrameLedger.Guard.dll contains the substring `guard`, one of the heuristic's
+// nameFragments, and the project ships unsigned (CLAUDE.md rule 9) so the signer
+// half can never rescue it. In launch mode the Agent is the game's parent and
+// therefore inside the §S16 scan set, so every launch-mode injection refused —
+// and Vulkan Tier 1 with it, because the layer's only enable path
+// (FRAMELEDGER_ENABLE_VK_LAYER=1) can only be set by the launching process.
+//
+// Measured on a real title 2026-08-03: ancestor with the DLL loaded ->
+// SuspiciousUnsigned; not an ancestor -> Allow.
+//
+// This is the ONLY exception in the gate, so the cases below spend most of their
+// effort on what it must NOT do.
+// ===========================================================================
+TEST_CASE("§S18 — the fragment tier is suppressed for our own processes, and for nothing else",
+          "[guard][failclosed][S18]") {
+    ResetFake();
+    g.scanSet = {1234, 4000, 4001};    // target first, mirroring EnumerateScanSetImpl
+    g.modulesByPid[1234] = {"kernel32.dll", "d3d11.dll"};
+
+    SECTION("TWO FrameLedger processes in the scan set, both carrying the DLL, target clean -> Allow") {
+        // §S18's own blocker 2: a one-pid fixture cannot go red on this, and
+        // GetCurrentProcessId() — the answer the panel first reached for — gets
+        // it wrong, because the defect is a property of the BINARY and more than
+        // one FrameLedger process can carry it.
+        g.modulesByPid[4000] = {"kernel32.dll", "FrameLedger.Guard.dll"};
+        g.modulesByPid[4001] = {"kernel32.dll", "FrameLedger.Guard.dll"};
+        g.ourOwnPids = {4000, 4001};
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        INFO("reason was " << ReasonName(v.reason) << " signal=" << v.signal);
+        CHECK(v.Allowed());
+    }
+
+    SECTION("the same module in the TARGET still refuses — the exception never covers it") {
+        g.modulesByPid[1234] = {"kernel32.dll", "FrameLedger.Guard.dll"};
+        g.ourOwnPids = {1234, 4000};    // even when the seam claims the target is ours
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+    }
+
+    SECTION("a scan-set process that is NOT ours still refuses on the same module name") {
+        // Closes the spoofing route a name allowlist would have opened: a DLL
+        // that borrows the name inside the game's own tree is not exempt.
+        g.modulesByPid[4000] = {"FrameLedger.Guard.dll"};
+        g.ourOwnPids = {};
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+    }
+
+    SECTION("a seam that CANNOT DETERMINE does not suppress") {
+        g.modulesByPid[4000] = {"FrameLedger.Guard.dll"};
+        g.ourOwnPids = {4000};
+        g.ourOwnResult = Collected::kFailed;
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+    }
+
+    SECTION("a MISSING seam does not suppress") {
+        // Sources members default to nullptr, so forgetting to wire this has to
+        // fail towards refusing rather than towards allowing.
+        g.modulesByPid[4000] = {"FrameLedger.Guard.dll"};
+        g.ourOwnPids = {4000};
+        Sources s = FakeSources();
+        s.ProcessIsOurOwn = nullptr;
+
+        const Verdict v = EvaluateWithSources(1234, s);
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+    }
+
+    SECTION("only the FUZZY tier is suppressed — an exact blocklist hit in our own process still refuses") {
+        // The clause that keeps this a narrow exception rather than a hole. If
+        // real anti-cheat is somehow loaded in a FrameLedger process, we are not
+        // injecting into anything.
+        g.modulesByPid[4000] = {"FrameLedger.Guard.dll", "EasyAntiCheat_x64.dll"};
+        g.ourOwnPids = {4000};
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kBlockedModule);
+        CHECK(std::strcmp(v.family, "Easy Anti-Cheat") == 0);
+    }
+
+    SECTION("an unreadable process is still unreadable, exempt or not") {
+        g.ourOwnPids = {4000};
+        g.moduleResultByPid[4000] = Collected::kFailed;
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kProcessUnreadable);
+    }
+}
+
+TEST_CASE("§S18 — the real ProcessIsOurOwn answers both directions", "[guard][S18][live]") {
+    // The seam above is what makes the matrix forceable; this is what keeps the
+    // seam honest about the machine. Without it the whole exception rests on a
+    // fake agreeing with itself.
+    const Sources sys = SystemSources();
+    REQUIRE(sys.ProcessIsOurOwn != nullptr);
+
+    SECTION("this test process IS ours — it runs the guard code from its own directory") {
+        bool            ours = false;
+        const Collected c = sys.ProcessIsOurOwn(GetCurrentProcessId(), &ours);
+        REQUIRE(c == Collected::kOk);
+        CHECK(ours);
+    }
+
+    SECTION("a System32 process is NOT ours") {
+        // The green case above passes against an implementation that returns
+        // true unconditionally; this is the half that catches it. cmd.exe is
+        // chosen because its directory is guaranteed to differ from ours and it
+        // exits on its own.
+        wchar_t      cmdline[] = L"cmd.exe /c exit";
+        STARTUPINFOW si{};
+        si.cb = sizeof(si);
+        PROCESS_INFORMATION pi{};
+        REQUIRE(CreateProcessW(nullptr, cmdline, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                               &pi) != 0);
+
+        // Seeded true so a seam that writes nothing cannot pass by accident.
+        bool            ours = true;
+        const Collected c = sys.ProcessIsOurOwn(pi.dwProcessId, &ours);
+
+        // Either answer is acceptable and both must say "not ours": kOk with
+        // ours=false, or kFailed if the process exited before we could look —
+        // which is the fail-closed value, and the implementation clears the
+        // out-param before it can fail.
+        INFO("collected=" << static_cast<int>(c));
+        CHECK_FALSE(ours);
+
+        WaitForSingleObject(pi.hProcess, 5000);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
     }
 }
 

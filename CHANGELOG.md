@@ -45,16 +45,12 @@ GitHub release body, so a missing section means an empty release note.
     change nothing); the fragment list exists in three unreconciled copies; and
     the runtime parser has no fragment floor — though the **schema** does, so CI
     already refuses an emptied list, which an earlier note here got wrong.
-- **The guard refuses itself, so launch mode does not work** (§S18). Decided
-  2026-08-03 — suppress the fuzzy tier for processes whose image resolves inside
-  FrameLedger's own install directory, never for the injection target — and
-  **not yet implemented**. This blocks the entire **Vulkan Tier-1** path, not
-  just early-init data: the layer's only enable path runs through launch mode,
-  and §S1 does not cover it because the Vulkan path performs no injection.
 - **Nothing installs the rules file the guard reads** (§S20). The guard reads
-  `%LOCALAPPDATA%\FrameLedger\rules\detection-rules.json`; no code in the
-  repository seeds, copies or downloads it, and the guard never reads
-  `rulesVersion`, so a binary fix and a data fix have no handshake.
+  `detection-rules.json` under Local AppData; no code in the repository seeds,
+  copies or downloads it, and the guard never reads `rulesVersion`, so a binary
+  fix and a data fix have no handshake. It is a **two-consumer** problem — the
+  same missing file also fails `DetectionRulesFile`, and with it the static
+  detector P0 item 3 shipped.
 
 ### Added
 - Design documents (`CLAUDE.md`, `docs/01`–`20`, `legal/`) and the repository
@@ -352,6 +348,40 @@ GitHub release body, so a missing section means an empty release note.
   pinned 0.9.6 package, not just the repository.
 
 ### Fixed
+- **The guard refused itself, so launch mode could not work** (§S18).
+  `FrameLedger.Guard.dll` contains the substring `guard`, one of the heuristic's
+  `nameFragments`, and the project ships unsigned so the signer half can never
+  rescue it. In launch mode the Agent is the game's parent and therefore inside
+  the §S16 scan set, so every launch-mode injection refused.
+  - The fuzzy fragment tier is now suppressed for a scan-set process whose
+    **directory is FrameLedger's own** — never for the injection target, never
+    when the seam cannot answer, and never for the exact blocklist, which still
+    refuses in our own processes. Six fail-closed cases, each proven red against
+    a specific plausible mistake.
+  - **Identity is by directory, compared with
+    `GetFileInformationByHandleEx(FileIdInfo)`,** never by string: a prefix
+    compare has to defend against 8.3 short names, junctions, `subst`, mapped
+    drives, `\\?\` forms and a sibling folder named `FrameLedgerEvil`, and it
+    folds case with C-locale rules the `ja`/`vi` builds cannot rely on. Our own
+    directory comes from the module **containing the guard code**, never the
+    process image — under a test host the process is `dotnet.exe`.
+  - **The Agent is now the sole host of the guard DLL.** It used to be a `None`
+    item in `Infrastructure.csproj`, which MSBuild flows to every referencing
+    project, so the WPF UI shipped it as a side effect of wanting SQLite. That is
+    why process identity could not be used. The copy moved to
+    `FrameLedger.Guard.targets`, imported by the Agent and by the tests that
+    P/Invoke it.
+  - **The justification recorded in `19_SAFETY` was false and is replaced.** It
+    said our own module set "can produce false refusals and never a true one";
+    measured across 290 live processes, three carried a fragment-matching module
+    and none needed write access to anything of ours. The exception rests on
+    trust, not on information — an attacker who can write to our install
+    directory can already replace the guard — and the unsigned-shipping residual
+    is now stated.
+  - Unblocking §S18 removes a blocker and delivers no capability: Vulkan Tier 1
+    still needs `vkQueuePresentKHR` (P1, not started), and launch-mode injection
+    still needs §S1 and §S13(c). The roadmap says so rather than reading the
+    removed blocker as progress.
 - **The hard gate's data source was caller-nameable, and its completeness check
   never read the values that block** (`20_OPEN_QUESTIONS` §S21). The rules path
   was built from `_dupenv_s("LOCALAPPDATA")` — an inherited variable, so whoever

@@ -477,7 +477,7 @@ guard at all.** Every case in `guard_test.cpp` parses an inline fixture.
   and watching `/W4 /WX` build clean. That is a gate that existed only in prose.
   It is now ctest `fl_guard`'s "every Reason has a distinct name", proven red.
 
-### S18 ◐ · The guard refuses itself — **decided, not closed**
+### S18 ✅ · The guard refuses itself — **closed 2026-08-04**
 
 Found 2026-08-03 during the first real injection (`spike-notes.md` §7), and
 isolated on one title with everything else held constant:
@@ -570,29 +570,49 @@ And §S1 does **not** apply there: the Vulkan path performs no injection, so the
 is no suspended target and no `ERROR_PARTIAL_COPY`. "Launch mode is blocked by
 §S1 anyway" is therefore false for an entire Tier-1 API family.
 
-#### Why it stays ◐ and not ✅
+#### ✅ Closed 2026-08-04 — implemented, and all three blockers answered
 
-The decision is taken; the code is not written, and closing it would need three
-things that do not exist:
+1. **The test vehicle exists, and it is not the one this entry asked for.**
+   `fl_guard_test` calls `SystemSources().ProcessIsOurOwn` directly, both
+   directions: this process (which runs the guard code from its own directory)
+   is ours; a freshly spawned `System32\cmd.exe` is not. That tests the
+   *predicate* against a real machine, which is what the exception rests on —
+   loading `FrameLedger.Guard.dll` into the test just to make a module NAME
+   appear would have proved the fragment matcher, which `fl_guard` already
+   covers, and would have exercised the boundary logic not at all.
+2. **The two-pid case is a fixture, and the thing that blocked it was the FAKE.**
+   `FakeEnumModules` ignored its pid, so "two distinct FrameLedger processes,
+   both carrying the DLL" could not be written down. With a per-pid map it is
+   seven lines. That was ~10 lines of test-side code standing in front of a
+   safety item for a day.
+3. **Ratified: the Agent is the sole host.** `05_DETECTION` and `07_IPC` already
+   assigned it ownership of `%LOCALAPPDATA%\FrameLedger`; the guard DLL now ships
+   only to `FrameLedger.Agent` (and to `Infrastructure.Tests`, which P/Invokes
+   it), via `/FrameLedger.Guard.targets` instead of a `None` item in
+   `Infrastructure.csproj` that flowed to every referencing project.
 
-1. **A test vehicle.** No target in the repo runs the real guard from a process
-   with `FrameLedger.Guard.dll` mapped — `fl-probe-guard` links `fl_native_flags`
-   only and deliberately is not a guard driver; `fl_guard_test` compiles the guard
-   sources in, so it has no Guard DLL in its module list either.
-2. **The case that catches the half this fixes and the half it does not:** a scan
-   set with **two** distinct FrameLedger pids, both carrying the DLL, target
-   clean. A one-pid fixture cannot go red on it.
-3. **A decision on which binary launches the game.** `FrameLedger.Agent` and
-   `FrameLedger.App` both reference Infrastructure and both receive the guard DLL;
-   `04_CAPTURE:60`'s Steam launch-option wrapper reproduces this in *attach* mode.
-   The narrower alternative — route FR-2.2's advisory pre-scan through the Agent
-   over IPC and stop loading the guard in the App at all — **reduces** the exposed
-   surface instead of adding a carve-out, and would make process identity
-   sufficient by construction. It is the only candidate that shrinks the problem.
+> **The ratification does not retire the install-root mechanism, and it is worth
+> saying why rather than leaving it to look like belt-and-braces.** With one host,
+> process identity would be sufficient *today* — but "sufficient today" is what
+> made `GetCurrentProcessId()` look right the first time. Directory identity
+> covers every future FrameLedger process for free, costs one `OpenProcess` on a
+> path that a measured machine reaches approximately never, and does not have to
+> be revisited when a second host appears. What ratification bought is a smaller
+> surface, which is the better half of the trade.
 
-**A safety item closed on the condition that someone remembers to reopen it is
-the gates-that-cannot-fail pattern applied to process rather than to code.** So
-it stays open until the arrangement is constrained by a test.
+> **And the justification recorded in `19_SAFETY` was false.** It said our own
+> module set "can produce false refusals and never a true one". Measured across
+> 290 live processes, three carried a fragment-matching module, none of which
+> needed write access to anything of ours — an AppInit DLL or an AV hook can put
+> one in a FrameLedger process too. The exception is justified by *trust*, not by
+> information: an attacker who can write to our install directory can already
+> replace the guard itself. `19_SAFETY` now says that instead, with the unsigned
+> -shipping residual stated.
+
+Six fail-closed cases hold the exception narrow, and each was proven red against
+a specific plausible mistake — dropping the target exclusion (`guard_test.cpp:516`),
+suppressing regardless of the tri-state (`:527`), and an implementation that calls
+every process ours (`:612`).
 
 ### S19 · The unknown-but-suspicious heuristic has five defects of its own
 

@@ -13,17 +13,30 @@ The hook rewrite front-loads risk: almost everything uncertain is in P0/P1. That
 
 Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit criteria pass.
 
-> **Status as of 2026-08-03.** Items **2 and 3 done**; 0 and 1 partly. The
+> **Status as of 2026-08-04.** Items **2 and 3 done**; 0 and 1 partly. The
 > safety work that had to precede the first injection — the guard, its matrix,
 > the chokepoint, the layer's gates — is in, and the first real injection has
 > happened. Everything still open needs either **feature hooks that do not exist
 > yet** (4, 5, 6, 7 — a throwaway build, per the exit criteria, not all of P1),
 > absent hardware (8, and the AMD/Intel half of the capability matrix), or is P1
-> by construction (the layer's presentation hooks). Item 0's residual is check 3;
-> **launch mode is blocked by §S18** — decided 2026-08-03, not yet implemented —
-> and attach mode is not. §S18 also turns out to block **all of Vulkan Tier 1**,
-> not just early-init data, and §S19 records that the same heuristic tier refuses
-> real titles in *attach* mode too.
+> by construction (the layer's presentation hooks). Item 0's residual is check 3.
+>
+> **§S18 and §S21 closed 2026-08-04.** The guard no longer refuses itself, so
+> launch mode is no longer blocked by it — and §S21, found while planning this
+> phase, closed a **local override of the hard gate**: the rules path came from an
+> inherited `LOCALAPPDATA` and the completeness check never read the values, so a
+> crafted twelve-line file made the guard allow everything.
+>
+> **Be precise about what unblocking §S18 does and does not buy**, because the
+> §S18 entry oversold it and this line used to repeat that. It removes a
+> *blocker*; it delivers no capability. Vulkan Tier 1 additionally needs
+> `vkQueuePresentKHR`, which is P1 and not started — the layer would now load and
+> observe nothing. Launch-mode *injection* additionally needs §S1 and §S13(c),
+> which are open owner decisions whose deciding input (a title that loads a
+> presentation runtime lazily) this machine does not have. §S19 is re-measured
+> and deferred: the heuristic tier matches benign system DLLs, but has **not**
+> been shown to match inside any game's scan set, which is a correction to what
+> this line previously claimed.
 
 0. **The guard.** Module + driver enumeration, blocklist matching, fail-closed behaviour on every error path. **Moved from item 8**: items 1 and 6 below inject into real games, and CLAUDE.md rule 2 plus P1's own "it ships before the first real injection, not after" both forbid that ordering. **◐ Three of four pre-injection checks.** The guard is built (`FrameLedger.Injector`, native per §S13(a)), owns the chokepoint, and its fail-closed matrix is Catch2-driven. The injection primitive landed after it, in that order. Reached from managed code through one P/Invoke facade — never a second matcher (§S15). Evidence: `spike-notes.md` §1; §S7, §S8, §S16 closed.
 
@@ -41,10 +54,17 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 1. **Vulkan layer passthrough.** Minimal implicit layer registered under `HKCU`, with the opt-in checks that keep it passthrough for non-enabled processes. **Moved from item 7**: a passthrough bug loads FrameLedger into every Vulkan process on the machine, which is the highest blast radius in the spike. **◐ Gates done, interception not started.** `enable_environment` measured against loader 1.4.357, blast radius verified, in-layer blocklist self-scan built and proven both directions. `vkQueuePresentKHR` is **not** hooked — that is P1, and §S2's in-layer supervision check lands with it.
 2. **Hook viability.** `hook-harness` (D3D11 + D3D12) + MinHook: dummy-device vtable probe, verify present indices at runtime, install/uninstall cleanly, measure per-present cost. Confirm `/MT` DLL loads into a real (offline, non-AC) game without incident. **✅ DONE.** Vtable indices proved by behaviour (§H4), unhook proved not to clobber a later hooker (§H7), per-present cost measured at 8.4 ns against a 1,000 ns budget — and **the `/MT` DLL is now loaded into a real title**: Lies of P, attach mode, guard passing, module verified present by re-enumeration, game still rendering afterwards (`spike-notes.md` §7).
 
-   > **Attach mode only.** Launch mode is blocked by §S18 — the Agent is the
-   > game's parent and hosts `FrameLedger.Guard.dll`, whose name trips the
-   > guard's own `guard` fragment. Found by this run; **decided 2026-08-03**
-   > (identity by install root, fuzzy tier only) and **not yet implemented**.
+   > **Attach mode only when this ran.** Launch mode was blocked by §S18 — the
+   > Agent is the game's parent and hosted `FrameLedger.Guard.dll`, whose name
+   > trips the guard's own `guard` fragment. Found by this run, decided
+   > 2026-08-03 and **implemented 2026-08-04**: the fuzzy tier is suppressed for a
+   > scan-set process whose directory is ours, never for the target, and the Agent
+   > is now the sole host of the DLL.
+   >
+   > **Launch mode is not therefore working.** §S18 was one of its blockers;
+   > §S1 and §S13(c) are still open owner decisions. Nothing here has been
+   > re-run against a real title in launch mode, so this row stays "attach mode",
+   > measured, rather than being upgraded on the strength of a removed blocker.
    >
    > Three refusals came before the success, and each was a real defect: a
    > machine-wide `EasyAntiCheat_EOS` service that refused every process on the

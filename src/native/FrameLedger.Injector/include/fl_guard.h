@@ -194,6 +194,30 @@ struct Sources {
     // name is matched against, so it is part of the evidence rather than
     // something the caller infers from the string.
     Collected (*EnumerateDirEntries)(const wchar_t* dir, DirEntrySink sink, void* ctx) = nullptr;
+
+    // §S18 — is this pid one of OUR OWN processes?
+    //
+    // The single narrow exception in this gate, and the only thing it may ever
+    // do is suppress the FUZZY name-fragment tier for a scan-set process that is
+    // not the injection target. The exact blocklist still applies to such a
+    // process in full, and every other refusal is untouched.
+    //
+    // Why it exists: FrameLedger.Guard.dll contains the substring `guard`, one
+    // of the heuristic's nameFragments, and the project ships unsigned
+    // (CLAUDE.md rule 9) so the signer half can never rescue it. In launch mode
+    // the Agent is the game's parent and therefore inside the §S16 scan set, so
+    // every launch-mode injection refused — and Vulkan Tier 1 with it, since the
+    // layer's only enable path runs through launch mode.
+    //
+    // kFailed means CANNOT DETERMINE, which means DO NOT SUPPRESS. The polarity
+    // is the opposite of every other seam here — everywhere else "could not look"
+    // refuses, and here it also refuses, because refusing IS the unsuppressed
+    // answer. A seam that fails must never widen what is allowed.
+    //
+    // A tri-state plus an out-param rather than a bool, for the same reason
+    // QueryService is: "no" and "could not tell" are different answers and the
+    // caller has to be able to distinguish them.
+    Collected (*ProcessIsOurOwn)(std::uint32_t pid, bool* isOurs) = nullptr;
 };
 
 // The real Windows implementations. Behaviour measured in spike-notes.md §1;

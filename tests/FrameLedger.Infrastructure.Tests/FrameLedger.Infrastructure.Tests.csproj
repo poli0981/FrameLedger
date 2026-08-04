@@ -22,4 +22,11 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!--
+    GuardMirrorTests and RulesPathAgreementTests P/Invoke into the real
+    FrameLedger.Guard.dll, which NativeAntiCheatGuard loads by absolute path from
+    AppContext.BaseDirectory — so it has to sit beside the test binary.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Guard.targets" />
+
 </Project>

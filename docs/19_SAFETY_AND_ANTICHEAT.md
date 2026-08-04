@@ -84,14 +84,46 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
    > inspected (`ERROR_ACCESS_DENIED`) refuses too — there is no "scanned what we
    > could" state.
    >
-   > **Decided 2026-08-03, not yet implemented (§S18):** one reviewed exception
-   > is coming — a process whose image resolves inside FrameLedger's own install
-   > directory will not trip the *fuzzy* fragment tier, because our own module
-   > set is identical in every session and therefore cannot discriminate between
-   > titles; it can produce false refusals and never a true one. The exact
-   > blocklist will still apply to it in full, and the exception will never apply
-   > to the injection target. **Until that ships, the sentence above is the whole
-   > behaviour** — including the part where the guard refuses itself.
+   > **One reviewed exception, decided 2026-08-03 and implemented 2026-08-04
+   > (§S18).** A scan-set process whose image directory is FrameLedger's own does
+   > not trip the *fuzzy* fragment tier. The exact blocklist still applies to it
+   > in full, the exception never applies to the injection target, and a seam that
+   > cannot answer does not suppress.
+   >
+   > **The justification first written here was false, and it is worth replacing
+   > rather than deleting.** It read: *"our own module set is identical in every
+   > session and therefore cannot discriminate between titles; it can produce
+   > false refusals and never a true one."* That is not a property of any
+   > user-mode process. Measured 2026-08-04 across 290 live processes, three
+   > carried a module matching a `nameFragment` — a Microsoft key-protection
+   > provider, a .NET crypto assembly and an AV interop DLL — and none of them
+   > required write access to anything of ours. An AppInit DLL, a shell
+   > extension, an IME or an AV user-mode hook can put a fragment-matching module
+   > into a FrameLedger process, so the fragment tier *could* in principle say
+   > something true about one.
+   >
+   > The honest justification is narrower and rests on trust rather than on
+   > information: **the fragment tier is a heuristic for the unknown, and our own
+   > install directory is not unknown to us.** An attacker who can place a binary
+   > there can already replace `FrameLedger.Guard.dll` itself, which
+   > `NativeAntiCheatGuard` calls a worse outcome than any other DLL-hijack in the
+   > application — so the exception grants nothing that was not already lost.
+   > What it costs is the fragment tier's opinion about our own processes, and
+   > that is the trade being made deliberately.
+   >
+   > Residual, stated: the project ships **unsigned** (CLAUDE.md rule 9), so there
+   > is no integrity check on the contents of that directory. The exception is as
+   > strong as the install location, and no stronger.
+   >
+   > Identity is by **directory**, compared with
+   > `GetFileInformationByHandleEx(FileIdInfo)` — same volume serial, same file
+   > id — never by string. A prefix compare would have to defend against 8.3 short
+   > names, junctions, `subst`, mapped drives, `\\?\` forms and a sibling folder
+   > named `FrameLedgerEvil`, and it folds case with C-locale rules the `ja`/`vi`
+   > builds cannot rely on. Our own directory comes from the module **containing
+   > the guard code**, never from the process image: under a test host the process
+   > is `dotnet.exe` while the guard DLL lives elsewhere, and §S18 rejected
+   > process identity precisely because the defect is a property of the binary.
    >
    > Sibling *services* (BattlEye's `BEService`, EAC's service) are not in any
    > process tree and are deliberately not chased here: check 3's `services`
