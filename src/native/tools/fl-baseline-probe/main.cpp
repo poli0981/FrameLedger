@@ -187,7 +187,10 @@ void MarkOnDisk(const wchar_t* dir) {
     FindClose(h);
 }
 
-bool ModuleSink(void*, const char* name) {
+// The load path is unused here: the baseline answers "is this capability's DLL
+// present", which the base name settles. It is in the signature because the
+// guard's enumerator carries it for §S22(b)'s ownership question.
+bool ModuleSink(void*, const char* name, const wchar_t* /*path*/) {
     for (int i = 0; i < g_capCount; ++i) {
         for (int s = 0; s < g_caps[i].signalCount; ++s) {
             if (GlobMatch(g_caps[i].signals[s], name)) {

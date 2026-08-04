@@ -72,7 +72,7 @@ bool IsPlatformLauncher(const wchar_t* imageName) noexcept {
     return false;
 }
 
-Collected EnumerateModulesImpl(std::uint32_t pid, NameSink sink, void* ctx) noexcept {
+Collected EnumerateModulesImpl(std::uint32_t pid, ModuleSink sink, void* ctx) noexcept {
     HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, pid);
     if (h == nullptr) {
         return Collected::kFailed;    // ACCESS_DENIED on a protected target: cannot determine
@@ -95,7 +95,18 @@ Collected EnumerateModulesImpl(std::uint32_t pid, NameSink sink, void* ctx) noex
             CloseHandle(h);
             return Collected::kIncomplete;    // a module we could not name is one we could not check
         }
-        if (!sink(ctx, name)) {
+
+        // The load path, for §S22(b)'s ownership question. Failing to get it is
+        // NOT kIncomplete: the base name is what the blocklist matches on, so
+        // the scan is still complete in the sense that matters. What is lost is
+        // only the ability to EXEMPT this module, and the sink treats a null
+        // path as "not ours" — so the failure narrows what we allow rather than
+        // widening it, which is the only direction this file permits.
+        wchar_t     modulePath[kMaxPreScanPathLen] = {};
+        const DWORD pathLen = GetModuleFileNameExW(h, mods[i], modulePath, static_cast<DWORD>(kMaxPreScanPathLen));
+        const bool  havePath = pathLen != 0 && pathLen < kMaxPreScanPathLen;
+
+        if (!sink(ctx, name, havePath ? modulePath : nullptr)) {
             break;
         }
     }
@@ -454,52 +465,6 @@ bool OwnDirectory(wchar_t* out, std::size_t cap) noexcept {
     return wcscpy_s(out, cap, path) == 0;
 }
 
-Collected ProcessIsOurOwnImpl(std::uint32_t pid, bool* isOurs) noexcept {
-    if (isOurs == nullptr) {
-        return Collected::kFailed;
-    }
-    *isOurs = false;
-
-    wchar_t mine[kMaxPreScanPathLen] = {};
-    if (!OwnDirectory(mine, kMaxPreScanPathLen)) {
-        return Collected::kFailed;
-    }
-
-    // PROCESS_QUERY_LIMITED_INFORMATION only — the same right the module scan
-    // takes. This must never be the reason the guard asks for more.
-    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (h == nullptr) {
-        return Collected::kFailed;
-    }
-    wchar_t    path[kMaxPreScanPathLen] = {};
-    DWORD      len = static_cast<DWORD>(kMaxPreScanPathLen);
-    const BOOL ok = QueryFullProcessImageNameW(h, 0, path, &len);
-    CloseHandle(h);
-    if (!ok || len == 0) {
-        return Collected::kFailed;
-    }
-
-    // The RAW image path, deliberately not Sources::ImageDirectory. That one
-    // applies ResolveInstallRoot, whose steamapps\common / GOG Galaxy\Games /
-    // Epic Games boundaries can WIDEN the answer to a game's install root — two
-    // distinct processes resolving to one directory. Harmless for check 4, which
-    // wants exactly that; here it would turn a fail-closed relaxation into a
-    // fail-open one.
-    wchar_t* lastSep = nullptr;
-    for (wchar_t* p = path; *p != L'\0'; ++p) {
-        if (*p == L'\\' || *p == L'/') {
-            lastSep = p;
-        }
-    }
-    if (lastSep == nullptr || lastSep == path) {
-        return Collected::kFailed;
-    }
-    *lastSep = L'\0';
-
-    *isOurs = SameDirectory(path, mine);
-    return Collected::kOk;
-}
-
 // One level of the walk. Returns false if the caller asked us to stop.
 bool WalkDir(const wchar_t* dir, std::size_t depth, DirEntrySink sink, void* ctx, std::size_t& budget, bool& truncated,
              bool& stopped) noexcept {
@@ -598,17 +563,22 @@ Collected EnumerateDirEntriesImpl(const wchar_t* dir, DirEntrySink sink, void* c
     return truncated ? Collected::kIncomplete : Collected::kOk;
 }
 
-// §S22 — the payload identity check.
+// §S22 — does this file live in the directory the guard's own code came from?
+//
+// ONE implementation behind TWO seams (fl_guard.h): the payload we are about to
+// inject, and a module that tripped the fuzzy tier. It is the same question, and
+// answering it twice is the "second matcher that can disagree" §S15 exists to
+// prevent.
 //
 // Deliberately resolves the FILE and asks where it ACTUALLY is, rather than
 // parsing the string it was handed. `C:\ours\..\evil\x.dll`, an 8.3 short name,
 // a junction, a subst drive and a symlink under our own directory pointing
-// somewhere else all name a location the string does not admit to — and the
-// remote LoadLibraryW is going to resolve them, not us.
+// somewhere else all name a location the string does not admit to — and for the
+// payload, the remote LoadLibraryW is going to resolve them, not us.
 //
-// Every failure returns kFailed, which the caller turns into a refusal. There is
-// no branch here that answers "ours" without having opened the file.
-Collected PayloadIsOurOwnImpl(const wchar_t* dllPath, bool* isOurs) noexcept {
+// Every failure returns kFailed, which both callers turn into a refusal. There
+// is no branch here that answers "ours" without having opened the file.
+Collected FileIsOurOwnImpl(const wchar_t* dllPath, bool* isOurs) noexcept {
     if (isOurs == nullptr || dllPath == nullptr || dllPath[0] == L'\0') {
         return Collected::kFailed;
     }
@@ -668,8 +638,9 @@ Sources SystemSources() noexcept {
     s.ReadRulesFile = &ReadRulesFileImpl;
     s.ImageDirectory = &ImageDirectoryImpl;
     s.EnumerateDirEntries = &EnumerateDirEntriesImpl;
-    s.ProcessIsOurOwn = &ProcessIsOurOwnImpl;
-    s.PayloadIsOurOwn = &PayloadIsOurOwnImpl;
+    // Both identity seams, one implementation — see fl_guard.h §TWO SEAMS.
+    s.ModuleIsOurOwn = &FileIsOurOwnImpl;
+    s.PayloadIsOurOwn = &FileIsOurOwnImpl;
     return s;
 }
 

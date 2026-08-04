@@ -108,11 +108,21 @@ struct Fake {
     std::wstring                              imageDirectory = L"C:\\Games\\Example";
     Collected                                 imageDirectoryResult = Collected::kOk;
 
-    // §S18 — which pids the seam reports as FrameLedger's own, and whether it can
-    // answer at all. Empty by default, so no existing case is silently exempted
-    // from the fragment tier by adding this.
-    std::set<std::uint32_t> ourOwnPids;
-    Collected               ourOwnResult = Collected::kOk;
+    // §S18/§S22(b) — which MODULES the seam reports as FrameLedger's own, by base
+    // name, and whether it can answer at all. Empty by default, so no existing
+    // case is silently exempted from the fragment tier by adding this.
+    //
+    // Keyed on the module rather than the pid because that is what the guard now
+    // asks. One entry covers every process that loads it, which is the point: the
+    // old pid form needed the same DLL listed per-process and made the exemption
+    // depend on where the HOST lived.
+    std::set<std::string> ourModules;
+    Collected             moduleIsOursResult = Collected::kOk;
+
+    // Modules the enumerator reports WITHOUT a path. Not an enumeration failure —
+    // the name still matches the blocklist — but an unlocatable module cannot be
+    // exempted, so it must refuse.
+    std::set<std::string> pathlessModules;
 
     // §S22 — the payload identity seam.
     //
@@ -146,11 +156,24 @@ std::size_t FakeReadRules(char* buf, std::size_t cap) {
     return g.rulesJson.size();
 }
 
-Collected FakeEnumModules(std::uint32_t pid, NameSink sink, void* ctx) {
+// Fixture module paths are synthesised from the base name, so a test says which
+// modules exist and separately which of them are OURS — rather than every case
+// having to spell a path it does not care about.
+std::wstring FakeModulePath(const std::string& name) {
+    std::wstring w = L"C:\\Fixture\\";
+    for (char c : name) {
+        w.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+    }
+    return w;
+}
+
+Collected FakeEnumModules(std::uint32_t pid, ModuleSink sink, void* ctx) {
     const auto  it = g.modulesByPid.find(pid);
     const auto& list = (it != g.modulesByPid.end()) ? it->second : g.modules;
     for (const auto& m : list) {
-        if (!sink(ctx, m.c_str())) {
+        const std::wstring path = FakeModulePath(m);
+        const bool         pathless = g.pathlessModules.count(m) != 0;
+        if (!sink(ctx, m.c_str(), pathless ? nullptr : path.c_str())) {
             break;
         }
     }
@@ -206,11 +229,42 @@ Collected FakeEnumDirEntries(const wchar_t*, DirEntrySink sink, void* ctx) {
     return g.dirEntriesResult;
 }
 
-Collected FakeProcessIsOurOwn(std::uint32_t pid, bool* isOurs) {
-    if (g.ourOwnResult != Collected::kOk) {
-        return g.ourOwnResult;
+Collected FakeModuleIsOurOwn(const wchar_t* modulePath, bool* isOurs) {
+    if (g.moduleIsOursResult != Collected::kOk) {
+        // Writes TRUE and THEN fails, deliberately. A seam that touches the
+        // out-param before giving up is the realistic shape, and it is the only
+        // version of this fixture that can catch a caller which ignores the
+        // return code — with the out-param left false, "cannot determine" and
+        // "not ours" are indistinguishable and the test passes for the wrong
+        // reason.
+        if (isOurs != nullptr) {
+            *isOurs = true;
+        }
+        return g.moduleIsOursResult;
     }
-    *isOurs = g.ourOwnPids.count(pid) != 0;
+    if (isOurs == nullptr) {
+        return Collected::kFailed;
+    }
+    // A null path is answered "OURS", deliberately, and this fixture is wrong on
+    // purpose. The real seam returns kFailed here — so with a faithful fake, the
+    // guard's own `modulePath == nullptr` clause is redundant and the test that
+    // covers it passes whether the clause exists or not. Measured: removing the
+    // clause left the suite green.
+    //
+    // Modelling a seam that mishandles null is what makes that clause
+    // load-bearing, and the guard must not depend on every future implementation
+    // of a seam being careful.
+    if (modulePath == nullptr) {
+        *isOurs = true;
+        return Collected::kOk;
+    }
+    *isOurs = false;
+    for (const auto& name : g.ourModules) {
+        if (FakeModulePath(name) == modulePath) {
+            *isOurs = true;
+            break;
+        }
+    }
     return Collected::kOk;
 }
 
@@ -223,6 +277,11 @@ Collected FakePayloadIsOurOwn(const wchar_t* dllPath, bool* isOurs) {
         *isOurs = false;
         return Collected::kOk;
     case Fake::Payload::kCannotTell:
+        // True, then fail — see FakeModuleIsOurOwn. Left false, this case would
+        // pass against a caller that never looked at the return code.
+        if (isOurs != nullptr) {
+            *isOurs = true;
+        }
         return Collected::kFailed;
     case Fake::Payload::kReal:
     default:
@@ -239,7 +298,7 @@ Sources FakeSources() {
     s.EnumerateScanSet = &FakeEnumScanSet;
     s.ImageDirectory = &FakeImageDirectory;
     s.EnumerateDirEntries = &FakeEnumDirEntries;
-    s.ProcessIsOurOwn = &FakeProcessIsOurOwn;
+    s.ModuleIsOurOwn = &FakeModuleIsOurOwn;
     s.PayloadIsOurOwn = &FakePayloadIsOurOwn;
     return s;
 }
@@ -494,9 +553,9 @@ TEST_CASE("EVERY process in the scan set is scanned, not just the target", "[gua
         static std::vector<std::uint32_t> seen;
         seen.clear();
         Sources s = FakeSources();
-        s.EnumerateModules = [](std::uint32_t pid, NameSink sink, void* ctx) -> Collected {
+        s.EnumerateModules = [](std::uint32_t pid, ModuleSink sink, void* ctx) -> Collected {
             seen.push_back(pid);
-            sink(ctx, "kernel32.dll");
+            sink(ctx, "kernel32.dll", L"C:\\Fixture\\kernel32.dll");
             return Collected::kOk;
         };
         CHECK(EvaluateWithSources(1234, s).Allowed());
@@ -534,9 +593,14 @@ TEST_CASE("§S18 — the fragment tier is suppressed for our own processes, and 
         // GetCurrentProcessId() — the answer the panel first reached for — gets
         // it wrong, because the defect is a property of the BINARY and more than
         // one FrameLedger process can carry it.
+        //
+        // Note what ONE entry now covers (§S22(b)): ownership is a property of
+        // the module, so both processes are handled without naming either. The
+        // pid form needed the DLL listed per-process AND made the answer depend
+        // on where each host happened to live.
         g.modulesByPid[4000] = {"kernel32.dll", "FrameLedger.Guard.dll"};
         g.modulesByPid[4001] = {"kernel32.dll", "FrameLedger.Guard.dll"};
-        g.ourOwnPids = {4000, 4001};
+        g.ourModules = {"FrameLedger.Guard.dll"};
 
         const Verdict v = EvaluateWithSources(1234, FakeSources());
         INFO("reason was " << ReasonName(v.reason) << " signal=" << v.signal);
@@ -545,18 +609,19 @@ TEST_CASE("§S18 — the fragment tier is suppressed for our own processes, and 
 
     SECTION("the same module in the TARGET still refuses — the exception never covers it") {
         g.modulesByPid[1234] = {"kernel32.dll", "FrameLedger.Guard.dll"};
-        g.ourOwnPids = {1234, 4000};    // even when the seam claims the target is ours
+        g.ourModules = {"FrameLedger.Guard.dll"};    // even though the module really is ours
 
         const Verdict v = EvaluateWithSources(1234, FakeSources());
         REQUIRE_FALSE(v.Allowed());
         CHECK(v.reason == Reason::kSuspiciousUnsigned);
     }
 
-    SECTION("a scan-set process that is NOT ours still refuses on the same module name") {
-        // Closes the spoofing route a name allowlist would have opened: a DLL
-        // that borrows the name inside the game's own tree is not exempt.
+    SECTION("a module that BORROWS the name is not exempt") {
+        // Closes the spoofing route a name allowlist would have opened. The fake
+        // resolves ownership by PATH, so a DLL carrying our name from somewhere
+        // else answers "not ours" exactly as the real seam would.
         g.modulesByPid[4000] = {"FrameLedger.Guard.dll"};
-        g.ourOwnPids = {};
+        g.ourModules = {};
 
         const Verdict v = EvaluateWithSources(1234, FakeSources());
         REQUIRE_FALSE(v.Allowed());
@@ -565,8 +630,8 @@ TEST_CASE("§S18 — the fragment tier is suppressed for our own processes, and 
 
     SECTION("a seam that CANNOT DETERMINE does not suppress") {
         g.modulesByPid[4000] = {"FrameLedger.Guard.dll"};
-        g.ourOwnPids = {4000};
-        g.ourOwnResult = Collected::kFailed;
+        g.ourModules = {"FrameLedger.Guard.dll"};
+        g.moduleIsOursResult = Collected::kFailed;
 
         const Verdict v = EvaluateWithSources(1234, FakeSources());
         REQUIRE_FALSE(v.Allowed());
@@ -577,13 +642,28 @@ TEST_CASE("§S18 — the fragment tier is suppressed for our own processes, and 
         // Sources members default to nullptr, so forgetting to wire this has to
         // fail towards refusing rather than towards allowing.
         g.modulesByPid[4000] = {"FrameLedger.Guard.dll"};
-        g.ourOwnPids = {4000};
+        g.ourModules = {"FrameLedger.Guard.dll"};
         Sources s = FakeSources();
-        s.ProcessIsOurOwn = nullptr;
+        s.ModuleIsOurOwn = nullptr;
 
         const Verdict v = EvaluateWithSources(1234, s);
         REQUIRE_FALSE(v.Allowed());
         CHECK(v.reason == Reason::kSuspiciousUnsigned);
+    }
+
+    SECTION("a module we could not LOCATE is not exempt") {
+        // §S22(b)'s new failure mode. GetModuleFileNameExW can fail where
+        // GetModuleBaseNameA succeeded, and the scan is not thereby incomplete —
+        // the name still matched. What is lost is only the ability to exempt, so
+        // the answer must be a refusal and not an allow.
+        g.modulesByPid[4000] = {"FrameLedger.Guard.dll"};
+        g.ourModules = {"FrameLedger.Guard.dll"};
+        g.pathlessModules = {"FrameLedger.Guard.dll"};
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+        CHECK(std::strcmp(v.signal, "FrameLedger.Guard.dll") == 0);
     }
 
     SECTION("only the FUZZY tier is suppressed — an exact blocklist hit in our own process still refuses") {
@@ -591,7 +671,7 @@ TEST_CASE("§S18 — the fragment tier is suppressed for our own processes, and 
         // real anti-cheat is somehow loaded in a FrameLedger process, we are not
         // injecting into anything.
         g.modulesByPid[4000] = {"FrameLedger.Guard.dll", "EasyAntiCheat_x64.dll"};
-        g.ourOwnPids = {4000};
+        g.ourModules = {"FrameLedger.Guard.dll"};
 
         const Verdict v = EvaluateWithSources(1234, FakeSources());
         REQUIRE_FALSE(v.Allowed());
@@ -600,7 +680,7 @@ TEST_CASE("§S18 — the fragment tier is suppressed for our own processes, and 
     }
 
     SECTION("an unreadable process is still unreadable, exempt or not") {
-        g.ourOwnPids = {4000};
+        g.ourModules = {"FrameLedger.Guard.dll"};
         g.moduleResultByPid[4000] = Collected::kFailed;
 
         const Verdict v = EvaluateWithSources(1234, FakeSources());
@@ -609,46 +689,109 @@ TEST_CASE("§S18 — the fragment tier is suppressed for our own processes, and 
     }
 }
 
-TEST_CASE("§S18 — the real ProcessIsOurOwn answers both directions", "[guard][S18][live]") {
+// ===========================================================================
+// §S22(b) — the fail-open that per-module suppression would have created.
+//
+// The old sink latched the FIRST fragment-matching module and stopped testing
+// fragments. Harmless while every hit refused: the latched name only had to be
+// *a* reason. The moment the exemption became per-module, that latch became a
+// fail-open REACHABLE BY LOAD ORDER — our own DLL matches first, is exempted,
+// and a genuinely suspicious module loaded afterwards is never recorded.
+//
+// §S19(b) predicted this and said the detection half had to be RESTRUCTURED,
+// not extended. These two cases are what hold the restructure in place, and
+// they are order-symmetric on purpose: a fix that only walked the list backwards
+// would pass one and fail the other.
+// ===========================================================================
+TEST_CASE("§S22(b) — an exempt module never hides a suspicious one after it", "[guard][failclosed][S22]") {
+    ResetFake();
+    g.scanSet = {1234, 4000};
+    g.modulesByPid[1234] = {"kernel32.dll"};
+    g.ourModules = {"FrameLedger.Guard.dll"};
+
+    // mskeyprotect.dll trips `protect` and is NOT an exact-blocklist family, so
+    // it can only ever be caught by the fuzzy tier. It is also real: measured
+    // loaded on this machine, from System32 (§S19(b)).
+    SECTION("ours FIRST, suspicious SECOND — the classic load order") {
+        g.modulesByPid[4000] = {"FrameLedger.Guard.dll", "mskeyprotect.dll"};
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        INFO("reason was " << ReasonName(v.reason) << " signal=" << v.signal);
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+        CHECK(std::strcmp(v.signal, "mskeyprotect.dll") == 0);
+    }
+
+    SECTION("suspicious FIRST, ours SECOND — the same verdict, the same signal") {
+        g.modulesByPid[4000] = {"mskeyprotect.dll", "FrameLedger.Guard.dll"};
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+        CHECK(std::strcmp(v.signal, "mskeyprotect.dll") == 0);
+    }
+
+    SECTION("the SAME module list allows once both are ours — ownership is the only variable") {
+        // The green half, and it deliberately reuses the exact module list of the
+        // first section so the only thing that changed is the seam's answer.
+        // Without this an implementation that simply never exempts anything would
+        // pass both cases above, and "the exemption still works" would be
+        // untested — which is how §S18 shipped a gate that could not pass.
+        g.modulesByPid[4000] = {"FrameLedger.Guard.dll", "mskeyprotect.dll"};
+        g.ourModules = {"FrameLedger.Guard.dll", "mskeyprotect.dll"};
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        INFO("reason was " << ReasonName(v.reason) << " signal=" << v.signal);
+        CHECK(v.Allowed());
+    }
+}
+
+TEST_CASE("§S22(b) — the real ModuleIsOurOwn answers both directions", "[guard][S18][S22][live]") {
     // The seam above is what makes the matrix forceable; this is what keeps the
     // seam honest about the machine. Without it the whole exception rests on a
     // fake agreeing with itself.
+    //
+    // It also asserts the property the exemption now depends on and the fakes
+    // structurally cannot reach: that "ours" is decided by the file's directory,
+    // so it holds for any host that loads the binary rather than only for a host
+    // that happens to live beside it. That was §S22(b)'s entire defect.
     const Sources sys = SystemSources();
-    REQUIRE(sys.ProcessIsOurOwn != nullptr);
+    REQUIRE(sys.ModuleIsOurOwn != nullptr);
+    // One implementation behind both identity seams (fl_guard.h §TWO SEAMS). If
+    // they ever diverge, they are two answers to one question.
+    REQUIRE(sys.ModuleIsOurOwn == sys.PayloadIsOurOwn);
 
-    SECTION("this test process IS ours — it runs the guard code from its own directory") {
+    SECTION("this test binary IS ours — the guard code is compiled into it") {
+        wchar_t self[MAX_PATH]{};
+        REQUIRE(GetModuleFileNameW(nullptr, self, MAX_PATH) != 0);
+
         bool            ours = false;
-        const Collected c = sys.ProcessIsOurOwn(GetCurrentProcessId(), &ours);
+        const Collected c = sys.ModuleIsOurOwn(self, &ours);
         REQUIRE(c == Collected::kOk);
         CHECK(ours);
     }
 
-    SECTION("a System32 process is NOT ours") {
+    SECTION("a System32 module is NOT ours") {
         // The green case above passes against an implementation that returns
-        // true unconditionally; this is the half that catches it. cmd.exe is
-        // chosen because its directory is guaranteed to differ from ours and it
-        // exits on its own.
-        wchar_t      cmdline[] = L"cmd.exe /c exit";
-        STARTUPINFOW si{};
-        si.cb = sizeof(si);
-        PROCESS_INFORMATION pi{};
-        REQUIRE(CreateProcessW(nullptr, cmdline, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
-                               &pi) != 0);
+        // true unconditionally; this is the half that catches it.
+        wchar_t sys32[MAX_PATH]{};
+        REQUIRE(GetSystemDirectoryW(sys32, MAX_PATH) != 0);
+        const std::wstring k32 = std::wstring(sys32) + L"\\kernel32.dll";
 
         // Seeded true so a seam that writes nothing cannot pass by accident.
         bool            ours = true;
-        const Collected c = sys.ProcessIsOurOwn(pi.dwProcessId, &ours);
-
-        // Either answer is acceptable and both must say "not ours": kOk with
-        // ours=false, or kFailed if the process exited before we could look —
-        // which is the fail-closed value, and the implementation clears the
-        // out-param before it can fail.
-        INFO("collected=" << static_cast<int>(c));
+        const Collected c = sys.ModuleIsOurOwn(k32.c_str(), &ours);
+        REQUIRE(c == Collected::kOk);
         CHECK_FALSE(ours);
+    }
 
-        WaitForSingleObject(pi.hProcess, 5000);
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+    SECTION("a module that no longer exists cannot be exempted") {
+        // A mapped module can be deleted from disk while still loaded. That must
+        // be kFailed — "could not tell" — and never "ours".
+        bool            ours = true;
+        const Collected c = sys.ModuleIsOurOwn(LR"(C:\definitely\not\here.dll)", &ours);
+        CHECK(c == Collected::kFailed);
+        CHECK_FALSE(ours);
     }
 }
 

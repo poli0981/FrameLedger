@@ -85,10 +85,24 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
    > could" state.
    >
    > **One reviewed exception, decided 2026-08-03 and implemented 2026-08-04
-   > (§S18).** A scan-set process whose image directory is FrameLedger's own does
-   > not trip the *fuzzy* fragment tier. The exact blocklist still applies to it
+   > (§S18), then re-keyed the same day (§S22(b)).** A module that is FrameLedger's
+   > own does not trip the *fuzzy* fragment tier. The exact blocklist still applies
    > in full, the exception never applies to the injection target, and a seam that
    > cannot answer does not suppress.
+   >
+   > **It asks about the MODULE, not about the process that loaded it.** The first
+   > implementation asked whether the scan-set *process* lived in our directory,
+   > which made the exemption depend on where the host binary sits: measured, the
+   > same binary run from beside `FrameLedger.Guard.dll` reached `Allow`, and run
+   > from anywhere else returned `SuspiciousUnsigned` naming our own DLL. The Agent
+   > worked only because a `.targets` file happens to co-locate them. The module
+   > form is also strictly narrower — a genuinely foreign suspicious module inside
+   > a FrameLedger process (an AppInit DLL, an AV user-mode hook, an IME) used to
+   > be suppressed with our own and now is not.
+   >
+   > A module whose path we could not obtain is **not** exempt. Failing to locate
+   > a module does not make the scan incomplete — the name is what the blocklist
+   > matches on — but we cannot exempt what we cannot identify.
    >
    > **The justification first written here was false, and it is worth replacing
    > rather than deleting.** It read: *"our own module set is identical in every

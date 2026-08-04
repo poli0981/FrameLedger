@@ -199,8 +199,15 @@ struct MatchState {
     // Heuristic accumulation (19_SAFETY: fragment AND untrusted signer).
     bool sawSuspicious = false;
     char suspicious[260] = {};
+
+    // §S22(b) — what the module sink needs to answer "is this module ours?".
+    // Null sources, or the target's own process, mean nothing is ever exempt.
+    const Sources* sources = nullptr;
+    bool           isTarget = false;
 };
 
+// Drivers and any other flat name list. The module scan does NOT come through
+// here — it needs the load path, which a base name cannot carry (§S22(b)).
 bool NameSinkFn(void* ctx, const char* name) noexcept {
     auto* st = static_cast<MatchState*>(ctx);
     if (st == nullptr || st->rules == nullptr || name == nullptr) {
@@ -211,10 +218,66 @@ bool NameSinkFn(void* ctx, const char* name) noexcept {
         strncpy_s(st->signal, name, _TRUNCATE);
         return false;    // stop: one hit is enough to refuse
     }
-    if (st->group == Group::kModules && !st->sawSuspicious && HasSuspiciousFragment(*st->rules, name)) {
-        st->sawSuspicious = true;
-        strncpy_s(st->suspicious, name, _TRUNCATE);
+    return true;
+}
+
+// §S18/§S22(b) — may the fuzzy tier be suppressed for THIS MODULE?
+//
+// The ONLY exception in this gate, and every clause is load-bearing:
+//
+//   - not the injection target, however it is spelled. A game copied into our
+//     install directory must still be judged.
+//   - a null seam does not suppress. Sources members default to nullptr, so
+//     forgetting to wire this must fail towards refusing.
+//   - a module whose path we could not obtain does not suppress. We cannot
+//     exempt what we cannot locate.
+//   - anything but kOk does not suppress. "Could not determine whose file this
+//     is" is not "it is ours".
+//
+// Reached only when a fragment already matched, which on a measured machine is
+// approximately never — so the file handles it costs are not on the ordinary
+// path. Hoisting it above the fragment test would add a new machine-wide
+// refusal source, the shape of the EasyAntiCheat_EOS defect that refused every
+// process on the machine.
+bool ModuleIsExempt(const MatchState& st, const wchar_t* modulePath) noexcept {
+    if (st.isTarget || st.sources == nullptr || st.sources->ModuleIsOurOwn == nullptr || modulePath == nullptr) {
+        return false;
     }
+    bool ours = false;
+    return st.sources->ModuleIsOurOwn(modulePath, &ours) == Collected::kOk && ours;
+}
+
+// Check 1's sink. The ordering here is the whole of §S22(b).
+bool ModuleSinkFn(void* ctx, const char* name, const wchar_t* modulePath) noexcept {
+    auto* st = static_cast<MatchState*>(ctx);
+    if (st == nullptr || st->rules == nullptr || name == nullptr) {
+        return false;
+    }
+    if (const Family* f = MatchName(*st->rules, Group::kModules, name)) {
+        st->hit = f;
+        strncpy_s(st->signal, name, _TRUNCATE);
+        return false;    // stop: one hit is enough to refuse
+    }
+    if (st->sawSuspicious || !HasSuspiciousFragment(*st->rules, name)) {
+        return true;
+    }
+    // OURS: not evidence, and — critically — KEEP LOOKING.
+    //
+    // The old code latched the FIRST fragment-matching module and skipped the
+    // fragment test for every module after it. That was harmless while any hit
+    // refused, because the latched name only had to be *a* reason. The moment
+    // suppression became per-module it would have been a FAIL-OPEN REACHABLE BY
+    // LOAD ORDER: our own guard DLL matches first, gets exempted, and a genuinely
+    // suspicious module loaded afterwards is never recorded — the process returns
+    // Allow. §S19(b) predicted exactly this and said the detection half has to be
+    // restructured rather than extended. This return is that restructure.
+    if (ModuleIsExempt(*st, modulePath)) {
+        return true;
+    }
+    st->sawSuspicious = true;
+    strncpy_s(st->suspicious, name, _TRUNCATE);
+    // Still not a stop: an EXACT blocklist hit later in the same process outranks
+    // the fuzzy tier, and CheckModules checks st.hit first precisely so it can.
     return true;
 }
 
@@ -269,35 +332,6 @@ Verdict LoadRules(const Sources& s, Rules& rules) noexcept {
     }
 }
 
-// §S18 — may the fuzzy name-fragment tier be suppressed for this process?
-//
-// The ONLY exception in this gate, and every clause below is load-bearing:
-//
-//   - `pid != targetPid`. The injection target is never exempt, however it is
-//     spelled. A game copied into our install directory must still be judged.
-//   - a null seam does not suppress. Sources members default to nullptr, so
-//     forgetting to wire this must fail towards refusing.
-//   - anything but kOk does not suppress. "Could not determine whose process
-//     this is" is not "it is ours".
-//
-// Called ONLY when a fragment already matched, which on a measured machine is
-// approximately never — so the OpenProcess and the two directory handles it
-// costs are not on the ordinary path. Hoisting it above the fragment test would
-// add a new machine-wide refusal source, which is the shape of the
-// EasyAntiCheat_EOS defect that refused every process on the machine.
-//
-// What this does NOT touch: the exact blocklist (st.hit returns before we get
-// here), kFailed -> kProcessUnreadable, kIncomplete -> kModuleScanFailed, the
-// driver scan, the service scan, and check 4. A FrameLedger process carrying a
-// genuinely blocklisted module still refuses.
-bool SuppressFragmentTier(const Sources& s, std::uint32_t pid, std::uint32_t targetPid) noexcept {
-    if (pid == targetPid || s.ProcessIsOurOwn == nullptr) {
-        return false;
-    }
-    bool ours = false;
-    return s.ProcessIsOurOwn(pid, &ours) == Collected::kOk && ours;
-}
-
 // Check 1 — modules, across the §S16 scan set.
 Verdict CheckModules(const Sources& s, const Rules& rules, std::uint32_t targetPid) noexcept {
     if (s.EnumerateScanSet == nullptr || s.EnumerateModules == nullptr) {
@@ -314,9 +348,13 @@ Verdict CheckModules(const Sources& s, const Rules& rules, std::uint32_t targetP
     for (std::size_t i = 0; i < set.count; ++i) {
         MatchState st;
         st.rules = &rules;
-        st.group = Group::kModules;
+        // No st.group: ModuleSinkFn names Group::kModules itself, because there
+        // is exactly one group it could mean. A field set here and read nowhere
+        // would read as configuration.
+        st.sources = &s;
+        st.isTarget = (set.pids[i] == targetPid);
 
-        const Collected c = s.EnumerateModules(set.pids[i], &NameSinkFn, &st);
+        const Collected c = s.EnumerateModules(set.pids[i], &ModuleSinkFn, &st);
         if (st.hit != nullptr) {
             return Refuse(Reason::kBlockedModule, st.hit->name, st.signal);
         }
@@ -330,11 +368,16 @@ Verdict CheckModules(const Sources& s, const Rules& rules, std::uint32_t targetP
         if (c == Collected::kIncomplete) {
             return Refuse(Reason::kModuleScanFailed, nullptr, "a module list came back incomplete");
         }
-        if (st.sawSuspicious && !SuppressFragmentTier(s, set.pids[i], targetPid)) {
+        if (st.sawSuspicious) {
             // 19_SAFETY: fragment AND not signed by a known vendor. The signer
             // lookup is not wired yet, and an unchecked signature is UNTRUSTED
             // by definition — so this refuses today. That is the correct
             // direction, and it is why the fragment list must stay narrow.
+            //
+            // `sawSuspicious` is already the post-exemption answer: ModuleSinkFn
+            // never latches a module that is ours. Asking a second question here
+            // is what the process-form did, and it is what made the exemption
+            // depend on where the HOST lived (§S22(b)).
             return Refuse(Reason::kSuspiciousUnsigned, "unknown", st.suspicious);
         }
     }

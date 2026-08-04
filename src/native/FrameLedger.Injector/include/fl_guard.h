@@ -166,14 +166,29 @@ enum class Collected : std::uint8_t {
 // enumeration early — used when a match has already been found.
 using NameSink = bool (*)(void* ctx, const char* name);
 
+// As NameSink, plus where the module was loaded FROM.
+//
+// Modules get their own sink because §S22(b) needs a question the base name
+// cannot answer: when a module trips the fuzzy name-fragment tier, is that
+// module OURS? Keying the exemption on the base name would be spoofable by any
+// DLL that borrows the name; keying it on the owning PROCESS — which is what
+// §S18 originally did — asks about the wrong thing entirely and refused every
+// FrameLedger host that did not sit beside FrameLedger.Guard.dll.
+//
+// `path` is nullptr when it could not be determined. That is NOT an enumeration
+// failure — the base name is still enough to match the blocklist, so the scan
+// continues — but a module we cannot locate is a module we cannot exempt, and
+// the sink must treat null as "not ours".
+using ModuleSink = bool (*)(void* ctx, const char* name, const wchar_t* path);
+
 // As NameSink, plus whether the entry is a directory. Check 4 matches
 // directories and files against different blocklist groups, and guessing from
 // the name would be a second, weaker classifier.
 using DirEntrySink = bool (*)(void* ctx, const char* name, bool isDirectory);
 
 struct Sources {
-    // Loaded modules of one process, by base name.
-    Collected (*EnumerateModules)(std::uint32_t pid, NameSink sink, void* ctx) = nullptr;
+    // Loaded modules of one process, by base name and load path.
+    Collected (*EnumerateModules)(std::uint32_t pid, ModuleSink sink, void* ctx) = nullptr;
 
     // Machine-wide loaded kernel drivers, by full native path.
     Collected (*EnumerateDrivers)(NameSink sink, void* ctx) = nullptr;
@@ -210,12 +225,12 @@ struct Sources {
     // something the caller infers from the string.
     Collected (*EnumerateDirEntries)(const wchar_t* dir, DirEntrySink sink, void* ctx) = nullptr;
 
-    // §S18 — is this pid one of OUR OWN processes?
+    // §S18/§S22(b) — is this MODULE one of OUR OWN binaries?
     //
     // The single narrow exception in this gate, and the only thing it may ever
-    // do is suppress the FUZZY name-fragment tier for a scan-set process that is
-    // not the injection target. The exact blocklist still applies to such a
-    // process in full, and every other refusal is untouched.
+    // do is suppress the FUZZY name-fragment tier for a module that is ours,
+    // inside a scan-set process that is not the injection target. The exact
+    // blocklist still applies in full, and every other refusal is untouched.
     //
     // Why it exists: FrameLedger.Guard.dll contains the substring `guard`, one
     // of the heuristic's nameFragments, and the project ships unsigned
@@ -223,6 +238,17 @@ struct Sources {
     // the Agent is the game's parent and therefore inside the §S16 scan set, so
     // every launch-mode injection refused — and Vulkan Tier 1 with it, since the
     // layer's only enable path runs through launch mode.
+    //
+    // IT ASKS ABOUT THE MODULE, NOT THE PROCESS, and §S22(b) is the record of why
+    // the process form was wrong. §S18 keyed this on the scan-set process's image
+    // directory, which made the exemption depend on WHERE THE HOST LIVES rather
+    // than on whose DLL tripped the tier: measured, the same binary run from
+    // beside FrameLedger.Guard.dll returned Allow and run from anywhere else
+    // returned SuspiciousUnsigned naming our own DLL. The Agent only worked
+    // because a .targets file happens to put the DLL beside it. The module form
+    // is also strictly NARROWER: a genuinely foreign suspicious module loaded
+    // into a FrameLedger process — an AppInit DLL, an AV user-mode hook, an IME —
+    // used to be suppressed along with our own, and now is not.
     //
     // kFailed means CANNOT DETERMINE, which means DO NOT SUPPRESS. The polarity
     // is the opposite of every other seam here — everywhere else "could not look"
@@ -232,7 +258,7 @@ struct Sources {
     // A tri-state plus an out-param rather than a bool, for the same reason
     // QueryService is: "no" and "could not tell" are different answers and the
     // caller has to be able to distinguish them.
-    Collected (*ProcessIsOurOwn)(std::uint32_t pid, bool* isOurs) = nullptr;
+    Collected (*ModuleIsOurOwn)(const wchar_t* modulePath, bool* isOurs) = nullptr;
 
     // §S22 — is the DLL we were asked to inject one of OUR OWN binaries?
     //
@@ -268,6 +294,17 @@ struct Sources {
     //     conceded.
     Collected (*PayloadIsOurOwn)(const wchar_t* dllPath, bool* isOurs) = nullptr;
 };
+
+// TWO SEAMS, ONE IMPLEMENTATION. SystemSources() wires both ModuleIsOurOwn and
+// PayloadIsOurOwn to the same function: they ask the identical question — does
+// this file resolve into the directory the guard's own code was loaded from —
+// and two implementations of one question is the "second matcher that can
+// disagree" this whole layer is arranged to avoid (§S15 item 1).
+//
+// They are separate POINTERS only so 14_TESTING's matrix can force each failure
+// independently: a payload that cannot be identified and a module that cannot be
+// located are different scenarios reaching different code, and a single seam
+// would make one of them untestable without disturbing the other.
 
 // The real Windows implementations. Behaviour measured in spike-notes.md §1;
 // notably EnumerateModules reports kFailed on ERROR_PARTIAL_COPY (a suspended
