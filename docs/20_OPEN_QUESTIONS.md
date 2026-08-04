@@ -512,6 +512,18 @@ pinned-stack Packaging row. (§S18 and `spike-notes.md` §7 previously cited
 `12_BUILD` §Packaging for this; that section contains no signing text. Citation
 corrected, conclusion unchanged.)
 
+> **The KEYING below was superseded on 2026-08-04 by §S22(b); the principle was
+> not.** Everything here about *why* the exception exists, why it is confined to
+> the fuzzy tier, why it never covers the target, and why identity is by
+> directory-file-id rather than by name still holds and is still implemented.
+> What changed is the SUBJECT: the exemption asked whether the scan-set
+> **process** lived in our directory, and now asks whether the **module that
+> matched** is ours. That fixed a measured refusal of every FrameLedger host not
+> sitting beside `FrameLedger.Guard.dll`, and it is strictly narrower. Read the
+> "Not by module name" bullet below with that in mind — it rejected a *name*
+> allowlist, and it was right to; a file-id check on the module is a different
+> mechanism and is not what it argued against.
+
 #### The decision — identity by **install root**, heuristic tier only
 
 Taken 2026-08-03 after a four-lens panel, three adversarial refuters and a
@@ -1083,7 +1095,7 @@ through.
   more likely than a browser to have both already. Recorded rather than waved
   away; delay-loading would not help, since the layer resolves the path at init.
 
-### S22 ◐ · The guard gated the TARGET and nothing gated the PAYLOAD — **(a) closed, (b) open**
+### S22 ✅ · The guard gated the TARGET and nothing gated the PAYLOAD — **both halves closed**
 
 Found 2026-08-04 by a completeness critic over the next-phase plan, in code that
 had been merged for days and passed every gate in the repository. Recorded in
@@ -1166,7 +1178,7 @@ one directory.
 > file. That is the fourth time this session's own verification tooling was the
 > broken thing.
 
-#### (b) ◐ The §S18 exemption asks about the PROCESS, not the module — **open**
+#### (b) ✅ The §S18 exemption asked about the PROCESS, not the module — **closed**
 
 Same probe, same binary, same target; only the caller's directory differs:
 
@@ -1195,20 +1207,68 @@ mode. It also removes a real over-reach nobody had costed: today a genuinely
 foreign suspicious module loaded into a FrameLedger process — an AppInit DLL, an
 AV user-mode hook, an IME — is suppressed along with our own.
 
-**Deliberately not done in the same change, because it is not the size the plan
-assumed.** `NameSink` is `bool(*)(void*, const char*)` fed by
-`GetModuleBaseNameA`, so the module's **path never reaches the decision point** —
-the constraint §S19(b) already recorded. Keying on the module therefore needs the
-module seam widened to carry paths, which is a new row in the fail-closed matrix
-and changes every fake in `guard_test.cpp`. Worse, it forces the restructure
-§S19(b) predicted: `NameSinkFn` latches the FIRST fragment-matching module and
-discards the rest, so per-module suppression turns that latch into a **fail-open
-reachable by load order** — our guard DLL matches first, is suppressed, and a
-foreign suspicious module loaded afterwards is never recorded. The detection half
-has to be restructured, not extended.
+**Done, and it was not the size the plan assumed.** `NameSink` was
+`bool(*)(void*, const char*)` fed by `GetModuleBaseNameA`, so the module's path
+never reached the decision point — the constraint §S19(b) already recorded. What
+it actually took:
 
-Until it lands: an inject host must be installed beside `FrameLedger.Guard.dll`,
-and that requirement belongs in a test rather than in this paragraph.
+- **A new sink type.** `ModuleSink` carries `(name, path)`; `EnumerateModules`
+  takes it, drivers keep `NameSink`. `GetModuleFileNameExW` failing is **not**
+  `kIncomplete` — the base name is what the blocklist matches on, so the scan is
+  complete in the sense that matters. What is lost is only the ability to
+  *exempt*, and a null path is treated as "not ours". The failure narrows what we
+  allow rather than widening it.
+- **The restructure §S19(b) predicted.** `NameSinkFn` latched the FIRST
+  fragment-matching module and skipped the fragment test for every module after
+  it. Harmless while any hit refused, because the latched name only had to be *a*
+  reason. Per-module suppression turns it into a **fail-open reachable by load
+  order**: our guard DLL matches first, is exempted, and a genuinely suspicious
+  module loaded afterwards is never recorded. `ModuleSinkFn` therefore skips an
+  exempt module and **keeps looking**, latching the first non-ours one — and
+  still does not stop, because an exact blocklist hit later in the same process
+  outranks the fuzzy tier.
+- **`ProcessIsOurOwn` is gone**, along with its implementation. A seam nothing
+  calls is dead weight, and keeping both forms would be two answers to one
+  question.
+- **One implementation, two seams.** `ModuleIsOurOwn` and `PayloadIsOurOwn` ask
+  the identical question and `SystemSources()` wires both to `FileIsOurOwnImpl`.
+  They are separate *pointers* only so the matrix can force each failure
+  independently; a live test asserts the two pointers are equal, so a future
+  divergence fails rather than quietly becoming a second matcher (§S15 item 1).
+
+The module form is also **strictly narrower**, which nobody had costed: a
+genuinely foreign suspicious module loaded into a FrameLedger process — an
+AppInit DLL, an AV user-mode hook, an IME — used to be suppressed along with our
+own, and now is not.
+
+Five canaries, each proven red: the exemption stopping the scan (the load-order
+fail-open), the target exclusion removed, an unlocatable module treated as ours,
+the module seam's failure ignored, and — re-run precisely — the payload seam's
+failure ignored.
+
+> **Two of this item's own tests were passing for the wrong reason, and the
+> canaries are what said so.**
+>
+> The first: `FakeModuleIsOurOwn` returned `kFailed` *without touching the
+> out-param*, so "the seam cannot determine" was indistinguishable from "not
+> ours" and the test held whether or not the caller read the return code. The
+> fake now writes **true and then fails**, which is the realistic shape and the
+> only one that can catch a caller which ignores the code.
+>
+> The second was found by a canary going GREEN: removing the guard's
+> `modulePath == nullptr` clause changed nothing, because the fake *also*
+> rejected null. The test was covering the fixture, not the code. The fake now
+> answers "ours" for a null path — wrong on purpose — so the guard's own clause
+> is the only thing standing between a sloppy seam and an exemption. **A
+> redundant check in a fixture can make a real clause untestable, and the only
+> way that surfaced was disarming the clause and watching nothing happen.**
+
+> **The §S22(a) canary that ran a day earlier was mislabelled**, and it is
+> corrected rather than left. It replaced the payload check's condition with
+> `false && sources.PayloadIsOurOwn(...)`, which **short-circuits the call
+> entirely** — so it proved "removing the seam call breaks the suite", not "a
+> seam failure that is ignored breaks the suite". The precise form ignores only
+> the failure code and leaves the call in place; it is red too.
 
 ### S14 ◐ · Pre-injection check 3 is **unwired**, and has no "cannot determine" state
 

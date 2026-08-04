@@ -38,16 +38,32 @@ GitHub release body, so a missing section means an empty release note.
     same file staged elsewhere does not, and the test refuses to run if those two
     paths ever resolve to one directory.
 
-### Known issues
-- **The §S18 self-exemption asks about the process, not the module that matched**
-  (`20_OPEN_QUESTIONS` §S22(b)). Any FrameLedger-family host that does not sit
-  beside `FrameLedger.Guard.dll` refuses its own injections with
+- **The guard's self-exemption asked about the process, not the module that
+  matched** (`20_OPEN_QUESTIONS` §S22(b)). Any FrameLedger-family host that did not
+  sit beside `FrameLedger.Guard.dll` refused its own injections with
   `SuspiciousUnsigned`, naming our own DLL as the signal — measured, same binary,
-  only the caller's directory differing. The Agent works because
-  `FrameLedger.Guard.targets` puts the DLL beside it. Until this is re-keyed, an
-  injection host must be installed beside the guard. The fix needs the module seam
-  widened to carry paths and the first-hit latch restructured, which §S19(b)
-  already describes; it is not the one-line change it looks like.
+  only the caller's directory differing. The Agent worked only because
+  `FrameLedger.Guard.targets` happens to co-locate them.
+  - The exemption now asks whether the **module** that tripped the fuzzy tier is
+    ours, by file id. `ProcessIsOurOwn` is gone; `ModuleIsOurOwn` and
+    `PayloadIsOurOwn` share one implementation, and a live test asserts the two
+    seams are the same function so they cannot become two answers.
+  - **Strictly narrower than what it replaced**: a genuinely foreign suspicious
+    module inside a FrameLedger process — an AppInit DLL, an AV user-mode hook, an
+    IME — used to be suppressed along with our own, and now is not.
+  - It required the restructure §S19(b) predicted. The module sink latched the
+    first fragment-matching module and skipped the rest; with per-module
+    suppression that becomes a **fail-open reachable by load order** — our DLL
+    matches first, is exempted, and a suspicious module loaded afterwards is never
+    recorded. The sink now skips an exempt module and keeps looking.
+  - Five canaries proven red, including the load-order case in both orders.
+  - **Two of the new tests were passing for the wrong reason and were fixed**: a
+    fake that returned "cannot determine" without touching its out-param made the
+    return-code check untestable, and a redundant null check in the same fake made
+    the guard's own null clause untestable — the latter surfaced only because a
+    canary disarmed the clause and nothing went red.
+
+### Known issues
 - **The anti-cheat guard's fuzzy "unknown-but-suspicious" tier matches benign
   system DLLs, and one of its rules can never fire** (`20_OPEN_QUESTIONS` §S19).
   Re-measured unelevated on Windows 11 26300: 290 processes, 0 inaccessible,
