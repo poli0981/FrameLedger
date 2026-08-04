@@ -5,7 +5,7 @@
     CI can never disagree (docs/12_BUILD.md §Local quality gate).
 
 .DESCRIPTION
-    ./build.ps1 check    the full nine-gate pre-push check
+    ./build.ps1 check    the full pre-push gate (see docs/12_BUILD.md for the list)
     ./build.ps1 native   native build only
     ./build.ps1 managed  managed build + tests only
     ./build.ps1 format   apply formatting instead of verifying it
@@ -307,6 +307,26 @@ function Invoke-ProjectGates {
     }
     else {
         Skip-Gate 'resx-audit' 'tools/resx-audit not implemented yet (no .resx files exist)'
+    }
+
+    # The shared-memory struct mirror. CLAUDE.md §Struct mirroring calls this the
+    # mechanism protecting the shm ABI, and NINE files describe it in the present
+    # tense — including fl_shm.h itself, which is normative, and
+    # fl-layout-dump/CMakeLists.txt, which says a test consumes its output. None
+    # of it exists: src/FrameLedger.Shared holds only a .csproj, nothing under
+    # tests/ references FlFrameRecord, and fl-layout-dump has no add_test.
+    #
+    # Named and SKIPPED LOUDLY rather than omitted, which is the discipline
+    # 20_OPEN_QUESTIONS §R10 asks for: a doc that says a gate runs is worse than
+    # one that says it is missing, because the second prompts someone to write it.
+    # Not urgent — the ring is P1 and there is nothing to mirror yet.
+    Write-Step 'struct-mirror'
+    $mirrorTest = Join-Path $repo 'src/FrameLedger.Shared/ShmLayout.cs'
+    if (Test-Path $mirrorTest) {
+        Write-Host '  covered by dotnet test (FrameLedger.Infrastructure.Tests)' -ForegroundColor DarkGray
+    }
+    else {
+        Skip-Gate 'struct-mirror' 'the C# mirror of fl_shm.h does not exist yet (20_OPEN_QUESTIONS §R10) — the shm ABI has no drift gate'
     }
 
     Write-Step 'placeholder guard'

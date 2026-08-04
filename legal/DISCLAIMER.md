@@ -4,6 +4,14 @@
 
 > ⚠ Draft for review. Not legal advice. Review before first public release — this version covers code injection and should be read carefully.
 
+> ⚠ **Accuracy audit, 2026-08-04. Three statements below describe behaviour the software does not yet have**, and they are flagged here rather than quietly reworded because a document the user accepts must not over-promise:
+>
+> - §2's *"and every 30 seconds afterwards … it stops at the next scan"* — the pre-injection guard is real and refuses; the **in-session re-scan and stop are not implemented**. `GuardSupervisor` has no production caller and nothing writes the shared-memory field the capture side would read.
+> - §3's *"automatically stops injecting into a game that crashes shortly after injection twice"* — the only trace of this anywhere is a `hook_crash_count` column in a schema for which no `.sql` file exists. There is no design for it.
+> - §1's claim that FrameLedger loads `FrameLedger.Overlay.dll` **is now true as written** (§S22): the injection path refuses any library outside FrameLedger's own directory. It was not true before that change, which is why it is listed here.
+>
+> **None of this may ship as-is.** Either the behaviour exists at first release or these sentences change. Tracked in `docs/20_OPEN_QUESTIONS.md`.
+
 ## 1. How FrameLedger measures (read this first)
 
 To measure what a game is *actually* doing — its real render resolution, which upscaler is running at which quality preset, whether frame generation is active, whether rays are being traced — FrameLedger loads a component (`FrameLedger.Overlay.dll`) **inside the game process** and observes calls the game makes to graphics APIs. Vulkan titles use a standard Vulkan layer instead. This is the same class of technique used by widely-used tools such as frame-rate overlays, screen-recording software, and post-processing injectors.

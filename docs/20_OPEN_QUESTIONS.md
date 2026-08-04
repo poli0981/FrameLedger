@@ -166,8 +166,19 @@ are worth keeping, because each looks reasonable until costed:
 cannot confirm supervision stops observing. That is the same polarity the rest of
 the layer already has — every uncertainty resolves to inert.
 
-**✅ The Agent half is built and proven.** `GuardSupervisor`
-(`FrameLedger.Application`) publishes `guardTicks`, and the load-bearing property
+> **"Publishes" is wrong, and the ✅ covers less than it reads as.** Corrected
+> 2026-08-04. `GuardSupervisor` **counts** completed evaluations in a private
+> setter; nothing writes `FlControlBlock.guardTicks`, because nothing in either
+> language maps the shared memory at all (`grep guardTicks` over `src` and
+> `tests` returns comments, a declaration, a `static_assert` and the layout
+> dump). It also has **no production call site** — `Program.cs` seeds the rules
+> file and exits. What is built and tested is the *counting discipline*: the tick
+> counts evaluations rather than seconds. What is not built is the supervision.
+> A reader ticking this off as delivered would then find `07_IPC` §Supervision
+> loss unimplementable, which is exactly what happened.
+
+**✅ The Agent half's counting discipline is built and proven.** `GuardSupervisor`
+(`FrameLedger.Application`) computes what will become `guardTicks`, and the load-bearing property
 is tested: **the tick counts completed evaluations, not seconds.** A timer-driven
 heartbeat attests that the Agent *process* is alive while the guard loop can be
 dead — a swallowed exception, a blocked service query, a stall on one unreadable
@@ -1319,7 +1330,18 @@ and beside check 3, rather than being inferable only from two empty arrays.
 ### S6 · The 30 s scan window is the weakest part of the most important behavior
 
 Now disclosed honestly in the Disclaimer and README. The open question is whether
-to shrink it. The Overlay **already installs a `LoadLibrary` hook** for lazily
+to shrink it.
+
+> **"Already installs" was false, and it changed how this item read.** Corrected
+> 2026-08-04. `src/native/FrameLedger.Overlay/` contains two files and
+> `dllmain.cpp` exports exactly one function; there is no `MH_CreateHook` outside
+> `fl-probe-hookprofile` anywhere in the tree. So §S6 is **not** "the cheapest
+> available improvement" — it is downstream of the entire P1 hook layer, and a
+> reader was being told a mechanism sat there unused. `17_HOOK_ENGINE` §DLL entry
+> words the same thing correctly, as *specification*. The sentence below is
+> retained in its original form because the plan it describes is still the plan.
+
+The Overlay is specified to install a `LoadLibrary` hook for lazily
 loaded graphics DLLs (`17_HOOK_ENGINE` §DLL entry); the same hook could raise the
 control-block flag the moment a blocklisted module name loads, turning a 30 s
 poll into near-immediate detection. This is the cheapest available improvement to

@@ -28,6 +28,8 @@ FrameLedger makes **no network connections except the following**, each visible 
 | Detection-rules update | Raw file on the project repository | Weekly check (can be disabled) and manual | Same as above |
 | Store metadata lookup | Steam public store API | **Off by default — opt-in** | The Steam AppID of a game you added |
 
+> ⚠ **Accuracy audit, 2026-08-04: the "Safety list update" and "Detection-rules update" rows describe outbound requests the software does not make.** There is no HTTP client anywhere in the product; the anti-cheat blocklist currently ships with the build and is installed locally on first run (`docs/20_OPEN_QUESTIONS.md` §S20 — the seed half is done, the feed half is not). **Over-disclosure is a defect in this document too**: a privacy policy that lists a transmission which never happens is as wrong as one that omits a transmission which does. Either the fetch exists at first release or these rows change.
+
 GitHub's own privacy practices apply to requests it receives: <https://docs.github.com/privacy>. The Steam lookup, if enabled, is governed by Valve's policies.
 
 ## 3. Bug reports — always manual

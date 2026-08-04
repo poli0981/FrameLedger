@@ -502,7 +502,9 @@ Tier-1 session — injected or layered**.
 > whose subject can change mid-session, not just the one whose subject is the
 > game.
 
-**Be honest about the window.** A 30 s poll means anti-cheat can be loaded for up to 30 s before we react — the unhook is immediate *once detected*, not immediate in absolute terms. Consent and disclaimer wording must say "within 30 seconds", never "immediately" (`legal/DISCLAIMER.md` §2). Whether to shrink the window, or to detect the load directly via the `LoadLibrary` hook the Overlay already installs for lazily-loaded graphics DLLs, is `20_OPEN_QUESTIONS` §S6 — the hook exists and is currently unused for this purpose, which is the cheapest available improvement to the most important behavior in the product.
+**Be honest about the window.** A 30 s poll means anti-cheat can be loaded for up to 30 s before we react — the unhook is immediate *once detected*, not immediate in absolute terms. Consent and disclaimer wording must say "within 30 seconds", never "immediately" (`legal/DISCLAIMER.md` §2). Whether to shrink the window, or to detect the load directly via the `LoadLibrary` hook `17_HOOK_ENGINE` §DLL entry **specifies** for lazily-loaded graphics DLLs, is `20_OPEN_QUESTIONS` §S6.
+
+> **This sentence used to say the hook "already exists and is currently unused", which was false.** Corrected 2026-08-04: the Overlay installs no hooks at all — `dllmain.cpp` exports one function and nothing in the tree calls `MH_CreateHook` outside a probe. §S6 is therefore downstream of the whole P1 hook layer, not "the cheapest available improvement to the most important behavior in the product". A reader planning work off this paragraph was being told a mechanism was sitting there ready.
 
 ### Elevated / protected targets
 
