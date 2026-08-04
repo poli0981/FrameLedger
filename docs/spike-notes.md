@@ -716,22 +716,65 @@ binaries. Whatever the fix is, it cannot be "sign it".
 > `FRAMELEDGER_ENABLE_VK_LAYER=1`, which only the launching process can set, and
 > §S1 does not apply there because the Vulkan path performs no injection at all.
 
-#### 🔴 And the same tier refuses in ATTACH mode — measured
+#### ◐ The same tier matches benign system DLLs — measured twice, and the second time changed the conclusion
 
-Re-measured by hand, unelevated, Windows 11 26300: **331 processes, 0
-access-denied, 4 modules matching the `protect` fragment, none of them
-anti-cheat.** `mskeyprotect.dll` — *Microsoft Key Protection Provider*,
-`C:\WINDOWS\system32\` — is loaded in ordinary user processes. A game that loads
-it is refused today, in the mode that ships.
+**First measurement (2026-08-03), unelevated, Windows 11 26300:** 331 processes,
+0 access-denied, 4 modules matching the `protect` fragment, none anti-cheat.
+Recorded as "a game that loads `mskeyprotect.dll` is refused today, in the mode
+that ships", and used to justify wiring the signer half next.
 
-Also measured: **`gameguard` can never fire.** The match is a case-insensitive
-substring and `guard` is a substring of `gameguard`, so the shorter token always
-wins first. A shipped rule incapable of firing independently, inside the safety
-gate.
+**Re-measured 2026-08-04 on the same machine, and neither half of that survived:**
+290 processes, 0 inaccessible, **3 hits**.
 
-Both are §S19. Neither is fixed by deleting a fragment — that is a detection
-removal in a hard gate — and both wait on the signer half being wired, which
-suppresses `O=Microsoft Corporation` structurally instead.
+| Process | Module | Signature type | `O=` | Suppressed by a file-choice signer check? |
+|---|---|---|---|---|
+| `WidgetService` | `mskeyprotect.dll` | **Catalog** | Microsoft Corporation | **No — no embedded signature to read** |
+| `ProtonVPN.Client` | `System.Security.Cryptography.ProtectedData.dll` | Authenticode | Microsoft Corporation | Yes |
+| `Malwarebytes` | `Malwarebytes.Protection.Interop.dll` | Authenticode | **Malwarebytes Inc** | **No — publisher absent from `trustedSigners`** |
+
+Two findings, both of which change what gets built:
+
+- **The proposed fix addresses one case of three.** The signer table in §1 above
+  was taken with `Get-AuthenticodeSignature`, which consults the CatRoot
+  catalogs — so it reports `O=` for files that carry no embedded signature at
+  all. `mskeyprotect.dll`, `kernel32.dll` and `nvapi64.dll` are all
+  `SignatureType=Catalog`. A native `WinVerifyTrust` with `WTD_CHOICE_FILE`,
+  which is what "wire `IsTrustedSigner`" means in every prior note, recovers
+  nothing for them; `IsTrustedSigner(nullptr)` is false by contract and the
+  refusal survives. Catalog verification needs `CryptCATAdminAcquireContext2` /
+  `CalcHashFromFileHandle` / `EnumCatalogFromHash` + `WTD_CHOICE_CATALOG`.
+  **A measurement taken with a convenient tool does not license a design built on
+  a different one.**
+- **"Refused today, in attach mode" is not supported.** All three hits are
+  desktop processes — a widget host, a VPN client, an AV service. None can enter
+  a game's scan set: `EnumerateScanSetImpl` stops the ancestor walk at the first
+  `IsPlatformLauncher` match, and that list includes `explorer.exe`,
+  `services.exe` and `svchost.exe`. Three real titles (§8) were scanned with no
+  fragment hit at all.
+
+The defensible claim: **the `protect` fragment matches a benign, widely-loaded
+Microsoft system DLL, and has not been shown to match inside any game's scan
+set.** A game process loading DPAPI/CNG for save encryption or a launcher token
+would trip it — plausible, unmeasured, and worth fixing; not a live incident.
+
+§S19(b) is therefore **deferred with a written rationale** rather than scheduled
+next. Before any design is fixed, `fl-probe-signer` should answer three things on
+this machine, in the shape `fl-probe-guard` established: whether
+`WinVerifyTrust(WTD_CHOICE_FILE)` recovers `O=` from a catalog-signed system
+binary; what one full `Evaluate()` costs with catalog verification across a real
+scan set, against the 30 s re-scan; and whether `WTD_REVOKE_NONE` +
+`WTD_CACHE_ONLY_URL_RETRIEVAL` emits network traffic — the default
+`WTD_REVOKE_WHOLECHAIN` performs CRL/OCSP fetches, which breaks **NFR-10
+offline-first** as well as CLAUDE.md rule 8, from inside the hard gate.
+
+Also measured, and unchanged: **`gameguard` can never fire.** The match is a
+case-insensitive substring and `guard` is a substring of `gameguard`, so the
+shorter token always wins first. A shipped rule incapable of firing
+independently, inside the safety gate.
+
+Neither is fixed by deleting a fragment — that is a detection removal in a hard
+gate, and this tier is the only coverage for the families the seed admits it has
+no data for (Ricochet, VAC).
 
 ## 8 · The accuracy question — why this rewrite exists
 
