@@ -24,7 +24,7 @@ Targets:
 - `FrameLedger.VkLayer` → `FrameLedger.VkLayer.dll` + `VkLayer_FRAMELEDGER_overlay.json`
 - `FrameLedger.Injector` → **static lib only.** There is no `FrameLedger.Injector.exe` and none ships (`20_OPEN_QUESTIONS` §S9, decided 2026-08-02). A standalone `LoadLibraryW` injector that users can run is a path into a game process that the guard does not stand in front of — a bypass, and a bad look for a project whose position is "we refuse where we are not welcome". The Agent links the static lib; the guard owns the chokepoint inside it (§S13(b)), so there is no callable entry point that skips the gate. Manual testing uses `hook-harness`, never a real game (§Debugging).
 - `FrameLedger.Overlay.Tests` → Catch2 unit tests (ring buffer, record layout, fault filter, seqlock) **and the guard's fail-closed matrix** (`14_TESTING` §Safety-guard tests) — the guard is native, so its tests are too
-- `hook-harness` → the dummy D3D11 app, WARP + composition swapchain so it runs headless on CI (`17_HOOK_ENGINE` §Test harness). D3D12/Vulkan/OpenGL modes to follow as those hooks land.
+- `hook-harness` → the dummy **D3D11 + D3D12** app, WARP + composition swapchain so it runs headless on CI (`17_HOOK_ENGINE` §Test harness). D3D12 is device → command queue → swapchain, which is the acquisition asymmetry a D3D11-only fixture cannot exercise. Vulkan and OpenGL modes to follow as those hooks land.
 - `fl-probe-hookprofile` → build-profile probes for `/guard:cf` and `-D_HAS_EXCEPTIONS=0` (`20_OPEN_QUESTIONS` §H1/§H3)
 - `fl-probe-guard` → measures the Windows APIs the guard is built on, unelevated (`spike-notes.md` §1). Not the guard, and takes no injection rights.
 
