@@ -12,24 +12,39 @@ GitHub release body, so a missing section means an empty release note.
 ## [Unreleased]
 
 ### Known issues
-- **The anti-cheat guard's fuzzy "unknown-but-suspicious" tier produces false
-  refusals, and one of its rules can never fire** (`20_OPEN_QUESTIONS` §S19).
-  Measured unelevated on Windows 11 26300, 331 processes, 0 access-denied: four
-  modules match the `protect` name fragment and **none is anti-cheat** —
+- **The anti-cheat guard's fuzzy "unknown-but-suspicious" tier matches benign
+  system DLLs, and one of its rules can never fire** (`20_OPEN_QUESTIONS` §S19).
+  Re-measured unelevated on Windows 11 26300: 290 processes, 0 inaccessible,
+  **three** modules match the `protect` fragment and none is anti-cheat —
   including `mskeyprotect.dll`, the Microsoft Key Protection Provider from
-  `system32`, loaded in ordinary user processes. A title that loads it is refused
-  today, **in attach mode**, the mode that ships. Separately, `gameguard` cannot
-  fire: the match is a case-insensitive substring and `guard` is a substring of
-  `gameguard`, so the shorter token always wins first.
-  - **Not fixed by deleting a fragment.** That is a detection removal in a hard
+  `system32`. Separately, `gameguard` cannot fire: the match is a
+  case-insensitive substring and `guard` is a substring of `gameguard`, so the
+  shorter token always wins first.
+  - **The earlier entry here overstated this and is corrected.** It said a title
+    loading `mskeyprotect.dll` "is refused today, in attach mode". All three hits
+    are desktop processes, and none can enter a game's scan set — the ancestor
+    walk stops at `explorer.exe`/`services.exe`/`svchost.exe`. Three real titles
+    were scanned with no fragment hit. The honest claim is that the fragment
+    matches a benign, widely-loaded system DLL and **has not been shown to match
+    inside any game's scan set**.
+  - **The proposed fix would have addressed one case of three, and is deferred.**
+    `mskeyprotect.dll` is **catalog**-signed, so a `WinVerifyTrust(WTD_CHOICE_FILE)`
+    implementation — what "wire the signer half" has meant throughout — recovers
+    no signer for it and it still refuses. `Malwarebytes.Protection.Interop.dll`
+    is validly signed by a publisher absent from `trustedSigners`, which no
+    implementation fixes. Doing it properly needs `CryptCATAdmin*` +
+    `WTD_CHOICE_CATALOG`, and `WinVerifyTrust`'s default revocation policy
+    performs CRL/OCSP network I/O from inside the hard gate — against NFR-10
+    offline-first as well as CLAUDE.md rule 8. Measure with `fl-probe-signer`
+    first.
+  - Still not fixed by deleting a fragment: that is a detection removal in a hard
     gate, and this tier is the only coverage for families the seed has no data
-    for. The fix is to wire the signer half, which suppresses
-    `O=Microsoft Corporation` structurally instead of by deleting a token.
+    for.
   - Also recorded: `signerField` and `action` are required by the schema and read
-    by no code, so "warn instead of refuse" was never actually available; the
-    fragment list exists in three unreconciled copies; and `rules-validate.ps1`
-    has no checks on the heuristic at all, so a rules push can delete the whole
-    tier with every gate green.
+    by no code (`action` is a `const` with one legal value, so reading it could
+    change nothing); the fragment list exists in three unreconciled copies; and
+    the runtime parser has no fragment floor — though the **schema** does, so CI
+    already refuses an emptied list, which an earlier note here got wrong.
 - **The guard refuses itself, so launch mode does not work** (§S18). Decided
   2026-08-03 — suppress the fuzzy tier for processes whose image resolves inside
   FrameLedger's own install directory, never for the injection target — and
@@ -635,6 +650,24 @@ GitHub release body, so a missing section means an empty release note.
   available" when it requires an elevated agent.
 
 ### Changed
+- **The open-questions ledger overstated its own openness, in four places.**
+  Found while planning the next phase against it — a ledger that is wrong about
+  what is open makes every phase planned from it over-scope, so these are
+  recorded rather than quietly fixed.
+  - **§S15 is closed.** Its header said "Three of four are done; item 1 is the
+    one still open" while all four bullets beneath it said DONE, item 1 included.
+    A status line whose verdict was decided before anyone read the list under it
+    — this file's own recurring defect, in the file that exists to record it.
+  - **§S19's heading said "four defects" over a body running (a) to (e).**
+  - **§S19(e) is closed, and was the stale artifact itself.** It claimed
+    `19_SAFETY` lists four name fragments; the doc has listed all five since the
+    same commit that recorded §S19. What survives is a missing gate, not a doc
+    error: the doc/data cross-check parses only the §Blocklist seed table, so the
+    fragment sentence is invisible to it and the drift can recur.
+  - **Two citations pointed at text that is not there.** §S19(c) and §S19(e) both
+    cited `19_SAFETY:264` for the fragment sentence; line 264 is a blocklist
+    table row. Line numbers were removed from those entries rather than
+    corrected, since they are what went stale.
 - **Eight safety questions closed by decision or specification** (`S3`, `S7`,
   `S8`, `S9`, `S10`, `S11`, `S12`, `H8`, `M9`; `S4` two-thirds), each written
   into its owning doc and deleted from `20_OPEN_QUESTIONS.md`:

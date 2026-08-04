@@ -276,10 +276,18 @@ actually costs. It needs a title that loads a presentation runtime lazily; the
 local fixtures (`hook-harness`, which creates D3D at startup, and a 2D GOG
 prologue) cannot produce a figure that generalises.
 
-### S15 ◐ · The four consequences of putting the guard in C++ (§S13(a))
+### S15 ✅ · The four consequences of putting the guard in C++ (§S13(a)) — **closed**
 
-Not questions — commitments the §S13(a) decision creates. **Three of four are
-done; item 1 is the one still open.**
+Not questions — commitments the §S13(a) decision creates. **All four are done**,
+each with the tests that keep it true listed below.
+
+> **This section said "Three of four are done; item 1 is the one still open"
+> while every one of its four bullets said DONE, item 1 included.** Corrected
+> 2026-08-04. Recorded rather than silently fixed because it is this file's own
+> recurring defect wearing a different costume: a status line whose verdict was
+> decided before anyone read the list under it. The cost was real — a phase
+> planned against this ledger over-scopes, and §S15 was carried into the
+> 2026-08-04 next-phase review as open work.
 
 - **1 — one matcher, not two: DONE.** `FrameLedger.Guard.dll` exposes a C ABI;
   `Infrastructure`'s `NativeAntiCheatGuard` is a thin P/Invoke facade over it,
@@ -586,12 +594,16 @@ things that do not exist:
 the gates-that-cannot-fail pattern applied to process rather than to code.** So
 it stays open until the arrangement is constrained by a test.
 
-### S19 · The unknown-but-suspicious heuristic has four defects of its own
+### S19 · The unknown-but-suspicious heuristic has five defects of its own
 
 Found 2026-08-03 by the §S18 panel and **re-measured by hand before recording**,
-because three of the four change what a shipped gate does. They are separate from
-§S18 — no self-exclusion touches any of them — and (b) lands in **attach** mode,
-the only mode that ships today.
+because three of them change what a shipped gate does. They are separate from
+§S18 — no self-exclusion touches any of them.
+
+> **Heading said "four" over a body running (a) to (e).** (e) was appended
+> without updating the count. Corrected 2026-08-04, along with the claim that (b)
+> "lands in attach mode, the only mode that ships today" — see the measurement
+> under (b), which does not support it as written.
 
 **(a) `gameguard` can never fire.** `HasSuspiciousFragment` is case-insensitive
 `IContains`, and `"gameguard"` **contains** `"guard"`. With both in the list, the
@@ -613,47 +625,170 @@ anti-cheat**:
 | `ProtonVPN.Client` | `System.Security.Cryptography.ProtectedData.dll` |
 | `Malwarebytes` | `Malwarebytes.Protection.Interop.dll` |
 
-A game that loads a Windows key-protection provider is refused today, in attach
-mode. **The fix is not to delete the fragment** — that is a detection removal in
-a hard gate, and `antitamper`/`protect` is the only tier covering families the
-seed admits it has no data for (Ricochet, VAC). Three refuters agreed. The fix is
-to **wire the signer half** (`IsTrustedSigner`, `fl_ac_rules.cpp:494`), which
-suppresses `O=Microsoft Corporation` *structurally* rather than by deleting a
-token. That is what makes it safe to keep — or widen — the fragment list at all.
+**The fix is not to delete the fragment** — that is a detection removal in a hard
+gate, and `antitamper`/`protect` is the only tier covering families the seed
+admits it has no data for (Ricochet, VAC). Three refuters agreed.
 
-> Note what this costs: the signer check needs `WinVerifyTrust`/`CryptQueryObject`
-> in a TU compiled with **no exception model**, a per-module signature cost inside
-> a gate that re-runs every 30 s (§S6), and a new fail-closed matrix row for
-> "signature could not be checked". It is its own PR.
+> #### Re-measured 2026-08-04, and the entry above was wrong in both directions
+>
+> Same machine, unelevated: **290 processes, 0 inaccessible, 3 hits** (not 4 —
+> `WhatsApp.Root` was not running this time; the module set is the same).
+>
+> | Module | Signature | `O=` | Would the signer half suppress it? |
+> |---|---|---|---|
+> | `mskeyprotect.dll` | **Catalog** | Microsoft Corporation | **No** |
+> | `System.Security.Cryptography.ProtectedData.dll` | Authenticode | Microsoft Corporation | Yes |
+> | `Malwarebytes.Protection.Interop.dll` | Authenticode | **Malwarebytes Inc** | **No** |
+>
+> **The proposed fix would have addressed one of three.** `mskeyprotect.dll` —
+> the module this entry was written about — carries no *embedded* signature at
+> all; it is catalog-signed, as are `kernel32.dll` and `nvapi64.dll`. A
+> `WinVerifyTrust(WTD_CHOICE_FILE)` implementation, which is what "wire the signer
+> half" means to everyone who has read this entry, recovers nothing for it and
+> `IsTrustedSigner(nullptr)` is false by contract, so it still refuses. Doing it
+> properly needs `CryptCATAdminAcquireContext2` / `CalcHashFromFileHandle` /
+> `EnumCatalogFromHash` and `WTD_CHOICE_CATALOG`, which nothing here budgeted.
+> And `Malwarebytes.Protection.Interop.dll` is validly signed by a publisher
+> absent from `trustedSigners`, so **no signer implementation fixes it** — only a
+> data change to an allowlist that no CI gate reviews.
+>
+> **"A game that loads a Windows key-protection provider is refused today, in
+> attach mode" is also not supported by the measurement.** All three hits are
+> desktop processes — a browser helper, a VPN client, an AV service — and none can
+> enter a game's scan set: `EnumerateScanSetImpl` walks ancestors only up to the
+> first `IsPlatformLauncher` match, and that list includes `explorer.exe`,
+> `services.exe` and `svchost.exe`, so a normally-launched game's chain terminates
+> one hop above it. Three real titles have been scanned with no fragment hit.
+>
+> The defensible claim is narrower and still worth acting on: **the `protect`
+> fragment matches a benign, widely-loaded Microsoft system DLL, and has not been
+> shown to match inside any game's scan set.** A game process that loads DPAPI or
+> CNG for save encryption or a launcher token would trip it, which is plausible
+> and unmeasured — not "refused today".
+>
+> §S19(b) is therefore **deferred with this written rationale** rather than
+> scheduled: it fixes one measured case of three, its true shape is a
+> `CryptCATAdmin*` PR, and `WinVerifyTrust`'s default `WTD_REVOKE_WHOLECHAIN`
+> performs CRL/OCSP network I/O from inside the hard gate — against **NFR-10
+> offline-first** (`02_SPEC:105`) as well as CLAUDE.md rule 8. Build
+> `fl-probe-signer` first, in the shape `fl-probe-guard` established, and answer
+> those three questions with measurements before any design is fixed.
+
+> Note what it costs beyond that: a per-module signature cost inside a gate that
+> re-runs every 30 s (§S6), and a new fail-closed matrix row for "signature could
+> not be checked". It is its own PR.
+>
+> **Two corrections to the cost as first recorded.** It said the check needs
+> `WinVerifyTrust`/`CryptQueryObject` "in a TU compiled with no exception model" —
+> `_HAS_EXCEPTIONS=0` comes from `fl_hostile_env_flags`, which
+> `src/native/CMakeLists.txt` states explicitly is **not applied to the Injector**.
+> That constraint becomes true only if the collector is placed in
+> `fl_ac_rules.cpp`, which the Vulkan layer compiles in — which is its own reason
+> to put it in `fl_guard_sources.cpp` instead, rather than drag wintrust and
+> crypt32 into a DLL mapped into every Vulkan process on the machine.
+>
+> And it is **not** a wiring change. `NameSink` is `bool(*)(void*, const char*)`
+> fed by `GetModuleBaseNameA`, so the evidence the check needs — a module's full
+> path — does not reach the decision point. The signer half requires widening the
+> module seam, which is a new row in the fail-closed matrix, not a call added at
+> `fl_guard.cpp:293`.
+>
+> **And it must not be placed at `fl_guard.cpp:293`.** `NameSinkFn` latches the
+> FIRST fragment-matching module per process (`!st->sawSuspicious`) and discards
+> every later one. Harmless while any hit refuses; the moment a signer can CLEAR
+> the latched name, a process that loads a trusted fragment-module before an
+> untrusted one returns `Allow` with the second never recorded — a fail-open
+> reachable by load order. The detection half at `fl_guard.cpp:203` has to be
+> restructured, not extended.
 
 **(c) `signerField` and `action` are required by the schema and parsed by
 nobody.** Both are `required` in `detection-rules.schema.json`, both carry
 safety-relevant `$comment`s — `action` "is a const, not an enum, so `allow` and
 `warn` are unrepresentable" — and neither appears anywhere in `fl_ac_rules.cpp`.
 The heuristic's policy is hardcoded at `fl_guard.cpp:293`. So the
-**warn-and-refuse** behaviour `19_SAFETY:264` describes is not configurable and
-never was; the field that would express it has no consumer.
+**warn-and-refuse** behaviour `19_SAFETY` §Blocklist seed describes is not
+configurable and never was; the field that would express it has no consumer.
 
-**(d) The fragment list has three unreconciled copies and no floor.**
-`rules/detection-rules.json`, `guard_test.cpp` (the inline `GoodRulesJson()`
-fixture) and `rules_budget_test.cpp` each carry their own. `tools/rules-validate.ps1`
-has **zero** checks on the heuristic — no fragment, no `nameFragment`, nothing —
-so a rules push can empty `nameFragments`, or delete the whole `heuristic` block,
-and every gate stays green while the tier silently stops existing. `ParseRules`
-accepts all three as `kOk`.
+> Two corrections, 2026-08-04. This cited **`19_SAFETY:264`**, which is a
+> blocklist table row (`| mihoyo protect | drivers | prefix | mhyprot |`); the
+> sentence is at `19_SAFETY:281`. And "hardcoded at `fl_guard.cpp:293`" names only
+> the *refusal* half — the *detection* half is at `fl_guard.cpp:203-206`, which is
+> where the first-hit latch lives and where anyone implementing (b) has to work.
+> Line numbers were dropped from this entry rather than corrected: they are what
+> went stale.
+>
+> `action` is worth costing honestly before anyone wires it. It is a schema
+> `const` with exactly one legal value, so a parser reading it can only ever see
+> `warn_and_refuse` — a predicate whose answer changes nothing observable, which
+> is the defect class this file exists to record. Wiring it means first deciding
+> that `warn` or `allow` may exist, and CLAUDE.md rule 2 says they may not.
 
-> Adding a floor is right but not free: routing it through the existing
+**(d) The fragment list has three unreconciled copies, and the RUNTIME parser has
+no floor.** `rules/detection-rules.json`, `guard_test.cpp` (the inline
+`GoodRulesJson()` fixture) and `rules_budget_test.cpp` each carry their own.
+`ParseRules` guards the entire heuristic read behind `heurTok >= 0` and
+`IsCompleteEnoughToGate` never looks at fragments, so a rules file with no
+`heuristic` block parses `kOk` and the tier silently stops existing.
+
+> **Half of this entry was wrong, and the wrong half was the one that made it
+> sound urgent.** It said "a rules push can empty `nameFragments` … and every gate
+> stays green". Measured 2026-08-04 with `Test-Json` against the real schema:
+> emptying the array fails (`minItems: 1`), and deleting the block fails
+> (`heuristic` is in `anticheat.required`). `tools/rules-validate.ps1` runs that
+> schema behind a discriminating canary, so **CI already refuses both**.
+>
+> `rules-validate.ps1` does contain zero *imperative* heuristic checks, which is
+> what was actually observed and then over-read. Adding one would be a gate whose
+> red input the schema already eats.
+>
+> What genuinely remains is narrower and sharper:
+>
+> - **The runtime hole**, above. It matters only for a file that did not come
+>   through CI — which is to say, only once §S20 gives one a way to reach a
+>   machine. That is why this is sequenced with §S20 and not before it.
+> - **The schema canary does not discriminate on this constraint.** It is
+>   `{"schemaVersion":"not-a-number"}`, which any schema still pinning
+>   `schemaVersion` rejects. Delete `minItems` from `nameFragments` and the canary
+>   passes, `Test-Json` passes, and the CI floor silently ceases to exist. The
+>   check worth building is a canary carrying `nameFragments: []` that must be
+>   rejected — not an imperative duplicate of the schema.
+> - **`trustedSigners` has no gate at all, in the direction that matters.**
+>   `rules-publish.yml` fails on family *removals*; an *addition* to the signer
+>   allowlist is invisible to it. That field suppresses refusals, and
+>   `19_SAFETY:74-81` already forbids exactly this shape for the launcher list —
+>   "a data-driven cutoff would let a rules push widen the hard gate's blind
+>   spot … the boundary of what the gate looks at is code". It must be settled
+>   before §S19(b) turns the field live.
+
+> Adding a runtime floor is right but not free: routing it through the existing
 > `kRulesIncomplete` would make that reason's hardcoded signal — *"a required
 > anti-cheat family is missing"* — a lie, which is the exact defect the
 > `InjectionFailed` fix closed one commit earlier. And `layer.cpp` treats any
 > non-`kOk` parse as **inert passthrough**, so a heuristic-only floor failure
-> would silently disable the Vulkan layer machine-wide. Both need a `ParseResult`
-> that carries its cause.
+> would silently disable the Vulkan layer machine-wide — over a tier the layer
+> never uses, since `RunSelfScan` calls only `MatchName`. Both need a
+> `ParseResult` that distinguishes causes.
+>
+> Note the shape of that prerequisite precisely: `ParseResult` **already** carries
+> a cause (`kOk`/`kMalformed`/`kTooLarge`/`kIncomplete`, mapped to three distinct
+> reasons). What is missing is a finer distinction *inside* `kIncomplete`, plus a
+> layer-side policy for a non-safety floor failure. Stated as "needs a ParseResult
+> that carries its cause", this entry sends someone to build an enum that exists.
 
-**(e) `19_SAFETY:264` is already wrong.** It lists four fragments — `anticheat`,
-`antitamper`, `guard`, `protect` — and the data carries five. `gameguard` is
-missing from the normative doc. The doc/data cross-check in `rules-validate.ps1`
-parses only the §Blocklist seed *table*; fragments are invisible to it.
+**(e) ✅ Closed — the normative doc was already fixed, and this entry was the
+stale one.** It claimed `19_SAFETY` lists four fragments. As of commit `bb0da0a`
+— the same commit that recorded §S19 — `19_SAFETY:281` lists all five, and the
+lines beneath it carry a correction block covering the fragment count, the
+`gameguard` subsumption and the unread `action` field.
+
+What survives is not a doc error but a missing gate: **nothing prevents the drift
+recurring.** `rules-validate.ps1`'s doc/data cross-check parses only the
+§Blocklist seed *table*, so the fragment sentence is invisible to it. That check
+is worth extending; the claim that the doc is wrong is not.
+
+> Recorded rather than deleted, because the entry contained the exact defect it
+> complained about — a doc citation (`19_SAFETY:264`) pointing at text that is not
+> there. Line 264 is a blocklist table row.
 
 ### S20 · Nothing in the repo installs the rules file the guard reads
 
