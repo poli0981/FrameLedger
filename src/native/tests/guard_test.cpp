@@ -19,6 +19,7 @@
 #include <fl_ac_rules.h>
 #include <fl_guard.h>
 #include <fl_prescan.h>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -71,8 +72,23 @@ struct Fake {
     std::string rulesJson = GoodRulesJson();
     bool        rulesReadable = true;
 
-    std::vector<std::string> modules;
-    Collected                moduleResult = Collected::kOk;
+    // Modules the target — and, when `modulesByPid` names them, any other process
+    // in the scan set — reports.
+    //
+    // The per-pid map exists because the flat list made a whole class of §S16
+    // fixture INEXPRESSIBLE: FakeEnumModules ignored its pid, so "anti-cheat is
+    // loaded in the launcher but not in the renderer" — the arrangement §S16 was
+    // written to catch — could not be written down at all. The scan-set test
+    // worked around it with a visit counter, which proves the guard LOOKED at
+    // three processes and not that it looked at the right ones or acted on what
+    // it saw there.
+    //
+    // A pid absent from the map falls back to `modules`, so every existing case
+    // keeps its meaning and only the tests that care about identity pay for it.
+    std::vector<std::string>                          modules;
+    std::map<std::uint32_t, std::vector<std::string>> modulesByPid;
+    std::map<std::uint32_t, Collected>                moduleResultByPid;
+    Collected                                         moduleResult = Collected::kOk;
 
     std::vector<std::string> drivers;
     Collected                driverResult = Collected::kOk;
@@ -105,13 +121,16 @@ std::size_t FakeReadRules(char* buf, std::size_t cap) {
     return g.rulesJson.size();
 }
 
-Collected FakeEnumModules(std::uint32_t, NameSink sink, void* ctx) {
-    for (const auto& m : g.modules) {
+Collected FakeEnumModules(std::uint32_t pid, NameSink sink, void* ctx) {
+    const auto  it = g.modulesByPid.find(pid);
+    const auto& list = (it != g.modulesByPid.end()) ? it->second : g.modules;
+    for (const auto& m : list) {
         if (!sink(ctx, m.c_str())) {
             break;
         }
     }
-    return g.moduleResult;
+    const auto rit = g.moduleResultByPid.find(pid);
+    return (rit != g.moduleResultByPid.end()) ? rit->second : g.moduleResult;
 }
 
 Collected FakeEnumDrivers(NameSink sink, void* ctx) {
@@ -366,25 +385,75 @@ TEST_CASE("an empty or failed scan set refuses — it is not 'nothing to scan'",
 TEST_CASE("EVERY process in the scan set is scanned, not just the target", "[guard][failclosed][S16]") {
     // §S16: a game's launcher routinely initialises anti-cheat and then spawns
     // the renderer. Scanning only the process we inject into would miss it.
+    //
+    // This used to assert a visit COUNT, because the fake ignored its pid and the
+    // real fixture could not be written. A count proves the guard looked at three
+    // processes; it does not prove it looked at the right three, and it cannot
+    // prove it ACTED on what it found in one of them. Both are now assertable.
     ResetFake();
-    g.scanSet = {1000, 1001, 1234};
+    // TARGET FIRST, mirroring EnumerateScanSetImpl (fl_guard_sources.cpp emits
+    // the injection target, then ancestors, then descendants). The order is not
+    // cosmetic here: with the target last, a guard that scanned only the FIRST
+    // entry would still refuse in the launcher case below and the section would
+    // pass while covering nothing. Measured — that is exactly what happened when
+    // this fixture was written {1000, 1001, 1234} and the loop was canaried to a
+    // single iteration.
+    g.scanSet = {1234, 1000, 1001};
     g.modules = {"kernel32.dll"};
 
-    CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
+    SECTION("a clean tree is allowed — the direction that makes the rest mean something") {
+        CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
+    }
 
-    // The fake returns the same module list for every pid, so putting a
-    // blocked module there proves all of them were visited only in combination
-    // with a per-pid fake. Simpler and stronger: assert the visit count.
-    static int visited = 0;
-    visited = 0;
-    Sources s = FakeSources();
-    s.EnumerateModules = [](std::uint32_t, NameSink sink, void* ctx) -> Collected {
-        ++visited;
-        sink(ctx, "kernel32.dll");
-        return Collected::kOk;
-    };
-    CHECK(EvaluateWithSources(1234, s).Allowed());
-    CHECK(visited == 3);
+    SECTION("anti-cheat in the LAUNCHER refuses, though the target itself is clean") {
+        // The arrangement §S16 exists for, and until the per-pid map it was
+        // inexpressible: the renderer we inject into carries nothing.
+        g.modulesByPid[1000] = {"kernel32.dll", "EasyAntiCheat_x64.dll"};
+        g.modulesByPid[1234] = {"kernel32.dll", "d3d11.dll"};
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kBlockedModule);
+        CHECK(std::strcmp(v.family, "Easy Anti-Cheat") == 0);
+    }
+
+    SECTION("anti-cheat in a SIBLING/descendant refuses too") {
+        g.modulesByPid[1001] = {"BEService_x64.dll"};
+        g.modulesByPid[1234] = {"kernel32.dll"};
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kBlockedModule);
+        CHECK(std::strcmp(v.family, "BattlEye") == 0);
+    }
+
+    SECTION("a process in the set that cannot be read refuses, even when the target is clean") {
+        // "Scanned what we could" is not a state §S16 has. Previously only
+        // expressible for ALL processes at once, which cannot distinguish
+        // "the target failed" from "one of its ancestors did".
+        g.modulesByPid[1234] = {"kernel32.dll"};
+        g.moduleResultByPid[1000] = Collected::kFailed;
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kProcessUnreadable);
+    }
+
+    SECTION("and every member really is visited, by identity rather than by count") {
+        static std::vector<std::uint32_t> seen;
+        seen.clear();
+        Sources s = FakeSources();
+        s.EnumerateModules = [](std::uint32_t pid, NameSink sink, void* ctx) -> Collected {
+            seen.push_back(pid);
+            sink(ctx, "kernel32.dll");
+            return Collected::kOk;
+        };
+        CHECK(EvaluateWithSources(1234, s).Allowed());
+
+        std::vector<std::uint32_t> sorted = seen;
+        std::sort(sorted.begin(), sorted.end());
+        CHECK(sorted == std::vector<std::uint32_t>{1000, 1001, 1234});
+    }
 }
 
 // ===========================================================================
