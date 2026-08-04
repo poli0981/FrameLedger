@@ -375,6 +375,131 @@ Collected ImageDirectoryImpl(std::uint32_t pid, wchar_t* out, std::size_t cap) n
     return Collected::kOk;
 }
 
+// §S18 — our own install directory, and whether a pid's image lives in it.
+//
+// THREE mechanism choices here, each of which had an obvious wrong answer.
+//
+// 1. Our identity comes from the module CONTAINING THIS CODE
+//    (GetModuleHandleExW FROM_ADDRESS), never GetModuleFileNameW(nullptr, ...).
+//    The two differ exactly where it matters: under `dotnet test` the process
+//    image is dotnet.exe while FrameLedger.Guard.dll loads from the managed
+//    assembly's directory, so the process form names a directory we do not own.
+//    §S18 rejected GetCurrentProcessId() because the defect is a property of the
+//    BINARY; using the process image would repeat that mistake one level down.
+//
+// 2. Directories are compared by IDENTITY, not by string. A _wcsnicmp prefix
+//    test has to defend against 8.3 short names, junctions, subst drives, mapped
+//    drives, \\?\ forms, and a sibling directory literally named
+//    "FrameLedgerEvil" that prefix-matches "FrameLedger" — and it folds case
+//    with C-locale rules, which is wrong for a product shipping ja and vi.
+//    GetFileInformationByHandleEx(FileIdInfo) sidesteps all of it: same volume
+//    serial and same file id is the same directory, whatever it is spelled like.
+//
+// 3. EQUALITY, not containment. Velopack puts every FrameLedger executable in
+//    one `current\` folder, so equality covers the real arrangement, and it is
+//    strictly narrower than §S18's "resolves under" — which is the right
+//    direction for a relaxation inside a hard gate. A future subdirectory would
+//    have to widen this deliberately.
+bool SameDirectory(const wchar_t* a, const wchar_t* b) noexcept {
+    const auto open = [](const wchar_t* p) -> HANDLE {
+        return CreateFileW(p, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                           FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    };
+    HANDLE ha = open(a);
+    if (ha == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    HANDLE hb = open(b);
+    if (hb == INVALID_HANDLE_VALUE) {
+        CloseHandle(ha);
+        return false;
+    }
+
+    FILE_ID_INFO ia{};
+    FILE_ID_INFO ib{};
+    const BOOL   oka = GetFileInformationByHandleEx(ha, FileIdInfo, &ia, sizeof(ia));
+    const BOOL   okb = GetFileInformationByHandleEx(hb, FileIdInfo, &ib, sizeof(ib));
+    CloseHandle(ha);
+    CloseHandle(hb);
+    if (!oka || !okb) {
+        return false;
+    }
+    return ia.VolumeSerialNumber == ib.VolumeSerialNumber &&
+           std::memcmp(&ia.FileId, &ib.FileId, sizeof(ia.FileId)) == 0;
+}
+
+// The directory holding the binary this code was compiled into.
+bool OwnDirectory(wchar_t* out, std::size_t cap) noexcept {
+    HMODULE self = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(&SameDirectory), &self) ||
+        self == nullptr) {
+        return false;
+    }
+    wchar_t     path[kMaxPreScanPathLen] = {};
+    const DWORD n = GetModuleFileNameW(self, path, static_cast<DWORD>(kMaxPreScanPathLen));
+    if (n == 0 || n >= kMaxPreScanPathLen) {
+        return false;    // truncation names a different file
+    }
+    wchar_t* lastSep = nullptr;
+    for (wchar_t* p = path; *p != L'\0'; ++p) {
+        if (*p == L'\\' || *p == L'/') {
+            lastSep = p;
+        }
+    }
+    if (lastSep == nullptr || lastSep == path) {
+        return false;
+    }
+    *lastSep = L'\0';
+    return wcscpy_s(out, cap, path) == 0;
+}
+
+Collected ProcessIsOurOwnImpl(std::uint32_t pid, bool* isOurs) noexcept {
+    if (isOurs == nullptr) {
+        return Collected::kFailed;
+    }
+    *isOurs = false;
+
+    wchar_t mine[kMaxPreScanPathLen] = {};
+    if (!OwnDirectory(mine, kMaxPreScanPathLen)) {
+        return Collected::kFailed;
+    }
+
+    // PROCESS_QUERY_LIMITED_INFORMATION only — the same right the module scan
+    // takes. This must never be the reason the guard asks for more.
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (h == nullptr) {
+        return Collected::kFailed;
+    }
+    wchar_t    path[kMaxPreScanPathLen] = {};
+    DWORD      len = static_cast<DWORD>(kMaxPreScanPathLen);
+    const BOOL ok = QueryFullProcessImageNameW(h, 0, path, &len);
+    CloseHandle(h);
+    if (!ok || len == 0) {
+        return Collected::kFailed;
+    }
+
+    // The RAW image path, deliberately not Sources::ImageDirectory. That one
+    // applies ResolveInstallRoot, whose steamapps\common / GOG Galaxy\Games /
+    // Epic Games boundaries can WIDEN the answer to a game's install root — two
+    // distinct processes resolving to one directory. Harmless for check 4, which
+    // wants exactly that; here it would turn a fail-closed relaxation into a
+    // fail-open one.
+    wchar_t* lastSep = nullptr;
+    for (wchar_t* p = path; *p != L'\0'; ++p) {
+        if (*p == L'\\' || *p == L'/') {
+            lastSep = p;
+        }
+    }
+    if (lastSep == nullptr || lastSep == path) {
+        return Collected::kFailed;
+    }
+    *lastSep = L'\0';
+
+    *isOurs = SameDirectory(path, mine);
+    return Collected::kOk;
+}
+
 // One level of the walk. Returns false if the caller asked us to stop.
 bool WalkDir(const wchar_t* dir, std::size_t depth, DirEntrySink sink, void* ctx, std::size_t& budget, bool& truncated,
              bool& stopped) noexcept {
@@ -484,6 +609,7 @@ Sources SystemSources() noexcept {
     s.ReadRulesFile = &ReadRulesFileImpl;
     s.ImageDirectory = &ImageDirectoryImpl;
     s.EnumerateDirEntries = &EnumerateDirEntriesImpl;
+    s.ProcessIsOurOwn = &ProcessIsOurOwnImpl;
     return s;
 }
 

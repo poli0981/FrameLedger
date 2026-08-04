@@ -1,0 +1,58 @@
+<Project>
+
+  <!--
+    Ships FrameLedger.Guard.dll beside the importing project's output.
+
+    §S18 blocker 3, ratified 2026-08-04: **the Agent is the sole host of the
+    guard.** This used to live in FrameLedger.Infrastructure.csproj as a plain
+    `None` item, which MSBuild flows to every project that references
+    Infrastructure — so FrameLedger.exe (the WPF UI) received it too, purely as a
+    side effect of also wanting SQLite and detection.
+
+    That is what made §S18 hard. `GetCurrentProcessId()` was rejected as an
+    identity because more than one FrameLedger binary carried the guard, so the
+    fix had to be a property of the DIRECTORY rather than of the process. Making
+    the Agent the only host does not remove the need for the install-root check —
+    the Agent is still the game's parent in launch mode, and still inside the
+    §S16 scan set — but it shrinks the exposed surface instead of widening a
+    carve-out, which §S18 itself called "the only candidate that shrinks the
+    problem".
+
+    Imported by exactly two projects, and both for a reason:
+      - FrameLedger.Agent            — the host. It runs the guard.
+      - FrameLedger.Infrastructure.Tests — GuardMirrorTests and
+        RulesPathAgreementTests P/Invoke into the real DLL, so it has to be
+        beside the test binary.
+
+    NOT imported by FrameLedger.App. FR-2.2's advisory pre-scan reaches the guard
+    through the Agent over IPC when that exists (07_IPC); until then the App has
+    no call site for it, so removing the DLL costs nothing today and prevents it
+    quietly acquiring one.
+
+    NativeAntiCheatGuard loads it BY ABSOLUTE PATH from AppContext.BaseDirectory
+    and never falls back to a search, so it has to actually be there — which is
+    the point: a guard that could be "not found" and shrugged off would be a
+    guard with an off switch.
+  -->
+  <PropertyGroup>
+    <FlNativeOutDir>$(MSBuildThisFileDirectory)build\native\x64-release\FrameLedger.Injector\</FlNativeOutDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(FlNativeOutDir)FrameLedger.Guard.dll" Condition="Exists('$(FlNativeOutDir)FrameLedger.Guard.dll')">
+      <Link>FrameLedger.Guard.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!--
+    Warn rather than fail: build.ps1 runs the native build first, so by the time
+    this evaluates the DLL exists. A hard error here would make `dotnet build` on
+    a fresh clone fail for a reason that has nothing to do with the managed code.
+  -->
+  <Target Name="FlWarnOnMissingGuard" AfterTargets="Build"
+          Condition="!Exists('$(FlNativeOutDir)FrameLedger.Guard.dll')">
+    <Warning Text="FrameLedger.Guard.dll was not found at $(FlNativeOutDir). Run build.ps1 native first; anything that calls the guard will fail to resolve it." />
+  </Target>
+
+</Project>

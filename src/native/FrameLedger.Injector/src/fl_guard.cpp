@@ -258,6 +258,35 @@ Verdict LoadRules(const Sources& s, Rules& rules) noexcept {
     }
 }
 
+// §S18 — may the fuzzy name-fragment tier be suppressed for this process?
+//
+// The ONLY exception in this gate, and every clause below is load-bearing:
+//
+//   - `pid != targetPid`. The injection target is never exempt, however it is
+//     spelled. A game copied into our install directory must still be judged.
+//   - a null seam does not suppress. Sources members default to nullptr, so
+//     forgetting to wire this must fail towards refusing.
+//   - anything but kOk does not suppress. "Could not determine whose process
+//     this is" is not "it is ours".
+//
+// Called ONLY when a fragment already matched, which on a measured machine is
+// approximately never — so the OpenProcess and the two directory handles it
+// costs are not on the ordinary path. Hoisting it above the fragment test would
+// add a new machine-wide refusal source, which is the shape of the
+// EasyAntiCheat_EOS defect that refused every process on the machine.
+//
+// What this does NOT touch: the exact blocklist (st.hit returns before we get
+// here), kFailed -> kProcessUnreadable, kIncomplete -> kModuleScanFailed, the
+// driver scan, the service scan, and check 4. A FrameLedger process carrying a
+// genuinely blocklisted module still refuses.
+bool SuppressFragmentTier(const Sources& s, std::uint32_t pid, std::uint32_t targetPid) noexcept {
+    if (pid == targetPid || s.ProcessIsOurOwn == nullptr) {
+        return false;
+    }
+    bool ours = false;
+    return s.ProcessIsOurOwn(pid, &ours) == Collected::kOk && ours;
+}
+
 // Check 1 — modules, across the §S16 scan set.
 Verdict CheckModules(const Sources& s, const Rules& rules, std::uint32_t targetPid) noexcept {
     if (s.EnumerateScanSet == nullptr || s.EnumerateModules == nullptr) {
@@ -290,7 +319,7 @@ Verdict CheckModules(const Sources& s, const Rules& rules, std::uint32_t targetP
         if (c == Collected::kIncomplete) {
             return Refuse(Reason::kModuleScanFailed, nullptr, "a module list came back incomplete");
         }
-        if (st.sawSuspicious) {
+        if (st.sawSuspicious && !SuppressFragmentTier(s, set.pids[i], targetPid)) {
             // 19_SAFETY: fragment AND not signed by a known vendor. The signer
             // lookup is not wired yet, and an unchecked signature is UNTRUSTED
             // by definition — so this refuses today. That is the correct

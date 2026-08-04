@@ -28,4 +28,12 @@
     <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>
 
+  <!--
+    The Agent is the SOLE host of the anti-cheat guard (§S18 blocker 3, ratified
+    2026-08-04; 05_DETECTION §Trust and staleness and 07_IPC already assigned it
+    ownership of %LOCALAPPDATA%\FrameLedger). FrameLedger.App deliberately does
+    not import this.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Guard.targets" />
+
 </Project>
