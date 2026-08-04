@@ -72,9 +72,30 @@ Signal types evaluated by `RuleEvaluator` (Domain): `file_exists`, `dir_exists`,
 Three rules, because a gate whose data can silently go stale is a gate with an
 expiry date nobody sees:
 
-- **The Agent reads rules from exactly one place:** its own
-  `%LOCALAPPDATA%\FrameLedger\rules\`. The source is not a parameter and cannot
-  be redirected over the pipe (`07_IPC` §The pipe is not a trust boundary).
+- **The Agent reads rules from exactly one place:** its own Local AppData
+  (`FrameLedger\rules\`). The source is not a parameter and cannot be redirected
+  over the pipe (`07_IPC` §The pipe is not a trust boundary).
+
+  > **This sentence was true of the pipe and false of the environment, and the
+  > gap is §S21.** The native guard built that path from
+  > `_dupenv_s("LOCALAPPDATA")` — an inherited variable, so whoever launched the
+  > process chose the file, per launch, leaving nothing on disk. It now resolves
+  > through `SHGetKnownFolderPath(FOLDERID_LocalAppData)`.
+  >
+  > Stated honestly rather than upgraded to a guarantee: shell resolution still
+  > goes through the user's own shell-folder registration, so a user can still
+  > move their Local AppData. What it removes is the **per-launch, per-process**
+  > vector; redirection is now a persistent, machine-wide change affecting every
+  > application. The thing that makes the residual harmless is the compiled-in
+  > blocklist floor (`19_SAFETY` §The floor data cannot remove), not the path
+  > resolution.
+  >
+  > **The residual is measured, not assumed** (2026-08-04):
+  > `HKCU\…\Explorer\User Shell Folders\Local AppData` matches what the API
+  > returns, and that key is `FullControl` for the current user with no
+  > elevation. It really is relocatable — by a persistent change affecting every
+  > application, which is a different proposition from an inherited variable, and
+  > that difference is the whole claim being made here.
 - **A fetched file replaces the local copy only if it validates.** Same
   structural checks `tools/rules-validate.ps1` runs, including the non-empty
   `anticheat` requirement. A malformed, truncated or empty-blocklist download is

@@ -20,8 +20,13 @@ target_include_directories(FrameLedger.VkLayer PRIVATE ../FrameLedger.Injector/i
 # Vendored headers, not the SDK: CI must not need a ~1 GB install, and these are
 # the exact headers matching the loader the blast-radius test runs against.
 # See src/native/third_party/vulkan-headers/README.md.
+#
+# Shell32/Ole32 come with fl_ac_rules.cpp (§S21 — SHGetKnownFolderPath). Worth
+# stating for a DLL the loader maps into every Vulkan process on the machine:
+# both are core Windows components already resident in any process that has a
+# window, and the calls happen once at init, never in a dispatch path.
 target_link_libraries(FrameLedger.VkLayer PRIVATE
-    FrameLedger.Shm fl_native_flags fl_hostile_env_flags fl_vulkan_headers fl_jsmn)
+    FrameLedger.Shm fl_native_flags fl_hostile_env_flags fl_vulkan_headers fl_jsmn Shell32 Ole32)
 set_target_properties(FrameLedger.VkLayer PROPERTIES OUTPUT_NAME "FrameLedger.VkLayer")
 
 # Same requirement as the Overlay, and arguably sharper here: an implicit layer

@@ -23,8 +23,15 @@ add_library(FrameLedger.Injector STATIC
     src/fl_prescan.cpp
 )
 target_include_directories(FrameLedger.Injector PUBLIC include)
+
+# Shell32/Ole32 are for SHGetKnownFolderPath + CoTaskMemFree (§S21): the rules
+# path is resolved from the shell instead of from an inherited LOCALAPPDATA that
+# whoever launched us controlled. PUBLIC because this is a static lib — a
+# consumer that links it must get these too, and discovering that as an
+# unresolved-external in someone else's target is a worse experience than
+# carrying two system libs.
 target_link_libraries(FrameLedger.Injector
-    PUBLIC FrameLedger.Shm fl_native_flags
+    PUBLIC FrameLedger.Shm fl_native_flags Shell32 Ole32
     PRIVATE fl_jsmn
 )
 
@@ -49,7 +56,7 @@ add_library(FrameLedger.Guard SHARED
     src/fl_guard_abi.cpp
 )
 target_include_directories(FrameLedger.Guard PUBLIC include)
-target_link_libraries(FrameLedger.Guard PRIVATE FrameLedger.Shm fl_native_flags fl_jsmn)
+target_link_libraries(FrameLedger.Guard PRIVATE FrameLedger.Shm fl_native_flags fl_jsmn Shell32 Ole32)
 target_compile_definitions(FrameLedger.Guard PRIVATE FL_GUARD_ABI_BUILD)
 set_target_properties(FrameLedger.Guard PROPERTIES OUTPUT_NAME "FrameLedger.Guard")
 fl_add_version_resource(FrameLedger.Guard "FrameLedger anti-cheat guard (hard gate; refuses where anti-cheat is present)")

@@ -4,8 +4,17 @@
 # the layer with the Vulkan loader and never calls a Vulkan entry point, so this
 # puts nothing machine-wide anywhere. Registration is tools/vklayer-blastradius.ps1,
 # which is deliberately outside `build.ps1 check` because it writes to HKCU.
-add_executable(fl-probe-vklayer main.cpp)
-target_link_libraries(fl-probe-vklayer PRIVATE fl_native_flags)
+#
+# fl_ac_rules.cpp is compiled in for ONE symbol: fl::guard::RulesFilePath. The
+# probe used to expand %LOCALAPPDATA% itself, which made it a THIRD resolver of
+# the path the guard and the layer share — and §S21 is precisely the bug where
+# resolvers of "the ONE location" disagree. It now plants the seed by asking the
+# same function the layer reads through, so the two cannot drift: if the
+# resolution changes, this probe follows it or fails to compile.
+add_executable(fl-probe-vklayer main.cpp
+    "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/src/fl_ac_rules.cpp")
+target_include_directories(fl-probe-vklayer PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/include")
+target_link_libraries(fl-probe-vklayer PRIVATE fl_native_flags fl_jsmn Shell32 Ole32)
 target_compile_definitions(fl-probe-vklayer PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX
     # The repository seed, installed to %LOCALAPPDATA% only when nothing is
     # there and removed afterwards. The layer reads from the ONE product

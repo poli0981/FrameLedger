@@ -388,6 +388,104 @@ TEST_CASE("EVERY process in the scan set is scanned, not just the target", "[gua
 }
 
 // ===========================================================================
+// §S21 — the compiled-in floor. A rules file may EXTEND the blocklist and may
+// not shrink it.
+//
+// The defect this closes: IsCompleteEnoughToGate validates that three family
+// NAMES appear in the right GROUPS and never reads their `values`. So the
+// document below — twelve lines, syntactically perfect, "complete" by every
+// check the guard had — parsed kOk over a blocklist that matched nothing. Paired
+// with a rules path built from an inherited LOCALAPPDATA, one environment
+// variable and one file allowed injection on a machine running Vanguard: the
+// override CLAUDE.md rule 2 says does not exist.
+//
+// Proven red by emptying FloorFamilies(): every REQUIRE below fails and the
+// verdict becomes Allow, which is precisely the pre-fix behaviour.
+// ===========================================================================
+namespace {
+
+// The three required families present by NAME and GROUP, with values that can
+// never match anything real.
+std::string DisarmedRulesJson() {
+    return R"({"anticheat": {
+        "modules": [
+          { "family": "Easy Anti-Cheat", "match": "exact", "values": ["zzzz-not-real.dll"] },
+          { "family": "BattlEye",        "match": "exact", "values": ["zzzz-also-not.dll"] }
+        ],
+        "drivers": [
+          { "family": "Riot Vanguard", "match": "exact", "values": ["zzzz-nothing.sys"] }
+        ],
+        "directories": [], "services": [], "files": [],
+        "blockedExecutables": [], "blockedStoreIds": []
+    }})";
+}
+
+}    // namespace
+
+TEST_CASE("a rules file that names the required families but disarms their values still refuses",
+          "[guard][failclosed][rules][floor]") {
+    ResetFake();
+    g.rulesJson = DisarmedRulesJson();
+
+    SECTION("the document is still ACCEPTED — the refusal comes from the floor, not from ParseRules") {
+        // If this ever became kRulesMalformed/kIncomplete the sections below
+        // would pass for the wrong reason, and the floor would be untested.
+        Rules             parsed;
+        const std::string json = DisarmedRulesJson();
+        CHECK(ParseRules(json.c_str(), json.size(), parsed) == ParseResult::kOk);
+    }
+
+    SECTION("a real EAC module in the target is still blocked") {
+        g.modules = {"EasyAntiCheat_x64.dll"};
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kBlockedModule);
+        CHECK(std::strcmp(v.family, "Easy Anti-Cheat") == 0);
+    }
+
+    SECTION("a real BattlEye module in the target is still blocked") {
+        g.modules = {"BEClient_x64.dll"};
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kBlockedModule);
+        CHECK(std::strcmp(v.family, "BattlEye") == 0);
+    }
+
+    SECTION("the machine-wide Vanguard driver is still blocked") {
+        g.drivers = {R"(\SystemRoot\system32\drivers\vgk.sys)"};
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kBlockedDriver);
+        CHECK(std::strcmp(v.family, "Riot Vanguard") == 0);
+    }
+
+    SECTION("and a genuinely clean process under the same file is still ALLOWED") {
+        // The direction that makes the four above mean something. A floor that
+        // refused everything would satisfy every assertion in this test case and
+        // be a gate that cannot pass — this project has shipped two of those.
+        g.modules = {"kernel32.dll", "d3d11.dll"};
+        CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
+    }
+}
+
+TEST_CASE("the floor does not make the completeness check unfailable", "[guard][failclosed][rules][floor]") {
+    // The floor satisfies IsCompleteEnoughToGate by construction, so checking the
+    // MERGED set would silently retire this refusal — a gate that cannot fail,
+    // arrived at by fixing a different bug. ParseRules therefore asks the
+    // question of the FILE's families only, and this is what holds it there.
+    ResetFake();
+    g.rulesJson = R"({"anticheat": {
+        "modules": [ { "family": "Easy Anti-Cheat", "match": "prefix", "values": ["EasyAntiCheat"] } ],
+        "drivers": [ { "family": "Riot Vanguard", "match": "exact", "values": ["vgk.sys"] } ],
+        "blockedExecutables": [], "blockedStoreIds": []
+    }})";    // BattlEye is absent from the FILE, though the floor carries it
+
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kRulesIncomplete);
+}
+
+// ===========================================================================
 // The rules data itself is an input, and a hostile or broken one must refuse.
 // ===========================================================================
 TEST_CASE("an unreadable rules file refuses", "[guard][failclosed][rules]") {

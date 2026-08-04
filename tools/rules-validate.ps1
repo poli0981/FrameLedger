@@ -407,7 +407,14 @@ function Get-HeaderConstant([string]$Name) {
 
 $maxFamilies = Get-HeaderConstant 'kMaxFamilies'
 $tokenBudget = Get-HeaderConstant 'kRulesTokenBudget'
-foreach ($c in @(@{ n = 'kMaxFamilies'; v = $maxFamilies }, @{ n = 'kRulesTokenBudget'; v = $tokenBudget })) {
+# §S21. ParseRules seeds the compiled-in floor before it reads a byte of the
+# file, so the budget available to THIS document is kMaxFamilies minus the floor.
+# Read, never assumed: if the floor grows and this is not subtracted, a rules edit
+# passes CI and then returns kTooLarge on every client — refuse-everything,
+# published by a green build.
+$floorFamilies = Get-HeaderConstant 'kFloorFamilyCount'
+foreach ($c in @(@{ n = 'kMaxFamilies'; v = $maxFamilies }, @{ n = 'kRulesTokenBudget'; v = $tokenBudget },
+        @{ n = 'kFloorFamilyCount'; v = $floorFamilies })) {
     if ($null -eq $c.v) {
         Write-Host "RULES VALIDATION FAILED: could not read $($c.n) from fl_ac_rules.h" -ForegroundColor Red
         Write-Host '  Either the constant was renamed or its form changed. Refusing rather than' -ForegroundColor Red
@@ -421,8 +428,9 @@ if (Test-Member $rules 'anticheat') {
     foreach ($g in 'modules', 'drivers', 'directories', 'services', 'files') {
         if (Test-Member $rules.anticheat $g) { $totalFamilies += @($rules.anticheat.$g).Count }
     }
-    if ($totalFamilies -gt $maxFamilies) {
-        $errors.Add("$totalFamilies anticheat families across all groups exceeds fl::guard::kMaxFamilies ($maxFamilies) — ParseRules returns kTooLarge and the guard refuses EVERY title")
+    $fileBudget = $maxFamilies - $floorFamilies
+    if ($totalFamilies -gt $fileBudget) {
+        $errors.Add("$totalFamilies anticheat families across all groups exceeds the budget available to the FILE ($fileBudget = fl::guard::kMaxFamilies $maxFamilies - kFloorFamilyCount $floorFamilies) — ParseRules returns kTooLarge and the guard refuses EVERY title")
     }
 }
 
@@ -469,6 +477,9 @@ $driverCount = @($rules.anticheat.drivers).Count
 Write-Host "rules OK — schema v$($rules.schemaVersion), rules $($rules.rulesVersion), $moduleCount anticheat module families, $driverCount driver families" -ForegroundColor Green
 # Printed on every run, not only on failure: the hazard is a capacity nobody
 # looks at until it is already breached.
-Write-Host "  capacity — $totalFamilies/$maxFamilies families, $tokenCount/$tokenBudget parse tokens" -ForegroundColor DarkGray
+# The families figure is against the FILE's budget, not kMaxFamilies: printing
+# the raw capacity would overstate the headroom by the size of the §S21 floor,
+# and this line exists to be read rather than to look reassuring.
+Write-Host "  capacity — $totalFamilies/$($maxFamilies - $floorFamilies) families (kMaxFamilies $maxFamilies less the $floorFamilies compiled-in floor), $tokenCount/$tokenBudget parse tokens" -ForegroundColor DarkGray
 Write-Host "  fixtures — $($fixtureDirs.Count) corpus directories cover every engine and platform id" -ForegroundColor DarkGray
 exit 0

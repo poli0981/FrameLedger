@@ -337,6 +337,43 @@ GitHub release body, so a missing section means an empty release note.
   pinned 0.9.6 package, not just the repository.
 
 ### Fixed
+- **The hard gate's data source was caller-nameable, and its completeness check
+  never read the values that block** (`20_OPEN_QUESTIONS` §S21). The rules path
+  was built from `_dupenv_s("LOCALAPPDATA")` — an inherited variable, so whoever
+  launched the process chose the file — and `IsCompleteEnoughToGate` verified
+  that three family *names* existed in the right *groups* without ever reading
+  their `values`. A twelve-line rules file naming Easy Anti-Cheat, BattlEye and
+  Riot Vanguard with junk values therefore parsed as valid and the guard returned
+  **`Allow` on a machine running Vanguard**: the override CLAUDE.md rule 2 says
+  does not exist, with no admin and nothing left on disk. `05_DETECTION` asserted
+  the source "cannot be redirected", which was true of the pipe (§S3) and false
+  of the environment.
+  - **Fixed by a floor, not by the path.** `FloorFamilies` carries the three
+    required families inside the binary and `ParseRules` seeds them before
+    reading a byte; nothing merges, rewrites or removes them. §S8's mechanism
+    applied to data — a family data cannot remove cannot be bypassed. The path
+    also moved to `SHGetKnownFolderPath`, recorded as a **narrowing rather than a
+    guarantee**: it removes the per-launch vector, not every redirection.
+  - **The completeness check stayed able to fail.** It now runs over the file's
+    families only; over the merged set it would have been satisfied by the floor
+    by construction — retiring a real refusal while fixing a different bug.
+  - **A second total failure in the same six lines: the path was ANSI.** Measured
+    on system ACP 1252, `C:\Users\田中\...` becomes `C:\Users\??\...` and
+    `Nguyễn` becomes `Nguy?n`, so the guard refused **every title for that user,
+    permanently**, naming no cause. Wide throughout now, including the Vulkan
+    layer's enable-list, which had the same defect and would have made Vulkan
+    Tier 1 silently never work. The trigger is the *system* code page, not the
+    user's language, and an ASCII profile can never expose it.
+  - **Four resolvers of "the ONE location" became one.** The guard, the layer,
+    `fl-probe-vklayer` and `DetectionRulesFile` each resolved it independently —
+    the last while claiming in its own comment to reach the same directory.
+    `FlGuardRulesFilePath` exports the guard's answer for observation only, and
+    `RulesPathAgreementTests` asserts the managed side matches. Sharing modes
+    unified so §S20's atomic replace cannot be blocked by a reader.
+  - Proven red four ways: an emptied floor lets the disarmed rules file allow; a
+    floor value absent from the seed fails `fl_rules_budget` by name; a
+    completeness check starting at index 0 admits a file with no BattlEye; and a
+    renamed `kFloorFamilyCount` makes `rules-validate.ps1` fail rather than skip.
 - **A failed injection reported `Allow`.** `FlGuardedInject` returned
   `reason = kAllow` with the truth in a free-text signal, above a comment saying
   *"the caller distinguishes them by reason"* — and there was no reason to

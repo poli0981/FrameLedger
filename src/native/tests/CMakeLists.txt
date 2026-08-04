@@ -21,7 +21,8 @@ add_test(NAME fl_shm_layout COMMAND fl_shm_layout_test)
 # duplicate every symbol, which is the compiler telling us the same thing.
 add_executable(fl_guard_test guard_test.cpp ${FL_INJECTOR_SOURCES})
 target_include_directories(fl_guard_test PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/include")
-target_link_libraries(fl_guard_test PRIVATE FrameLedger.Shm fl_native_flags fl_jsmn Catch2::Catch2WithMain)
+target_link_libraries(fl_guard_test PRIVATE FrameLedger.Shm fl_native_flags fl_jsmn Catch2::Catch2WithMain
+    Shell32 Ole32)    # §S21: fl_ac_rules.cpp resolves the rules path via SHGetKnownFolderPath
 
 # /EHsc on the TEST BINARY only. Catch2 reports failures by throwing, and the
 # top-level CMakeLists strips the compiler's default /EHsc so every target has
@@ -73,7 +74,7 @@ add_executable(fl_rules_budget_test
     "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/src/fl_ac_rules.cpp"
 )
 target_include_directories(fl_rules_budget_test PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/include")
-target_link_libraries(fl_rules_budget_test PRIVATE fl_native_flags fl_jsmn Catch2::Catch2WithMain)
+target_link_libraries(fl_rules_budget_test PRIVATE fl_native_flags fl_jsmn Catch2::Catch2WithMain Shell32 Ole32)
 target_compile_options(fl_rules_budget_test PRIVATE /EHsc)
 
 # The repository seed, by absolute path at compile time.

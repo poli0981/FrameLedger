@@ -676,6 +676,118 @@ Two consequences worth stating before someone edits the seed expecting an effect
   file on `main` *is* the distribution endpoint, so the two halves ship on
   independent clocks.
 
+### S21 ✅ · The hard gate's data source was caller-nameable, and its completeness floor never read the values — **closed**
+
+Found 2026-08-04 by an adversarial review over the next-phase option set, and it
+outranked every item that review was convened to sequence. Recorded in full
+because it is the first *fail-open* found in the guard since `EnumDeviceDrivers`,
+and because both halves passed every gate in the repository.
+
+Two facts that were individually defensible and jointly an override:
+
+| | |
+|---|---|
+| `RulesFilePath` built the path from `_dupenv_s(&base, &len, "LOCALAPPDATA")` | The CRT environment is **inherited**. In launch mode the guard's host is started by a shortcut, a `.bat`, or `04_CAPTURE:60`'s Steam launch-option wrapper — all of which choose that variable |
+| `IsCompleteEnoughToGate` checked three family **names** in the right **groups** | It never read `values`. "Is this shaped like a blocklist" was standing in for "is this a blocklist" |
+
+So a twelve-line rules file naming `Easy Anti-Cheat`/modules, `BattlEye`/modules
+and `Riot Vanguard`/drivers with junk values parsed `kOk`, matched nothing, and
+`Evaluate` returned `Allow` on a machine running Vanguard. **No admin, no write
+to our install directory, nothing left on disk.** That is the override CLAUDE.md
+rule 2 says does not exist.
+
+`05_DETECTION:75-77` asserted the source "is not a parameter and cannot be
+redirected". True of the pipe — §S3 closed that — and false of the environment,
+which nobody re-asked. **When a doc says an input cannot be redirected, the
+question is "through which channel", and the answer has to enumerate the rest.**
+
+**Fixed by the floor, not by the path.** `fl::guard::FloorFamilies` carries the
+three required families inside the binary; `ParseRules` seeds them before reading
+a byte and nothing merges, rewrites or removes them. §S8's mechanism applied to
+data: a family data cannot remove cannot be bypassed. Path resolution moved to
+`SHGetKnownFolderPath` as well, and that is written down as a **narrowing, not a
+guarantee** — a user can still move their own Local AppData; what is gone is the
+per-launch vector.
+
+Kept able to fail: the completeness check now runs over the **file's** families
+only. Running it over the merged set would have retired a real refusal by
+accident, since the floor satisfies it by construction — a gate that cannot fail,
+arrived at while fixing a different bug.
+
+**A second, independent total failure in the same six lines.** The path was ANSI
+(`char[MAX_PATH]`, `CreateFileA`), so a profile directory the system code page
+cannot spell became a path containing `?`, and the guard refused **every title
+for that user, permanently**, naming no cause. Measured 2026-08-04, system ACP
+**1252**:
+
+```
+C:\Users\田中\AppData\Local    ->  C:\Users\??\AppData\Local
+C:\Users\Nguyễn\AppData\Local  ->  C:\Users\Nguy?n\AppData\Local
+```
+
+Note what that measurement says and does not say. The trigger is the **system**
+code page, not the user's language — a Japanese install (ACP 932) spells 田中 and
+still mangles Nguyễn. So the honest form is "broken for any user whose profile
+path the machine's ACP cannot represent", which the `ja`/`vi` shipping locales
+make likely and which an ASCII profile can never expose. Now `wchar_t` +
+`CreateFileW` throughout, including the Vulkan layer's enable-list, which had the
+same defect and would have made Vulkan Tier 1 silently never work for those users.
+
+**Three resolvers became one.** The guard, the Vulkan layer's enable-list and
+`fl-probe-vklayer` each resolved Local AppData their own way, and
+`DetectionRulesFile` made a fourth on the managed side while its own comment
+claimed to reach "the same directory the native guard uses". `fl_ac_rules.h`
+calls this "the ONE location" and says a second reader would be "a second
+blocklist by accident" — there were four. `FlGuardRulesFilePath` now exports the
+guard's answer for **observation only** (no setter, no path parameter), and
+`RulesPathAgreementTests` asserts the managed resolution matches it. That
+assertion matters most for §S20: a seeder writing where the gate does not read
+reports success, and its own test would agree with it.
+
+Sharing mode unified too — all readers now `FILE_SHARE_READ | FILE_SHARE_WRITE |
+FILE_SHARE_DELETE`. The guard denied delete sharing and the layer denied nothing;
+§S20's replace must be temp-file + `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`, and
+a reader denying delete sharing turns every routine rules update into a silent
+failed update.
+
+Proven red, all four ways, before being called done: emptying `FloorFamilies`
+makes the disarmed-rules test allow; pointing a floor value at something the seed
+does not carry fails `fl_rules_budget` by name; running the completeness check
+from index 0 lets a file with no BattlEye through; and renaming
+`kFloorFamilyCount` makes `rules-validate.ps1` **fail rather than skip**.
+
+#### Measured end to end, not only in fixtures (2026-08-04)
+
+- **The override, on two real binaries.** Same input to both: a rules file naming
+  the three required families with junk values, and a real
+  `EasyAntiCheat_x64.dll` loaded in the target. `bb0da0a` → **`Allow`**; after
+  the floor → **`BlockedModule`, family `Easy Anti-Cheat`**. The pre-fix half took
+  the crafted file through an inherited `LOCALAPPDATA`; the post-fix half had to
+  place it at the real path, because the environment no longer selects it.
+- **The ANSI half, on the real Win32 calls.** System ACP 1252. A rules file
+  written into `…\田中\AppData\Local\…` and `…\Nguyễn\AppData\Local\…` exists on
+  disk and `CreateFileW` opens it; **`CreateFileA` fails with
+  `ERROR_INVALID_NAME (123)`**. The same file under an ASCII profile opens both
+  ways — which is precisely why a dev box cannot see this.
+
+#### Two residuals, measured rather than asserted
+
+- **The known-folder path is still user-relocatable, and that was the claim.**
+  `HKCU\…\Explorer\User Shell Folders\Local AppData` matches what the API returns,
+  and the key is `FullControl` for the current user with no elevation. So the
+  wording in `05_DETECTION` holds exactly as written: this removes the
+  **per-launch, per-process** vector, not every redirection. Deliberately not
+  tested by repointing it — that would change the machine's shell configuration
+  for every application.
+- **The Vulkan layer gained two DLL dependencies, and it is mapped machine-wide.**
+  `dumpbin /dependents`: `KERNEL32` → `KERNEL32, ole32, SHELL32`. Measured
+  residency across 189 inspectable processes: shell32 **62%**, ole32 **61%** — so
+  for roughly a third of processes these are genuinely new. The exposure is
+  narrower than that number suggests, because `enable_environment` means the
+  layer only *maps* into processes the Agent launched (§S2), and a game is far
+  more likely than a browser to have both already. Recorded rather than waved
+  away; delay-loading would not help, since the layer resolves the path at init.
+
 ### S14 ◐ · Pre-injection check 3 is **unwired**, and has no "cannot determine" state
 
 Found 2026-08-02 while hardening the rules toolchain. `19_SAFETY` §Pre-injection

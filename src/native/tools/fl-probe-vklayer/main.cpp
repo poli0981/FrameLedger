@@ -32,6 +32,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <fl_ac_rules.h>
 
 namespace {
 
@@ -39,8 +40,8 @@ int g_failures = 0;
 
 // Set when WE created the rules file, so we remove exactly what we added.
 bool    g_installedRules = false;
-wchar_t g_rulesPath[MAX_PATH]{};
-wchar_t g_rulesDir[MAX_PATH]{};
+wchar_t g_rulesPath[fl::guard::kMaxRulesPathLen]{};
+wchar_t g_rulesDir[fl::guard::kMaxRulesPathLen]{};
 
 void Check(bool ok, const char* what) {
     std::printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what);
@@ -65,21 +66,30 @@ bool BesideMe(const wchar_t* leaf, wchar_t* out, DWORD cap) {
     return wcscat_s(out, cap, leaf) == 0;
 }
 
-bool ExpandLocalAppData(const wchar_t* relative, wchar_t* out, DWORD cap) {
-    // Concatenated rather than formatted: the pattern contains '%' characters
-    // that ExpandEnvironmentStringsW needs and printf would eat.
-    wchar_t pattern[MAX_PATH]{};
-    if (wcscpy_s(pattern, LR"(%LOCALAPPDATA%\)") != 0 || wcscat_s(pattern, relative) != 0) {
+// Strip the trailing component of `path` in place. Returns false if there is no
+// separator to strip, which means we were handed something we do not understand.
+bool StripLeaf(wchar_t* path) {
+    wchar_t* slash = wcsrchr(path, L'\\');
+    if (slash == nullptr || slash == path) {
         return false;
     }
-    return ExpandEnvironmentStringsW(pattern, out, cap) != 0;
+    *slash = L'\0';
+    return true;
 }
 
 // Install the repository's seed rules ONLY if nothing is there. Returns false
 // if we could not, which the caller reports rather than papering over.
 bool EnsureRulesPresent() {
-    if (!ExpandLocalAppData(LR"(FrameLedger\rules\detection-rules.json)", g_rulesPath, MAX_PATH) ||
-        !ExpandLocalAppData(LR"(FrameLedger\rules)", g_rulesDir, MAX_PATH)) {
+    // §S21. Ask the product where its rules live rather than expanding
+    // %LOCALAPPDATA% ourselves. This probe used to be a third resolver of a path
+    // whose whole point is that there is only one of it — and a probe that plants
+    // a file where the layer does not read would report a working gate as broken,
+    // or worse, skip and look like coverage. Both directories are derived from
+    // that one answer by stripping components, so no literal here can drift.
+    if (!fl::guard::RulesFilePath(g_rulesPath, fl::guard::kMaxRulesPathLen)) {
+        return false;
+    }
+    if (wcscpy_s(g_rulesDir, g_rulesPath) != 0 || !StripLeaf(g_rulesDir)) {
         return false;
     }
     if (GetFileAttributesW(g_rulesPath) != INVALID_FILE_ATTRIBUTES) {
@@ -87,16 +97,20 @@ bool EnsureRulesPresent() {
         return true;
     }
 
-    wchar_t seed[MAX_PATH]{};
-    wcscpy_s(seed, FL_REPO_RULES);
+    wchar_t seed[fl::guard::kMaxRulesPathLen]{};
+    if (wcscpy_s(seed, FL_REPO_RULES) != 0) {
+        return false;
+    }
     if (GetFileAttributesW(seed) == INVALID_FILE_ATTRIBUTES) {
         std::printf("  repository seed not found at %ls\n", seed);
         return false;
     }
 
     // CreateDirectory per level; failing because it already exists is fine.
-    wchar_t parent[MAX_PATH]{};
-    if (ExpandLocalAppData(L"FrameLedger", parent, MAX_PATH)) {
+    // `parent` is g_rulesDir with one more component stripped — again derived,
+    // not spelled out.
+    wchar_t parent[fl::guard::kMaxRulesPathLen]{};
+    if (wcscpy_s(parent, g_rulesDir) == 0 && StripLeaf(parent)) {
         CreateDirectoryW(parent, nullptr);
     }
     CreateDirectoryW(g_rulesDir, nullptr);

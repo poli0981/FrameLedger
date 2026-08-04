@@ -32,10 +32,15 @@ public sealed class DetectionRulesFile : IDetectionRulesSource
 
     /// <summary>The one location the product reads rules from.</summary>
     /// <remarks>
-    /// The same directory the native guard uses (<c>fl_ac_rules.h</c>), reached
-    /// independently rather than through the ABI: this side reads only
-    /// engines/platforms/capabilities, and exporting a path from the guard would
-    /// be a wider surface than the need.
+    /// The same file the native guard uses (<c>fl_ac_rules.h</c>), still resolved
+    /// independently — this side reads only engines/platforms/capabilities and has
+    /// no business calling the gate. What changed with §S21 is that "the same" is
+    /// now ASSERTED rather than asserted-in-a-comment:
+    /// <c>RulesPathAgreementTests</c> compares this against
+    /// <c>NativeAntiCheatGuard.NativeRulesFilePath()</c>. They are two different
+    /// Win32 resolutions, and before that test nothing checked they landed in the
+    /// same place — a seeder writing where the gate does not read would report
+    /// success while the guard refused every title.
     /// </remarks>
     public static string DefaultPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

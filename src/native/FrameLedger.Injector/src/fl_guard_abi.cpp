@@ -1,4 +1,6 @@
 #include <cstring>
+#include <cwchar>
+#include <fl_ac_rules.h>
 #include <fl_guard.h>
 #include <fl_guard_abi.h>
 #include <fl_prescan.h>
@@ -63,6 +65,18 @@ std::int32_t FlGuardReasonCount(void) {
     // The managed mirror test iterates this value, so a stale count means the
     // new reason is never compared against the managed enum either.
     return static_cast<std::int32_t>(fl::guard::Reason::kCount);
+}
+
+std::int32_t FlGuardRulesFilePath(wchar_t* out, std::int32_t cap) {
+    if (out == nullptr || cap <= 0) {
+        return 0;
+    }
+    out[0] = L'\0';
+    if (!fl::guard::RulesFilePath(out, static_cast<std::size_t>(cap))) {
+        out[0] = L'\0';    // never hand back a partial path: it names a different file
+        return 0;
+    }
+    return static_cast<std::int32_t>(wcslen(out));
 }
 
 }    // extern "C"
