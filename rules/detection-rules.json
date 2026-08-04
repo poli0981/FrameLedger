@@ -151,18 +151,26 @@
     ],
     "drivers": [
       { "family": "Riot Vanguard", "match": "exact", "values": [ "vgk.sys" ], "scope": "machine" },
-      { "family": "mihoyo protect", "match": "prefix", "values": [ "mhyprot" ], "scope": "machine" }
+      { "family": "mihoyo protect", "match": "prefix", "values": [ "mhyprot" ], "scope": "machine" },
+      { "family": "Easy Anti-Cheat", "match": "prefix", "values": [ "EasyAntiCheat" ], "scope": "machine",
+        "note": "MEASURED 2026-08-04: EasyAntiCheat_EOSSys was Running as a kernel driver while a real EAC title played, and matched NOTHING in this group — the refusal came from the service check instead. A family caught through only one of five groups is one rename away from being missed." },
+      { "family": "Anti-Cheat Expert", "match": "exact", "values": [ "ACE-BASE.sys", "ACE-ADVT.sys", "ACE-GAME.sys" ], "scope": "machine",
+        "note": "ACE-BASE.sys and ACE-ADVT.sys MEASURED under System32\\drivers on the dev machine 2026-08-04. ACE-GAME.sys is a documented sibling and is UNMEASURED: a blocklist may over-cover, never under-cover. Exact not prefix — 'ACE-' is four characters over a namespace we do not own." }
     ],
     "directories": [
       { "family": "Easy Anti-Cheat", "values": [ "EasyAntiCheat" ] },
       { "family": "BattlEye",        "values": [ "BattlEye" ] }
     ],
     "services": [
-      { "family": "Easy Anti-Cheat", "values": [ "EasyAntiCheat", "EasyAntiCheat_EOS" ] },
-      { "family": "Riot Vanguard",   "values": [ "vgc" ] }
+      { "family": "Easy Anti-Cheat", "values": [ "EasyAntiCheat", "EasyAntiCheat_EOS", "EasyAntiCheat_EOSSys" ] },
+      { "family": "Riot Vanguard",   "values": [ "vgc" ] },
+      { "family": "Anti-Cheat Expert", "values": [ "AntiCheatExpert Protection", "AntiCheatExpert Service" ],
+        "note": "'AntiCheatExpert Protection' MEASURED registered on the dev machine 2026-08-04 by Neverness To Everness. The sibling name is unmeasured." }
     ],
     "files": [
-      { "family": "Xigncode3", "values": [ "x3.xem" ], "note": "Data file shipped beside the game, not a loadable module." }
+      { "family": "Xigncode3", "values": [ "x3.xem" ], "note": "Data file shipped beside the game, not a loadable module." },
+      { "family": "Anti-Cheat Expert", "values": [ "PGameProtectDriver_X64.sys" ],
+        "note": "A KERNEL DRIVER shipped inside the game install. MEASURED at 'Neverness To Everness/NTEGlobal/driver/' 2026-08-04, where check 4 returned Allow: no group named it, and the fuzzy tier is modules-only — so a name containing 'protect' sat in the game's tree and the static scan walked past." }
     ],
     "heuristic": {
       "$comment": [
