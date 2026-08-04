@@ -44,6 +44,17 @@ Reason InjectViaLoadLibrary(std::uint32_t pid, const wchar_t* dllPath) noexcept 
     // The payload must exist and be a file before we ask another process to
     // load it. A missing DLL turns into a remote LoadLibraryW that fails inside
     // the game rather than an error we can report here.
+    //
+    // THIS IS NOT THE PAYLOAD CHECK. It answers "is there a file there", which
+    // for a long time was the ONLY thing ever asked of `dllPath` — and that is
+    // how the shipped, exported guard came to load any DLL on the machine into
+    // any process without anti-cheat (§S22). Identity is established by
+    // Sources::PayloadIsOurOwn in GuardedInjectImpl, which also runs this same
+    // test first so that "absent" and "not ours" get different reasons.
+    //
+    // Kept here anyway, and deliberately redundant: this function is the
+    // primitive, and it must not depend on its one caller having asked the right
+    // questions. If it ever acquires a second caller, the check travels with it.
     const DWORD attrs = GetFileAttributesW(dllPath);
     if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0) {
         return Reason::kInjectionFailed;
@@ -414,6 +425,8 @@ const char* ReasonName(Reason r) noexcept {
         return "InjectionFailed";
     case Reason::kTargetIsWow64:
         return "TargetIsWow64";
+    case Reason::kPayloadNotOurs:
+        return "PayloadNotOurs";
     case Reason::kSuspiciousUnsigned:
         return "SuspiciousUnsigned";
     case Reason::kRulesUnreadable:
@@ -488,6 +501,45 @@ Verdict GuardedInjectImpl(std::uint32_t targetPid, const wchar_t* dllPath, const
         // answer for whoever has to fix it.
         return Refuse(Reason::kInjectionFailed, nullptr, "no payload path");
     }
+
+    // ABSENT and FOREIGN are different problems, and collapsing them would be
+    // this project's own recurring defect. A damaged install and a misuse of the
+    // exported ABI call for opposite responses, which is exactly why
+    // kInjectionFailed was split out in the first place.
+    //
+    // It has to come BEFORE the identity check, because "not ours" would
+    // otherwise absorb "not there": the identity seam works by opening the file,
+    // so a path naming nothing comes back kFailed and would be reported as a
+    // foreign payload. The primitive keeps its own copy of this test as a last
+    // line of defence; this one exists to name the right cause.
+    const DWORD payloadAttrs = GetFileAttributesW(dllPath);
+    if (payloadAttrs == INVALID_FILE_ATTRIBUTES || (payloadAttrs & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        return Refuse(Reason::kInjectionFailed, nullptr, "the payload path does not name a file");
+    }
+
+    // §S22 — the payload, not just the target.
+    //
+    // Placed AFTER EvaluateImpl on purpose. A caller who hands a foreign payload
+    // at a target that is running anti-cheat must see the anti-cheat refusal:
+    // that is the fact that matters to the user, and it is the more permanent of
+    // the two. This ordering costs a full scan on a call that was going to be
+    // refused anyway, which is a price paid on a path nobody legitimate reaches.
+    //
+    // Every uncertainty refuses, in the ordinary direction of this file: a null
+    // seam, a seam that could not answer, and an answer of "not ours" are one
+    // outcome. Sources members default to nullptr, so forgetting to wire this
+    // fails towards refusing rather than towards loading.
+    bool payloadIsOurs = false;
+    if (sources.PayloadIsOurOwn == nullptr) {
+        return Refuse(Reason::kPayloadNotOurs, nullptr, "no payload identity source");
+    }
+    if (sources.PayloadIsOurOwn(dllPath, &payloadIsOurs) != Collected::kOk) {
+        return Refuse(Reason::kPayloadNotOurs, nullptr, "the payload could not be identified");
+    }
+    if (!payloadIsOurs) {
+        return Refuse(Reason::kPayloadNotOurs, nullptr, "the payload is not one of FrameLedger's own binaries");
+    }
+
     // Injection failing is not a guard refusal — the gate passed — but it is
     // also NOT an allow. Allowed() means "the DLL is loaded in the target",
     // which is the only reading a caller can act on. The reason says whose

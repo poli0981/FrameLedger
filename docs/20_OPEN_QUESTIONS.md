@@ -1083,6 +1083,133 @@ through.
   more likely than a browser to have both already. Recorded rather than waved
   away; delay-loading would not help, since the layer resolves the path at init.
 
+### S22 ◐ · The guard gated the TARGET and nothing gated the PAYLOAD — **(a) closed, (b) open**
+
+Found 2026-08-04 by a completeness critic over the next-phase plan, in code that
+had been merged for days and passed every gate in the repository. Recorded in
+full because it is the second *fail-open* found in the guard, and because the
+reason it stayed invisible is instructive: every reader, every doc and every
+review framed the guard as a gate whose subject is **the process we are entering**.
+Nobody asked what we were putting there.
+
+#### (a) ✅ Any DLL, into any process without anti-cheat — **closed**
+
+`FlGuardedInject(targetPid, dllPath, out)` is an exported C ABI on the shipped
+`FrameLedger.Guard.dll`. Between that boundary and `CreateRemoteThread` the only
+thing ever asked of `dllPath` was `GetFileAttributesW` — *exists, and is not a
+directory*. Measured through the shipped DLL with no test seam:
+`C:\Windows\System32\winmm.dll` into a live process, verdict `reason=0 (Allow)`,
+module present afterwards.
+
+That is **§S9's user-runnable injector**, which this project refused to ship,
+re-shipped as a documented export with a published calling convention. §S9's own
+reasoning names the hazard exactly and then stops one step short — it rejected a
+standalone injector as "a path into a game process **that the guard did not stand
+in front of**", and `fl_guard_abi.h` concluded "there is no entry point here that
+skips a check". Both true, and both about the target.
+
+Note what the shape is, because it is this file's recurring one: not a wrong
+assertion, a **missing** one, behind a scope sentence that reads as though it
+covered everything. Every existing test passed `FL_OVERLAY_DLL` as the payload,
+and the one negative case used a *missing* path — so the whole matrix exercised
+"is there a file there" and nothing exercised "whose file is it".
+
+**Closed by a new seam and a new reason.** `Sources::PayloadIsOurOwn` resolves
+the payload — through symlinks, 8.3 names and junctions, via
+`GetFinalPathNameByHandleW` — and requires its directory to be the one the
+guard's own code was loaded from, compared by file id. Equality, not containment,
+reusing §S18's `OwnDirectory`/`SameDirectory`, which until now existed only to
+*relax* this gate. A null seam, a seam that cannot answer, and "not ours" are one
+outcome: `Reason::kPayloadNotOurs`.
+
+**What it does NOT cover, with the boundary stated rather than implied:**
+
+- It is not proof the payload is `FrameLedger.Overlay.dll`. It is proof of
+  **where the bytes live**. Anyone who can write to that directory can already
+  replace `FrameLedger.Guard.dll` itself — the same trust base §S18 rests on, and
+  the project ships unsigned (CLAUDE.md rule 9), so there is no integrity check on
+  that directory's contents.
+- It is not atomic with the load. The remote `LoadLibraryW` re-resolves the path,
+  so a file swapped between check and call is not caught. Same trust base again.
+- **Absent** and **foreign** are kept distinct on purpose: a damaged install and a
+  misuse of the ABI need opposite responses, so a path naming no file still
+  returns `kInjectionFailed`. The existence test therefore runs *before* the
+  identity test — otherwise "not ours" absorbs "not there", since the identity
+  seam works by opening the file. Caught by the pre-existing test that asserts
+  exactly this distinction.
+
+**A layout bug came with it, and it had to be fixed in the same change or the
+gate could not pass.** Nothing in this repository copied `FrameLedger.Overlay.dll`
+anywhere. The native build left it in `FrameLedger.Overlay/` while the guard
+built into `FrameLedger.Injector/`, and `dotnet publish` produced an `out/app`
+with the Agent, the guard and the rules seed **but no payload at all**. Invisible
+while the Agent had no injector control; it would have surfaced as an
+unexplained `kPayloadNotOurs` the first time one was wired.
+`FrameLedger.Overlay.targets` now ships it beside the Agent, and
+`src/native/tests` stages its own copy beside `fl_guard_test` — where the guard
+is compiled *into* the test binary, so "the guard's directory" is the test's.
+
+Proven red **and** green, and proven to recover: three canaries (the refusal
+removed, a seam failure treated as ours, a null seam allowed through) each turn
+`fl_guard` red. The green direction is asserted separately, because a gate that
+refuses every payload carries as much information as one that accepts every
+payload — the staged Overlay must be accepted, the *same file staged elsewhere*
+must not, and the test refuses to run at all if those two paths ever resolve to
+one directory.
+
+> **The canary harness lied again, and the mechanism is worth writing down.**
+> Restoring the file from a backup with `Copy-Item` preserved the backup's
+> **old** timestamp, so ninja judged the source up to date and never rebuilt —
+> leaving the last canary's binary in place while the tree read clean. It then
+> segfaulted on the exact case that canary had disarmed, which is a symptom that
+> invites diagnosing the code instead of the harness. Restores must stamp the
+> file. That is the fourth time this session's own verification tooling was the
+> broken thing.
+
+#### (b) ◐ The §S18 exemption asks about the PROCESS, not the module — **open**
+
+Same probe, same binary, same target; only the caller's directory differs:
+
+| Caller's location | Verdict |
+|---|---|
+| Beside `FrameLedger.Guard.dll` | `Allow` |
+| Anywhere else | `SuspiciousUnsigned`, family `unknown`, signal `FrameLedger.Guard.dll` |
+
+`SuppressFragmentTier` delegates to `ProcessIsOurOwn`, which compares the
+scan-set **process image** directory to `OwnDirectory()`. The module that matched
+is *our own guard DLL* — it contains the fragment `guard` — but the exemption
+never asks about it. So any FrameLedger-family host that does not sit beside the
+guard poisons its own scan set. The Agent works by accident:
+`FrameLedger.Guard.targets` copies the DLL beside `FrameLedger.Agent.exe`.
+
+This matters now rather than in the abstract, because every throwaway
+inject-host proposal puts the tool in its own build directory — the arrangement
+measured RED — and a launch-mode host is by construction in the §S16 scan set.
+Whoever hits it will read the refusal as the fuzzy tier being over-eager (§S19
+says so, in writing) and go rewriting a safety gate instead of moving a file.
+
+**The right fix is to key the exemption on the MATCHED MODULE** — a scan-set
+process is exempt when the module that tripped the fragment tier is ours by file
+id. Strictly narrower than today's process-level exemption, and it fixes launch
+mode. It also removes a real over-reach nobody had costed: today a genuinely
+foreign suspicious module loaded into a FrameLedger process — an AppInit DLL, an
+AV user-mode hook, an IME — is suppressed along with our own.
+
+**Deliberately not done in the same change, because it is not the size the plan
+assumed.** `NameSink` is `bool(*)(void*, const char*)` fed by
+`GetModuleBaseNameA`, so the module's **path never reaches the decision point** —
+the constraint §S19(b) already recorded. Keying on the module therefore needs the
+module seam widened to carry paths, which is a new row in the fail-closed matrix
+and changes every fake in `guard_test.cpp`. Worse, it forces the restructure
+§S19(b) predicted: `NameSinkFn` latches the FIRST fragment-matching module and
+discards the rest, so per-module suppression turns that latch into a **fail-open
+reachable by load order** — our guard DLL matches first, is suppressed, and a
+foreign suspicious module loaded afterwards is never recorded. The detection half
+has to be restructured, not extended.
+
+Until it lands: an inject host must be installed beside `FrameLedger.Guard.dll`,
+and that requirement belongs in a test rather than in this paragraph.
+
 ### S14 ◐ · Pre-injection check 3 is **unwired**, and has no "cannot determine" state
 
 Found 2026-08-02 while hardening the rules toolchain. `19_SAFETY` §Pre-injection

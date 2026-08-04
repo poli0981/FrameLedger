@@ -113,6 +113,24 @@ struct Fake {
     // from the fragment tier by adding this.
     std::set<std::uint32_t> ourOwnPids;
     Collected               ourOwnResult = Collected::kOk;
+
+    // §S22 — the payload identity seam.
+    //
+    // DEFAULTS TO THE REAL IMPLEMENTATION, unlike every other member here, and
+    // the asymmetry is deliberate. A fake that answered "ours" by default would
+    // make every injection test below green whether or not the real check works
+    // and whether or not the payload is actually where the guard requires it —
+    // which is the whole subject of §S22. With kReal, the cross-process cases
+    // exercise PayloadIsOurOwnImpl against a real file on a real disk, so the
+    // CMake staging that puts the Overlay beside this binary is load-bearing:
+    // break it and these tests go red.
+    enum class Payload : std::uint8_t {
+        kReal,          // call SystemSources().PayloadIsOurOwn
+        kOurs,          // force "ours"
+        kForeign,       // force "not ours"
+        kCannotTell,    // force kFailed
+    };
+    Payload payload = Payload::kReal;
 };
 
 Fake g;
@@ -196,6 +214,22 @@ Collected FakeProcessIsOurOwn(std::uint32_t pid, bool* isOurs) {
     return Collected::kOk;
 }
 
+Collected FakePayloadIsOurOwn(const wchar_t* dllPath, bool* isOurs) {
+    switch (g.payload) {
+    case Fake::Payload::kOurs:
+        *isOurs = true;
+        return Collected::kOk;
+    case Fake::Payload::kForeign:
+        *isOurs = false;
+        return Collected::kOk;
+    case Fake::Payload::kCannotTell:
+        return Collected::kFailed;
+    case Fake::Payload::kReal:
+    default:
+        return SystemSources().PayloadIsOurOwn(dllPath, isOurs);
+    }
+}
+
 Sources FakeSources() {
     Sources s;
     s.ReadRulesFile = &FakeReadRules;
@@ -206,6 +240,7 @@ Sources FakeSources() {
     s.ImageDirectory = &FakeImageDirectory;
     s.EnumerateDirEntries = &FakeEnumDirEntries;
     s.ProcessIsOurOwn = &FakeProcessIsOurOwn;
+    s.PayloadIsOurOwn = &FakePayloadIsOurOwn;
     return s;
 }
 
@@ -929,6 +964,22 @@ struct Child {
     }
 };
 
+// Spawn the harness and wait for its loader. Returns false if it died, which the
+// caller must REQUIRE on: a dead child makes every assertion below fail for a
+// reason unrelated to what is being tested, and that is exactly what happened
+// the first time the injection tests were written.
+bool StartHarness(Child& child) {
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --hold 30";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    if (!CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                        &child.pi)) {
+        return false;
+    }
+    Sleep(800);
+    return WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT;
+}
+
 }    // namespace
 
 TEST_CASE("the injection primitive really loads our DLL into another process", "[guard][inject]") {
@@ -1037,6 +1088,170 @@ TEST_CASE("a 32-bit target gets its own reason, not a generic failure", "[guard]
     CHECK_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kTargetIsWow64);
     CHECK(v.reason != Reason::kInjectionFailed);    // specific, not the catch-all
+}
+
+// ===========================================================================
+// §S22 — the payload, not just the target.
+//
+// Until these existed, the ONLY thing ever asked of `dllPath` was
+// GetFileAttributesW. The shipped, exported FlGuardedInject would load any DLL
+// on the machine into any x64 process that happened to carry no anti-cheat —
+// §S9's user-runnable injector, re-shipped as a documented C ABI.
+//
+// Every case here runs the REAL PayloadIsOurOwnImpl (Fake::Payload::kReal is the
+// default) except the two that exist to force the seam's failure paths. Real
+// files, real directories, a real child process, and the assertion that matters
+// is always "and nothing was loaded".
+// ===========================================================================
+
+TEST_CASE("a payload that is not ours is refused, and nothing is loaded", "[guard][inject][payload]") {
+    // The measured defect, as a test. C:\Windows\System32\winmm.dll is a real,
+    // loadable, Microsoft-signed DLL that has nothing to do with FrameLedger —
+    // and before §S22 this call returned Allow and put it in the target.
+    Child child;
+    REQUIRE(StartHarness(child));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};    // a clean target: the payload is the only objection
+    g.scanSet = {child.pi.dwProcessId};
+
+    wchar_t sys[MAX_PATH]{};
+    REQUIRE(GetSystemDirectoryW(sys, MAX_PATH) != 0);
+    const std::wstring foreign = std::wstring(sys) + L"\\winmm.dll";
+    REQUIRE(GetFileAttributesW(foreign.c_str()) != INVALID_FILE_ATTRIBUTES);    // it really is loadable
+
+    // If the harness already carries it, the assertion below proves nothing —
+    // "not loaded by us" and "was there all along" would look identical. Fail
+    // loudly rather than pass vacuously.
+    REQUIRE_FALSE(TargetHasModule(child.pi.dwProcessId, L"winmm.dll"));
+
+    const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, foreign.c_str(), FakeSources());
+
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+    CHECK_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kPayloadNotOurs);
+    CHECK(v.family[0] == '\0');    // no anti-cheat was found; this is about us
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"winmm.dll"));
+}
+
+TEST_CASE("the payload check discriminates on DIRECTORY, not on filename", "[guard][inject][payload]") {
+    // Same file name, same bytes, wrong place. A check keyed on
+    // "FrameLedger.Overlay.dll" would pass this and would be defeated by any
+    // DLL that borrowed the name.
+    //
+    // Guarded against becoming vacuous: if the staged copy and the build output
+    // ever resolve to one directory there is nothing here to discriminate, and a
+    // test that cannot fail is worse than an absent one.
+    REQUIRE(std::wstring(FL_OVERLAY_DLL) != std::wstring(FL_OVERLAY_DLL_ELSEWHERE));
+
+    Child child;
+    REQUIRE(StartHarness(child));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+
+    const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL_ELSEWHERE, FakeSources());
+
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+    CHECK_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kPayloadNotOurs);
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+TEST_CASE("a payload identity seam that cannot answer refuses", "[guard][inject][payload]") {
+    // The ordinary polarity of this file. "I could not tell whose DLL this is"
+    // must never be spelled the same way as "it is ours".
+    Child child;
+    REQUIRE(StartHarness(child));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    g.payload = Fake::Payload::kCannotTell;
+
+    const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources());
+
+    CHECK_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kPayloadNotOurs);
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+TEST_CASE("a guard wired without the payload seam refuses", "[guard][inject][payload]") {
+    // Sources members default to nullptr, so the failure mode of FORGETTING to
+    // wire this must be a refusal rather than a load. Every other seam in this
+    // file carries the same case for the same reason.
+    Child child;
+    REQUIRE(StartHarness(child));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+
+    Sources s = FakeSources();
+    s.PayloadIsOurOwn = nullptr;
+
+    const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, s);
+
+    CHECK_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kPayloadNotOurs);
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+TEST_CASE("a blocked TARGET outranks a foreign payload", "[guard][inject][payload]") {
+    // Ordering, asserted rather than left to reading order. Both objections are
+    // real; the user must be told the one that matters — anti-cheat is in the
+    // target — and not "your payload is wrong", which would send them looking at
+    // their FrameLedger install for a problem in the game.
+    ResetFake();
+    g.modules = {"kernel32.dll", "BEClient_x64.dll"};
+    g.scanSet = {GetCurrentProcessId()};
+    g.payload = Fake::Payload::kForeign;
+
+    const Verdict v = GuardedInjectWithSources(GetCurrentProcessId(), FL_OVERLAY_DLL, FakeSources());
+
+    CHECK_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kBlockedModule);
+    CHECK(v.reason != Reason::kPayloadNotOurs);
+}
+
+TEST_CASE("the payload check can PASS — the staged Overlay is accepted", "[guard][inject][payload]") {
+    // The green direction, against the real implementation. A gate that refuses
+    // every input carries exactly as much information as one that accepts every
+    // input, and this project has shipped both kinds. Asserted here without
+    // injecting anything: the identity seam alone, called the way the guard
+    // calls it.
+    bool            ours = false;
+    const Collected c = SystemSources().PayloadIsOurOwn(FL_OVERLAY_DLL, &ours);
+
+    INFO("payload " << "FL_OVERLAY_DLL" << " must resolve into this binary's own directory");
+    REQUIRE(c == Collected::kOk);
+    CHECK(ours);
+
+    // ...and the same call must say NO for the same file staged elsewhere.
+    bool elsewhere = true;
+    REQUIRE(SystemSources().PayloadIsOurOwn(FL_OVERLAY_DLL_ELSEWHERE, &elsewhere) == Collected::kOk);
+    CHECK_FALSE(elsewhere);
+
+    // A path that names nothing cannot be answered, and must not be "ours".
+    bool absent = true;
+    CHECK(SystemSources().PayloadIsOurOwn(LR"(C:\definitely\not\here.dll)", &absent) == Collected::kFailed);
+    CHECK_FALSE(absent);
+
+    // A directory is not a payload. FILE_READ_ATTRIBUTES without
+    // FILE_FLAG_BACKUP_SEMANTICS cannot open one, which is what makes this
+    // fail-closed rather than a separate test we would have to remember.
+    wchar_t sys[MAX_PATH]{};
+    REQUIRE(GetSystemDirectoryW(sys, MAX_PATH) != 0);
+    bool dir = true;
+    CHECK(SystemSources().PayloadIsOurOwn(sys, &dir) == Collected::kFailed);
+    CHECK_FALSE(dir);
+
+    // Null and empty are the caller getting it wrong, and get the same answer.
+    bool n = true;
+    CHECK(SystemSources().PayloadIsOurOwn(nullptr, &n) == Collected::kFailed);
+    CHECK(SystemSources().PayloadIsOurOwn(L"", &n) == Collected::kFailed);
+    CHECK(SystemSources().PayloadIsOurOwn(FL_OVERLAY_DLL, nullptr) == Collected::kFailed);
 }
 
 #endif    // FL_HARNESS_EXE && FL_OVERLAY_DLL

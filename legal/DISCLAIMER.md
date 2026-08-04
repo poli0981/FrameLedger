@@ -10,6 +10,8 @@ To measure what a game is *actually* doing — its real render resolution, which
 
 None of this information is obtainable from outside the process, which is why the software works this way.
 
+**Only FrameLedger's own component is ever loaded.** The injection path refuses any library that does not come from FrameLedger's own installation directory, and there is no setting that changes this. Be aware of the limit of that promise: it establishes where the file came from, not what is in it, and FrameLedger is distributed unsigned — so anyone able to write to your FrameLedger installation could alter what gets loaded. Install it somewhere only you can write to, and verify the published SHA-256 checksums.
+
 **What it observes:** arguments the game passes to graphics APIs we intercept (presentation, upscaling, ray tracing, pipeline creation) and video-memory usage reported by the graphics runtime.
 
 **What it never does:** read or write the game's memory outside those API arguments; read save files, input, chat, or network traffic; modify game behavior; hide itself from any security software; or install a kernel driver of its own.

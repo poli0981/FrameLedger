@@ -39,4 +39,11 @@
   <!-- The seed the Agent installs to the product location on first run (§S20). -->
   <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Rules.targets" />
 
+  <!--
+    The payload, which must land in the SAME directory as the guard: §S22 makes
+    the guard refuse a DLL that does not resolve there. Nothing shipped the
+    Overlay anywhere before this import existed.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Overlay.targets" />
+
 </Project>

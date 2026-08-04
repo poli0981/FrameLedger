@@ -11,7 +11,43 @@ GitHub release body, so a missing section means an empty release note.
 
 ## [Unreleased]
 
+### Fixed
+- **The anti-cheat guard gated the target process and nothing gated the payload**
+  (`20_OPEN_QUESTIONS` §S22). `FlGuardedInject` — an exported C ABI on the shipped
+  `FrameLedger.Guard.dll` — asked only whether a file existed at the caller's
+  `dllPath`. Measured through the shipped binary with no test seam:
+  `C:\Windows\System32\winmm.dll` loaded into a live process, verdict `Allow`.
+  That is the standalone injector §S9 refused to ship, re-exported with a
+  published calling convention.
+  - The guard now requires the payload to resolve — through symlinks, 8.3 names
+    and junctions — into the directory its own code was loaded from, compared by
+    file id, and refuses with a new `PayloadNotOurs` reason otherwise. A null
+    seam and a seam that cannot answer refuse the same way.
+  - **It proves where the bytes live, not what is in them.** Anyone who can write
+    to that directory can already replace `FrameLedger.Guard.dll` itself, and the
+    project ships unsigned, so the check is exactly as strong as the install
+    location. It is also not atomic with the load.
+  - `kInjectionFailed` still covers a payload that is simply absent: a damaged
+    install and a misuse of the ABI need opposite responses.
+  - **Nothing shipped `FrameLedger.Overlay.dll` anywhere**, which had to be fixed
+    in the same change or the new constraint would have been a gate that could
+    not pass. `dotnet publish` produced an `out/app` with the Agent, the guard and
+    the rules seed and no payload at all.
+  - Proven red, green and recovering: three canaries each turn `fl_guard` red, and
+    the accepted direction is asserted separately — the staged Overlay passes, the
+    same file staged elsewhere does not, and the test refuses to run if those two
+    paths ever resolve to one directory.
+
 ### Known issues
+- **The §S18 self-exemption asks about the process, not the module that matched**
+  (`20_OPEN_QUESTIONS` §S22(b)). Any FrameLedger-family host that does not sit
+  beside `FrameLedger.Guard.dll` refuses its own injections with
+  `SuspiciousUnsigned`, naming our own DLL as the signal — measured, same binary,
+  only the caller's directory differing. The Agent works because
+  `FrameLedger.Guard.targets` puts the DLL beside it. Until this is re-keyed, an
+  injection host must be installed beside the guard. The fix needs the module seam
+  widened to carry paths and the first-hit latch restructured, which §S19(b)
+  already describes; it is not the one-line change it looks like.
 - **The anti-cheat guard's fuzzy "unknown-but-suspicious" tier matches benign
   system DLLs, and one of its rules can never fire** (`20_OPEN_QUESTIONS` §S19).
   Re-measured unelevated on Windows 11 26300: 290 processes, 0 inaccessible,
