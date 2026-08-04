@@ -97,7 +97,7 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 | Hook | Yields |
 |---|---|
 | NGX: `NVSDK_NGX_D3D11/D3D12/VULKAN_CreateFeature`, `EvaluateFeature`, `ReleaseFeature` | Which NGX feature is *actually created and evaluated per frame*: SuperSampling (DLSS), RayReconstruction (DLSS-D), FrameGeneration (DLSS-G) |
-| NGX parameter accessors (`NVSDK_NGX_Parameter_SetI/GetI/SetUI`) | `Width`/`Height` (render) vs `OutWidth`/`OutHeight` (output), `PerfQualityValue` (quality preset), sharpness |
+| NGX parameter accessors (`NVSDK_NGX_Parameter_SetI/GetI/SetUI`) — **exported by `sl.common.dll` only; see below** | `Width`/`Height` (render) vs `OutWidth`/`OutHeight` (output), `PerfQualityValue` (quality preset), sharpness |
 | Streamline: `slInit`, `slSetFeatureLoaded`, `slEvaluateFeature`, `slSetConstants`, `slGetFeatureRequirements` | Feature set actually active when the game goes through SL rather than NGX directly (`kFeatureDLSS`, `DLSS_G`, `DLSS_RR`, `Reflex`, `NIS`) |
 | FidelityFX: `ffxFsr2ContextCreate` / `ffxFsr3*` / unified `ffxCreateContext` (`ffx_api`) | `maxRenderSize` vs `displaySize`/`maxUpscaleSize`, FSR version, frame-interpolation context presence |
 | XeSS: `xessD3D12CreateContext`, `xessD3D12Init`, `xessD3D12Execute` | `outputResolution`, `qualitySetting`, XeSS version; `xess_fg` variants for XeFG |
@@ -110,7 +110,28 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 > used it to claim driver-level FG (AMD AFMF) detection; that claim was wrong and
 > would have read as "no frame generation" rather than as a failure.
 
-> ⚠ **Symbol names above are from vendor SDK conventions and must be verified against the actual exports on the dev machine during the P0 spike.** These SDKs rename and restructure between versions (especially the FidelityFX move to `ffx_api`, and NGX/Streamline dual paths). Resolve everything dynamically by name with a null-check + capability flag; a missing export must degrade to "unknown", never crash.
+> ⚠ **Symbol names above were vendor SDK conventions. They are now measured** — `tools/vendor-exports.ps1` resolves them against the DLLs installed titles actually ship, and the result is committed as `docs/vendor-exports.json` (34 distinct modules across 162 files on the dev machine). Resolve everything dynamically by name with a null-check + capability flag; a missing export must degrade to "unknown", never crash. **A wrong name degrades silently to `unknown`, which reads as "working, no upscaler detected" — the highest false-confidence risk in the spike, which is why this is data and not prose.**
+
+### The NGX parameter surface splits into two hook classes — measured
+
+This is the finding P0 item 5 existed to produce, and it changes what the feature-hook phase has to build.
+
+| Module | Exports the parameter **accessors** (`NVSDK_NGX_Parameter_SetI/GetI/…`) | Exports the parameter-object **factories** (`AllocateParameters`, `GetCapabilityParameters`, `GetParameters`) |
+|---|---|---|
+| `sl.common.dll` (Streamline) | **yes** — all 16 | yes |
+| `nvngx.dll` / driver-store `_nvngx.dll` (NGX core) | **no** | yes, for D3D11/D3D12/Vulkan/CUDA |
+| `nvngx_dlss.dll`, `nvngx_dlssg.dll`, `nvngx_dlssd.dll` | no | no |
+
+So:
+
+- **Streamline-shimmed titles** (9 of the installed titles here) expose the accessors as ordinary exported functions on `sl.common.dll`. An inline hook on `NVSDK_NGX_Parameter_SetUI` yields `PerfQualityValue` and the render/output pair directly. This is the case §Hook inventory already describes.
+- **NGX-direct titles** call the core, which exports only the **factories**. The accessors are function pointers *inside* the `NVSDK_NGX_Parameter` object those factories return — so there is no symbol to hook. Reaching them means hooking `NVSDK_NGX_D3D12_AllocateParameters` / `GetCapabilityParameters` and reading or wrapping the returned object's function-pointer table.
+
+**The second path needs its own justification against CLAUDE.md rule 4 before it is built, and it survives one.** Rule 4 permits "arguments passed to APIs we hooked and COM/handle objects we legitimately own". The parameter object is a handle returned by an API we hooked, in the same sense as an `IDXGISwapChain` — reading its function-pointer table is the same operation as reading a COM vtable, which §Getting vtable addresses already does. What it is **not** is pattern-scanning for game internals, and the distinction must stay in writing.
+
+> `nvngx_dlss.dll` itself is a dead end for this purpose and should not be hooked for it: 59 exports, none of them parameter-related. It is the feature payload, not the API surface.
+
+> **Not built, and not gated.** This section records a measurement and a decision. There is no `hookinventory-check` cross-checking the table above against `vendor-exports.json` — so the two can drift, exactly as the blocklist and `19_SAFETY` could before `rules-validate` cross-checked them. That gate belongs with the PR that adds the feature hooks, where a row failing it would mean something.
 
 ### Ray tracing
 | Hook | Yields |
