@@ -404,7 +404,8 @@ normative documentation. Write tokens here exactly as the data must hold them.
 |---|---|---|---|
 | Easy Anti-Cheat | `modules` | prefix | `EasyAntiCheat`, `EasyAntiCheat_EOS` |
 | Easy Anti-Cheat | `directories` | name | `EasyAntiCheat` |
-| Easy Anti-Cheat | `services` | name | `EasyAntiCheat`, `EasyAntiCheat_EOS` |
+| Easy Anti-Cheat | `services` | name | `EasyAntiCheat`, `EasyAntiCheat_EOS`, `EasyAntiCheat_EOSSys` |
+| Easy Anti-Cheat | `drivers` | prefix | `EasyAntiCheat` — **machine-wide refusal** (check 2) |
 | BattlEye | `modules` | prefix | `BEClient`, `BEService` |
 | BattlEye | `directories` | name | `BattlEye` |
 | Riot Vanguard | `drivers` | exact | `vgk.sys` — **machine-wide refusal** (check 2) |
@@ -417,11 +418,32 @@ normative documentation. Write tokens here exactly as the data must hold them.
 | FACEIT | `modules` | prefix | `faceit` |
 | ESEA | `modules` | prefix | `esea` |
 | PunkBuster | `modules` | prefix | `PnkBstr`, `pbcl`, `pbsv` |
+| Anti-Cheat Expert | `drivers` | exact | `ACE-BASE.sys`, `ACE-ADVT.sys`, `ACE-GAME.sys` — **machine-wide refusal** (check 2) |
+| Anti-Cheat Expert | `services` | name | `AntiCheatExpert Protection`, `AntiCheatExpert Service` |
+| Anti-Cheat Expert | `files` | name | `PGameProtectDriver_X64.sys` |
 | **Activision Ricochet** | — | — | **No data yet** — driver and service names unconfirmed (`20_OPEN_QUESTIONS` §S5) |
-| **Valve VAC** | — | — | **No data yet** — needs `blockedStoreIds`; VAC titles are treated as **online** (refuse) |
+| **Valve VAC** | — | — | **No data yet** — needs `blockedStoreIds`, and check 3 is unwired (§S14). **Measured 2026-08-04: a real VAC title returns `Allow`** (`spike-notes.md` §13) |
 
-The two "no data yet" rows are deliberately kept rather than deleted. An
-admitted gap is reviewable; a deleted row is invisible.
+The "no data yet" rows are deliberately kept rather than deleted. An admitted
+gap is reviewable; a deleted row is invisible.
+
+> **Anti-Cheat Expert was added 2026-08-04 from measurement, not from reading.**
+> `ACE-BASE.sys` and `ACE-ADVT.sys` were found installed under `System32\drivers`
+> on the dev machine, and the service `AntiCheatExpert Protection` registered,
+> by a title whose install also ships its own kernel driver
+> (`PGameProtectDriver_X64.sys`) inside the game tree. None of it matched
+> anything: the whole family was absent from this table and from the data, so a
+> **kernel-level** anti-cheat was present on the machine and every check returned
+> `Allow`. `ACE-GAME.sys` and `AntiCheatExpert Service` are documented siblings
+> and are **unmeasured** — recorded as such, because a blocklist may over-cover
+> and must never under-cover.
+>
+> The `Easy Anti-Cheat` **drivers** row was added at the same time and for a
+> sharper reason: `EasyAntiCheat_EOSSys` was measured **Running as a kernel
+> driver** during a live EAC session and matched nothing in `drivers`. The
+> refusal came from the service check instead. A family caught through only one
+> of five groups is one rename away from being missed, and the fact that
+> *something else* fired is exactly what makes such a gap invisible.
 
 > **A prefix must be at least 4 characters and must not shadow a system module.**
 > This table used to write PunkBuster as `pb*.dll`; the data correctly narrows

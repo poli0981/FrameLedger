@@ -33,13 +33,27 @@ namespace fl::guard {
 // How far below the game directory we look, and how much we are willing to
 // look at.
 //
-// Depth 2 is not arbitrary: `EasyAntiCheat/` sits beside the executable, and the
-// EOS anti-cheat payloads sit one level inside it. Deeper costs real time on a
-// large install for signals that, by 19_SAFETY's own table, do not live there.
+// Depth 2 was not arbitrary and was still too shallow. `EasyAntiCheat/` sits
+// beside the executable and its EOS payloads sit one level inside it, which the
+// old value covered — but "by 19_SAFETY's own table, deeper signals do not live
+// there" was an assumption about the table, not about game installs.
+//
+// MEASURED 2026-08-04 (spike-notes §13): Neverness To Everness ships its own
+// KERNEL DRIVER at `NTEGlobal/driver/PGameProtectDriver_X64.sys` — two
+// directories below the install root, and therefore invisible. Adding the family
+// to the blocklist changed nothing from the install root, which is where check 4
+// actually runs; it only fired when the scan was started from `NTEGlobal`. A
+// blocklist row that cannot be reached is coverage on paper.
+//
+// The cost was measured before the value moved, not assumed. Across 67 installed
+// titles the worst case is 506 entries at the old reach and 729 at the new one,
+// against kMaxPreScanEntries = 4096 — 18% of budget, 5.6x headroom. That matters
+// because the entry cap is a REFUSAL: overrunning it does not scan less, it
+// refuses the title.
 //
 // Both caps are REFUSALS, not truncations. A walk that stopped early has not
 // seen the directory, and this file has no "scanned what we could" state.
-inline constexpr std::size_t kMaxPreScanDepth = 2;
+inline constexpr std::size_t kMaxPreScanDepth = 3;
 inline constexpr std::size_t kMaxPreScanEntries = 4096;
 
 // Longest game directory path we will hold. MAX_PATH is not enough for a real

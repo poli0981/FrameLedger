@@ -63,7 +63,46 @@ GitHub release body, so a missing section means an empty release note.
     the guard's own null clause untestable — the latter surfaced only because a
     canary disarmed the clause and nothing went red.
 
+- **The blocklist had no Anti-Cheat Expert family at all**, and a kernel-level
+  anti-cheat was present on the dev machine with every check returning `Allow`
+  (`spike-notes.md` §13). `ACE-BASE.sys` / `ACE-ADVT.sys` under `System32\drivers`,
+  the service `AntiCheatExpert Protection`, and a driver the game ships inside its
+  own install tree — none of them matched anything.
+  - Anti-Cheat Expert added to `drivers`, `services` and `files`; the unmeasured
+    sibling names are marked as unmeasured rather than presented as evidence.
+  - **Easy Anti-Cheat gained a `drivers` row for a sharper reason**:
+    `EasyAntiCheat_EOSSys` was measured **Running as a kernel driver** during a
+    live EAC session and matched nothing in that group. The refusal came from the
+    service check instead — and something else firing is exactly what makes such
+    a gap invisible.
+- **The static pre-scan could not reach a driver the game ships two levels down**
+  (`kMaxPreScanDepth` 2 → 3). Adding the blocklist row above changed nothing from
+  the install root, which is where check 4 actually runs; it only fired when the
+  scan was started from a subdirectory. Measured with a control tree at increasing
+  depth, and the cost measured before the value moved because the entry cap is a
+  refusal, not a truncation: worst case across 67 installed titles is 506 entries
+  at the old reach and 729 at the new one, against a 4096 budget.
+  - Re-run over all 67 titles afterwards: 65 `Allow`, exactly the two anti-cheat
+    titles refused, **0** `PreScanFailed`.
+
 ### Known issues
+- **A real VAC title is allowed by the guard today** (`spike-notes.md` §13).
+  Counter-Strike 2 measures `Allow`: VAC is neither a machine-wide driver nor a
+  service, it is modules inside the game process — and that process denies module
+  enumeration (`EnumProcessModulesEx` → `ERROR_ACCESS_DENIED`, even though
+  `OpenProcess` succeeds). The route `19_SAFETY` reserves for VAC is
+  `blockedStoreIds`, i.e. check 3, which is still unwired (§S14).
+- **While any Easy Anti-Cheat title is running, the guard refuses every target on
+  the machine** — measured against a freshly spawned, completely unrelated
+  process. Checks 2 and 2b do not depend on the target, so this is the intended
+  fail-closed posture for a live anti-cheat driver, but the user-facing text has
+  to explain it or it reads as a bug: the signal names a game the user may not be
+  playing.
+- **The module and driver tiers have still never been observed to fire.** The one
+  title here whose modules are readable carries none, EAC-protected processes deny
+  enumeration outright, and the new driver rows were added from installed-state
+  evidence while the drivers themselves were Stopped. Data-complete, behaviourally
+  untested.
 - **The anti-cheat guard's fuzzy "unknown-but-suspicious" tier matches benign
   system DLLs, and one of its rules can never fire** (`20_OPEN_QUESTIONS` §S19).
   Re-measured unelevated on Windows 11 26300: 290 processes, 0 inaccessible,
