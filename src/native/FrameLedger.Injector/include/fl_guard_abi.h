@@ -75,6 +75,21 @@ FL_GUARD_ABI const char* FlGuardReasonName(std::int32_t reason);
 // gained a value the other does not know about.
 FL_GUARD_ABI std::int32_t FlGuardReasonCount(void);
 
+// The path the guard reads its rules from. NOT a way to change it — there is no
+// setter, and nothing here accepts a path (§S3).
+//
+// It exists so the managed side can ASSERT it agrees. `DetectionRulesFile`
+// resolves the same file through Environment.GetFolderPath while its own comment
+// claims to reach "the same directory the native guard uses"; those are two
+// different Win32 calls and, before this, nothing checked they landed in the same
+// place. A seeder that writes where the gate does not read would report success
+// and leave the guard refusing every title (§S20, §S21).
+//
+// Writes a NUL-terminated wide path. Returns the number of characters written,
+// 0 on failure — never a partial path, because a truncated path names a
+// different file.
+FL_GUARD_ABI std::int32_t FlGuardRulesFilePath(wchar_t* out, std::int32_t cap);
+
 }    // extern "C"
 
 #endif    // FL_GUARD_ABI_H

@@ -76,6 +76,10 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
     [DllImport(_guardDll, CallingConvention = CallingConvention.Cdecl)]
     private static extern int FlGuardReasonCount();
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport(_guardDll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    private static extern int FlGuardRulesFilePath([Out] char[] buffer, int cap);
+
     static NativeAntiCheatGuard()
     {
         NativeLibrary.SetDllImportResolver(typeof(NativeAntiCheatGuard).Assembly, Resolve);
@@ -138,6 +142,27 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
 
     /// <summary>How many reason codes the native side declares.</summary>
     public static int NativeReasonCount() => FlGuardReasonCount();
+
+    /// <summary>
+    /// The path the native guard reads its rules from, for asserting that this
+    /// assembly's independent resolution agrees with it (§S21).
+    /// </summary>
+    /// <remarks>
+    /// Read-only by construction: the ABI has no setter and accepts no path, so
+    /// this widens what can be OBSERVED and not what can be chosen. It exists
+    /// because two different Win32 resolutions of "the same directory" is exactly
+    /// the shape §S21 was — a seeder that writes where the gate does not read
+    /// reports success and leaves the guard refusing every title.
+    /// </remarks>
+    public static string NativeRulesFilePath()
+    {
+        // 1024 mirrors fl::guard::kMaxRulesPathLen. A short buffer would come
+        // back as 0 rather than as a truncated path, which would then compare
+        // unequal and read as drift — so give it the room the native side has.
+        char[] buffer = new char[1024];
+        int written = FlGuardRulesFilePath(buffer, buffer.Length);
+        return written <= 0 ? string.Empty : new string(buffer, 0, written);
+    }
 
     private static async ValueTask<AntiCheatVerdict> RunAsync(Func<AntiCheatVerdict> work, CancellationToken ct)
     {

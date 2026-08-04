@@ -97,14 +97,24 @@ bool CurrentProcessImageName(char* out, DWORD cap) {
     return true;
 }
 
-bool EnableListPath(char* out, size_t cap) {
-    char*  base = nullptr;
-    size_t len = 0;
-    if (_dupenv_s(&base, &len, "LOCALAPPDATA") != 0 || base == nullptr) {
+// §S21. Shell-resolved and wide, for the same two reasons the rules path is:
+// the environment variable was inherited from whoever launched the game, and the
+// ANSI form silently failed on any profile path the active code page cannot
+// spell. The second one mattered more here than it looks — a `ja` or `vi` user
+// would have had a layer that loaded into every Vulkan process and then never
+// found its own enable-list, i.e. Vulkan Tier 1 quietly never working, with no
+// error anywhere. Shares LocalAppDataDir with the guard rather than carrying a
+// second copy of the resolution.
+//
+// Residual, stated rather than discovered later: the enable-list's CONTENTS are
+// still compared as ANSI image names (CurrentProcessImageName above). That is a
+// file-format question, not a path question, and it is left alone here.
+bool EnableListPath(wchar_t* out, size_t cap) {
+    wchar_t base[fl::guard::kMaxRulesPathLen]{};
+    if (!fl::guard::LocalAppDataDir(base, fl::guard::kMaxRulesPathLen)) {
         return false;
     }
-    const int written = _snprintf_s(out, cap, _TRUNCATE, "%s\\FrameLedger\\vklayer\\enabled.txt", base);
-    std::free(base);
+    const int written = _snwprintf_s(out, cap, _TRUNCATE, L"%s\\FrameLedger\\vklayer\\enabled.txt", base);
     return written > 0;
 }
 
@@ -113,13 +123,13 @@ bool ThisProcessIsEnabled() {
     if (!CurrentProcessImageName(image, MAX_PATH)) {
         return false;
     }
-    char path[MAX_PATH]{};
-    if (!EnableListPath(path, MAX_PATH)) {
+    wchar_t path[fl::guard::kMaxRulesPathLen]{};
+    if (!EnableListPath(path, fl::guard::kMaxRulesPathLen)) {
         return false;
     }
 
-    HANDLE h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         return false;    // absent or unreadable — not invited
     }

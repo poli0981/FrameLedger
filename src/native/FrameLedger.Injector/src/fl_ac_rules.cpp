@@ -1,10 +1,17 @@
+// windows.h stays in its own block above the sorted group: clang-format orders
+// the rest alphabetically, and knownfolders/objbase/shlobj_core all require it
+// to have been seen first.
 #include <windows.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cwchar>
 #include <fl_ac_rules.h>
 #include <jsmn.h>
+#include <knownfolders.h>
+#include <objbase.h>
+#include <shlobj_core.h>
 
 namespace fl::guard {
 namespace {
@@ -303,7 +310,14 @@ bool ReadTitleArray(const char* json, const jsmntok_t* toks, int count, int arra
 
 // The gate has to be usable, not merely well-formed. A syntactically perfect
 // file with an empty `modules` array blocks nothing.
-bool IsCompleteEnoughToGate(const Rules& r) noexcept {
+//
+// `first` is where the FILE's families begin. Everything below it is the floor,
+// which satisfies this check by construction — so scanning from 0 would make
+// this a gate that cannot fail, which is the defect class 20_OPEN_QUESTIONS
+// exists to record. The floor protects the GATE; this check polices the DATA,
+// and "the rules file you shipped is missing BattlEye" is still worth refusing
+// over and telling someone about.
+bool IsCompleteEnoughToGate(const Rules& r, std::size_t first) noexcept {
     struct Required {
         const char* family;
         Group       group;
@@ -317,7 +331,7 @@ bool IsCompleteEnoughToGate(const Rules& r) noexcept {
 
     for (const auto& req : kRequired) {
         bool found = false;
-        for (std::size_t i = 0; i < r.familyCount && !found; ++i) {
+        for (std::size_t i = first; i < r.familyCount && !found; ++i) {
             found = r.families[i].group == req.group && IEquals(r.families[i].name, req.family);
         }
         if (!found) {
@@ -329,8 +343,42 @@ bool IsCompleteEnoughToGate(const Rules& r) noexcept {
 
 }    // namespace
 
+const Family* FloorFamilies(std::size_t& count) noexcept {
+    // §S21. Exactly the three families IsCompleteEnoughToGate already required —
+    // no more, because every extra entry here is a blocklist that can drift from
+    // rules/detection-rules.json, and ctest fl_rules_budget pins these against the
+    // shipped seed for that reason.
+    //
+    // Values are the ones that carry the coverage, not every value in the seed:
+    // "EasyAntiCheat" is a PREFIX rule, so it already subsumes
+    // "EasyAntiCheat_EOS". The subset assertion is "every value here appears in
+    // the seed", never "these two lists are equal".
+    static constexpr Family kFloor[kFloorFamilyCount] = {
+        {"Easy Anti-Cheat", Group::kModules, MatchKind::kPrefix, {"EasyAntiCheat"}, 1},
+        {"BattlEye", Group::kModules, MatchKind::kPrefix, {"BEClient", "BEService"}, 2},
+        {"Riot Vanguard", Group::kDrivers, MatchKind::kExact, {"vgk.sys"}, 1},
+    };
+    static_assert(sizeof(kFloor) / sizeof(kFloor[0]) == kFloorFamilyCount,
+                  "kFloorFamilyCount must match the table; rules-validate.ps1 subtracts it from the file's budget");
+
+    count = kFloorFamilyCount;
+    return kFloor;
+}
+
 ParseResult ParseRules(const char* json, std::size_t length, Rules& out) noexcept {
     out = Rules{};
+
+    // §S21. The floor goes in FIRST, before a byte of the file is read, and
+    // nothing below ever rewrites or removes these entries — the file's families
+    // are appended after them. That ordering is the mechanism: there is no merge
+    // step for a crafted file to win, and no code path that can shrink the set.
+    std::size_t   floorCount = 0;
+    const Family* floor = FloorFamilies(floorCount);
+    for (std::size_t i = 0; i < floorCount && out.familyCount < kMaxFamilies; ++i) {
+        out.families[out.familyCount++] = floor[i];
+    }
+    const std::size_t dataFirst = out.familyCount;
+
     if (json == nullptr || length == 0) {
         return ParseResult::kMalformed;
     }
@@ -406,7 +454,12 @@ ParseResult ParseRules(const char* json, std::size_t length, Rules& out) noexcep
         }
     }
 
-    if (out.familyCount == 0 || !IsCompleteEnoughToGate(out)) {
+    // Both questions are asked of the FILE, not of the merged set (see
+    // IsCompleteEnoughToGate). A file that supplies no families at all is still
+    // kIncomplete even though the floor would gate perfectly well without it:
+    // shipping an empty blocklist is a mistake worth surfacing, and the floor is
+    // a backstop, not a substitute.
+    if (out.familyCount == dataFirst || !IsCompleteEnoughToGate(out, dataFirst)) {
         return ParseResult::kIncomplete;
     }
     return ParseResult::kOk;
@@ -516,18 +569,39 @@ bool IsTrustedSigner(const Rules& rules, const char* signerOrganisation) noexcep
 // blocklist by accident — the same defect as a second matcher, with none of the
 // visibility.
 
-bool RulesFilePath(char* out, std::size_t cap) noexcept {
+bool LocalAppDataDir(wchar_t* out, std::size_t cap) noexcept {
     if (out == nullptr || cap == 0) {
         return false;
     }
-    char*  base = nullptr;
-    size_t len = 0;
-    if (_dupenv_s(&base, &len, "LOCALAPPDATA") != 0 || base == nullptr) {
+    out[0] = L'\0';
+
+    PWSTR         folder = nullptr;
+    const HRESULT hr = SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &folder);
+    if (FAILED(hr) || folder == nullptr) {
+        CoTaskMemFree(folder);    // documented as safe on nullptr
         return false;
     }
-    const int written = _snprintf_s(out, cap, _TRUNCATE, R"(%s\FrameLedger\rules\detection-rules.json)", base);
-    std::free(base);
-    return written > 0;
+
+    const bool fits = wcslen(folder) < cap;
+    if (fits) {
+        wcscpy_s(out, cap, folder);
+    }
+    CoTaskMemFree(folder);
+    return fits;    // truncation would name a different directory — refuse instead
+}
+
+bool RulesFilePath(wchar_t* out, std::size_t cap) noexcept {
+    if (out == nullptr || cap == 0) {
+        return false;
+    }
+    out[0] = L'\0';
+
+    wchar_t base[kMaxRulesPathLen]{};
+    if (!LocalAppDataDir(base, kMaxRulesPathLen)) {
+        return false;
+    }
+    const int written = _snwprintf_s(out, cap, _TRUNCATE, LR"(%s\FrameLedger\rules\detection-rules.json)", base);
+    return written > 0;    // _TRUNCATE reports -1 rather than truncating silently
 }
 
 std::size_t ReadRulesFile(char* buffer, std::size_t cap) noexcept {
@@ -535,12 +609,24 @@ std::size_t ReadRulesFile(char* buffer, std::size_t cap) noexcept {
     if (buffer == nullptr || cap == 0) {
         return kFailed;
     }
-    char path[MAX_PATH]{};
-    if (!RulesFilePath(path, sizeof(path))) {
+    wchar_t path[kMaxRulesPathLen]{};
+    if (!RulesFilePath(path, kMaxRulesPathLen)) {
         return kFailed;
     }
 
-    HANDLE h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // FILE_SHARE_DELETE matters as much as the other two, and it is the half that
+    // is easy to leave out. §S20's delivery path must replace this file
+    // atomically (temp file + MoveFileExW(MOVEFILE_REPLACE_EXISTING)) rather than
+    // rewriting it in place, or a reader can see it half-written and refuse every
+    // title mid-session. A rename cannot proceed against a handle that denies
+    // delete sharing, so denying it here would turn every routine rules update
+    // into a failed update — silently, since the writer's error goes nowhere.
+    //
+    // The guard and the Vulkan layer previously disagreed here (READ vs
+    // READ|WRITE) about what fl_ac_rules.h calls "the ONE location": by that
+    // comment's own logic, a second blocklist by accident.
+    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         return kFailed;
     }

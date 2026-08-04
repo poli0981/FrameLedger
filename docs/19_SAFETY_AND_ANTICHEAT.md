@@ -239,6 +239,49 @@ Any check failing ⇒ **injection is refused**. The UI shows which check fired a
 
 > There is no override. No hidden setting, no config-file flag, no CLI switch, no "advanced users" escape hatch. If a user disagrees with a specific entry, the path is a GitHub issue against the rules file, reviewed in public — not a local bypass.
 
+### The floor data cannot remove
+
+**There was a local bypass, and this paragraph is the reason it no longer works
+(§S21, fixed 2026-08-04).** It is recorded rather than quietly patched, because
+the shape recurs: the sentence above was enforced against every channel anyone
+had thought to check, and the gate's own data file was not one of them.
+
+Two facts combined into an override:
+
+- The rules path was built from `_dupenv_s("LOCALAPPDATA")`. The CRT environment
+  is inherited from whoever launched the process, and in launch mode that is a
+  shortcut, a `.bat`, or the Steam launch-option wrapper (`04_CAPTURE` §Launch
+  mode). One variable chose the hard gate's only input, for one run.
+- The completeness check validated that three family **names** existed in the
+  right **groups** and never read their `values`.
+
+So a twelve-line file naming `Easy Anti-Cheat`/modules, `BattlEye`/modules and
+`Riot Vanguard`/drivers with values that match nothing parsed as valid, and the
+guard returned `Allow` on a machine running Vanguard. No admin, no write to our
+install directory, nothing left behind.
+
+**The fix is §S8's mechanism applied to data instead of to symbols.** A token
+that escapes can be ignored; a symbol that does not exist cannot be called; a
+family that data cannot remove cannot be bypassed. `fl::guard::FloorFamilies`
+carries those three families **inside the binary**, `ParseRules` seeds them
+before it reads a byte of the file, and nothing merges, rewrites or removes
+them. The file may add families and values. It can take nothing away.
+
+Three consequences worth stating rather than discovering:
+
+- **Path resolution is now `SHGetKnownFolderPath`, and that is a narrowing, not
+  a guarantee.** A user can still move their own Local AppData. What is gone is
+  the per-launch, per-process vector. The floor is what makes the residual
+  harmless.
+- **The completeness check still runs over the file's families only.** Checking
+  the merged set would make it a gate that cannot fail, since the floor
+  satisfies it by construction — so an empty or incomplete rules file still
+  refuses, and still says so.
+- **The floor is deliberately three families, not the whole blocklist.** A
+  larger one would be a second blocklist drifting from
+  `rules/detection-rules.json`; ctest `fl_rules_budget` asserts every floor
+  value is present in the shipped seed under the same family and group.
+
 ### Blocklist seed
 
 Matching is case-insensitive. **This table shows the literal tokens the data

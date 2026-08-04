@@ -152,6 +152,54 @@ TEST_CASE("the rules file that SHIPS parses in the guard", "[rules][seed]") {
     std::printf("[seed] %zu bytes, %zu families of %zu\n", seed.size(), rules.familyCount, kMaxFamilies);
 }
 
+// §S21. The compiled-in floor is a blocklist that lives in the binary, which
+// makes it a candidate to become the FOURTH unreconciled copy of this data
+// (§S19(d) already counts three of the fragment list). This is what stops that:
+// every floor value must be present in the file we ship, under the same family
+// and the same group.
+//
+// Deliberately a SUBSET assertion, not equality. The floor carries only the
+// values that carry coverage — "EasyAntiCheat" is a prefix rule and already
+// subsumes "EasyAntiCheat_EOS" — so requiring the two lists to match would force
+// the floor to grow every time the seed does, which is the drift it exists to
+// avoid.
+//
+// Direction matters: this goes red if someone edits the floor to something the
+// seed does not carry, AND if someone deletes one of the three required families
+// from the seed. tools/rules-validate.ps1 already refuses the second in CI; this
+// is the half that runs against the parser.
+TEST_CASE("every compiled-in floor value is present in the shipped seed", "[rules][seed][floor]") {
+    const std::string seed = ReadSeed();
+
+    Rules rules;
+    REQUIRE(ParseRules(seed.c_str(), seed.size(), rules) == ParseResult::kOk);
+
+    std::size_t   floorCount = 0;
+    const Family* floor = FloorFamilies(floorCount);
+    REQUIRE(floorCount == kFloorFamilyCount);
+    REQUIRE(rules.familyCount > kFloorFamilyCount);
+
+    for (std::size_t f = 0; f < floorCount; ++f) {
+        for (std::size_t v = 0; v < floor[f].valueCount; ++v) {
+            bool found = false;
+            // Start past the floor: ParseRules seeded it into `rules` itself, so
+            // scanning from 0 would match the floor against itself and pass no
+            // matter what the seed says. That is the whole failure mode here.
+            for (std::size_t i = kFloorFamilyCount; i < rules.familyCount && !found; ++i) {
+                if (rules.families[i].group != floor[f].group || _stricmp(rules.families[i].name, floor[f].name) != 0) {
+                    continue;
+                }
+                for (std::size_t j = 0; j < rules.families[i].valueCount && !found; ++j) {
+                    found = _stricmp(rules.families[i].values[j], floor[f].values[v]) == 0;
+                }
+            }
+            INFO("floor family '" << floor[f].name << "' value '" << floor[f].values[v]
+                                  << "' is not in rules/detection-rules.json");
+            CHECK(found);
+        }
+    }
+}
+
 TEST_CASE("the shipped seed is inside the guard's parse budget", "[rules][seed][budget]") {
     const std::string seed = ReadSeed();
     const int         tokens = CountTokens(seed);
@@ -217,13 +265,24 @@ TEST_CASE("a family name holds kMaxFamilyNameLen-1 characters, and not kMaxFamil
 }
 
 TEST_CASE("the file holds exactly kMaxFamilies families, and not one more", "[rules][bounds]") {
-    // The floor already contributes three (EAC, BattlEye, Vanguard) plus one
-    // each in directories/services/files, so count from what Build() emits.
-    constexpr std::size_t kBaseFamilies = 6;
+    // Two separate contributions, and conflating them is how this test drifts.
+    //
+    //  - kFloorFamilyCount is the COMPILED-IN floor (§S21). ParseRules seeds it
+    //    before reading a byte, so the budget available to the file is
+    //    kMaxFamilies - kFloorFamilyCount, not kMaxFamilies.
+    //  - kFixtureFamilies is what Build() itself emits — EAC and BattlEye in
+    //    modules, Vanguard in drivers, plus one each in directories/services/files.
+    //    Those come from the FILE and are counted against its budget.
+    //
+    // Derived from the header constant rather than restated, for the same reason
+    // every other bound here is: this test went red the moment the floor landed,
+    // which is exactly what it exists to do.
+    constexpr std::size_t kFixtureFamilies = 6;
+    constexpr std::size_t kFileBudget = kMaxFamilies - kFloorFamilyCount;
     Rules                 rules;
 
     Doc ok;
-    ok.extraModules = ExtraFamilies(kMaxFamilies - kBaseFamilies);
+    ok.extraModules = ExtraFamilies(kFileBudget - kFixtureFamilies);
     REQUIRE(ParseDoc(Build(ok), rules) == ParseResult::kOk);
     CHECK(rules.familyCount == kMaxFamilies);
 
@@ -231,7 +290,7 @@ TEST_CASE("the file holds exactly kMaxFamilies families, and not one more", "[ru
     // because "this file is bigger than we can hold" and "this file is not the
     // shape we require" are different problems for whoever has to fix them.
     Doc over;
-    over.extraModules = ExtraFamilies(kMaxFamilies - kBaseFamilies + 1);
+    over.extraModules = ExtraFamilies(kFileBudget - kFixtureFamilies + 1);
     CHECK(ParseDoc(Build(over), rules) == ParseResult::kTooLarge);
 }
 

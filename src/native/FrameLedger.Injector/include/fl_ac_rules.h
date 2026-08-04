@@ -34,11 +34,23 @@ enum class Group : std::uint8_t { kModules = 0, kDrivers, kDirectories, kService
 // `len >= cap`, so kMaxValueLen 96 admits 95 characters, not 96.
 inline constexpr std::size_t kMaxFamilies = 64;
 inline constexpr std::size_t kMaxValuesPerFamily = 16;
+
+// The floor occupies family slots before any data is read, so the budget
+// available to the FILE is kMaxFamilies - kFloorFamilyCount. tools/rules-validate.ps1
+// reads this constant out of this header and subtracts it, rather than restating
+// the arithmetic.
+inline constexpr std::size_t kFloorFamilyCount = 3;
+
 inline constexpr std::size_t kMaxValueLen = 96;
 inline constexpr std::size_t kMaxFamilyNameLen = 64;
 inline constexpr std::size_t kMaxNameFragments = 16;
 inline constexpr std::size_t kMaxTrustedSigners = 16;
 inline constexpr std::size_t kMaxRulesBytes = 1u << 20;    // 1 MiB
+
+// Deliberately not MAX_PATH. A profile path can exceed 260 characters, and a
+// truncated path names a DIFFERENT file — which for the hard gate's only input
+// would mean refusing every title for a reason nobody could see.
+inline constexpr std::size_t kMaxRulesPathLen = 1024;
 
 // Per-title rules (check 3). These are OBJECTS in the schema, not bare strings:
 // 19_SAFETY requires the UI to name the check that fired and why, and a bare exe
@@ -124,11 +136,39 @@ enum class ParseResult : std::uint8_t {
     kIncomplete,    // parsed, but a required family/group is absent
 };
 
+// The blocklist that ships INSIDE THE BINARY, which data may only extend.
+//
+// §S21. Before this existed, `IsCompleteEnoughToGate` was the only thing standing
+// between the gate and a hand-written rules file — and it validates that three
+// family NAMES are present in the right GROUPS without ever reading their
+// `values`. Keep the names, repoint the values, and ParseRules returned kOk over
+// a blocklist that matched nothing: an override of CLAUDE.md rule 2 reachable
+// with no admin and no write to our install directory.
+//
+// The fix is §S8's shape applied to data instead of to symbols. A token that
+// escapes can be ignored; a symbol that does not exist cannot be called; and a
+// family that data cannot remove cannot be bypassed. These entries are seeded
+// into `Rules` BEFORE the file is read and are never merged with, overwritten by
+// or reachable from anything the file says. The file adds families and values;
+// it can take nothing away.
+//
+// Deliberately minimal — exactly the three families `IsCompleteEnoughToGate`
+// already required. A larger floor would be a second blocklist that drifts from
+// rules/detection-rules.json; ctest fl_rules_budget asserts every value here is
+// present in the shipped seed under the same family and group, so the two cannot
+// disagree without failing the build.
+[[nodiscard]] const Family* FloorFamilies(std::size_t& count) noexcept;
+
 // Parse, then verify the result is USABLE AS A GATE. A syntactically valid
 // rules file with an empty `modules` array parses fine and blocks nothing, so
 // completeness is checked here rather than being left to whoever wrote the file
 // (the same required-family floor tools/rules-validate.ps1 applies in CI —
 // deliberately duplicated, because CI is not in the loop at injection time).
+//
+// The completeness check runs over the families the FILE supplied, never over
+// the merged set. Checking the merged set would make it a gate that cannot fail,
+// because the floor satisfies it by construction — and "the rules file you
+// shipped is missing BattlEye" is still worth refusing over and telling someone.
 [[nodiscard]] ParseResult ParseRules(const char* json, std::size_t length, Rules& out) noexcept;
 
 // Case-insensitive match of one observed name against the blocklist, scoped to
@@ -156,20 +196,61 @@ enum class ParseResult : std::uint8_t {
 [[nodiscard]] bool HasSuspiciousFragment(const Rules& rules, const char* moduleName) noexcept;
 [[nodiscard]] bool IsTrustedSigner(const Rules& rules, const char* signerOrganisation) noexcept;
 
+// Local AppData, resolved from the SHELL rather than from the environment.
+//
+// §S21. This used to be `_dupenv_s("LOCALAPPDATA")`, and the comment below used
+// to claim the rules source "is not a parameter anywhere". It was one: the CRT
+// environment is inherited from whoever launched the process, and in launch mode
+// that is a shortcut, a .bat or a Steam launch-option wrapper (`04_CAPTURE`
+// §Launch mode). Setting one variable repointed the hard gate's only input, for
+// one run, leaving nothing on disk.
+//
+// Be precise about what this buys, because overstating it is how the previous
+// comment got written. `SHGetKnownFolderPath` still resolves through the user's
+// own shell-folder registration, so a user who wants to move their Local AppData
+// can. What it removes is the PER-LAUNCH, per-process vector: redirection is now
+// a persistent, machine-visible change affecting every application, not a
+// variable a caller sets on one child. The thing that actually makes the residual
+// harmless is `FloorFamilies` above, not this.
+//
+// Wide, not ANSI — also §S21, and independently fatal. The old path was
+// `char[MAX_PATH]` + `CreateFileA`, so a profile directory the process ANSI code
+// page cannot spell became a path with '?' in it: the open failed, LoadRules
+// refused kRulesUnreadable, and the guard refused EVERY title for that user,
+// permanently, with nothing anywhere naming the cause.
+//
+// Measured 2026-08-04 on this machine — system ACP **1252** (HKLM\SYSTEM\...\Nls\
+// CodePage\ACP), which is what a native binary with no UTF-8 manifest gets:
+//
+//     C:\Users\田中\AppData\Local    ->  C:\Users\??\AppData\Local
+//     C:\Users\Nguyễn\AppData\Local  ->  C:\Users\Nguy?n\AppData\Local
+//
+// Note what that measurement does and does not say. The trigger is the SYSTEM
+// code page, not the user's language: a Japanese install (ACP 932) spells 田中
+// correctly and still mangles Nguyễn. So this is not "broken for ja and vi
+// users" — it is "broken for any user whose profile path the machine's ACP
+// cannot represent", which the product's own `ja`/`vi` shipping locales make
+// likely and which an ASCII profile can never expose.
+[[nodiscard]] bool LocalAppDataDir(wchar_t* out, std::size_t cap) noexcept;
+
 // The ONE location rules are read from, shared by the injection guard and the
 // Vulkan layer.
 //
-// Not a parameter anywhere (§S3: letting a caller name the rules path is a
-// documented override of the hard gate), and not duplicated as a literal in two
-// files either — the layer reading a different file from the guard would be a
-// second blocklist by accident, which is the same defect as a second matcher.
+// Not duplicated as a literal in two files: the layer reading a different file
+// from the guard would be a second blocklist by accident, which is the same
+// defect as a second matcher. It is also not a parameter — §S3 removed the
+// pipe's ability to name it, and `LocalAppDataDir` above removes the
+// environment's.
 //
-// Writes `%LOCALAPPDATA%\FrameLedger\rules\detection-rules.json` into `out`.
-// Returns false if it does not fit or LOCALAPPDATA is unavailable.
-[[nodiscard]] bool RulesFilePath(char* out, std::size_t cap) noexcept;
+// Writes `<LocalAppData>\FrameLedger\rules\detection-rules.json` into `out`.
+// Returns false if it does not fit or Local AppData cannot be resolved.
+[[nodiscard]] bool RulesFilePath(wchar_t* out, std::size_t cap) noexcept;
 
 // Read the rules file into a caller-owned buffer. Returns bytes read, or
 // SIZE_MAX on any failure — absent, unreadable, or larger than `cap`.
+//
+// The buffer stays `char`: it holds the file's JSON bytes, which are UTF-8. Only
+// the PATH is wide.
 [[nodiscard]] std::size_t ReadRulesFile(char* buffer, std::size_t cap) noexcept;
 
 }    // namespace fl::guard
