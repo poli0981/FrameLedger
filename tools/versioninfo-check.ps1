@@ -71,7 +71,14 @@ foreach ($name in $required) {
     if ($vi.ProductName -ne 'FrameLedger') {
         $errors.Add("$name ProductName is '$($vi.ProductName)', expected 'FrameLedger' — the binary must name the project it belongs to")
     }
-    if ($vi.OriginalFilename -and $vi.OriginalFilename -ne $name) {
+    # ABSENT is the case this check exists for, and it used to be the one case
+    # that passed. `if ($vi.OriginalFilename -and ...)` short-circuits on an empty
+    # field, so a binary carrying NO OriginalFilename at all — the least
+    # identifiable state there is — sailed through a gate whose whole purpose is
+    # that our binaries name themselves.
+    if ([string]::IsNullOrWhiteSpace($vi.OriginalFilename)) {
+        $errors.Add("$name carries no OriginalFilename — an unnamed binary is the state this check exists to prevent")
+    } elseif ($vi.OriginalFilename -ne $name) {
         $errors.Add("$name OriginalFilename is '$($vi.OriginalFilename)' — a renamed binary is harder to identify, which is the wrong direction")
     }
 

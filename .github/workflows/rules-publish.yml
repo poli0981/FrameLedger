@@ -72,16 +72,29 @@ jobs:
           # services, directories or files removes real signals that
           # 19_SAFETY pre-injection checks 2 and 4 depend on.
           $groups = 'modules', 'drivers', 'directories', 'services', 'files'
-          function Get-Families($ac) {
+
+          # VALUES, not just family names. Comparing names alone let the whole
+          # blocklist be gutted one token at a time: shrinking Easy Anti-Cheat /
+          # modules from ["EasyAntiCheat","EasyAntiCheat_EOS"] to one entry keeps
+          # the family present and passed this job. It also shrinks the §S21
+          # compiled-in floor, which is GENERATED from this file — so the check
+          # that is supposed to make the blocklist un-removable was blind to the
+          # removals that matter most.
+          function Get-Tokens($ac) {
             $out = @()
             foreach ($g in $groups) {
               if ($null -ne $ac.PSObject.Properties[$g]) {
-                $out += @($ac.$g | ForEach-Object { "$g/$($_.family)" })
+                foreach ($f in @($ac.$g)) {
+                  # The family itself, so an entirely deleted family still shows
+                  # up even if it had no values.
+                  $out += "$g/$($f.family)"
+                  foreach ($v in @($f.values)) { $out += "$g/$($f.family)/$v" }
+                }
               }
             }
             return $out
           }
-          $removed = @(Get-Families $old | Where-Object { $_ -notin (Get-Families $new) })
+          $removed = @(Get-Tokens $old | Where-Object { $_ -notin (Get-Tokens $new) })
 
           # Per-title lists carry no family, so compare them by count.
           $shrunk = @()
@@ -91,7 +104,7 @@ jobs:
           }
 
           if ($removed.Count -gt 0 -or $shrunk.Count -gt 0) {
-            if ($removed.Count -gt 0) { Write-Host "::error::Anti-cheat families removed: $($removed -join ', ')" }
+            if ($removed.Count -gt 0) { Write-Host "::error::Anti-cheat blocklist entries removed: $($removed -join ', ')" }
             if ($shrunk.Count -gt 0) { Write-Host "::error::Anti-cheat block shrank: $($shrunk -join ', ')" }
             Write-Host 'This is a SAFETY change. It is gated deliberately: removing a blocklist entry is reviewed like a security fix (docs/19_SAFETY_AND_ANTICHEAT.md), in public, not waved through with a warning.'
             exit 1

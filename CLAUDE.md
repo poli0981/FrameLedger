@@ -81,7 +81,7 @@ Dependency direction unchanged: `App/Agent → Application → Domain`; `Infrast
 
 **Struct mirroring —** `FlFrameRecord` exists twice (C++ header, C# `[StructLayout(LayoutKind.Sequential)]`). A test asserts `sizeof` and every field offset on both sides; a version constant in the shm header must match or the Agent refuses to attach.
 
-**Dev mode —** `FL_MOCK=1` runs the whole app with a synthetic frame source and no injection at all. Keep it working; it is how the UI is developed. `tools/hook-harness` is a dummy D3D11/D3D12/Vulkan app used to exercise hooks without a real game.
+**Dev mode —** `FL_MOCK=1` is **specified but not implemented** — `grep -rn FL_MOCK src tests tools build.ps1` returns nothing (recorded 2026-08-04). When it exists it runs the whole app with a synthetic frame source and no injection at all, and it is how the UI is meant to be developed; until then, do not plan work on the assumption that it is there. `tools/hook-harness` is a dummy **D3D11** app used to exercise hooks without a real game — D3D12 and Vulkan modes are also unwritten (`docs/12_BUILD.md` §Targets is the accurate list).
 
 ## Definition of done (per PR)
 

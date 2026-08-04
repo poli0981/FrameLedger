@@ -85,6 +85,44 @@ GitHub release body, so a missing section means an empty release note.
   - Re-run over all 67 titles afterwards: 65 `Allow`, exactly the two anti-cheat
     titles refused, **0** `PreScanFailed`.
 
+- **Four gates were repaired, each proven red afterwards.** All four passed on a
+  clean tree and would have passed on the input they exist to catch.
+  - `chokepoint-check.ps1` exempted the chokepoint from **all ten** forbidden
+    patterns, including the six evasion primitives, above a comment saying "only
+    for the primitive itself". Appending `ZwSetInformationThread` to
+    `fl_guard.cpp` — the likeliest place for it — passed. Split into
+    chokepoint-only and forbidden-everywhere, and a **managed pass** added: the
+    check only ever scanned `src/native`, so the same Win32 calls reached from
+    C# were invisible.
+  - `versioninfo-check.ps1` short-circuited on an **empty** `OriginalFilename`,
+    so a binary carrying none — the least identifiable state there is — passed
+    the gate whose purpose is that our binaries name themselves. Proven with a
+    fixture DLL valid in every other field.
+  - `coverage-gate.ps1` maximised the rate and the line count **independently
+    across reports**, so it printed a pair no run produced. It also counted each
+    line twice (`.//line` matches class-level and method-level elements) and
+    keyed on `filename`, which two of the three reports spell differently. Now a
+    line-level union keyed on the class name: `FrameLedger.Domain` was reported
+    as **89.1% over 422 lines** and is actually **93.8% over 211**.
+  - `rules-publish.yml` compared family **names** only, so gutting a family's
+    values one token at a time passed CI — and shrank the §S21 compiled-in floor,
+    which is generated from that file. Now compares values.
+- **`build.ps1` declares the struct-mirror gate and skips it loudly.** Nine files
+  describe that gate in the present tense, including `fl_shm.h`, which is
+  normative. It does not exist. A named skip is honest; silence reads as coverage.
+- Documentation corrected where it claimed capabilities that do not exist: the
+  Overlay's `LoadLibrary` hook (§S6 and `19_SAFETY` both said "already installs" —
+  the Overlay installs nothing), `GuardSupervisor` "publishes `guardTicks`"
+  (nothing maps the shared memory; it has no production caller), `FL_MOCK`
+  (specified in four places, implemented nowhere), `12_BUILD`'s native-copy bullet
+  (wrong in four ways, including naming a binary the same document says does not
+  exist), and `build.ps1`'s own "nine-gate" self-description.
+- **`legal/` carries accuracy notes** where it promises behaviour the software
+  does not have: the 30-second in-session re-scan and stop, the two-crash
+  auto-disable, and a **weekly outbound safety-list request** in the privacy
+  policy. Over-disclosure in a document the user relies on is a defect in the
+  same way an omission is.
+
 ### Known issues
 - **A real VAC title is allowed by the guard today** (`spike-notes.md` §13).
   Counter-Strike 2 measures `Allow`: VAC is neither a machine-wide driver nor a

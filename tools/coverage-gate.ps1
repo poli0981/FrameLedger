@@ -74,7 +74,24 @@ if ($reports.Count -eq 0) {
 }
 
 # Collect every <package> across every report. Multiple test projects each emit
-# one, so the same assembly can appear more than once; take the best rate.
+# one, so the same assembly appears more than once — three times here, for
+# FrameLedger.Domain, at 74.4%, 68.7% and 89.1% over the identical 422 lines.
+#
+# UNION THE LINES, do not pick a report. The previous code maximised the rate and
+# the line count INDEPENDENTLY, so it could pair 100%-of-5-lines from one report
+# with 500-lines from another and report a figure no run produced — and the
+# empty-assembly defence below is exactly what that recombination defeats.
+#
+# Picking the single report with the most lines is no better: with equal line
+# counts the choice is arbitrary, and it throws away real coverage, because a
+# line exercised only by Application.Tests is still exercised. Measured: that
+# approach reported 68.7% for an assembly whose union is higher.
+#
+# So merge at LINE level — a line is covered if any report saw it hit — and
+# derive the rate from the merged set. The pair is then self-consistent by
+# construction rather than by a rule about which report to trust.
+$lineHits = @{}       # assembly -> @{ "file:line" = maxHits }
+$classHits = @{}      # class    -> @{ "file:line" = maxHits }
 $rates = @{}
 $lineCounts = @{}
 $classRates = @{}
@@ -91,24 +108,58 @@ foreach ($r in $reports) {
     foreach ($pkg in $xml.SelectNodes('//package')) {
         $name = [string]$pkg.GetAttribute('name')
         if ([string]::IsNullOrWhiteSpace($name)) { continue }
-        $rate = [double]$pkg.GetAttribute('line-rate')
-        if (-not $rates.ContainsKey($name) -or $rate -gt $rates[$name]) { $rates[$name] = $rate }
-
-        # Coverlet reports an EMPTY assembly as line-rate=1 — 100% of nothing.
-        # Taken at face value that is a vacuous pass, and it is what this gate
-        # printed for Domain and Application on its first run. Count the actual
-        # <line> elements so "fully covered" and "nothing to cover" stay
-        # distinguishable; packages carry no lines-valid attribute.
-        $lines = $pkg.SelectNodes('.//line').Count
-        if (-not $lineCounts.ContainsKey($name) -or $lines -gt $lineCounts[$name]) { $lineCounts[$name] = $lines }
+        if (-not $lineHits.ContainsKey($name)) { $lineHits[$name] = @{} }
 
         foreach ($cls in $pkg.SelectNodes('.//class')) {
             $cn = [string]$cls.GetAttribute('name')
-            if ([string]::IsNullOrWhiteSpace($cn)) { continue }
-            $cr = [double]$cls.GetAttribute('line-rate')
-            if (-not $classRates.ContainsKey($cn) -or $cr -gt $classRates[$cn]) { $classRates[$cn] = $cr }
+            $file = [string]$cls.GetAttribute('filename')
+            $trackClass = -not [string]::IsNullOrWhiteSpace($cn)
+            if ($trackClass -and -not $classHits.ContainsKey($cn)) { $classHits[$cn] = @{} }
+
+            # Key on the CLASS NAME, not the filename. Measured: the three
+            # reports over FrameLedger.Domain spell the same file two ways —
+            # 'FrameLedger.Domain/Detection/CapabilityRule.cs' in two of them and
+            # 'Detection/CapabilityRule.cs' in the third — so a filename-keyed
+            # union counted 211 real lines as 422 and diluted the rate with
+            # phantom uncovered lines. Class names are assembly-qualified and
+            # identical across all three.
+            $unit = if ($trackClass) { $cn } else { $file }
+
+            # `.//line` from <class> also matches the per-method <lines>, so the
+            # same line appears twice inside ONE report. That is why the old
+            # `SelectNodes('.//line').Count` printed 422 for an assembly with 211
+            # lines. Keying deduplicates it.
+            foreach ($ln in $cls.SelectNodes('.//line')) {
+                $id = "$unit`:$($ln.GetAttribute('number'))"
+                $h = [int]$ln.GetAttribute('hits')
+                if (-not $lineHits[$name].ContainsKey($id) -or $h -gt $lineHits[$name][$id]) {
+                    $lineHits[$name][$id] = $h
+                }
+                if ($trackClass) {
+                    if (-not $classHits[$cn].ContainsKey($id) -or $h -gt $classHits[$cn][$id]) {
+                        $classHits[$cn][$id] = $h
+                    }
+                }
+            }
         }
     }
+}
+
+# Coverlet reports an EMPTY assembly as line-rate=1 — 100% of nothing. Taken at
+# face value that is a vacuous pass, and it is what this gate printed for Domain
+# and Application on its first run. Deriving the rate from a counted line set
+# keeps "fully covered" and "nothing to cover" distinguishable: an empty set
+# yields 0 lines, and the caller treats 0 lines as not measured.
+foreach ($name in $lineHits.Keys) {
+    $total = $lineHits[$name].Count
+    $lineCounts[$name] = $total
+    $covered = @($lineHits[$name].Values | Where-Object { $_ -gt 0 }).Count
+    $rates[$name] = if ($total -gt 0) { $covered / $total } else { 0 }
+}
+foreach ($cn in $classHits.Keys) {
+    $total = $classHits[$cn].Count
+    $covered = @($classHits[$cn].Values | Where-Object { $_ -gt 0 }).Count
+    $classRates[$cn] = if ($total -gt 0) { $covered / $total } else { 0 }
 }
 
 foreach ($t in $targets) {

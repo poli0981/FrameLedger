@@ -61,13 +61,27 @@ if ($sources.Count -eq 0) {
     exit 1
 }
 
-# The primitive itself, plus the Win32 calls that constitute injection, plus the
-# evasion techniques 19_SAFETY §What we will never build rules out permanently.
-$forbidden = @(
+# TWO LISTS, and the split is the point.
+#
+# The old single list carried both kinds and then did `if ($isChokepoint) {
+# continue }` for ALL of them — so the guard's own translation unit was exempt
+# from the evasion rules as well as from the injection ones. The comment on that
+# line said "only for the primitive itself"; the code did not implement it.
+# Appending ZwSetInformationThread(ThreadHideFromDebugger) to fl_guard.cpp passed
+# the check, in the one file most likely to be where someone would put it.
+#
+# Injection is a legitimate thing this project does, in exactly one place.
+$chokepointOnly = @(
     @{ Pattern = 'InjectViaLoadLibrary'; Why = 'the injection primitive' },
     @{ Pattern = 'CreateRemoteThread'; Why = 'remote thread creation' },
     @{ Pattern = 'WriteProcessMemory'; Why = 'writing another process''s memory' },
-    @{ Pattern = 'VirtualAllocEx'; Why = 'allocating in another process' },
+    @{ Pattern = 'VirtualAllocEx'; Why = 'allocating in another process' }
+)
+
+# Evasion is not. 19_SAFETY §What we will never build and CLAUDE.md rule 3 rule
+# these out PERMANENTLY, which means there is no file in this repository where
+# they are acceptable — the chokepoint least of all.
+$forbiddenEverywhere = @(
     @{ Pattern = 'NtCreateThreadEx'; Why = 'undocumented remote thread creation' },
     @{ Pattern = 'RtlCreateUserThread'; Why = 'undocumented remote thread creation' },
     @{ Pattern = 'SetWindowsHookEx'; Why = 'hook-based injection' },
@@ -82,19 +96,46 @@ foreach ($src in $sources) {
     $isChokepoint = $rel -eq $chokepoint
     if ($isChokepoint) { $checkedFile = $true }
 
-    foreach ($rule in $forbidden) {
+    foreach ($rule in ($chokepointOnly + $forbiddenEverywhere)) {
         # Skip comments: this file, and the guard, describe these APIs at length
         # on purpose. A rule that fired on prose would be turned off within a week.
         $hits = @(Select-String -Path $src.FullName -Pattern $rule.Pattern -SimpleMatch |
                 Where-Object { $_.Line.TrimStart() -notmatch '^(//|\*|/\*|;)' })
         if ($hits.Count -eq 0) { continue }
 
-        if ($isChokepoint) {
-            # Allowed here — but only here, and only for the primitive itself.
-            continue
-        }
+        # The exemption applies to the injection primitives ONLY, and only here.
+        if ($isChokepoint -and ($chokepointOnly.Pattern -contains $rule.Pattern)) { continue }
+
         foreach ($h in $hits) {
             $violations.Add("$rel`:$($h.LineNumber) uses $($rule.Pattern) — $($rule.Why)")
+        }
+    }
+}
+
+# The managed side, which this check could not see at all.
+#
+# chokepoint-check has always scanned src/native. A P/Invoke declaration reaches
+# the same Win32 calls from C#, and nothing looked: adding
+# [DllImport("kernel32")] CreateRemoteThread under src/FrameLedger.Infrastructure
+# left the build green. CLAUDE.md's "the native layer is reachable only through
+# Infrastructure" is about ORGANISATION; this is about the primitives themselves,
+# and managed code has no chokepoint to be exempt in.
+$managedRoot = Join-Path $Root 'src'
+$managedSources = @(Get-ChildItem $managedRoot -Recurse -File -Include '*.cs' |
+        Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' })
+
+if ($managedSources.Count -eq 0) {
+    Write-Host 'CHOKEPOINT CHECK FAILED: no managed sources found — the managed pass would be vacuous.' -ForegroundColor Red
+    exit 1
+}
+
+foreach ($src in $managedSources) {
+    $rel = [IO.Path]::GetRelativePath($Root, $src.FullName) -replace '\\', '/'
+    foreach ($rule in ($chokepointOnly + $forbiddenEverywhere)) {
+        $hits = @(Select-String -Path $src.FullName -Pattern $rule.Pattern -SimpleMatch |
+                Where-Object { $_.Line.TrimStart() -notmatch '^(//|///|\*|/\*)' })
+        foreach ($h in $hits) {
+            $violations.Add("$rel`:$($h.LineNumber) uses $($rule.Pattern) — $($rule.Why) (managed)")
         }
     }
 }
