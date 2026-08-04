@@ -1,5 +1,5 @@
-// hook-harness — a dummy D3D11 app for exercising hook paths with no game and
-// no anti-cheat surface at all (17_HOOK_ENGINE §Test harness, 14_TESTING).
+// hook-harness — a dummy D3D11/D3D12 app for exercising hook paths with no game
+// and no anti-cheat surface at all (17_HOOK_ENGINE §Test harness, 14_TESTING).
 //
 // Two design choices make this runnable on a GPU-less CI runner, which is what
 // 20_OPEN_QUESTIONS §H4 flagged as the obstacle to testing vtable indices in CI:
@@ -19,15 +19,23 @@
 //   --probe-cost     NFR-1: per-present cost of a vtable detour (measurement,
 //                        not a ctest — a timing threshold on a shared runner
 //                        fails for reasons unrelated to the code)
+//   --probe-frames   what COUNTS as a frame, against GetLastPresentCount
+//   --probe-d3d12    the D3D12 acquisition path: device -> command queue ->
+//                        swapchain, headless
 //   --present N      present N frames
 //   --hold N         present, then stay alive N seconds. Exists so the harness
 //                    can be an INJECTION TARGET: a target that has already
 //                    exited is not a cross-process test, it is a silent pass
+//   --real           make --present/--hold issue REAL presents. Without it they
+//                        issue DXGI_PRESENT_TEST, which submits nothing
+//   --plus-ui K      also present K frames on a SECOND swapchain in the same
+//                        process (fixture for stream separation)
 
 #include <windows.h>
 
 #include <d3d11.h>
-#include <dxgi1_2.h>
+#include <d3d12.h>
+#include <dxgi1_4.h>
 
 #include <algorithm>
 #include <atomic>
@@ -38,6 +46,7 @@
 #include "proxy_swapchain.h"
 
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 
 namespace {
@@ -476,12 +485,203 @@ bool ProbeCost_PerPresent(Gfx& g) {
     return true;
 }
 
-int PresentLoop(Gfx& g, int frames) {
+// DXGI_PRESENT_TEST DOES NOT PRESENT. It is the occlusion probe: it tests
+// whether a present WOULD succeed and returns without submitting a frame.
+// Measured on this WARP + composition swapchain — 10,000 test-presents leave
+// GetLastPresentCount at 0; ten real ones take it to 10.
+//
+// Every present in this harness used to carry that flag, which made "N presents
+// -> N records" a criterion only a writer that counts NON-FRAMES could satisfy.
+// The flag is kept, as a separately named mode, because the occlusion path is a
+// real thing a title does — the documented recovery from DXGI_STATUS_OCCLUDED is
+// a tight Present(0, DXGI_PRESENT_TEST) loop, which is what an alt-tabbed game
+// runs, and the Overlay has to be measured against it deliberately rather than
+// by accident.
+int PresentLoop(Gfx& g, int frames, bool real) {
+    const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
     for (int i = 0; i < frames; ++i) {
-        g.swapChain->Present(0, DXGI_PRESENT_TEST);
+        g.swapChain->Present(0, flags);
     }
-    std::printf("  presented %d frames\n", frames);
+    std::printf("  presented %d frame(s) [%s]\n", frames, real ? "REAL" : "DXGI_PRESENT_TEST — not frames");
     return 0;
+}
+
+// A second swapchain on the same device, so a fixture can produce two present
+// streams in one process. Patching a vtable slot patches the shared dxgi.dll
+// class vtable, so a hook catches BOTH — and FlFrameRecord has no discriminator
+// today, which is how "N presents -> N records" can pass while the frame count
+// is inflated. This is the fixture that case needs; nothing consumes it yet.
+IDXGISwapChain* CreateSecondSwapChain(Gfx& g) {
+    IDXGIDevice* dxgiDevice = nullptr;
+    if (FAILED(g.device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice)))) {
+        return nullptr;
+    }
+    IDXGIAdapter* adapter = nullptr;
+    HRESULT       hr = dxgiDevice->GetAdapter(&adapter);
+    dxgiDevice->Release();
+    if (FAILED(hr)) {
+        return nullptr;
+    }
+    IDXGIFactory2* factory = nullptr;
+    hr = adapter->GetParent(__uuidof(IDXGIFactory2), reinterpret_cast<void**>(&factory));
+    adapter->Release();
+    if (FAILED(hr)) {
+        return nullptr;
+    }
+
+    DXGI_SWAP_CHAIN_DESC1 desc{};
+    desc.Width = 32;
+    desc.Height = 32;
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    desc.BufferCount = 2;
+    desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    desc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+
+    IDXGISwapChain1* sc1 = nullptr;
+    hr = factory->CreateSwapChainForComposition(g.device, &desc, nullptr, &sc1);
+    factory->Release();
+    if (FAILED(hr)) {
+        return nullptr;
+    }
+    IDXGISwapChain* sc = nullptr;
+    if (FAILED(sc1->QueryInterface(__uuidof(IDXGISwapChain), reinterpret_cast<void**>(&sc)))) {
+        sc1->Release();
+        return nullptr;
+    }
+    sc1->Release();
+    return sc;
+}
+
+// D3D12, which this harness did not have at all.
+//
+// 545 lines and zero D3D12 references, while CLAUDE.md called the harness a
+// "D3D11/D3D12/Vulkan" app and 17_HOOK_ENGINE §DLL entry gates hook installation
+// on GetModuleHandleW(L"d3d12.dll") — never non-null here. So the acquisition
+// path the Overlay will run inside a real game had no fixture, and the P0-exit
+// title is D3D12.
+//
+// The swapchain comes from the COMMAND QUEUE, not the device: that asymmetry is
+// the whole of the D3D12 acquisition path in 17_HOOK_ENGINE §Getting vtable
+// addresses, and it is what a D3D11-only harness cannot exercise.
+bool ProbeD3D12Acquisition() {
+    std::printf("\n[d3d12] device + command queue + swapchain, headless\n");
+
+    IDXGIFactory4* factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory4), reinterpret_cast<void**>(&factory)))) {
+        Check(false, "CreateDXGIFactory1(IDXGIFactory4)");
+        return false;
+    }
+    IDXGIAdapter* warp = nullptr;
+    HRESULT       hr = factory->EnumWarpAdapter(__uuidof(IDXGIAdapter), reinterpret_cast<void**>(&warp));
+    if (FAILED(hr)) {
+        factory->Release();
+        Check(false, "EnumWarpAdapter — no software adapter, so this cannot run without a GPU");
+        return false;
+    }
+
+    ID3D12Device* dev = nullptr;
+    hr = D3D12CreateDevice(warp, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), reinterpret_cast<void**>(&dev));
+    warp->Release();
+    if (FAILED(hr)) {
+        factory->Release();
+        Check(false, "D3D12CreateDevice(WARP)");
+        return false;
+    }
+
+    D3D12_COMMAND_QUEUE_DESC qd{};
+    qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    ID3D12CommandQueue* queue = nullptr;
+    hr = dev->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), reinterpret_cast<void**>(&queue));
+    if (FAILED(hr)) {
+        dev->Release();
+        factory->Release();
+        Check(false, "CreateCommandQueue(DIRECT)");
+        return false;
+    }
+
+    DXGI_SWAP_CHAIN_DESC1 desc{};
+    desc.Width = 64;
+    desc.Height = 64;
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    desc.BufferCount = 2;
+    desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    desc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+
+    IDXGISwapChain1* sc = nullptr;
+    hr = factory->CreateSwapChainForComposition(queue, &desc, nullptr, &sc);
+    factory->Release();
+    if (FAILED(hr)) {
+        queue->Release();
+        dev->Release();
+        Check(false, "CreateSwapChainForComposition(command queue) — the D3D12 acquisition path");
+        return false;
+    }
+    Check(sc != nullptr, "a D3D12 swapchain exists, built from the command queue");
+
+    // The point of having it: prove D3D12 presents move the same counter, so a
+    // D3D12 fixture can assert frame identity exactly as the D3D11 one does.
+    UINT before = 0;
+    sc->GetLastPresentCount(&before);
+    for (int i = 0; i < 11; ++i) {
+        sc->Present(0, 0);
+    }
+    UINT after = 0;
+    sc->GetLastPresentCount(&after);
+    const bool counted = (after - before) == 11u;
+    Check(counted, "11 real D3D12 presents move GetLastPresentCount by 11");
+    std::printf("    counter moved by %u\n", after - before);
+
+    // And that the module gate 17_HOOK_ENGINE §DLL entry step 3 keys on is now
+    // satisfiable in this process, which is the thing a D3D11-only harness could
+    // never make true.
+    const bool loaded = GetModuleHandleW(L"d3d12.dll") != nullptr;
+    Check(loaded, "d3d12.dll is loaded, so InitThread's D3D12 branch is reachable here");
+
+    sc->Release();
+    queue->Release();
+    dev->Release();
+    return counted && loaded;
+}
+
+// What a frame IS, asserted against DXGI's own counter.
+//
+// GetLastPresentCount is the one oracle in this area that does not share the
+// writer's assumption: DXGI computes it, we do not. Both directions are checked,
+// because a writer that counts everything and a writer that counts nothing are
+// each wrong in one of them.
+bool ProbeFrameIdentity(Gfx& g) {
+    std::printf("\n[frames] what counts as a frame\n");
+
+    UINT before = 0;
+    if (FAILED(g.swapChain1->GetLastPresentCount(&before))) {
+        Check(false, "GetLastPresentCount is unavailable — the oracle this probe rests on");
+        return false;
+    }
+
+    constexpr int kTest = 500;
+    PresentLoop(g, kTest, /*real=*/false);
+    UINT afterTest = 0;
+    g.swapChain1->GetLastPresentCount(&afterTest);
+    const bool testIsNotAFrame = (afterTest == before);
+    Check(testIsNotAFrame, "DXGI_PRESENT_TEST submits no frames");
+    std::printf("    %d test-present(s) moved the counter by %u\n", kTest, afterTest - before);
+
+    constexpr int kReal = 37;
+    PresentLoop(g, kReal, /*real=*/true);
+    UINT afterReal = 0;
+    g.swapChain1->GetLastPresentCount(&afterReal);
+    const bool realIsAFrame = (afterReal - afterTest) == static_cast<UINT>(kReal);
+    Check(realIsAFrame, "a real present submits exactly one frame");
+    std::printf("    %d real present(s) moved the counter by %u\n", kReal, afterReal - afterTest);
+
+    // The two together are the contract. Separately, each passes against a
+    // wrong writer: a writer that ignores everything satisfies the first, and
+    // one that counts everything satisfies the second.
+    return testIsNotAFrame && realIsAFrame;
 }
 
 }    // namespace
@@ -502,8 +702,30 @@ int main(int argc, char** argv) {
     // the ctest whether or not it said so.
     bool ok = true;
     bool ranSomething = false;
+    // --real applies to --present and --hold, wherever it appears on the line.
+    bool real = false;
+    int  plusUi = 0;
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--probe-vtable") == 0) {
+        if (std::strcmp(argv[i], "--real") == 0) {
+            real = true;
+        } else if (std::strcmp(argv[i], "--plus-ui") == 0 && i + 1 < argc) {
+            plusUi = std::atoi(argv[++i]);
+        }
+    }
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--plus-ui") == 0) {
+            if (std::strcmp(argv[i], "--plus-ui") == 0) {
+                ++i;
+            }
+            continue;    // consumed above
+        } else if (std::strcmp(argv[i], "--probe-frames") == 0) {
+            ok = ProbeFrameIdentity(g) && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-d3d12") == 0) {
+            ok = ProbeD3D12Acquisition() && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-vtable") == 0) {
             ok = ProbeH4_VtableIndices(g) && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-proxy") == 0) {
@@ -520,13 +742,32 @@ int main(int argc, char** argv) {
             // enough: 100,000 WARP presents take ~30 ms, so the process is gone
             // long before anything can inject into it, and the test then fails
             // for a reason that has nothing to do with injection.
-            ok = PresentLoop(g, 240) == 0 && ok;
+            ok = PresentLoop(g, 240, real) == 0 && ok;
             std::printf("  holding for %d second(s)\n", std::atoi(argv[i + 1]));
             std::fflush(stdout);
             Sleep(static_cast<DWORD>(std::atoi(argv[++i])) * 1000);
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--present") == 0 && i + 1 < argc) {
-            ok = PresentLoop(g, std::atoi(argv[++i])) == 0 && ok;
+            const int frames = std::atoi(argv[++i]);
+            ok = PresentLoop(g, frames, real) == 0 && ok;
+            // A SECOND present stream in the same process. The hook patches the
+            // shared dxgi.dll class vtable, so it sees both — and the ring has no
+            // field that says which. The fixture exists so that assertion can be
+            // written; nothing consumes it until the record carries a
+            // discriminator.
+            if (plusUi > 0) {
+                IDXGISwapChain* ui = CreateSecondSwapChain(g);
+                if (ui == nullptr) {
+                    Check(false, "could not create the second swapchain");
+                    ok = false;
+                } else {
+                    for (int k = 0; k < plusUi; ++k) {
+                        ui->Present(0, real ? 0u : DXGI_PRESENT_TEST);
+                    }
+                    std::printf("  a SECOND swapchain presented %d frame(s) - same process, same vtable\n", plusUi);
+                    ui->Release();
+                }
+            }
             ranSomething = true;
         } else {
             std::printf("FAILED: unrecognised argument '%s'\n", argv[i]);
