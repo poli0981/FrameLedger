@@ -73,12 +73,12 @@ int main() {
     Field("dispatchRaysVolume", offsetof(FlFrameRecord, dispatchRaysVolume), sizeof(uint32_t));
     Field("psoCreatedThisFrame", offsetof(FlFrameRecord, psoCreatedThisFrame), sizeof(uint16_t));
     Field("maxTraceRecursionDepth", offsetof(FlFrameRecord, maxTraceRecursionDepth), sizeof(uint8_t));
-    Field("_pad0", offsetof(FlFrameRecord, _pad0), sizeof(uint8_t));
+    Field("measuredMask", offsetof(FlFrameRecord, measuredMask), sizeof(uint8_t));
     Field("vramUsedBytes", offsetof(FlFrameRecord, vramUsedBytes), sizeof(uint64_t));
     Field("reflexLatencyUs", offsetof(FlFrameRecord, reflexLatencyUs), sizeof(uint32_t));
     Field("fgEvaluations", offsetof(FlFrameRecord, fgEvaluations), sizeof(uint32_t));
     Field("seq", offsetof(FlFrameRecord, seq), sizeof(uint32_t));
-    Field("_pad1", offsetof(FlFrameRecord, _pad1), sizeof(uint32_t), true);
+    Field("swapchainId", offsetof(FlFrameRecord, swapchainId), sizeof(uint32_t), true);
     std::printf("    ] }\n");
 
     std::printf("  }\n}\n");

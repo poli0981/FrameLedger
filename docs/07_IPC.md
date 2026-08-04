@@ -136,7 +136,23 @@ same class of bug as record drift.
   A refusal counts too, and also sets `unhookRequested`, so no consumer has to
   infer a verdict from a counter.
 - **Supervision loss means stop observing.** If `guardTicks` has not advanced
-  within the deadline, the capture side stops recording. This used to read "the
+  within **65 seconds** (`FL_GUARD_TICK_DEADLINE_MS`, `fl_shm.h`), the capture
+  side stops recording.
+
+  > **This sentence had no number until 2026-08-05.** One grep over `docs`, `src`
+  > and `tools` for "deadline" returned exactly one line — this one, the sentence
+  > that depends on it. A rule with no value is not implementable, and this had
+  > been read as delivered.
+  >
+  > **65 s is two missed scans.** The guard re-scan runs every 30 s, so a ~35 s
+  > deadline would stop a session on a single late tick — and a tick is late
+  > whenever the machine is busy, which during a benchmark is always. Two
+  > consecutive misses is a signal; one is noise. The cost is that the worst-case
+  > window in which an unsupervised hooked process keeps observing doubles, from
+  > the 30 s `legal/DISCLAIMER.md` discloses to 65 s, and that document now says
+  > 65 rather than being left to imply 30.
+
+  This used to read "the
   Overlay keeps writing (harmless)" — which described an *unsupervised hooked
   process* as harmless, and the 30 s re-scan `19_SAFETY` calls the most
   important runtime behaviour is exactly what has stopped in that state.
