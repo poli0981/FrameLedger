@@ -89,6 +89,13 @@ expiry date nobody sees:
   > application. The thing that makes the residual harmless is the compiled-in
   > blocklist floor (`19_SAFETY` §The floor data cannot remove), not the path
   > resolution.
+  >
+  > **The residual is measured, not assumed** (2026-08-04):
+  > `HKCU\…\Explorer\User Shell Folders\Local AppData` matches what the API
+  > returns, and that key is `FullControl` for the current user with no
+  > elevation. It really is relocatable — by a persistent change affecting every
+  > application, which is a different proposition from an inherited variable, and
+  > that difference is the whole claim being made here.
 - **A fetched file replaces the local copy only if it validates.** Same
   structural checks `tools/rules-validate.ps1` runs, including the non-empty
   `anticheat` requirement. A malformed, truncated or empty-blocklist download is

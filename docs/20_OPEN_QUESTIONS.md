@@ -756,6 +756,38 @@ does not carry fails `fl_rules_budget` by name; running the completeness check
 from index 0 lets a file with no BattlEye through; and renaming
 `kFloorFamilyCount` makes `rules-validate.ps1` **fail rather than skip**.
 
+#### Measured end to end, not only in fixtures (2026-08-04)
+
+- **The override, on two real binaries.** Same input to both: a rules file naming
+  the three required families with junk values, and a real
+  `EasyAntiCheat_x64.dll` loaded in the target. `bb0da0a` → **`Allow`**; after
+  the floor → **`BlockedModule`, family `Easy Anti-Cheat`**. The pre-fix half took
+  the crafted file through an inherited `LOCALAPPDATA`; the post-fix half had to
+  place it at the real path, because the environment no longer selects it.
+- **The ANSI half, on the real Win32 calls.** System ACP 1252. A rules file
+  written into `…\田中\AppData\Local\…` and `…\Nguyễn\AppData\Local\…` exists on
+  disk and `CreateFileW` opens it; **`CreateFileA` fails with
+  `ERROR_INVALID_NAME (123)`**. The same file under an ASCII profile opens both
+  ways — which is precisely why a dev box cannot see this.
+
+#### Two residuals, measured rather than asserted
+
+- **The known-folder path is still user-relocatable, and that was the claim.**
+  `HKCU\…\Explorer\User Shell Folders\Local AppData` matches what the API returns,
+  and the key is `FullControl` for the current user with no elevation. So the
+  wording in `05_DETECTION` holds exactly as written: this removes the
+  **per-launch, per-process** vector, not every redirection. Deliberately not
+  tested by repointing it — that would change the machine's shell configuration
+  for every application.
+- **The Vulkan layer gained two DLL dependencies, and it is mapped machine-wide.**
+  `dumpbin /dependents`: `KERNEL32` → `KERNEL32, ole32, SHELL32`. Measured
+  residency across 189 inspectable processes: shell32 **62%**, ole32 **61%** — so
+  for roughly a third of processes these are genuinely new. The exposure is
+  narrower than that number suggests, because `enable_environment` means the
+  layer only *maps* into processes the Agent launched (§S2), and a game is far
+  more likely than a browser to have both already. Recorded rather than waved
+  away; delay-loading would not help, since the layer resolves the path at init.
+
 ### S14 ◐ · Pre-injection check 3 is **unwired**, and has no "cannot determine" state
 
 Found 2026-08-02 while hardening the rules toolchain. `19_SAFETY` §Pre-injection
