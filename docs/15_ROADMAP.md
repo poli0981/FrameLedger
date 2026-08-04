@@ -21,11 +21,21 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > absent hardware (8, and the AMD/Intel half of the capability matrix), or is P1
 > by construction (the layer's presentation hooks). Item 0's residual is check 3.
 >
-> **§S18 and §S21 closed 2026-08-04.** The guard no longer refuses itself, so
-> launch mode is no longer blocked by it — and §S21, found while planning this
-> phase, closed a **local override of the hard gate**: the rules path came from an
-> inherited `LOCALAPPDATA` and the completeness check never read the values, so a
-> crafted twelve-line file made the guard allow everything.
+> **Three safety items moved 2026-08-04.**
+>
+> - **§S18 ✅** — the guard no longer refuses itself, so launch mode is no longer
+>   blocked by it. Measured on three real titles.
+> - **§S21 ✅** — a **local override of the hard gate**: the rules path came from
+>   an inherited `LOCALAPPDATA` and the completeness check never read the values,
+>   so a crafted twelve-line file made the guard allow everything. Its first fix
+>   shipped too narrow — the compiled-in floor held 4 of the seed's 22 values —
+>   and was rebuilt the same day as a table **generated** from the shipped
+>   blocklist. That also closed §S19(d)'s runtime half.
+> - **§S20 ◐, seed half done** — the Agent now installs the rules file. Until
+>   then the guard answered `RulesUnreadable` on any machine that had not
+>   hand-installed one, which is what the first real injection hit. **The feed
+>   half is open**, so FR-7.3's independent anti-cheat schedule is still unmet and
+>   a rules edit reaches no installed machine until a release.
 >
 > **Be precise about what unblocking §S18 does and does not buy**, because the
 > §S18 entry oversold it and this line used to repeat that. It removes a
@@ -68,10 +78,11 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
    >
    > **Launch mode is still not working, and that is a different sentence.** The
    > guard now passes, which is all §S18 was about. Launch-mode *injection* also
-   > needs §S1 and §S13(c), both open owner decisions, and there is no Agent to
-   > drive it — `Program.cs` is `return 0`. This row therefore stays "attach mode"
-   > for the *injection* claim; what is upgraded is the guard's verdict, which is
-   > the only thing that was measured.
+   > needs §S1 and §S13(c), both open owner decisions, and there is no Agent
+   > capture path to drive it — `Program.cs` gained a rules seeder the same day
+   > (§S20) but still builds no host, no watcher and no injector control. This row
+   > therefore stays "attach mode" for the *injection* claim; what is upgraded is
+   > the guard's verdict, which is the only thing that was measured.
    >
    > Three refusals came before the success, and each was a real defect: a
    > machine-wide `EasyAntiCheat_EOS` service that refused every process on the

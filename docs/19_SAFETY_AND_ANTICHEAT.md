@@ -226,10 +226,18 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
    > nothing produced either.
    >
    > **It runs inside the chokepoint**, as the last of the four checks in
-   > `EvaluateImpl`. `FlStaticPreScan` also exposes it to the UI for FR-2.2's
-   > pre-launch question, but that export is **advisory**: it gates nothing, and
-   > a caller who never asks it — or ignores the answer — changes nothing about
-   > what injection allows.
+   > `EvaluateImpl`. `FlStaticPreScan` also exports it for FR-2.2's pre-launch
+   > question, but that export is **advisory**: it gates nothing, and a caller who
+   > never asks it — or ignores the answer — changes nothing about what injection
+   > allows.
+   >
+   > **The UI cannot reach that export today**, and this sentence used to say it
+   > could. Since 2026-08-04 `FrameLedger.Guard.dll` ships beside the **Agent
+   > only** (`FrameLedger.Guard.targets`, §S18 blocker 3), so `FrameLedger.App`
+   > has no `FlStaticPreScan` call site and no DLL to load. FR-2.2's advisory
+   > answer reaches the UI through the Agent over IPC (`07_IPC`) when that exists.
+   > Recorded rather than quietly reworded: an advisory export with no consumer is
+   > a claim about the product that is not true yet.
    >
    > **Which directory.** The **install root**, resolved by walking up from the
    > executable to a known platform boundary (`steamapps\common\<X>` and
@@ -295,9 +303,9 @@ install directory, nothing left behind.
 **The fix is §S8's mechanism applied to data instead of to symbols.** A token
 that escapes can be ignored; a symbol that does not exist cannot be called; a
 family that data cannot remove cannot be bypassed. `fl::guard::FloorFamilies`
-carries those three families **inside the binary**, `ParseRules` seeds them
-before it reads a byte of the file, and nothing merges, rewrites or removes
-them. The file may add families and values. It can take nothing away.
+carries the blocklist **inside the binary**, `ParseRules` seeds it before it
+reads a byte of the file, and nothing merges, rewrites or removes it. The file
+may add families and values. It can take nothing away.
 
 Three consequences worth stating rather than discovering:
 
@@ -309,10 +317,30 @@ Three consequences worth stating rather than discovering:
   the merged set would make it a gate that cannot fail, since the floor
   satisfies it by construction — so an empty or incomplete rules file still
   refuses, and still says so.
-- **The floor is deliberately three families, not the whole blocklist.** A
-  larger one would be a second blocklist drifting from
-  `rules/detection-rules.json`; ctest `fl_rules_budget` asserts every floor
-  value is present in the shipped seed under the same family and group.
+- **The floor is GENERATED from `rules/detection-rules.json` at build time**
+  (`tools/gen-ac-floor.ps1`), so it is the whole shipped blocklist plus the
+  heuristic's name fragments.
+
+  > This paragraph used to read "the floor is deliberately three families, not
+  > the whole blocklist", kept small because a larger hand-written table would be
+  > a second blocklist drifting from the data. Measured, that bought **4 of the
+  > seed's 22 values, 2 of its 5 groups and none of its 5 fragments** — so it
+  > closed *"a crafted file makes the guard allow everything"* and left open
+  > *"a crafted file removes most of the blocklist"*. Generating it removes the
+  > objection that kept it small: a table derived from the data cannot drift from
+  > it. `trustedSigners` is deliberately excluded, because flooring an
+  > ALLOW-widening list has the wrong polarity.
+  >
+  > A file family identical to a floor entry is deduplicated, so the file's own
+  > budget is half `kMaxFamilies` — `tools/rules-validate.ps1` checks that worst
+  > case, and ctest `fl_rules_budget` asserts the generated floor reproduces the
+  > shipped seed exactly.
+- **The fuzzy tier is floored too**, which is what stops a rules file with no
+  `heuristic` block from making it silently cease to exist. That was
+  `20_OPEN_QUESTIONS` §S19(d), and a floor closes it without the new
+  `ParseResult` cause that entry proposed — which would have made
+  `kRulesIncomplete`'s signal a lie and driven `layer.cpp` to machine-wide inert
+  passthrough.
 
 ### Blocklist seed
 
