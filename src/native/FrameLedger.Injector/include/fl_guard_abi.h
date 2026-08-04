@@ -90,6 +90,31 @@ FL_GUARD_ABI std::int32_t FlGuardReasonCount(void);
 // different file.
 FL_GUARD_ABI std::int32_t FlGuardRulesFilePath(wchar_t* out, std::int32_t cap);
 
+// Would the GUARD accept this rules document? Returns fl::guard::ParseResult.
+//
+// §S20 needs it because the managed side structurally cannot answer the
+// question. `DetectionRulesFile` reads engines/platforms/capabilities and states
+// at DetectionRulesDto that there is no `anticheat` member "and there never will
+// be" (§S15 — no second matcher). So validating a candidate rules file with it
+// checks everything except the half the hard gate consumes, and would let a
+// seeder install a document the guard then refuses for every title while
+// reporting success.
+//
+// Buffer in, enum out. NO PATH PARAMETER — the rules source is not selectable
+// (§S3, §S21), and this must not become the way it becomes selectable. It parses
+// a candidate the caller already holds; it does not read, choose or install
+// anything.
+//
+// Not a second matcher: it calls fl::guard::ParseRules, the same function the
+// gate parses with. That is the whole point — the thing that validates and the
+// thing that parses are one.
+//
+// NOT re-entrant, like every other guard entry point: ParseRules uses a
+// function-scope static token array. Callers are expected to be the Agent at
+// startup, before any capture is running (docs/07_IPC §guardTicks describes the
+// one-at-a-time contract).
+FL_GUARD_ABI std::int32_t FlGuardCheckRules(const char* json, std::int32_t length);
+
 }    // extern "C"
 
 #endif    // FL_GUARD_ABI_H

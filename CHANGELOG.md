@@ -347,6 +347,38 @@ GitHub release body, so a missing section means an empty release note.
   file, so the L2 telemetry layer is GPL-3.0 compatible. Checked against the
   pinned 0.9.6 package, not just the repository.
 
+### Added
+- **The Agent now seeds the rules file the guard reads** (`20_OPEN_QUESTIONS`
+  §S20, seed half). `rules/detection-rules.json` ships in the Agent's output and
+  is installed to the product location on startup. Before this, nothing in the
+  repository ever wrote that file, so on any machine that had not hand-installed
+  one the guard answered `RulesUnreadable` for every title — which is what the
+  first real injection hit. Measured end to end: remove the file and the guard
+  says `RulesUnreadable`; run the Agent and the guard reads its rules and reaches
+  check 1.
+  - **Provenance, not `rulesVersion`.** The first design replaced the installed
+    file when the packaged seed was strictly newer. Measured against this
+    repository's own history, every commit that changed the `anticheat` block
+    left `rulesVersion` untouched and the one commit that bumped it changed the
+    block not at all — the rule would have delivered **none** of the changes it
+    existed for. The seeder records a hash of what it installed instead.
+  - **`FlGuardCheckRules`** — a new observation-only ABI export, because
+    `DetectionRulesFile` never reads the `anticheat` block (§S15). Validating with
+    the managed reader would have checked everything except the half the hard gate
+    consumes, and could have installed a document the guard then refuses for every
+    title while reporting success.
+  - **A usable file we did not write is left alone**, which is safe only because
+    the floor is now generated from the shipped blocklist: a rules file can add
+    and cannot remove. An unusable one is replaced whoever wrote it — there is
+    nothing to clobber, and nothing else in the product repairs it.
+  - `ReplaceFileW` with a backup, a random temp name in the destination directory
+    opened `FileShare.None`, flush-to-disk before the swap, and a reparse-point
+    check on the directory chain.
+  - **§S20 does not close.** The HTTPS feed does not exist, so FR-7.3's
+    independent anti-cheat schedule is unmet; the guard still reads no version, so
+    binary and data have no handshake; and this is what makes the Vulkan layer's
+    §S2 self-scan reachable for the first time. All four recorded in the entry.
+
 ### Fixed
 - **The compiled-in blocklist floor shipped too narrow, and it is now generated
   from the rules file** (§S21). As first written the floor carried exactly the

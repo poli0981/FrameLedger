@@ -1,0 +1,48 @@
+<Project>
+
+  <!--
+    Ships rules/detection-rules.json beside the importing project's output, as
+    `rules\detection-rules.json`.
+
+    §S20: the guard reads its blocklist from Local AppData and nothing in this
+    repository ever put a file there, so on any machine that has not hand-installed
+    one the guard answers RulesUnreadable for every title. The first half of fixing
+    that is having the seed in a build output at all — before this file, it was in
+    no csproj, no props and no targets.
+
+    Imported by exactly two projects:
+      - FrameLedger.Agent            — the sole host (§S18 blocker 3, ratified),
+                                       and the only thing that seeds.
+      - FrameLedger.Infrastructure.Tests — asserts the shipped copy is the file CI
+                                       validated, and drives the seeder end to end.
+
+    NOT imported by FrameLedger.App, for the same reason it does not carry the
+    guard DLL.
+  -->
+  <PropertyGroup>
+    <FlSeedRules>$(MSBuildThisFileDirectory)rules\detection-rules.json</FlSeedRules>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(FlSeedRules)">
+      <Link>rules\detection-rules.json</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!--
+    An ERROR, not a warning, and no Exists() condition on the item above.
+
+    FrameLedger.Guard.targets warns, because the native build may legitimately not
+    have run yet on a fresh clone. This file is different: rules/detection-rules.json
+    is checked in, so its absence is not a state anyone builds through — it means
+    the repository is wrong. Copying the Guard.targets warn-half here would be the
+    gate-that-cannot-fail shape: the seeder would ship, find nothing to seed, and
+    report success.
+  -->
+  <Target Name="FlErrorOnMissingSeedRules" BeforeTargets="Build"
+          Condition="!Exists('$(FlSeedRules)')">
+    <Error Text="rules/detection-rules.json is missing at $(FlSeedRules). It is checked in; a build without it would produce an Agent that seeds nothing and says it succeeded." />
+  </Target>
+
+</Project>

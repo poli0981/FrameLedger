@@ -823,26 +823,79 @@ is worth extending; the claim that the doc is wrong is not.
 > complained about — a doc citation (`19_SAFETY:264`) pointing at text that is not
 > there. Line 264 is a blocklist table row.
 
-### S20 · Nothing in the repo installs the rules file the guard reads
+### S20 ◐ · Delivering the rules file — **seed half done, feed half open**
 
-`RulesFilePath`/`ReadRulesFile` read only
-`%LOCALAPPDATA%\FrameLedger\rules\detection-rules.json`, and
-`DetectionRulesFile.cs` reads the same path. **No code in this repository seeds,
-copies or downloads that file**, and no rules-update client exists. The
-repository's `rules/detection-rules.json` is therefore a file no shipped
-component currently reads.
+The guard reads its blocklist from one place under Local AppData, and until
+2026-08-04 nothing in this repository ever wrote a file there. On any machine that
+had not hand-installed one the guard answered `RulesUnreadable` for every title —
+correct fail-closed behaviour, and also the whole story: the first real
+injection's opening refusal was exactly this.
 
-Two consequences worth stating before someone edits the seed expecting an effect:
+> **The entry's own opening sentence was not quite true**, and the exception
+> matters for anyone reading it as a survey. `fl-probe-vklayer` DOES seed the
+> file — install-only-if-absent, path resolved through `fl::guard::RulesFilePath`
+> — and then deletes what it installed. So the repository had a writer; it had no
+> *product* writer, and a ctest that removes its own work leaves the machine
+> exactly as it found it.
 
-- A rules edit changes nothing on any machine until a delivery path exists. This
-  is why the first real injection's opening refusal was `RulesUnreadable` —
-  correct behaviour, and also the whole story.
-- **The guard never reads `rulesVersion` or `schemaVersion`.** `ParseRules` walks
-  only the `anticheat` subtree. So the binary half of any fix and the data half
-  have **no handshake**: a machine can hold a new `FrameLedger.Guard.dll` and a
-  year-old rules file forever with nothing detecting it. `13_CI_CD` says the raw
-  file on `main` *is* the distribution endpoint, so the two halves ship on
-  independent clocks.
+**✅ The seed half is built.** `rules/detection-rules.json` now ships in the
+Agent's output (`FrameLedger.Rules.targets`), and `RulesSeeder` installs it to the
+product location. The Agent is the sole writer, per §S18's ratification, and it is
+a real caller rather than a component nothing invokes: `Program.cs` runs it and
+reports the outcome.
+
+Measured end to end on this machine — remove the file, the guard answers
+`RulesUnreadable`; run the Agent; the guard reads its rules and reaches check 1.
+
+Four decisions worth keeping, each of which replaced something the design review
+disproved:
+
+- **Provenance, not `rulesVersion`.** The first design replaced the installed file
+  when the packaged seed was strictly newer. Measured against this repository's
+  own history, every commit that changed the `anticheat` block left `rulesVersion`
+  untouched and the one commit that bumped it changed the block not at all — so
+  the rule would have delivered **none** of the changes it existed for. The seeder
+  records a hash of what it installed instead.
+- **`ReplaceFileW`, not `MoveFileEx`.** See §S21: the prescribed primitive returns
+  `ERROR_ACCESS_DENIED` against a live reader. `ReplaceFileW`'s backup parameter
+  also makes `05_DETECTION`'s "the last valid copy is kept" a mechanism rather
+  than a sentence.
+- **Validated by the guard's own parser.** `FlGuardCheckRules` is a new
+  observation-only export, because `DetectionRulesFile` never reads the
+  `anticheat` block (§S15) — validating with it would have checked everything
+  except the half the hard gate consumes, and could have installed a document the
+  guard then refuses for every title while reporting success.
+- **A usable file we did not write is left alone.** Safe only because §S21's floor
+  is now generated from the shipped blocklist: a rules file can ADD and cannot
+  remove. Under the narrow floor the same rule would have handed permanent control
+  of the blocklist to whoever created the file first.
+
+#### What is still open, and it is not small
+
+- **The feed half.** `05_DETECTION` §Trust and staleness specifies an HTTPS fetch
+  with validate-then-replace; none of it exists. So **FR-7.3 is unmet**: anti-cheat
+  entries cannot reach a machine on their own schedule, only with a release. A
+  rules edit still changes nothing on any installed machine until the next build.
+- **No binary/data handshake inside the guard.** `ParseRules` still walks only the
+  `anticheat` subtree and never reads `schemaVersion` or `rulesVersion`. Teaching
+  it to refuse an unknown version would be a second machine-wide refusal lever
+  pulled by data, and `rules-publish.yml` gates neither field — see `13_CI_CD`,
+  which used to claim a bump check that does not exist.
+- **`trustedSigners` is the one allow-widening field a foreign file still
+  controls.** Deliberately not floored, because flooring an allowlist has the
+  wrong polarity. Inert today — `IsTrustedSigner` has no production call site
+  while §S19(b) is deferred — and **live the moment the signer half is wired**,
+  which makes gating it a prerequisite of §S19(b) rather than of this item.
+- **This is what arms the Vulkan layer's self-scan for the first time.** `layer.cpp`
+  §S2's second half could only ever answer "inert" while the file never existed.
+  It is now reachable, on a machine where the file is present. The layer still
+  intercepts nothing (`vkQueuePresentKHR` is P1), so nothing observable changes
+  yet — recorded here so it is not discovered as a surprise when the present hook
+  lands.
+- **A seed replacement is a rules update in FR-2.3's sense**, and the obligation
+  attached to that event — re-run the pre-scan, force-disable a game that has
+  started matching — is unimplemented. There is no `games` table yet, so there is
+  nothing to write; named here so whoever builds persistence has an anchor.
 
 ### S21 ✅ · The hard gate's data source was caller-nameable, and its completeness floor never read the values — **closed**
 

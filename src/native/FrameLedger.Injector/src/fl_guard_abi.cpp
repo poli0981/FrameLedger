@@ -79,6 +79,18 @@ std::int32_t FlGuardRulesFilePath(wchar_t* out, std::int32_t cap) {
     return static_cast<std::int32_t>(wcslen(out));
 }
 
+std::int32_t FlGuardCheckRules(const char* json, std::int32_t length) {
+    if (json == nullptr || length <= 0) {
+        return static_cast<std::int32_t>(fl::guard::ParseResult::kMalformed);
+    }
+    // A whole Rules is ~200 KB; static because this is not re-entrant anyway and
+    // the guard allocates nothing. The parsed result is discarded — the caller
+    // asked whether the document is usable, not what is in it, and handing back
+    // the blocklist would be the second matcher §S15 forbids.
+    static fl::guard::Rules scratch;
+    return static_cast<std::int32_t>(fl::guard::ParseRules(json, static_cast<std::size_t>(length), scratch));
+}
+
 }    // extern "C"
 
 // kAllow must stay 0: a default-constructed managed AntiCheatVerdict zeroes

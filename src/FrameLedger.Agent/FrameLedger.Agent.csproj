@@ -36,4 +36,7 @@
   -->
   <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Guard.targets" />
 
+  <!-- The seed the Agent installs to the product location on first run (§S20). -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Rules.targets" />
+
 </Project>

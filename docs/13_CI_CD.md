@@ -24,7 +24,21 @@ FrameLedger uses the **`poli0981/.github` ops repo** where its templates fit, an
 - `permissions: contents: write`.
 
 ### `rules-publish.yml` — on change to `rules/detection-rules.json` in `main`
-- Runs `tools/rules-validate` → bumps `rulesVersion` check → the raw file on `main` **is** the distribution endpoint (05_DETECTION), so this workflow only gates correctness.
+- Runs `tools/rules-validate` and fails on anti-cheat removals. The raw file on `main` **is** the distribution endpoint (05_DETECTION), so this workflow only gates correctness.
+
+  > **There is no `rulesVersion` bump check, and this line used to claim one.**
+  > `rules-validate.ps1` checks the field's *format* and nothing compares it
+  > against the merge base, so a blocklist edit ships with the version untouched —
+  > measured on this repository's own history, that is what every commit that
+  > changed the `anticheat` block actually did, while the one commit that bumped
+  > `rulesVersion` changed the block not at all.
+  >
+  > Recorded rather than built, because nothing depends on the ordering: §S20's
+  > seeder deliberately uses **provenance** (a hash of what it installed) rather
+  > than version comparison, precisely because that history falsifies the
+  > comparison. A monotonicity gate is still worth having before anything else
+  > starts trusting the field — an unbuilt gate described as existing is the
+  > defect this note replaces.
 
   > **The validator does not evaluate rules**, and this line used to say it ran
   > "against fixtures". It checks the schema, the imperative constraints, the

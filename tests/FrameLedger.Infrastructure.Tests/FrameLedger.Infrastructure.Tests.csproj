@@ -29,4 +29,11 @@
   -->
   <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Guard.targets" />
 
+  <!--
+    The packaged seed, so the seeder tests run against the artifact that ships
+    rather than against the repository path. One of them asserts the two are the
+    same file.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Rules.targets" />
+
 </Project>
