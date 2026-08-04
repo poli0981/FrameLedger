@@ -42,15 +42,32 @@ GitHub release body, so a missing section means an empty release note.
     for.
   - Also recorded: `signerField` and `action` are required by the schema and read
     by no code (`action` is a `const` with one legal value, so reading it could
-    change nothing); the fragment list exists in three unreconciled copies; and
-    the runtime parser has no fragment floor — though the **schema** does, so CI
-    already refuses an emptied list, which an earlier note here got wrong.
-- **Nothing installs the rules file the guard reads** (§S20). The guard reads
-  `detection-rules.json` under Local AppData; no code in the repository seeds,
-  copies or downloads it, and the guard never reads `rulesVersion`, so a binary
-  fix and a data fix have no handshake. It is a **two-consumer** problem — the
-  same missing file also fails `DetectionRulesFile`, and with it the static
-  detector P0 item 3 shipped.
+    change nothing).
+  - **The runtime fragment floor is now in place** and this entry no longer claims
+    otherwise. The compiled-in floor is generated from `rules/detection-rules.json`
+    at build time, so a rules file with no `heuristic` block can no longer make the
+    fuzzy tier stop existing.
+  - **The unreconciled copies are not fixed by that**, and there are more than the
+    three this entry counted. The generated floor is *derived* and cannot drift,
+    but `guard_test.cpp`, `rules_budget_test.cpp`, the prose in `19_SAFETY`
+    §Heuristic tier and a `$comment` in `detection-rules.schema.json` each still
+    restate the list by hand — and the schema comment restates the **four-fragment**
+    version, the exact staleness §S19(e) was raised about. No gate cross-checks any
+    of them.
+- **A rules edit reaches no installed machine until a release** (§S20, feed half).
+  The Agent now installs `detection-rules.json` to the location the guard reads,
+  so a machine that has never had one no longer refuses every title — that half is
+  done and measured. What does not exist is `05_DETECTION` §Trust and staleness'
+  HTTPS fetch, so **FR-7.3 is unmet**: anti-cheat entries cannot arrive on their
+  own schedule. The guard also still never reads `rulesVersion` or `schemaVersion`,
+  so a binary fix and a data fix have no handshake — deliberately, since teaching
+  it to refuse an unknown version would be a second machine-wide refusal lever
+  pulled by data.
+- **`trustedSigners` is the one allow-widening field a foreign rules file still
+  controls.** Deliberately not floored — flooring an allowlist has the wrong
+  polarity — and inert today, because `IsTrustedSigner` has no production call
+  site while §S19(b) is deferred. It becomes live the moment the signer half is
+  wired, which makes gating it a prerequisite of that work.
 
 ### Added
 - Design documents (`CLAUDE.md`, `docs/01`–`20`, `legal/`) and the repository

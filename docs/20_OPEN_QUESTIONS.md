@@ -11,8 +11,13 @@ Rules for this document:
   rephrased. The answer goes in the owning doc, and the entry here is deleted
   with a pointer in the commit message.
 - Every S-series item is a **safety** item and blocks the first real injection.
-- Nothing here is a known bug in shipped code — there is no code yet. That is
-  the point: these are cheap now and expensive in P1.
+- ~~Nothing here is a known bug in shipped code — there is no code yet.~~ **No
+  longer true, and the change matters for how this file reads.** There is a built
+  guard, a Vulkan layer, a rules seeder and 11 registered ctests, and §S21 records
+  a fail-open found in *shipped* guard code. Entries here are now a mix of open
+  questions and recorded defects.
+- **A ✅ entry is closed.** They are kept rather than deleted, with their
+  reasoning, so counting entries overstates the open work — read the markers.
 
 ---
 
@@ -42,7 +47,10 @@ Each item below is a place where the documents themselves leak a gap.
 > the session goes `Detected → Guarded → Capturing` without ever entering
 > `Injecting`. Vulkan Tier 1 is nevertheless launch-mode-only
 > (`17_HOOK_ENGINE:161` — only the launching process can set
-> `FRAMELEDGER_ENABLE_VK_LAYER=1`), so **§S18 is its sole blocker**.
+> `FRAMELEDGER_ENABLE_VK_LAYER=1`), and §S18 was its sole blocker.
+>
+> **§S18 closed 2026-08-04, so that sentence is history.** What now blocks
+> Vulkan Tier 1 is `vkQueuePresentKHR`, which is P1 and not started.
 
 `04_CAPTURE` §Launch mode prefers `CreateProcess(CREATE_SUSPENDED)` → guard →
 inject → `ResumeThread`. But a suspended process has **loaded no modules yet**,
@@ -90,10 +98,13 @@ the DLL — and it compares the variable's *value*, so a stray `=0` does not
 enable us. The cost is accepted: **Vulkan Tier 1 is now launch-mode-only.**
 `tools/vklayer-blastradius.ps1` runs the check and unregisters in a `finally`.
 
-> **That cost is larger than it read.** Launch mode is blocked by §S18, and §S1
-> does *not* cover the Vulkan path (no injection, no suspended target), so §S18
-> alone blocks every Vulkan Tier-1 session. Recorded 2026-08-03; it is why §S18
-> is not merely "launch mode, which is blocked anyway".
+> **That cost read larger than it was.** Recorded 2026-08-03: launch mode was
+> blocked by §S18, and §S1 does *not* cover the Vulkan path (no injection, no
+> suspended target), so §S18 alone blocked every Vulkan Tier-1 session — which is
+> why it was not merely "launch mode, which is blocked anyway".
+>
+> **§S18 closed 2026-08-04.** The remaining blocker is the layer's own
+> `vkQueuePresentKHR`, P1 and not started.
 
 > **The measurement also killed the design that looked obvious.** Declining
 > `vkNegotiateLoaderLayerInterfaceVersion` for a process that did not opt in
@@ -756,9 +767,14 @@ configurable and never was; the field that would express it has no consumer.
 > is the defect class this file exists to record. Wiring it means first deciding
 > that `warn` or `allow` may exist, and CLAUDE.md rule 2 says they may not.
 
-**(d) The fragment list has three unreconciled copies, and the RUNTIME parser has
-no floor.** `rules/detection-rules.json`, `guard_test.cpp` (the inline
-`GoodRulesJson()` fixture) and `rules_budget_test.cpp` each carry their own.
+**(d) ◐ The fragment list has unreconciled copies — more than three. The runtime
+hole is CLOSED.** `rules/detection-rules.json`, `guard_test.cpp` (the inline
+`GoodRulesJson()` fixture) and `rules_budget_test.cpp` each carry their own, and
+re-counting on 2026-08-04 found two the entry had missed: the prose in
+`19_SAFETY` §Heuristic tier, and a `$comment` in `detection-rules.schema.json`
+that restates the **four-fragment** version — the exact staleness §S19(e) was
+raised about, sitting in the schema that gates the data. The generated floor is
+not a copy: it is derived at build time and cannot drift.
 `ParseRules` guards the entire heuristic read behind `heurTok >= 0` and
 `IsCompleteEnoughToGate` never looks at fragments, so a rules file with no
 `heuristic` block parses `kOk` and the tier silently stops existing.
@@ -776,9 +792,12 @@ no floor.** `rules/detection-rules.json`, `guard_test.cpp` (the inline
 >
 > What genuinely remains is narrower and sharper:
 >
-> - **The runtime hole**, above. It matters only for a file that did not come
->   through CI — which is to say, only once §S20 gives one a way to reach a
->   machine. That is why this is sequenced with §S20 and not before it.
+> - ~~**The runtime hole**, above, sequenced with §S20.~~ **Closed 2026-08-04 by
+>   the generated floor**, and by a mechanism this entry did not consider: the
+>   fragments are seeded into `Rules` before the file is read, so the tier cannot
+>   stop existing because the data never supplied it. That needs no new
+>   `ParseResult` cause, so `kRulesIncomplete`'s signal stays true and `layer.cpp`
+>   is not driven inert. See §S21's floor note.
 > - **The schema canary does not discriminate on this constraint.** It is
 >   `{"schemaVersion":"not-a-number"}`, which any schema still pinning
 >   `schemaVersion` rejects. Delete `minItems` from `nameFragments` and the canary
@@ -1023,11 +1042,14 @@ FILE_SHARE_DELETE`. The guard denied delete sharing and the layer denied nothing
 > the two `layer.cpp` comments that documented measured-wrong designs: a reader
 > designs a gate around them.
 
-Proven red, all four ways, before being called done: emptying `FloorFamilies`
-makes the disarmed-rules test allow; pointing a floor value at something the seed
-does not carry fails `fl_rules_budget` by name; running the completeness check
-from index 0 lets a file with no BattlEye through; and renaming
-`kFloorFamilyCount` makes `rules-validate.ps1` **fail rather than skip**.
+Proven red before being called done. Two of the four canaries named here were
+rewritten when the floor became generated — `kFloorFamilyCount` no longer exists
+and no floor value can be hand-pointed — so the current set is: a generator that
+drops four of the five groups, a floor keeping one of five fragments, a
+`kMaxFamilies` below twice the seed, and a `kMaxNameFragments` below twice its
+fragments. Emptying `FloorFamilies` still makes the disarmed-rules test allow, and
+running the completeness check from index 0 still lets a file with no BattlEye
+through.
 
 #### Measured end to end, not only in fixtures (2026-08-04)
 
@@ -1382,3 +1404,25 @@ no drain) stays in P0. Items 5–9 below are still open.
    `09_I18N` fails the build until a human signs off on safety translations.
    Identify the reviewer during bootstrap and draft the `Safety_*` keys as soon
    as the consent wording is stable.
+10. **Four artifacts the documents name do not exist, and one of them is claimed
+    as a gate that runs.** Found 2026-08-04 by an audit of the repository's own
+    status records, and grouped here rather than fixed one by one because the
+    decision is the same for all of them: build it, or stop describing it as
+    present.
+
+    | Named where | Artifact | State |
+    |---|---|---|
+    | `12_BUILD:139`, `13_CI_CD:11`, `09_I18N:28`, `CLAUDE.md:66` | `tools/resx-audit` | Absent. **Honestly handled** — `build.ps1:309` skips it loudly with a reason, and no `.resx` files exist yet |
+    | `12_BUILD:136`, `13_CI_CD:11` | the managed **struct-mirror** test | Absent. Nothing under `tests/` references `FlFrameRecord`. Both docs state `dotnet test` includes it, so this one reads as a gate that runs |
+    | `13_CI_CD:21`, `12_BUILD:121`, `CHANGELOG:9` | `.github/workflows/release.yml` | Absent. `CHANGELOG`'s header instructs an author to write for a consumer that does not exist |
+    | `12_BUILD` §Local quality gate | three gates omitted from the list | `build.ps1` runs **13** steps; the doc lists 10, missing `coverage-gate`, `versioninfo-check` and `chokepoint-check` |
+
+    The struct-mirror row is the one that matters. `CLAUDE.md` §Struct mirroring
+    makes that test the mechanism protecting the shared-memory ABI, and a doc that
+    says a gate runs is worse than a doc that says it is missing — the second
+    prompts someone to write it. **`build.ps1`'s skip-loudly discipline is the
+    right answer here**: a gate that is not written should be named and skipped,
+    not omitted.
+
+    Not urgent — the ring is P1 and there is nothing to mirror yet. Recorded so
+    it is found by reading, not by trusting.
