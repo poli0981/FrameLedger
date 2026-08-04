@@ -107,6 +107,49 @@ target_compile_definitions(fl_hostile_env_flags INTERFACE _HAS_EXCEPTIONS=0)
 target_compile_options(fl_hostile_env_flags INTERFACE /EHsc-)
 target_link_options(fl_hostile_env_flags INTERFACE /guard:cf)
 
+# ---------------------------------------------------------------------------
+# The compiled-in blocklist floor (§S21), GENERATED from the shipped rules file.
+#
+# The floor is what a rules file may extend and can never shrink. §S21 shipped a
+# hand-written one covering the three required families, kept minimal because a
+# larger hand-written table would be a second copy of the blocklist that drifts
+# from the data. Measured afterwards, that bought 4 of the seed's 22 values, 2 of
+# its 5 groups and none of its 5 name fragments — so a crafted rules file could
+# still delete most of the blocklist.
+#
+# Generating it removes the objection that kept it small: a table derived from
+# rules/detection-rules.json at build time cannot drift from it.
+#
+# Output goes in the BUILD tree. Generated code in src/native would be swept by
+# clang-format, and a generated file under version control is a copy somebody can
+# edit independently — the exact thing this exists to prevent.
+# ---------------------------------------------------------------------------
+find_program(FL_PWSH pwsh REQUIRED
+    DOC "PowerShell 7+, used to generate the blocklist floor from the rules file")
+
+set(FL_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+set(FL_AC_FLOOR_DIR "${CMAKE_BINARY_DIR}/generated")
+set(FL_AC_FLOOR_HEADER "${FL_AC_FLOOR_DIR}/fl_ac_floor.generated.h")
+
+add_custom_command(
+    OUTPUT "${FL_AC_FLOOR_HEADER}"
+    COMMAND "${FL_PWSH}" -NoProfile -File "${FL_REPO_ROOT}/tools/gen-ac-floor.ps1"
+            -RulesPath "${FL_REPO_ROOT}/rules/detection-rules.json"
+            -OutPath "${FL_AC_FLOOR_HEADER}"
+    DEPENDS "${FL_REPO_ROOT}/rules/detection-rules.json"
+            "${FL_REPO_ROOT}/tools/gen-ac-floor.ps1"
+    COMMENT "Generating the anti-cheat blocklist floor from rules/detection-rules.json"
+    VERBATIM)
+
+add_custom_target(fl_ac_floor_gen DEPENDS "${FL_AC_FLOOR_HEADER}")
+
+# Carries only the include directory. Every target that compiles fl_ac_rules.cpp
+# links this AND depends on fl_ac_floor_gen — the dependency is stated per target
+# rather than hidden here, so a new target that forgets it fails to compile
+# immediately and loudly rather than picking up a stale header.
+add_library(fl_ac_floor INTERFACE)
+target_include_directories(fl_ac_floor INTERFACE "${FL_AC_FLOOR_DIR}")
+
 add_subdirectory(third_party)
 add_subdirectory(FrameLedger.Shm)
 add_subdirectory(FrameLedger.Overlay)

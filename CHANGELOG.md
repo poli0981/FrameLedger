@@ -348,6 +348,44 @@ GitHub release body, so a missing section means an empty release note.
   pinned 0.9.6 package, not just the repository.
 
 ### Fixed
+- **The compiled-in blocklist floor shipped too narrow, and it is now generated
+  from the rules file** (§S21). As first written the floor carried exactly the
+  three families the completeness check required, kept minimal because a larger
+  hand-written table would be a second copy of the blocklist that drifts from the
+  data. Measured against the shipped seed, that bought **4 of 22 values, 2 of 5
+  groups and 0 of 5 name fragments** — so §S21 closed *"a crafted rules file makes
+  the guard allow everything"* and left open *"a crafted rules file removes most
+  of the blocklist"*: Denuvo, GameGuard, Xigncode3, mhyprot, FACEIT, ESEA,
+  PunkBuster, EAC's directories and services, BattlEye's directories, Vanguard's
+  service, and the entire fuzzy tier. The write-up read as though it bounded more
+  than it did.
+  - **Generating it removes the objection that kept it small.** A table derived
+    from `rules/detection-rules.json` at build time cannot drift from it, so the
+    floor is now the whole shipped blocklist plus the name fragments.
+    `trustedSigners` is deliberately excluded — it is an ALLOW-widening list, so
+    "data may only add" has the wrong polarity there.
+  - **It also delivers §S19(d)'s substance** without the new `ParseResult` cause
+    that entry proposed, which its own text said would make `kRulesIncomplete`'s
+    signal a lie and drive `layer.cpp` to machine-wide inert passthrough. A file
+    with no `heuristic` block can no longer make the tier stop existing.
+  - A file family identical to a floor entry is now **deduplicated**, or an
+    unmodified seed would spend `kMaxFamilies` twice; `rules-validate.ps1`
+    therefore bounds the file at **half** the cap, the worst case of a drifted
+    file duplicating none of the floor, and prints that worst case rather than the
+    raw count. Completeness is judged on what the file **supplied**, since an
+    unmodified seed now stores nothing.
+  - Found by the adversarial review of §S20's design: the gap was tolerable only
+    while nothing delivered a rules file to any machine, and a seeder turns it
+    into a push channel.
+- **§S21 prescribed the wrong replace primitive.** A comment on the reader and a
+  line in §S21 both told whoever implements §S20 to use temp-file +
+  `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`. Measured against a handle opened
+  exactly as the guard opens it, that returns `ERROR_ACCESS_DENIED (5)`;
+  `ReplaceFileW` with a backup file named succeeds. Delete sharing is necessary
+  and nowhere near sufficient. The unification of share modes is still right — it
+  is what lets `ReplaceFileW` proceed — but the named call would have failed on
+  exactly the machines where the guard is busy, silently, since the writer's error
+  goes nowhere.
 - **The guard refused itself, so launch mode could not work** (§S18).
   `FrameLedger.Guard.dll` contains the substring `guard`, one of the heuristic's
   `nameFragments`, and the project ships unsigned so the signer half can never

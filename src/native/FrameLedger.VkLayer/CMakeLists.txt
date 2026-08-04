@@ -26,7 +26,8 @@ target_include_directories(FrameLedger.VkLayer PRIVATE ../FrameLedger.Injector/i
 # both are core Windows components already resident in any process that has a
 # window, and the calls happen once at init, never in a dispatch path.
 target_link_libraries(FrameLedger.VkLayer PRIVATE
-    FrameLedger.Shm fl_native_flags fl_hostile_env_flags fl_vulkan_headers fl_jsmn Shell32 Ole32)
+    FrameLedger.Shm fl_native_flags fl_hostile_env_flags fl_vulkan_headers fl_jsmn Shell32 Ole32 fl_ac_floor)
+add_dependencies(FrameLedger.VkLayer fl_ac_floor_gen)
 set_target_properties(FrameLedger.VkLayer PROPERTIES OUTPUT_NAME "FrameLedger.VkLayer")
 
 # Same requirement as the Overlay, and arguably sharper here: an implicit layer

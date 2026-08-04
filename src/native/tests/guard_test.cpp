@@ -1186,9 +1186,41 @@ TEST_CASE("unusable rules make the pre-scan undetermined, never clean", "[guard]
 }
 
 TEST_CASE("the pre-scan uses the SAME matcher: removing a family stops it firing", "[guard][prescan][blocklist]") {
-    // The claim "it reuses fl_ac_rules" is proved rather than reviewed. Drop the
-    // directories group from the data and the directory hit must disappear —
-    // if it survived, there would be a second matcher somewhere.
+    // The claim "it reuses fl_ac_rules" is proved rather than reviewed. Drop a
+    // family from the data and its directory hit must disappear — if it survived,
+    // there would be a second matcher somewhere.
+    //
+    // It uses a family the FLOOR does not carry, and that is now the whole
+    // difficulty. Removing `Easy Anti-Cheat` from the file no longer stops it
+    // matching, because the generated floor carries the shipped blocklist and
+    // data cannot shrink it — which is §S21 working, not a regression. Proving
+    // "one matcher" therefore needs a family that exists only in the fixture.
+    static constexpr const char* kFixtureOnlyDir = "ZzFixtureOnlyAcDir";
+
+    std::string       withExtra = GoodRulesJson();
+    const std::string dirs = R"("directories": [ { "family": "Easy Anti-Cheat", "values": ["EasyAntiCheat"] } ],)";
+    const std::size_t at = withExtra.find(dirs);
+    REQUIRE(at != std::string::npos);    // the fixture moved; this test is not testing what it thinks
+    withExtra.replace(at, dirs.size(),
+                      R"("directories": [ { "family": "Easy Anti-Cheat", "values": ["EasyAntiCheat"] },)"
+                      R"( { "family": "Fixture Only", "values": ["ZzFixtureOnlyAcDir"] } ],)");
+
+    ResetFake();
+    g.dirEntries = {{kFixtureOnlyDir, true}};
+    g.rulesJson = withExtra;
+    REQUIRE(EvaluateWithSources(1234, FakeSources()).reason == Reason::kAntiCheatDirectory);
+
+    // Same input, family removed from the data: the hit must be gone.
+    ResetFake();
+    g.dirEntries = {{kFixtureOnlyDir, true}};
+    g.rulesJson = GoodRulesJson();
+    CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
+}
+
+TEST_CASE("a family the FLOOR carries cannot be removed by editing the data", "[guard][prescan][floor]") {
+    // The other direction, and the one §S21's narrow floor could not deliver.
+    // Strip Easy Anti-Cheat from every group of the file and the directory hit
+    // survives, because the floor is generated from the shipped blocklist.
     ResetFake();
     g.dirEntries = {{"EasyAntiCheat", true}};
     REQUIRE(EvaluateWithSources(1234, FakeSources()).reason == Reason::kAntiCheatDirectory);
@@ -1196,13 +1228,16 @@ TEST_CASE("the pre-scan uses the SAME matcher: removing a family stops it firing
     std::string       stripped = GoodRulesJson();
     const std::string dirs = R"("directories": [ { "family": "Easy Anti-Cheat", "values": ["EasyAntiCheat"] } ],)";
     const std::size_t at = stripped.find(dirs);
-    REQUIRE(at != std::string::npos);    // the fixture moved; this test is not testing what it thinks
-    stripped.replace(at, dirs.size(), R"("directories": [ { "family": "BattlEye", "values": ["BattlEye"] } ],)");
+    REQUIRE(at != std::string::npos);
+    stripped.replace(at, dirs.size(), R"("directories": [],)");
 
     ResetFake();
     g.dirEntries = {{"EasyAntiCheat", true}};
     g.rulesJson = stripped;
-    CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
+    INFO("reason was " << ReasonName(v.reason));
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kAntiCheatDirectory);
 }
 
 TEST_CASE("the install root is resolved from the exe directory, not used as-is", "[guard][prescan]") {

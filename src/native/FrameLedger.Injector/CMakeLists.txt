@@ -32,8 +32,9 @@ target_include_directories(FrameLedger.Injector PUBLIC include)
 # carrying two system libs.
 target_link_libraries(FrameLedger.Injector
     PUBLIC FrameLedger.Shm fl_native_flags Shell32 Ole32
-    PRIVATE fl_jsmn
+    PRIVATE fl_jsmn fl_ac_floor
 )
+add_dependencies(FrameLedger.Injector fl_ac_floor_gen)
 
 # ---------------------------------------------------------------------------
 # The C ABI the managed Agent reaches the guard through (§S15 item 1).
@@ -56,7 +57,8 @@ add_library(FrameLedger.Guard SHARED
     src/fl_guard_abi.cpp
 )
 target_include_directories(FrameLedger.Guard PUBLIC include)
-target_link_libraries(FrameLedger.Guard PRIVATE FrameLedger.Shm fl_native_flags fl_jsmn Shell32 Ole32)
+target_link_libraries(FrameLedger.Guard PRIVATE FrameLedger.Shm fl_native_flags fl_jsmn Shell32 Ole32 fl_ac_floor)
+add_dependencies(FrameLedger.Guard fl_ac_floor_gen)
 target_compile_definitions(FrameLedger.Guard PRIVATE FL_GUARD_ABI_BUILD)
 set_target_properties(FrameLedger.Guard PROPERTIES OUTPUT_NAME "FrameLedger.Guard")
 fl_add_version_resource(FrameLedger.Guard "FrameLedger anti-cheat guard (hard gate; refuses where anti-cheat is present)")

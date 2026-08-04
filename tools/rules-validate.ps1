@@ -407,14 +407,9 @@ function Get-HeaderConstant([string]$Name) {
 
 $maxFamilies = Get-HeaderConstant 'kMaxFamilies'
 $tokenBudget = Get-HeaderConstant 'kRulesTokenBudget'
-# §S21. ParseRules seeds the compiled-in floor before it reads a byte of the
-# file, so the budget available to THIS document is kMaxFamilies minus the floor.
-# Read, never assumed: if the floor grows and this is not subtracted, a rules edit
-# passes CI and then returns kTooLarge on every client — refuse-everything,
-# published by a green build.
-$floorFamilies = Get-HeaderConstant 'kFloorFamilyCount'
+$maxFragments = Get-HeaderConstant 'kMaxNameFragments'
 foreach ($c in @(@{ n = 'kMaxFamilies'; v = $maxFamilies }, @{ n = 'kRulesTokenBudget'; v = $tokenBudget },
-        @{ n = 'kFloorFamilyCount'; v = $floorFamilies })) {
+        @{ n = 'kMaxNameFragments'; v = $maxFragments })) {
     if ($null -eq $c.v) {
         Write-Host "RULES VALIDATION FAILED: could not read $($c.n) from fl_ac_rules.h" -ForegroundColor Red
         Write-Host '  Either the constant was renamed or its form changed. Refusing rather than' -ForegroundColor Red
@@ -428,9 +423,23 @@ if (Test-Member $rules 'anticheat') {
     foreach ($g in 'modules', 'drivers', 'directories', 'services', 'files') {
         if (Test-Member $rules.anticheat $g) { $totalFamilies += @($rules.anticheat.$g).Count }
     }
-    $fileBudget = $maxFamilies - $floorFamilies
-    if ($totalFamilies -gt $fileBudget) {
-        $errors.Add("$totalFamilies anticheat families across all groups exceeds the budget available to the FILE ($fileBudget = fl::guard::kMaxFamilies $maxFamilies - kFloorFamilyCount $floorFamilies) — ParseRules returns kTooLarge and the guard refuses EVERY title")
+    # §S21. The compiled-in floor is GENERATED from this file, so it holds exactly
+    # these families and ParseRules seeds them before reading a byte. A file family
+    # identical to a floor entry is then deduplicated — but a file that has DRIFTED
+    # from the shipped floor (an updated rules push against an older binary)
+    # duplicates none of it, and both copies have to fit.
+    #
+    # So the bound is 2x, not 1x. Getting this wrong does not fail here; it fails
+    # on every client as kTooLarge, which the guard turns into refuse-every-title.
+    if (($totalFamilies * 2) -gt $maxFamilies) {
+        $errors.Add("$totalFamilies anticheat families needs $($totalFamilies * 2) slots in the worst case (the generated floor plus a fully-drifted file) and fl::guard::kMaxFamilies is $maxFamilies — ParseRules returns kTooLarge and the guard refuses EVERY title")
+    }
+    $fragmentCount = 0
+    if ((Test-Member $rules.anticheat 'heuristic') -and (Test-Member $rules.anticheat.heuristic 'nameFragments')) {
+        $fragmentCount = @($rules.anticheat.heuristic.nameFragments).Count
+    }
+    if (($fragmentCount * 2) -gt $maxFragments) {
+        $errors.Add("$fragmentCount nameFragments needs $($fragmentCount * 2) slots in the worst case and fl::guard::kMaxNameFragments is $maxFragments — same failure mode as the family cap")
     }
 }
 
@@ -480,6 +489,9 @@ Write-Host "rules OK — schema v$($rules.schemaVersion), rules $($rules.rulesVe
 # The families figure is against the FILE's budget, not kMaxFamilies: printing
 # the raw capacity would overstate the headroom by the size of the §S21 floor,
 # and this line exists to be read rather than to look reassuring.
-Write-Host "  capacity — $totalFamilies/$($maxFamilies - $floorFamilies) families (kMaxFamilies $maxFamilies less the $floorFamilies compiled-in floor), $tokenCount/$tokenBudget parse tokens" -ForegroundColor DarkGray
+# Printed as the WORST case (floor + a fully-drifted file), not as the raw count.
+# The raw count against kMaxFamilies would overstate the headroom by exactly the
+# size of the floor, and this line exists to be read rather than to reassure.
+Write-Host "  capacity — $($totalFamilies * 2)/$maxFamilies family slots worst case, $($fragmentCount * 2)/$maxFragments fragment slots, $tokenCount/$tokenBudget parse tokens" -ForegroundColor DarkGray
 Write-Host "  fixtures — $($fixtureDirs.Count) corpus directories cover every engine and platform id" -ForegroundColor DarkGray
 exit 0

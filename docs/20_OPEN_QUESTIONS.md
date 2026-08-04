@@ -870,12 +870,50 @@ which nobody re-asked. **When a doc says an input cannot be redirected, the
 question is "through which channel", and the answer has to enumerate the rest.**
 
 **Fixed by the floor, not by the path.** `fl::guard::FloorFamilies` carries the
-three required families inside the binary; `ParseRules` seeds them before reading
-a byte and nothing merges, rewrites or removes them. §S8's mechanism applied to
-data: a family data cannot remove cannot be bypassed. Path resolution moved to
+blocklist inside the binary; `ParseRules` seeds it before reading a byte and
+nothing merges, rewrites or removes it. §S8's mechanism applied to data: a family
+data cannot remove cannot be bypassed. Path resolution moved to
 `SHGetKnownFolderPath` as well, and that is written down as a **narrowing, not a
 guarantee** — a user can still move their own Local AppData; what is gone is the
 per-launch vector.
+
+> #### The floor shipped too narrow, and that is worth recording (2026-08-04)
+>
+> As first written it carried **exactly the three families `IsCompleteEnoughToGate`
+> required**, kept minimal on the grounds that a larger hand-written table would
+> be a second copy of the blocklist and drift from the data. Measured against the
+> shipped seed, that bought **4 of 22 values, 2 of 5 groups and 0 of 5 name
+> fragments**.
+>
+> So this entry closed *"a crafted rules file makes the guard allow everything"*
+> and left open *"a crafted rules file removes most of the blocklist"* — Denuvo,
+> GameGuard, Xigncode3, mhyprot, FACEIT, ESEA, PunkBuster, EAC's directories and
+> services, BattlEye's directories, Vanguard's service, and the entire fuzzy tier.
+> The write-up above read as though the floor bounded more than it did.
+>
+> That gap was tolerable only while nothing delivered a rules file to any machine.
+> The §S20 review is what surfaced it, because a seeder turns a repo-only defect
+> into a **push channel**.
+>
+> **The floor is now GENERATED from `rules/detection-rules.json` at build time**
+> (`tools/gen-ac-floor.ps1`), which removes the objection that kept it small — a
+> table derived from the data cannot drift from it. It carries the whole shipped
+> blocklist and the name fragments; `trustedSigners` is deliberately excluded,
+> because it is an ALLOW-widening list and "data may only add" has the wrong
+> polarity there.
+>
+> Two consequences worth stating. A file family identical to a floor entry is
+> **deduplicated**, or an unmodified seed would spend `kMaxFamilies` twice — so
+> `rules-validate.ps1` now bounds the file at **half** the cap, which is the
+> worst case of a drifted file duplicating none of the floor. And completeness is
+> judged on what the file **supplied**, not on what was stored, because an
+> unmodified seed now stores nothing.
+>
+> **It also delivers §S19(d)'s substance** — a rules file with no `heuristic`
+> block can no longer make the fuzzy tier stop existing — without the new
+> `ParseResult` cause that entry proposed, which would have made
+> `kRulesIncomplete`'s signal a lie and driven `layer.cpp` to machine-wide inert
+> passthrough. A floor needs neither.
 
 Kept able to fail: the completeness check now runs over the **file's** families
 only. Running it over the merged set would have retired a real refusal by
@@ -913,10 +951,24 @@ assertion matters most for §S20: a seeder writing where the gate does not read
 reports success, and its own test would agree with it.
 
 Sharing mode unified too — all readers now `FILE_SHARE_READ | FILE_SHARE_WRITE |
-FILE_SHARE_DELETE`. The guard denied delete sharing and the layer denied nothing;
-§S20's replace must be temp-file + `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`, and
-a reader denying delete sharing turns every routine rules update into a silent
-failed update.
+FILE_SHARE_DELETE`. The guard denied delete sharing and the layer denied nothing.
+
+> **The primitive this prescribed was wrong, and it is corrected rather than
+> quietly edited.** It said §S20's replace must be temp-file +
+> `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`. Measured 2026-08-04 against a handle
+> opened exactly as the guard opens it:
+>
+> | Call | Against a live reader |
+> |---|---|
+> | `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` | `ERROR_ACCESS_DENIED (5)` |
+> | `ReplaceFileW`, backup file named | succeeds |
+>
+> Delete sharing is **necessary and nowhere near sufficient**. The unification is
+> still right — it is what lets `ReplaceFileW` proceed — but the named call was
+> the one that fails on exactly the machines where the guard is busy, and its
+> error goes nowhere, so the update would simply not have happened. Same shape as
+> the two `layer.cpp` comments that documented measured-wrong designs: a reader
+> designs a gate around them.
 
 Proven red, all four ways, before being called done: emptying `FloorFamilies`
 makes the disarmed-rules test allow; pointing a floor value at something the seed
