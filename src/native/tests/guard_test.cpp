@@ -1236,6 +1236,80 @@ TEST_CASE("the injected Overlay publishes a handshake the Agent can validate", "
     CloseHandle(mapping);
 }
 
+TEST_CASE("a D3D12 title is recorded as D3D12, not as the D3D11 we used to assume", "[guard][inject][shm]") {
+    // One hook on the SHARED dxgi.dll class vtable catches D3D11 and D3D12 alike,
+    // so the present call itself cannot tell them apart -- and `api` was
+    // hardcoded to D3D11 until now, which was a guess written into a field
+    // 03_METRICS consumes and 06_DATA_MODEL persists.
+    //
+    // The fixture presents through a swapchain created from a D3D12 COMMAND
+    // QUEUE, which is the case that catches a naive QueryInterface for
+    // ID3D12Device: CreateSwapChainForComposition takes the queue, so the device
+    // interface is not what GetDevice returns.
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --hold-presenting-d3d12 10";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    void* base = MapViewOfFile(mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    auto* st = reinterpret_cast<fl::FlWriterState*>(static_cast<unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    auto* ctl = reinterpret_cast<fl::FlControlBlock*>(static_cast<unsigned char*>(base) + FL_SHM_CONTROL_OFFSET);
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    REQUIRE(st->status == fl::FL_STATUS_READY);
+
+    fl::RingReader rd;
+    REQUIRE(rd.Init(base, FL_SHM_DEFAULT_CAPACITY));
+    std::vector<fl::FlFrameRecord> all;
+    for (int i = 0; i < 50 && all.size() < 30; ++i) {
+        ++ctl->guardTicks;    // keep supervision alive; this test is not about the deadline
+        fl::FlFrameRecord buf[256]{};
+        const auto        r = rd.Drain(buf, 256);
+        for (std::uint32_t k = 0; k < r.copied; ++k) {
+            all.push_back(buf[k]);
+        }
+        Sleep(100);
+    }
+    REQUIRE(all.size() > 10);
+
+    bool allD3D12 = true;
+    for (const auto& rec : all) {
+        if (rec.api != fl::FL_API_D3D12) {
+            allD3D12 = false;
+        }
+    }
+    CHECK(allD3D12);
+    // apiMask records what was actually SEEN presenting, not what the process
+    // loaded -- a title can link d3d12.dll and present through D3D11.
+    CHECK((st->apiMask & (1u << fl::FL_API_D3D12)) != 0);
+    CHECK((st->apiMask & (1u << fl::FL_API_D3D11)) == 0);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}
+
 TEST_CASE("the Agent's safety stop halts recording within a frame", "[guard][inject][shm]") {
     // 19_SAFETY calls the mid-session stop "the single most important runtime
     // behavior in the whole capture layer", and legal/DISCLAIMER.md promises it
@@ -1402,10 +1476,18 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
         if (all[i].swapchainId == 0) {
             identified = false;
         }
+        // The OTHER direction of the api resolution. Without this, a resolver
+        // that always answered D3D12 would pass the D3D12 case and nothing would
+        // notice -- the harness here presents through a D3D11 device.
+        if (all[i].api != fl::FL_API_D3D11) {
+            identified = false;
+        }
     }
     CHECK(timeMovesForward);
     CHECK(honest);
     CHECK(identified);
+    CHECK((st->apiMask & (1u << fl::FL_API_D3D11)) != 0);
+    CHECK((st->apiMask & (1u << fl::FL_API_D3D12)) == 0);
 
     // Published at first present, never at init: our dummy device's adapter is
     // not the game's (#36).

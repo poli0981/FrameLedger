@@ -747,6 +747,75 @@ int main(int argc, char** argv) {
             std::fflush(stdout);
             Sleep(static_cast<DWORD>(std::atoi(argv[++i])) * 1000);
             ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting-d3d12") == 0 && i + 1 < argc) {
+            // The same shape as --hold-presenting, but the swapchain is created
+            // from a D3D12 COMMAND QUEUE rather than a D3D11 device.
+            //
+            // That difference is the whole point. One hook on the shared
+            // dxgi.dll class vtable catches both, so the present call cannot tell
+            // them apart -- the Overlay has to ask the swapchain which device
+            // made it, and this is the fixture that proves it answers D3D12
+            // rather than the D3D11 it used to hardcode.
+            const int           seconds = std::atoi(argv[++i]);
+            IDXGIFactory4*      f = nullptr;
+            IDXGIAdapter*       warp = nullptr;
+            ID3D12Device*       dev = nullptr;
+            ID3D12CommandQueue* queue = nullptr;
+            IDXGISwapChain1*    sc = nullptr;
+            bool                built = false;
+            if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory4), reinterpret_cast<void**>(&f))) &&
+                SUCCEEDED(f->EnumWarpAdapter(__uuidof(IDXGIAdapter), reinterpret_cast<void**>(&warp))) &&
+                SUCCEEDED(D3D12CreateDevice(warp, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device),
+                                            reinterpret_cast<void**>(&dev)))) {
+                D3D12_COMMAND_QUEUE_DESC qd{};
+                qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+                if (SUCCEEDED(
+                        dev->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), reinterpret_cast<void**>(&queue)))) {
+                    DXGI_SWAP_CHAIN_DESC1 d{};
+                    d.Width = 64;
+                    d.Height = 64;
+                    d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+                    d.SampleDesc.Count = 1;
+                    d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                    d.BufferCount = 2;
+                    d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+                    d.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+                    built = SUCCEEDED(f->CreateSwapChainForComposition(queue, &d, nullptr, &sc)) && sc != nullptr;
+                }
+            }
+            if (!built) {
+                Check(false, "d3d12 swapchain for --hold-presenting-d3d12");
+                ok = false;
+            } else {
+                const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
+                std::printf("  presenting D3D12 for %d second(s) [%s]\n", seconds, real ? "REAL" : "DXGI_PRESENT_TEST");
+                std::fflush(stdout);
+                const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
+                long long       presented = 0;
+                while (GetTickCount64() < until) {
+                    sc->Present(0, flags);
+                    ++presented;
+                    Sleep(8);
+                }
+                std::printf("  presented=%lld\n", presented);
+                std::fflush(stdout);
+            }
+            if (sc != nullptr) {
+                sc->Release();
+            }
+            if (queue != nullptr) {
+                queue->Release();
+            }
+            if (dev != nullptr) {
+                dev->Release();
+            }
+            if (warp != nullptr) {
+                warp->Release();
+            }
+            if (f != nullptr) {
+                f->Release();
+            }
+            ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting") == 0 && i + 1 < argc) {
             // WHAT --hold CANNOT DO, and why the injection tests needed this.
             //

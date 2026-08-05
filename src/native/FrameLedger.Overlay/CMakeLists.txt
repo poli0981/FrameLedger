@@ -9,7 +9,7 @@ add_library(FrameLedger.Overlay SHARED src/dllmain.cpp)
 # composition swapchain (17_HOOK_ENGINE §Getting vtable addresses) — never a
 # hardcoded pointer, and the dummy object is released immediately.
 target_link_libraries(FrameLedger.Overlay PRIVATE FrameLedger.Shm fl_native_flags fl_hostile_env_flags minhook
-    Advapi32 d3d11 dxgi)
+    Advapi32 d3d11 d3d12 dxgi)
 set_target_properties(FrameLedger.Overlay PROPERTIES OUTPUT_NAME "FrameLedger.Overlay")
 
 # VERSIONINFO is mandatory and the build fails without it: being plainly
