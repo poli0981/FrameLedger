@@ -688,6 +688,73 @@ bool ProbeFrameIdentity(Gfx& g) {
 
 }    // namespace
 
+// Why does a prologue patch on opengl32!wglSwapBuffers stop firing after ONE
+// call? (WIP c64d0ec: the Overlay's hook recorded exactly one frame, with no
+// fault, no self-disable and no unhook.)
+//
+// The hypothesis this measures: opengl32!wglSwapBuffers is a dispatcher into the
+// vendor ICD, and the first call resolves or rewrites that dispatch, so the
+// patched bytes are no longer the code that runs. If true it is the same shape as
+// the Streamline interposer question -- the symbol we can hook is not the code
+// that executes -- and the fix is a different hook target, not a better patch.
+//
+// Deliberately reads rather than patches: this answers whether the BYTES change
+// and whether the ICD arrives, which is enough to decide, and it leaves the
+// process's own GL stack untouched.
+void ProbeGlDispatch(HDC hdc) {
+    HMODULE gl = GetModuleHandleW(L"opengl32.dll");
+    auto*   fn = reinterpret_cast<unsigned char*>(GetProcAddress(gl, "wglSwapBuffers"));
+    if (fn == nullptr) {
+        Check(false, "opengl32 exports wglSwapBuffers");
+        return;
+    }
+
+    auto dump = [](const char* when, const unsigned char* p) {
+        std::printf("  %-14s %p:", when, static_cast<const void*>(p));
+        for (int i = 0; i < 16; ++i) {
+            std::printf(" %02X", p[i]);
+        }
+        std::printf("\n");
+    };
+    auto icdLoaded = []() {
+        // Any vendor GL implementation, not just NVIDIA's.
+        return GetModuleHandleW(L"nvoglv64.dll") != nullptr || GetModuleHandleW(L"atioglxx.dll") != nullptr ||
+               GetModuleHandleW(L"ig9icd64.dll") != nullptr;
+    };
+
+    unsigned char before[16]{};
+    std::memcpy(before, fn, sizeof(before));
+    std::printf("  ICD loaded before first call: %s\n", icdLoaded() ? "yes" : "no");
+    dump("before", fn);
+
+    using PFN = BOOL(WINAPI*)(HDC);
+    auto swap = reinterpret_cast<PFN>(reinterpret_cast<void*>(fn));
+    swap(hdc);
+
+    unsigned char after[16]{};
+    std::memcpy(after, fn, sizeof(after));
+    std::printf("  ICD loaded after  first call: %s\n", icdLoaded() ? "yes" : "no");
+    dump("after", fn);
+
+    // Resolving again: a changed ADDRESS would mean the export itself moved.
+    auto* fn2 = reinterpret_cast<unsigned char*>(GetProcAddress(gl, "wglSwapBuffers"));
+    std::printf("  GetProcAddress again: %p (%s)\n", static_cast<void*>(fn2), fn2 == fn ? "same" : "DIFFERENT");
+
+    const bool bytesChanged = std::memcmp(before, after, sizeof(before)) != 0;
+    std::printf("\n  ==> prologue bytes %s across the first call\n", bytesChanged ? "CHANGED" : "did NOT change");
+    if (bytesChanged) {
+        std::printf("      The hypothesis holds: something rewrites the entry point, so a\n"
+                    "      prologue patch survives exactly one call. Hook the ICD's own export\n"
+                    "      or the dispatch table instead.\n");
+    } else {
+        std::printf("      The hypothesis is WRONG. The bytes are stable, so a prologue patch\n"
+                    "      should keep firing -- the single-record behaviour has another cause\n"
+                    "      and this measurement has ruled out the obvious one.\n");
+    }
+    swap(hdc);
+    swap(hdc);
+}
+
 // OpenGL hold. Returns false only for a real failure; a missing GL stack exits
 // the process with 3 so a caller can tell "not available" from "broken".
 bool RunGlHold(int seconds, bool real) {
@@ -733,6 +800,16 @@ bool RunGlHold(int seconds, bool real) {
         std::exit(3);
     }
     std::printf("  GL_VERSION = %s\n", reinterpret_cast<const char*>(glGetString(GL_VERSION)));
+
+    if (seconds == 0) {
+        // --hold-presenting-gl 0 is the dispatch measurement, not a hold.
+        ProbeGlDispatch(hdc);
+        wglMakeCurrent(nullptr, nullptr);
+        wglDeleteContext(rc);
+        ReleaseDC(hwnd, hdc);
+        DestroyWindow(hwnd);
+        return true;
+    }
 
     // wglSwapBuffers, NOT the GDI SwapBuffers. 17_HOOK_ENGINE §Hook inventory
     // names the wgl entry point, and that is what the Overlay hooks; presenting
