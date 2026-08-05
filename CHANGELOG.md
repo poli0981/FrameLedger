@@ -293,6 +293,62 @@ GitHub release body, so a missing section means an empty release note.
     NGX-direct titles never wrap the swapchain.
 
 ### Fixed
+- **Four gates that could not fail, or could not discriminate** — §S19(a), §S19(d)'s
+  residual, §S23-5, and §S29(d). Each is closed by a mechanism rather than by a
+  correction, because three of the four were *already* corrections that had gone stale.
+  - **`gameguard` could never fire, and it is now impossible to add another that
+    cannot.** The heuristic match is a case-insensitive substring and `guard` is a
+    substring of `gameguard`, so the shorter token always won first. Removed, and
+    `rules-validate` now fails when **any** `nameFragment` contains another.
+    - **Deleting a fragment is normally a detection removal in a hard gate, and this
+      is the one case where it removes nothing** — subsumption means *by construction*
+      that every name `gameguard` could match, `guard` matches. Checked separately and
+      not previously recorded: nProtect GameGuard also has its **own named module
+      family** (`GameGuard`, `npgg`, `GameMon`), so the fragment was redundant twice.
+      The standing objection still applies in full to `protect` (§S19(b)).
+    - The hazard was always in the future: with both present, removing `guard` leaves
+      a list that still *appears* to cover nProtect. "Cosmetic" was the wrong word.
+    - It trips `rules-publish`'s removal check. **That is the gate working** — it
+      exists to make a blocklist removal reviewable, and this is one.
+  - **The schema canary proved the schema was not inert, and nothing more.** It was
+    `{"schemaVersion":"not-a-number"}`, which any schema still pinning `schemaVersion`
+    rejects — so deleting `minItems` from `nameFragments` left it passing. A second
+    canary now carries `nameFragments: []` and must be rejected, **derived from the
+    shipped document** rather than hand-written: a hand-written canary is a second
+    statement of the schema's shape and drifts from it, which is the defect the
+    validator exists to catch. Mutating the real document makes the constraint under
+    test the only difference between the passing and failing cases.
+    - **§S19(d)'s stated consequence was overstated and is corrected in place.** The
+      floor would *not* have silently disappeared: `gen-ac-floor.ps1` hard-errors on an
+      empty list and runs as a CMake custom command, so the native build fails. What
+      was unguarded is the *schema* half.
+  - **The shipped `detection-rules.json` carried a fourth statement of the gate's
+    composition**, omitting the services tier — the only one ever measured firing on
+    real anti-cheat — in the one copy that reaches users. Closed the way §S23-4 closed
+    the same class: by **removing** the restatement, not correcting it, with
+    `rules-validate` failing if any `$comment` enumerates checks again.
+    - **That rule's first version could not fire, which is the finding.** It was scoped
+      to `anticheat.$comment`; the text lives in the **top-level** `$comment`. A check
+      pointed at the wrong object — this project's signature defect, committed inside
+      the fix for it. It now walks every `$comment` in the document **and fails if it
+      finds none**, because a walk reporting clean having looked nowhere is the same
+      defect one layer up.
+    - **Its canary reported green twice before the cause was found.** The first time,
+      a backtick inside a double-quoted PowerShell needle silently mangled the search
+      string, so the mutation never applied and the validator was correctly passing on
+      unmodified data. That is the sixth time on this project that the verification
+      harness was the broken thing, and the sixth time it reported success.
+  - **`vklayer-blastradius.ps1` case 3 is an assertion instead of a printout.** It
+    tested whether the Vulkan loader compares `enable_environment`'s **value** or
+    merely its existence — the difference between a stray `set
+    FRAMELEDGER_ENABLE_VK_LAYER=0` doing nothing and it mapping FrameLedger into every
+    Vulkan process on the machine — and printed in both branches, never touching
+    `$errors`. Being an observation was correct *while the answer was unknown*; it was
+    measured on 2026-08-02 and recorded as settled, and the step kept printing in green
+    either way. **When a measurement becomes a recorded fact, the step that produced it
+    has to become the thing that defends it.** Still only runs by hand: the script
+    writes `HKCU` and is excluded from `build.ps1` and CI by design.
+
 - **Occlusion probes were reaching the ring as frames** (#48). `DXGI_PRESENT_TEST` runs the
   presentation test and **submits nothing**. The writer recorded them like any other present,
   so a minimised or fully occluded game — which issues them continuously — produced records

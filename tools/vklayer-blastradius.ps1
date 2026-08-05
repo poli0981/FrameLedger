@@ -164,22 +164,35 @@ try {
         Write-Host '  [PASS] the host application ran normally with our layer in the chain' -ForegroundColor Green
     }
 
-    # --- 3. What does the loader do with a NON-MATCHING value? --------------
+    # --- 3. A NON-MATCHING value must NOT enable the layer -------------------
     # The manifest says FRAMELEDGER_ENABLE_VK_LAYER=1. Whether the loader
-    # compares the VALUE or merely checks that the variable EXISTS is the part
-    # the documentation does not settle, and it decides whether a stray
-    # `set FRAMELEDGER_ENABLE_VK_LAYER=0` in a user's environment silently
-    # enables us everywhere.
+    # compares the VALUE or merely checks that the variable EXISTS decides
+    # whether a stray `set FRAMELEDGER_ENABLE_VK_LAYER=0` in a user's
+    # environment silently enables us in every Vulkan process on the machine.
+    #
+    # THIS WAS AN OBSERVATION AND IS NOW AN ASSERTION, which is the whole point.
+    # It printed in both branches and never touched $errors — it could not fail.
+    # That was correct while the answer was unknown: the step existed to DISCOVER
+    # the loader's behaviour, and a discovery step that fails is just a step with
+    # an opinion. The discovery was made on 2026-08-02 against loader 1.4.357 and
+    # is recorded in docs/spike-notes.md §2 as settled: the loader compares the
+    # VALUE.
+    #
+    # Once a measurement becomes a recorded fact, the step that produced it has to
+    # become the thing that defends it, or the fact quietly stops being checked
+    # while a script that still prints about it reads as coverage. A loader update
+    # that switched to existence-checking would widen the highest blast radius in
+    # the spike, and the only script that would notice was printing in green
+    # either way (20_OPEN_QUESTIONS §S29(d)).
     Write-Host ''
-    Write-Host '=== 3. enable variable set to a NON-MATCHING value — observation ===' -ForegroundColor Cyan
+    Write-Host '=== 3. enable variable set to a NON-MATCHING value ===' -ForegroundColor Cyan
     $wrong = Test-LayerLoaded @{ VK_LOADER_DEBUG = 'layer'; $enableVar = '0' }
     if ($wrong.Loaded) {
-        Write-Host '  OBSERVED: the loader checks EXISTENCE, not value — any value enables the layer.' -ForegroundColor Yellow
-        Write-Host '            Record this in docs/spike-notes.md §2; it widens the blast radius' -ForegroundColor Yellow
-        Write-Host '            of a stray environment variable and must not be assumed away.' -ForegroundColor Yellow
+        $errors.Add("the loader enabled our layer with $enableVar=0 — it checks EXISTENCE, not value, so any stray value of that variable maps FrameLedger into every Vulkan process on the machine. docs/spike-notes.md §2 records the opposite as measured against loader 1.4.357; that measurement no longer holds and the manifest's enable_environment gate is not the gate it is documented to be.")
+        Write-Host '  [FAIL] the loader checks EXISTENCE, not value — any value enables the layer' -ForegroundColor Red
     }
     else {
-        Write-Host '  OBSERVED: the loader compares the VALUE — a non-matching value does not enable us.' -ForegroundColor Green
+        Write-Host '  [PASS] the loader compares the VALUE — a non-matching value does not enable us' -ForegroundColor Green
     }
 }
 finally {

@@ -65,16 +65,16 @@ or it becomes the next stale status claim this file exists to record.
 | **S2 part three** | ⏳ **open, sequenced** | In-layer supervision lands with `vkQueuePresentKHR` (P1). Building it sooner would be a predicate whose wrong answer changes nothing observable |
 | **S4 signing** | ⏳ **open, residual accepted** | HTTPS authenticates the host, not the content. Recorded rather than closed — needs a rationale written or a decision |
 | **S6** | ❓ **open, disposition undecided** | Owner: work, or deferral-with-rationale? See the correction block under §S6 for what #40–#44 changed and what it does not |
-| **S19(a)** | ❓ **open, disposition undecided** | `gameguard` can never fire — `guard` subsumes it. Cosmetic until someone removes `guard` |
+| **S19(a)** | ✅ **resolved 2026-08-05** | `gameguard` could never fire — `guard` subsumed it. Removed; `rules-validate` now fails when any fragment contains another, so the class cannot return. Zero coverage lost: nProtect has its own named module family |
 | **S19(c)** | ❓ **open, disposition undecided** | `signerField` and `action` are schema-`required` and parsed by nobody. Costing `action` honestly means first deciding `warn`/`allow` may exist, and CLAUDE.md rule 2 says they may not |
-| **S19(d) residual** | ❓ **open, disposition undecided** | The schema canary does not discriminate on `nameFragments: []`; the runtime hole is closed by the generated floor |
+| **S19(d) residual** | ✅ **resolved 2026-08-05** | A second canary, **derived from the shipped document** rather than hand-written, carries `nameFragments: []` and must be rejected. The entry's stated consequence was overstated and is corrected in place: the generated floor would not have disappeared, `gen-ac-floor.ps1` hard-errors and the native build fails — what was unguarded is the *schema* half |
 | **S20 feed half** | ❓ **open, disposition undecided** | **FR-7.3 is unmet**: a rules edit reaches no installed machine until a release |
 | **S23-3** | ⏳ **open, sequenced** | `08_UI`'s refusal notice is wrong in the commonest case; needs to reach `08_UI` and the `Safety_*` keys before any UI exists (P3) |
-| **S23-5** | ❓ **open, disposition undecided** | A fourth statement of the gate's composition lives in the shipped `detection-rules.json` `$comment` |
+| **S23-5** | ✅ **resolved 2026-08-05** | Closed the way §S23-4 closed the same class — by **removing** the restatement, not correcting it — and `rules-validate` now fails when any `$comment` enumerates checks again. The rule's own first version was scoped to the wrong object and could not fire; it now walks every `$comment` and fails if it finds none |
 | **S23-6** | ◐ **partly closed** | `license-check` now binds `THIRD_PARTY_NOTICES` bidirectionally — the first real gate over anything in `legal/`. The **accuracy blocks remain hand-maintained prose that nothing verifies**, and `DISCLAIMER.md`'s went stale a second time on 2026-08-05 |
 | **S23-2** | 🚫 **owner only — no PR can close it** | `Rules / validate` is **not** a required status check on `main`. **Re-verified against the live branch protection 2026-08-05**, not repeated from the entry: `required_status_checks.contexts` is exactly `["check", "analyze (csharp, none)", "analyze (cpp, manual)"]` (`strict: true`, `enforce_admins: true`, `required_linear_history: true`). The `validate` job is path-filtered and `pull_request`-only, so a red removal check does not block the merge button. **The gate that exists to make the anti-cheat blocklist un-removable is advisory.** This is a branch-protection setting |
 
-| **S29** | 🔴 **open, new 2026-08-05** | Six findings from the P0 completion audit. Four are gates: the items-4/6/7 honesty assertion is not in the merge gate, `fl_vtable_indices` pins the harness rather than the Overlay, a second tickless supervision path, and `vklayer-blastradius` case 3 cannot fail. Plus no session-end signal, and a **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery |
+| **S29** | 🔴 **open, new 2026-08-05 — one of six closed** | (a) the items-4/6/7 honesty assertion is not in the merge gate — **a prerequisite of the feature-hook PRs**; (b) `fl_vtable_indices` pins the harness's own duplicated literals, not the Overlay's indices; (c) `HookedCaptureGate.ShouldUnhookAsync` is a second, tickless, non-latching supervision path; (d) ◐ `vklayer-blastradius` case 3 **is now an assertion**, but the script still runs only by hand; (e) no session-end signal — a dead target and a quiet one are byte-identical; (f) a **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery, plus no producer for RT tri-state `No` |
 
 ~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
 exit criterion 2, not seven, and the undercount came from reading only the ❓ rows.**
@@ -82,12 +82,18 @@ The criterion is *"resolved, **or** explicitly deferred with a written rationale
 so ⏳ (open, sequenced) and ◐ (partly closed) are just as open as ❓, and each needs
 either work or a rationale written down:
 
-- **six ❓** — S6, S19(a), S19(c), S19(d) residual, S20 feed half, S23-5
+- ~~**six ❓**~~ **three ❓** — S6, S19(c), S20 feed half. *(S19(a), S19(d)
+  residual and S23-5 resolved 2026-08-05, each by a mechanism rather than by a
+  correction.)*
 - **three ⏳** — S2 part three, S4 signing, S23-3
 - **two ◐** — S14, S23-6
-- **one 🔴** — S29, added by the audit that produced this recount
+- **one 🔴** — S29, added by the audit that produced this recount; one of its six
+  findings closed
 - **plus 🚫 S23-2**, which no amount of code will do — the owner has to change a
   branch-protection setting.
+
+**Nine, down from twelve.** Keep this list in the same PR that changes a row, or
+the recount becomes the next thing that needs recounting.
 
 **The markers themselves are part of the problem and should be unified.** One
 disposition — *deferred, with a rationale written* — currently wears three glyphs:
@@ -198,12 +204,27 @@ a supervision-loss stop that never resets. Either route it through
 `GuardSupervisor` or delete it; leaving both is how the counter quietly stops
 meaning what it says.
 
-**(d) 🔴 `tools/vklayer-blastradius.ps1` case 3 cannot fail.** It prints in both
-branches and never adds to `$errors`. That is the only exercise of
-`enable_environment`, the gate `15_ROADMAP` calls the highest blast radius in the
-spike — a passthrough bug loads FrameLedger into every Vulkan process on the
-machine. The script is also excluded from `build.ps1` and CI by design (it writes
-`HKCU`), so the 2026-08-02 measurement has no regression net of any kind.
+**(d) ◐ `tools/vklayer-blastradius.ps1` case 3 could not fail — the assertion
+half is closed, the regression-net half is not.** It printed in both branches and
+never added to `$errors`. That is the only exercise of `enable_environment`, the
+gate `15_ROADMAP` calls the highest blast radius in the spike — a passthrough bug
+loads FrameLedger into every Vulkan process on the machine.
+
+**It is now an assertion**: a non-matching value that enables the layer fails, and
+says that `spike-notes` §2's measurement no longer holds. Being an observation was
+*correct while the answer was unknown* — the step existed to discover the loader's
+behaviour, and a discovery step that fails is just a step with an opinion. What
+was wrong is that the discovery was made on 2026-08-02, recorded as settled, and
+the step went on printing about it in green either way. **When a measurement
+becomes a recorded fact, the step that produced it has to become the thing that
+defends it**, or the fact stops being checked while a script that still mentions
+it reads as coverage.
+
+**Still open:** the script is excluded from `build.ps1` and CI by design (it
+writes `HKCU`, and a CI runner is the wrong place to register machine-wide Vulkan
+layers) and needs `vulkaninfo` on `PATH`. So the assertion only fires when someone
+runs it by hand. Nothing reminds them, and a loader upgrade is exactly when it
+would matter.
 
 **(e) ❓ The reader cannot tell a dead target from a quiet one.** `ShmRingReader`
 holds the section open, so a game that exits leaves `writeIndex` frozen and
@@ -1005,14 +1026,34 @@ because three of them change what a shipped gate does. They are separate from
 > "lands in attach mode, the only mode that ships today" — see the measurement
 > under (b), which does not support it as written.
 
-**(a) `gameguard` can never fire.** `HasSuspiciousFragment` is case-insensitive
-`IContains`, and `"gameguard"` **contains** `"guard"`. With both in the list, the
-`guard` fragment matches everything `gameguard` would, first. A shipped rule
-incapable of firing independently — the file's own recurring defect, sitting
-inside the safety gate. No coverage is lost today (`guard` subsumes it), so this
-is cosmetic *until* someone removes `guard` believing `gameguard` still covers
-nProtect. Fix by deleting the redundant entry or by documenting the subsumption
-where the list is defined; do not leave it looking like two rules.
+**(a) ✅ `gameguard` could never fire — closed 2026-08-05.**
+`HasSuspiciousFragment` is case-insensitive `IContains`, and `"gameguard"`
+**contains** `"guard"`. With both in the list, the `guard` fragment matched
+everything `gameguard` would, first. A shipped rule incapable of firing
+independently — the file's own recurring defect, sitting inside the safety gate.
+
+**Closed by deleting the entry, and by a rule that stops the class returning.**
+`rules-validate` now fails when any `nameFragment` contains another, naming which
+one can never fire and why. Proven both directions: re-adding `gameguard` goes
+red at a named line; the shipped list is green.
+
+**Why deletion was the safe option here and is not, elsewhere.** The standing
+objection to removing a fragment — it is a detection removal in a hard gate — is
+correct for `protect` and does not apply to this one. Subsumption means *by
+construction* that no module name loses coverage: anything `gameguard` matched,
+`guard` matches. And it was redundant twice over, which nobody had checked:
+nProtect GameGuard has its **own named module family** in the same file
+(`GameGuard`, `npgg`, `GameMon`, exact-prefix), so the fuzzy tier was never its
+only route.
+
+**The hazard this closes was always in the future, and that is why "cosmetic" was
+the wrong word for it.** With both entries present, someone removing `guard`
+leaves a list that still appears to cover nProtect. Now the list is minimal, so
+removing `guard` is visibly a removal.
+
+> Removing it trips `rules-publish`'s `$removed = old − new` check. **That is the
+> gate working**, not an obstacle: it exists to make a blocklist removal
+> reviewable, and this is one.
 
 **(b) `protect` produces measured false refusals, and they are not hypothetical.**
 Unelevated, Windows 11 26300, **331 processes, 0 access-denied, 4 hits, none
@@ -1200,12 +1241,27 @@ not a copy: it is derived at build time and cannot drift.
 >   stop existing because the data never supplied it. That needs no new
 >   `ParseResult` cause, so `kRulesIncomplete`'s signal stays true and `layer.cpp`
 >   is not driven inert. See §S21's floor note.
-> - **The schema canary does not discriminate on this constraint.** It is
->   `{"schemaVersion":"not-a-number"}`, which any schema still pinning
->   `schemaVersion` rejects. Delete `minItems` from `nameFragments` and the canary
->   passes, `Test-Json` passes, and the CI floor silently ceases to exist. The
->   check worth building is a canary carrying `nameFragments: []` that must be
->   rejected — not an imperative duplicate of the schema.
+> - **✅ The schema canary does not discriminate on this constraint — closed
+>   2026-08-05.** It was `{"schemaVersion":"not-a-number"}`, which any schema
+>   still pinning `schemaVersion` rejects. Delete `minItems` from `nameFragments`
+>   and that canary still passed, `Test-Json` still passed, and the schema half of
+>   the floor was gone.
+>
+>   A second canary now carries `nameFragments: []` and must be rejected. It is
+>   **derived from the shipped document** — parse, empty the array, re-serialise —
+>   never hand-written, because a hand-written canary is a second statement of the
+>   schema's shape and drifts from it, which is the defect this file exists to
+>   catch. Mutating the real document makes the constraint under test the *only*
+>   difference between the passing and failing cases. Proven red by deleting
+>   `minItems` from the schema.
+>
+>   **The consequence in the bullet above was overstated and is corrected here.**
+>   *"the CI floor silently ceases to exist"* is not what would happen.
+>   `tools/gen-ac-floor.ps1` hard-errors on an empty fragment list and runs as a
+>   CMake custom command, so the native **build** fails. What was unguarded is the
+>   *schema* half — a rules file with an empty list reaching a machine, where the
+>   compiled-in floor is what saves it. Narrower than written, and worth fixing on
+>   its own terms rather than on an inflated one.
 > - **✅ `trustedSigners` now has a gate in the direction that matters — closed
 >   2026-08-05, and it took two attempts.** The original entry was right: the job
 >   failed on family *removals* while an *addition* to the signer allowlist was
@@ -1768,12 +1824,29 @@ the loop costs is missing the expensive half.
 
 </details>
 
-**5. A fourth statement of the gate's composition lives in the shipped data.**
-`rules/detection-rules.json`'s own `$comment` describes checks "1, 2 and 4",
+**5. ✅ A fourth statement of the gate's composition lived in the shipped data — closed 2026-08-05.**
+`rules/detection-rules.json`'s own `$comment` enumerated the checks that run,
 omitting 2b and omitting `services` from the signals that catch the seed — in the
-one copy that ships to users. Three doc-side variants were reconciled this
+one copy that ships to users. Three doc-side variants were reconciled that
 session; this one was not, and `rules-validate`'s doc/data cross-check reads the
 blocklist table, not the comment.
+
+> **Closed the way §S23-4 closed the same class: by removing the restatement, not
+> by correcting it.** The comment now states only facts about *this data* — that
+> both per-title arrays are empty, and where the composition is documented — and
+> `rules-validate` fails when any `$comment` in the document enumerates checks
+> again. Proven red by putting the old sentence back.
+>
+> **The first version of that rule could not fire, and that is the part worth
+> keeping.** It was scoped to `anticheat.$comment`; the text it exists to catch
+> lives in the **top-level** `$comment`. A check pointed at the wrong object —
+> this file's signature defect, committed inside the fix for it. Its canary
+> reported green twice before the cause was found: once because a backtick inside
+> a double-quoted PowerShell needle silently mangled the search string so the
+> mutation never applied at all (the harness, for the sixth time on this project),
+> and once for real. The rule now walks **every** `$comment` in the document and
+> **fails if it finds none**, because a walk that reports clean having looked
+> nowhere is the same defect one layer up.
 
 **6. `legal/` is audited by nothing.** Every other document is bound to the code
 by something — `rules-validate` cross-checks the blocklist against `19_SAFETY`,

@@ -91,6 +91,44 @@ if (-not $schemaOk) {
     exit 1
 }
 
+# --- Canary 2: the schema still discriminates on nameFragments (§S19(d)) -----
+#
+# The canary above is `{"schemaVersion":"not-a-number"}`, which ANY schema still
+# pinning schemaVersion rejects. It proves the schema is not entirely inert; it
+# proves nothing about the constraints that do the safety work. Delete `minItems`
+# from `nameFragments` and that canary still passes, Test-Json still passes, and
+# the schema half of the heuristic floor silently ceases to exist.
+#
+# BE PRECISE ABOUT WHAT THAT WOULD COST, because §S19(d) overstates it: the floor
+# would NOT disappear. tools/gen-ac-floor.ps1 hard-errors on an empty fragment
+# list and runs as a CMake custom command, so the native build fails. What is
+# unguarded is the SCHEMA half — a rules file with an empty list reaching a
+# machine, where the compiled-in floor is what saves it.
+#
+# DERIVED FROM THE SHIPPED DOCUMENT, never hand-written. A hand-written canary is
+# a second statement of the schema's shape and drifts from it, which is the defect
+# this whole file exists to catch. Mutating the real document means the ONLY
+# difference between the passing case and the failing case is the constraint under
+# test.
+#
+# Both directions: the unmodified document has just been asserted to pass, three
+# lines above. So a failure here is specifically "the empty list was accepted".
+$fragmentCanaryPassed = $false
+try {
+    $mutant = $rulesRaw | ConvertFrom-Json
+    $mutant.anticheat.heuristic.nameFragments = @()
+    $fragmentCanaryPassed = ($mutant | ConvertTo-Json -Depth 100 | Test-Json -Schema $schema -ErrorAction SilentlyContinue)
+}
+catch { $fragmentCanaryPassed = $false }
+if ($fragmentCanaryPassed) {
+    Write-Host 'RULES VALIDATION FAILED: the schema accepted an EMPTY anticheat.heuristic.nameFragments.' -ForegroundColor Red
+    Write-Host '  The unknown-but-suspicious tier is the only coverage for families the seed' -ForegroundColor Red
+    Write-Host '  admits it has no data for (Ricochet, VAC). `minItems` on that array is what' -ForegroundColor Red
+    Write-Host '  stops a rules push emptying it; if this passes, that constraint is gone.' -ForegroundColor Red
+    Write-Host '  See docs/20_OPEN_QUESTIONS.md §S19(d).' -ForegroundColor Red
+    exit 1
+}
+
 function Test-Member($Object, [string]$Name) {
     return $null -ne $Object -and $Object.PSObject.Properties.Name -contains $Name
 }
@@ -119,9 +157,97 @@ foreach ($section in 'engines', 'platforms', 'capabilities') {
     }
 }
 
+# --- §S23-5: no `$comment` anywhere may enumerate the gate's composition -----
+#
+# The composition of the pre-injection gate is stated in
+# docs/19_SAFETY_AND_ANTICHEAT.md §Pre-injection checks, ONCE. This file's
+# top-level `$comment` used to restate it — a fourth copy, in the one artifact
+# that ships to users — and that copy was wrong in two ways at once: it omitted
+# check 2b (services), the only tier ever MEASURED firing on real anti-cheat, and
+# it went stale the moment check 3's executable half was wired.
+#
+# §S23-4 closed the identical class by REMOVING a restatement rather than
+# correcting one. This is what makes the removal stick.
+#
+# WALKS EVERY `$comment` IN THE DOCUMENT, and that is not thoroughness for its own
+# sake — it is a bug fix. The first version of this check was scoped to
+# `anticheat.$comment`, and the text it exists to catch lives in the TOP-LEVEL
+# `$comment`. It could not fire. Its canary reported green twice: once because a
+# backtick inside a double-quoted PowerShell needle silently mangled the search
+# string so the mutation never applied, and once for real. A check scoped to the
+# wrong object is this file's own signature defect, committed inside the fix for
+# it. Walking every `$comment` also means moving the text does not dodge the gate.
+#
+# WHAT IT DOES NOT FORBID: mentioning a check. "tracked as §S14" and "check 3
+# matches nothing" are facts about THIS DATA and belong here. What it forbids is a
+# LIST — two or more check numbers in one line is a composition claim, and
+# composition claims belong in exactly one document.
+function Get-CommentLines($Node, [string]$Path) {
+    $out = [System.Collections.Generic.List[object]]::new()
+    if ($null -eq $Node) { return $out }
+    if ($Node -is [System.Management.Automation.PSCustomObject]) {
+        foreach ($prop in $Node.PSObject.Properties) {
+            if ($prop.Name -eq '$comment') {
+                foreach ($line in @($prop.Value)) {
+                    $out.Add([pscustomobject]@{ Where = "$Path.`$comment"; Line = [string]$line })
+                }
+            }
+            else {
+                foreach ($item in (Get-CommentLines $prop.Value "$Path.$($prop.Name)")) { $out.Add($item) }
+            }
+        }
+    }
+    elseif ($Node -is [System.Object[]]) {
+        for ($i = 0; $i -lt $Node.Count; $i++) {
+            foreach ($item in (Get-CommentLines $Node[$i] "$Path[$i]")) { $out.Add($item) }
+        }
+    }
+    return $out
+}
+
+$commentLines = Get-CommentLines $rules 'rules'
+if ($commentLines.Count -eq 0) {
+    # Not a style complaint: the file HAS comment blocks, so zero means the walk
+    # broke and the check below would report clean having looked at nothing.
+    $errors.Add('the $comment walk found no comment lines at all — it is not looking where the comments are, so its verdict means nothing (§S23-5)')
+}
+foreach ($entry in $commentLines) {
+    $hits = [regex]::Matches($entry.Line, '(?i)\bcheck(?:s)?\s+\d')
+    $listed = $entry.Line -match '(?i)\bchecks?\s+\d[\dab,\s]*(?:and|,)\s*\d'
+    if ($hits.Count -ge 2 -or $listed) {
+        $errors.Add("$($entry.Where) enumerates the gate's composition: '$($entry.Line)'. That list lives in docs/19_SAFETY_AND_ANTICHEAT.md §Pre-injection checks, once (§S23-5) — a copy here ships to users and has already been wrong twice.")
+    }
+}
+
 # --- The anticheat block: fail closed ---------------------------------------
 if (Test-Member $rules 'anticheat') {
     $ac = $rules.anticheat
+
+    # §S19(a). A fragment that is a superstring of another can NEVER FIRE: the
+    # match is a case-insensitive substring, so `guard` matches everything
+    # `gameguard` would, and it matches first. A shipped rule incapable of firing
+    # independently is this file's own recurring defect sitting inside the safety
+    # gate.
+    #
+    # It is not merely cosmetic, and the hazard is in the FUTURE: someone removing
+    # `guard` while `gameguard` sits below it in the list removes nProtect's fuzzy
+    # coverage entirely, and the list still looks like it has a rule for it. This
+    # check forces the list to stay minimal, so a removal is visibly a removal.
+    #
+    # WHAT IT DOES NOT CHECK: whether a fragment is a good idea, or whether the
+    # tier covers anything. It answers exactly "can each of these fire on its own".
+    if ((Test-Member $ac 'heuristic') -and (Test-Member $ac.heuristic 'nameFragments')) {
+        $frags = @($ac.heuristic.nameFragments)
+        foreach ($outer in $frags) {
+            foreach ($inner in $frags) {
+                if ($outer -eq $inner) { continue }
+                if ($outer.ToLowerInvariant().Contains($inner.ToLowerInvariant())) {
+                    $errors.Add("anticheat.heuristic.nameFragments: '$outer' can never fire — it contains '$inner', which is also in the list and matches first (§S19(a)). Remove the longer one; keeping both makes a future removal of '$inner' look survivable when it is not.")
+                }
+            }
+        }
+    }
+
 
     foreach ($key in 'modules', 'drivers', 'blockedExecutables', 'blockedStoreIds') {
         if (-not (Test-Member $ac $key)) { $errors.Add("anticheat.$key is missing") }

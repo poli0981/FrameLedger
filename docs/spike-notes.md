@@ -967,14 +967,30 @@ scan set, against the 30 s re-scan; and whether `WTD_REVOKE_NONE` +
 `WTD_REVOKE_WHOLECHAIN` performs CRL/OCSP fetches, which breaks **NFR-10
 offline-first** as well as CLAUDE.md rule 8, from inside the hard gate.
 
-Also measured, and unchanged: **`gameguard` can never fire.** The match is a
-case-insensitive substring and `guard` is a substring of `gameguard`, so the
-shorter token always wins first. A shipped rule incapable of firing
-independently, inside the safety gate.
+Also measured: **`gameguard` could never fire.** The match is a case-insensitive
+substring and `guard` is a substring of `gameguard`, so the shorter token always
+won first. A shipped rule incapable of firing independently, inside the safety
+gate.
 
-Neither is fixed by deleting a fragment — that is a detection removal in a hard
-gate, and this tier is the only coverage for the families the seed admits it has
-no data for (Ricochet, VAC).
+> **Closed 2026-08-05 by removing it, and the reason it was safe to remove is not
+> the reason that applies to the fragment below.** These two findings sat in one
+> paragraph and the paragraph's conclusion — *"neither is fixed by deleting a
+> fragment"* — was true of one and false of the other.
+>
+> - **`protect`**: deleting it IS a detection removal. This tier is the only
+>   coverage for families the seed admits it has no data for (Ricochet, VAC), and
+>   three refuters rejected deletion. Unchanged, still open as §S19(b).
+> - **`gameguard`**: deleting it removes **zero** coverage, by construction. That
+>   is what subsumption means — every module name `gameguard` could match,
+>   `guard` matches too, and matches first. Measured separately: nProtect
+>   GameGuard also has its own **named module family** in the same file
+>   (`GameGuard`, `npgg`, `GameMon`, exact-prefix), so the fragment was redundant
+>   twice over rather than once.
+>
+> `rules-validate` now fails when any fragment contains another, so the list
+> cannot regrow a rule that cannot fire. Note that removing it does trip
+> `rules-publish`'s removal check — correctly. That gate exists to make a
+> blocklist removal reviewable, and this is one.
 
 ## 8 · The accuracy question — why this rewrite exists
 
