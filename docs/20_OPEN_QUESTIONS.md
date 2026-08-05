@@ -52,10 +52,13 @@ or it becomes the next stale status claim this file exists to record.
 | Item | State | Note |
 |---|---|---|
 | S3, S5, S7, S8, S9, S10, S11, S15, S16, S17, S18, S21, S22 | ✅ **resolved** | Thirteen. Reasoning kept in place rather than deleted |
+| **S25, S26** | ✅ **resolved 2026-08-05** | The two runtime stops unreachable in a non-presenting process; occlusion probes recorded as frames |
+| **S28** | ✅ **resolved 2026-08-05** | The guard's entry points share process-wide statics; a concurrent call cleared the blocklist mid-match and every check fell through to `Allow`. Reproduced by CI, not argued |
+| **S27** | ✅ **resolved by NOT building it** | The chokepoint is the anti-cheat gate, not the consent gate. No injecting entry point ships until the `games` table exists; the drain is exercised by an integration test against our own harness |
 | S12 | ✅ **deferred, rationale written** | Cautious mode → v1.1; it disabled nothing in v1 |
 | **S1** | 🅓 **deferred, rationale written** | Owner decision 2026-08-05. Deciding input — a title loading a presentation runtime lazily — is not on this machine |
 | **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
-| **S19(b)** | 🅓 **deferred, rationale written** | Its true shape is a `CryptCATAdmin*` PR, and `WinVerifyTrust`'s default revocation check does network I/O from inside the hard gate (NFR-10) |
+| **S19(b)** | 🔴 **deferred, but now MEASURED** | CI 2026-08-05: the fragment fires on `System.Security.Cryptography.ProtectedData.dll` loaded by a .NET **test host**, i.e. inside a real scan set in the launch-mode arrangement — refusing our own injection. The entry's "plausible and unmeasured" is superseded; the deferral rationale (a `CryptCATAdmin*` PR doing network I/O inside the hard gate, NFR-10) still stands |
 | **S14** | 🔨 **scheduled — exe-name half only** | Owner decision 2026-08-05: wire it, empty list, unresolvable identity refuses. The **store-id half is blocked** on the platform metadata extractors and cannot be reached through the guard ABI by design |
 | **S23-1** | ✅ **resolved 2026-08-05** | `FlGuardBuildId` gives the Agent a build id of its own, and `ShmHandshakeValidator` performs the comparison `07_IPC` and `04_CAPTURE` both specify. Every refusal path is driven, including **both ids empty** — the shape the feature shipped in, where `"" == ""` reported `Ok` for every process on the machine |
 | **S23-4** | ✅ **resolved 2026-08-05** | `19_SAFETY` §During a session said "the module scan and the driver scan"; `EvaluateImpl` runs four. Reworded to "every pre-injection check" so it cannot go stale when a check is added, with the two omissions named — `services` is the only tier measured firing on real anti-cheat, and the pre-scan is the only one touching the filesystem |
@@ -97,6 +100,93 @@ than going unsupervised because it stopped drawing.
 records** in the ring against the pre-fix writer and **0** after. The test asserts
 `status == READY` and `faultCount == 0` alongside the count, so "empty because we
 unhooked" and "empty because we faulted" cannot pass for the right answer.
+
+### S28 ✅ · The guard is not re-entrant, and nothing enforced that — **closed 2026-08-05**
+
+Predicted by the drain design review, then **reproduced by CI** rather than argued.
+
+`fl_guard_abi.h` states the one-at-a-time contract and three more comments in the
+native tree repeat it. It was a comment, not a mechanism: `NativeAntiCheatGuard`
+dispatched every call onto an arbitrary thread-pool thread, and `grep` for
+`lock`/`SemaphoreSlim`/`Interlocked` over `Application` and `Infrastructure`
+returned nothing.
+
+**All four entry points share process-wide statics.** `ParseRules` keeps a
+`static jsmntok_t toks[]` and is reached by `FlGuardEvaluate` and `FlGuardedInject`
+through `LoadRules`, by `FlStaticPreScan`, and by `FlGuardCheckRules`.
+`EvaluateImpl` additionally clears a function-scope `static Rules` on entry.
+
+**Why that is a fail-open and not merely a race.** A second concurrent call clears
+the blocklist while the first is matching against it — and an **empty blocklist
+matches nothing**, so `CheckServices` iterates zero families, `CheckModules` and
+`CheckDrivers` fall through, and `Evaluate` returns `Allow` from checks that looked
+at nothing. `CheckModules` already refuses an empty *scan set* on the grounds that
+it "must never read as clean"; the same rule had never been applied to an empty
+*blocklist*.
+
+**How it surfaced.** The drain integration test injects through the guard;
+`RulesSeedingEndToEndTests` validates a document through `FlGuardCheckRules`; xUnit
+runs test classes in parallel. The seeder test returned the wrong outcome. Two
+callers, two entry points, one static — and neither test is about concurrency.
+
+**Closed by a `static SemaphoreSlim(1,1)` in `NativeAntiCheatGuard`**, around every
+native call including the synchronous `NativeCheckRules`. It goes in the facade
+because that is the one place every native call passes through (§S15: one matcher,
+not two), and it is `static` because the contract is a property of the loaded DLL
+rather than of an instance.
+
+> **What this does NOT do**, said rather than left to be assumed: it serialises
+> *managed* callers. The native contract is still unenforced for anything that
+> reaches the ABI another way — the Vulkan layer compiles `fl_ac_rules.cpp` in and
+> parses its own copy at init, which is a different process and therefore fine
+> today, and `fl_guard_test` drives the guard directly. If a second managed host
+> ever loads the DLL, this lock does not span processes.
+
+### S27 · The chokepoint is the ANTI-CHEAT gate, and it is not the consent gate
+
+Found 2026-08-05 by an adversarial review of the drain host's design, before it was
+built. Recorded because the design said `FlGuardedInject` "ONLY (the chokepoint)"
+and read as though that covered the whole of CLAUDE.md rule 1. It does not.
+
+`fl_guard_abi.h` says so in its own header: the ABI *"deliberately does NOT carry
+per-game consent … This ABI enforces the ANTI-CHEAT gate — the part that protects
+accounts — not the opt-in."* `fl_guard.h` adds `kHookNotEnabled` / `kConsentMissing`
+/ `kPreviouslyBlocked` and states **"the guard itself never returns these"**. The
+only producer is `HookedCaptureGate`, and its three inputs — `hook_enabled`,
+`hook_consent_at`, `hook_blocked_reason` — come from a `games` table that **exists
+in `06_DATA_MODEL` and in no `.cs` file**.
+
+So the proposed `Agent --diag <pid>`, on a binary `12_BUILD` publishes
+self-contained, would have loaded the Overlay into any x64 process a user named on
+a command line: no game record, no consent stamp, no enablement, and the
+`19_SAFETY` disclosure never shown. Rule 1's "never automatic", automatically. Not
+an anti-cheat bypass — every anti-cheat check still runs — but a **consent and
+disclosure gap in a shipped binary**, which is its own class.
+
+**Two tempting fixes were rejected.**
+
+- *Route it through `HookedCaptureGate` with `HookEnabled = true, ConsentedAt =
+  UtcNow` synthesised.* It compiles. It is a gate whose verdict is decided before
+  it looks — this file's signature defect, wearing the gate's own name.
+- *Build it as a native `fl-session-probe` instead.* Strictly worse: a native tool
+  structurally cannot read `games.hook_consent_at`, so the opt-in gate could not
+  exist inside it at all, and it is then §S9's user-runnable injector renamed.
+
+**What was built instead.** `ShmDrainIntegrationTests` — nothing packages it, and
+the target is `hook-harness`, our own dummy D3D app built from this tree, carrying
+no anti-cheat and belonging to no publisher. Injecting into it raises no consent
+question: no game, no account, no terms of service. The test asserts that
+constraint **on itself**, so it cannot grow into something that injects elsewhere
+by increments.
+
+**The real gate arrives with the `games` table, not before.** Until then there is
+no injecting entry point on any shipped binary, and that is the correct state
+rather than a missing feature.
+
+> Also settled by the same review, and worth keeping where the next reader will
+> look: **`--diag` is already taken.** `10_LOGGING_AND_BUG_REPORTS` assigns it to
+> the App as a stdout capability report while `12_BUILD` and `Program.cs` list it
+> as an Agent flag. Whatever the eventual capture flag is called, it is not that.
 
 ### S25 ✅ · Both runtime stops were unreachable in a non-presenting process, and pause was unreachable on a ticking one — **closed 2026-08-05**
 
@@ -890,6 +980,52 @@ admits it has no data for (Ricochet, VAC). Three refuters agreed.
 > CNG for save encryption or a launcher token would trip it, which is plausible
 > and unmeasured — not "refused today".
 >
+> #### 🔴 MEASURED FIRING IN A REAL SCAN SET, 2026-08-05 — the paragraph above is superseded on its central point
+>
+> The claim that closed this entry was: *"the `protect` fragment matches a benign,
+> widely-loaded Microsoft system DLL, and **has not been shown to match inside any
+> game's scan set** … which is plausible and unmeasured — not 'refused today'."*
+>
+> **It has now been shown.** CI, running the drain integration test:
+>
+> ```
+> the guard refused our own harness: SuspiciousUnsigned unknown
+> System.Security.Cryptography.ProtectedData.dll
+> ```
+>
+> The mechanism is the one this entry ruled out. §S16 puts the target's **ancestors**
+> in the scan set, and the test host is the harness's parent — the launch-mode
+> arrangement, where the Agent is the game's parent. A .NET host loading that
+> assembly therefore poisons its own scan set, and the injection it is trying to
+> perform is refused. **A gate that cannot pass**, which is the mirror-image defect
+> this file records as hiding better than the fail-open, because refusing looks safe.
+>
+> Three things this does and does not say:
+>
+> - **It is the §S18 shape with a different module.** §S18 was our own
+>   `FrameLedger.Guard.dll` matching `guard`; the exemption built for it is keyed on
+>   the matched module being **ours by file id**, and a .NET shared-framework
+>   assembly is not.
+> - **Attach mode is unaffected.** The Agent is not an ancestor there — a
+>   normally-launched game's chain terminates at a platform launcher one hop above
+>   it — so this is a **launch-mode** hazard, and launch mode is deferred (§S1).
+> - **It passed on the dev box and failed on CI**, because the two hosts load
+>   different module sets. Which shipped configuration the dev machine is not, again.
+>
+> **Not fixed here.** The remedies all have costs this entry already priced: the
+> signer half is a `CryptCATAdmin*` PR whose default revocation check does network
+> I/O from inside the hard gate (NFR-10), deleting the fragment is a detection
+> removal in a hard gate that three refuters rejected, and a location-based
+> exemption for the shared framework widens the carve-out §S18 deliberately kept
+> narrow. What changed is the **evidence**, not the decision: this is no longer a
+> hypothesis, and whoever picks up §S19(b) now has a reproducible case.
+>
+> The integration tests are traited `Category=Integration` and CI runs
+> `./build.ps1 check -SkipIntegration`, which **skips loudly**. `./build.ps1 check`
+> with no switches still runs them, and they pass on a host that does not load the
+> assembly. A suite that quietly stops running a class is how a gate rots, so the
+> skip is named in the CI log and in the gate summary.
+
 > §S19(b) is therefore **deferred with this written rationale** rather than
 > scheduled: it fixes one measured case of three, its true shape is a
 > `CryptCATAdmin*` PR, and `WinVerifyTrust`'s default `WTD_REVOKE_WHOLECHAIN`

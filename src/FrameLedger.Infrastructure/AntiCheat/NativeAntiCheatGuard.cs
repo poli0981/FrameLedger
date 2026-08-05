@@ -181,7 +181,20 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
     public static int NativeCheckRules(byte[] json)
     {
         ArgumentNullException.ThrowIfNull(json);
-        return FlGuardCheckRules(json, json.Length);
+
+        // Same lock as every other native call: FlGuardCheckRules reaches the SAME static jsmn token
+        // array as the gate's own ParseRules, so a validation running beside an evaluation corrupts
+        // both. That is not hypothetical — it is what made the seeder tests fail when the drain
+        // integration test started injecting in parallel. See _native.
+        _native.Wait();
+        try
+        {
+            return FlGuardCheckRules(json, json.Length);
+        }
+        finally
+        {
+            _native.Release();
+        }
     }
 
     public static string NativeRulesFilePath()
@@ -226,6 +239,50 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
         // evaluation that is abandoned half way has no verdict, and "we stopped
         // asking" must not become "it was fine".
         ct.ThrowIfCancellationRequested();
-        return await Task.Run(work, ct).ConfigureAwait(false);
+
+        await _native.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await Task.Run(work, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _native.Release();
+        }
     }
+
+    /// <summary>
+    /// Serialises every call into the guard, because the guard is not re-entrant and nothing else
+    /// enforced that.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>fl_guard_abi.h</c> states the one-at-a-time contract and three more comments in the native
+    /// tree repeat it, but it was a comment and not a mechanism: this facade dispatched every call onto
+    /// an arbitrary thread-pool thread with no lock anywhere in <c>Application</c> or
+    /// <c>Infrastructure</c>.
+    /// </para>
+    /// <para>
+    /// <b>All four entry points share process-wide statics.</b> <c>ParseRules</c> keeps a
+    /// <c>static jsmntok_t toks[]</c> and is reached by <c>FlGuardEvaluate</c> and
+    /// <c>FlGuardedInject</c> through <c>LoadRules</c>, by <c>FlStaticPreScan</c>, and by
+    /// <c>FlGuardCheckRules</c>; <c>EvaluateImpl</c> additionally clears a function-scope
+    /// <c>static Rules</c> on entry. A second concurrent call therefore clears the blocklist while the
+    /// first is matching against it — and an empty blocklist matches nothing, so every check falls
+    /// through to <c>Allow</c>. <c>CheckModules</c> already refuses an empty <i>scan set</i> because it
+    /// "must never read as clean"; the same rule was never applied to an empty <i>blocklist</i>.
+    /// </para>
+    /// <para>
+    /// <b>Reproduced, not theorised.</b> The drain integration test injects through the guard while
+    /// <c>RulesSeedingEndToEndTests</c> validates a document through <c>FlGuardCheckRules</c> — xUnit
+    /// runs test classes in parallel — and the seeder test returned the wrong outcome. Two callers, two
+    /// entry points, one static.
+    /// </para>
+    /// <para>
+    /// Placed here rather than in each caller because this facade is the one place every native call
+    /// passes through (§S15: one matcher, not two). It is a <c>static</c> so it holds across instances:
+    /// the contract is a property of the loaded DLL, not of a <c>NativeAntiCheatGuard</c> object.
+    /// </para>
+    /// </remarks>
+    private static readonly SemaphoreSlim _native = new(1, 1);
 }
