@@ -58,7 +58,7 @@ or it becomes the next stale status claim this file exists to record.
 | S12 | ✅ **deferred, rationale written** | Cautious mode → v1.1; it disabled nothing in v1 |
 | **S1** | 🅓 **deferred, rationale written** | Owner decision 2026-08-05. Deciding input — a title loading a presentation runtime lazily — is not on this machine |
 | **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
-| **S19(b)** | 🅓 **deferred, rationale written** | Its true shape is a `CryptCATAdmin*` PR, and `WinVerifyTrust`'s default revocation check does network I/O from inside the hard gate (NFR-10) |
+| **S19(b)** | 🔴 **deferred, but now MEASURED** | CI 2026-08-05: the fragment fires on `System.Security.Cryptography.ProtectedData.dll` loaded by a .NET **test host**, i.e. inside a real scan set in the launch-mode arrangement — refusing our own injection. The entry's "plausible and unmeasured" is superseded; the deferral rationale (a `CryptCATAdmin*` PR doing network I/O inside the hard gate, NFR-10) still stands |
 | **S14** | 🔨 **scheduled — exe-name half only** | Owner decision 2026-08-05: wire it, empty list, unresolvable identity refuses. The **store-id half is blocked** on the platform metadata extractors and cannot be reached through the guard ABI by design |
 | **S23-1** | ✅ **resolved 2026-08-05** | `FlGuardBuildId` gives the Agent a build id of its own, and `ShmHandshakeValidator` performs the comparison `07_IPC` and `04_CAPTURE` both specify. Every refusal path is driven, including **both ids empty** — the shape the feature shipped in, where `"" == ""` reported `Ok` for every process on the machine |
 | **S23-4** | ✅ **resolved 2026-08-05** | `19_SAFETY` §During a session said "the module scan and the driver scan"; `EvaluateImpl` runs four. Reworded to "every pre-injection check" so it cannot go stale when a check is added, with the two omissions named — `services` is the only tier measured firing on real anti-cheat, and the pre-scan is the only one touching the filesystem |
@@ -980,6 +980,52 @@ admits it has no data for (Ricochet, VAC). Three refuters agreed.
 > CNG for save encryption or a launcher token would trip it, which is plausible
 > and unmeasured — not "refused today".
 >
+> #### 🔴 MEASURED FIRING IN A REAL SCAN SET, 2026-08-05 — the paragraph above is superseded on its central point
+>
+> The claim that closed this entry was: *"the `protect` fragment matches a benign,
+> widely-loaded Microsoft system DLL, and **has not been shown to match inside any
+> game's scan set** … which is plausible and unmeasured — not 'refused today'."*
+>
+> **It has now been shown.** CI, running the drain integration test:
+>
+> ```
+> the guard refused our own harness: SuspiciousUnsigned unknown
+> System.Security.Cryptography.ProtectedData.dll
+> ```
+>
+> The mechanism is the one this entry ruled out. §S16 puts the target's **ancestors**
+> in the scan set, and the test host is the harness's parent — the launch-mode
+> arrangement, where the Agent is the game's parent. A .NET host loading that
+> assembly therefore poisons its own scan set, and the injection it is trying to
+> perform is refused. **A gate that cannot pass**, which is the mirror-image defect
+> this file records as hiding better than the fail-open, because refusing looks safe.
+>
+> Three things this does and does not say:
+>
+> - **It is the §S18 shape with a different module.** §S18 was our own
+>   `FrameLedger.Guard.dll` matching `guard`; the exemption built for it is keyed on
+>   the matched module being **ours by file id**, and a .NET shared-framework
+>   assembly is not.
+> - **Attach mode is unaffected.** The Agent is not an ancestor there — a
+>   normally-launched game's chain terminates at a platform launcher one hop above
+>   it — so this is a **launch-mode** hazard, and launch mode is deferred (§S1).
+> - **It passed on the dev box and failed on CI**, because the two hosts load
+>   different module sets. Which shipped configuration the dev machine is not, again.
+>
+> **Not fixed here.** The remedies all have costs this entry already priced: the
+> signer half is a `CryptCATAdmin*` PR whose default revocation check does network
+> I/O from inside the hard gate (NFR-10), deleting the fragment is a detection
+> removal in a hard gate that three refuters rejected, and a location-based
+> exemption for the shared framework widens the carve-out §S18 deliberately kept
+> narrow. What changed is the **evidence**, not the decision: this is no longer a
+> hypothesis, and whoever picks up §S19(b) now has a reproducible case.
+>
+> The integration tests are traited `Category=Integration` and CI runs
+> `./build.ps1 check -SkipIntegration`, which **skips loudly**. `./build.ps1 check`
+> with no switches still runs them, and they pass on a host that does not load the
+> assembly. A suite that quietly stops running a class is how a gate rots, so the
+> skip is named in the CI log and in the gate summary.
+
 > §S19(b) is therefore **deferred with this written rationale** rather than
 > scheduled: it fixes one measured case of three, its true shape is a
 > `CryptCATAdmin*` PR, and `WinVerifyTrust`'s default `WTD_REVOKE_WHOLECHAIN`
