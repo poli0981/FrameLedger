@@ -41,6 +41,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <fl_dxgi_vtable.h>
 #include <fl_ring.h>
 #include <fl_shm.h>
 #include <MinHook.h>
@@ -696,11 +697,16 @@ bool InstallPresentHooks() noexcept {
         // the same choice that lets hook-harness run headless on CI.
         if (SUCCEEDED(factory->CreateSwapChainForComposition(dev, &desc, nullptr, &dummy)) && dummy != nullptr) {
             void** vtbl = *reinterpret_cast<void***>(dummy);
-            ok = MH_CreateHook(vtbl[8], reinterpret_cast<void*>(&Hook_Present),
+            // The slot numbers come from fl_dxgi_vtable.h, which hook-harness
+            // also reads. They were inline literals here and duplicated there,
+            // so ctest fl_vtable_indices proved a fact about dxgi.dll rather
+            // than about this DLL: changing an 8 here left it green
+            // (20_OPEN_QUESTIONS §S29(b)).
+            ok = MH_CreateHook(vtbl[fl::dxgi::kPresentIndex], reinterpret_cast<void*>(&Hook_Present),
                                reinterpret_cast<void**>(&g_origPresent)) == MH_OK &&
-                 MH_CreateHook(vtbl[13], reinterpret_cast<void*>(&Hook_ResizeBuffers),
+                 MH_CreateHook(vtbl[fl::dxgi::kResizeBuffersIndex], reinterpret_cast<void*>(&Hook_ResizeBuffers),
                                reinterpret_cast<void**>(&g_origResizeBuffers)) == MH_OK &&
-                 MH_CreateHook(vtbl[22], reinterpret_cast<void*>(&Hook_Present1),
+                 MH_CreateHook(vtbl[fl::dxgi::kPresent1Index], reinterpret_cast<void*>(&Hook_Present1),
                                reinterpret_cast<void**>(&g_origPresent1)) == MH_OK &&
                  MH_EnableHook(MH_ALL_HOOKS) == MH_OK;
         }
