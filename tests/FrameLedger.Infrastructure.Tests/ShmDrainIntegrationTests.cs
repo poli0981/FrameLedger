@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using FluentAssertions;
 using FrameLedger.Application.AntiCheat;
+using FrameLedger.Application.Rules;
 using FrameLedger.Domain.AntiCheat;
 using FrameLedger.Infrastructure.AntiCheat;
 using FrameLedger.Infrastructure.Ipc;
+using FrameLedger.Infrastructure.Rules;
 using FrameLedger.Shared;
 
 namespace FrameLedger.Infrastructure.Tests;
@@ -40,6 +42,36 @@ public sealed class ShmDrainIntegrationTests
     private static string Harness => Path.Combine(AppContext.BaseDirectory, "hook-harness.exe");
 
     private static string Payload => Path.Combine(AppContext.BaseDirectory, "FrameLedger.Overlay.dll");
+
+    /// <summary>
+    /// Puts the machine into the state the product puts it in, using the product's own seeder.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Without this the guard refuses every target with <c>RulesUnreadable</c>, and this test passed
+    /// on my machine for exactly that reason: it already had a rules file.</b> CI does not, and said so
+    /// — "the guard refused our own harness: RulesUnreadable". The guard reads its blocklist from one
+    /// location under Local AppData and fail-closes when it is absent, which is correct and is also
+    /// §S20's whole story: the first real injection's opening refusal was this.
+    /// </para>
+    /// <para>
+    /// It runs the real <c>RulesSeeder</c> over the real <c>FileSystemRulesStore</c> — the same two
+    /// lines <c>Agent/Program.cs</c> runs before anything else — rather than hand-installing a fixture.
+    /// A test that seeded its own file would be testing a different rules file from the one the guard
+    /// consumes, which is the class of mistake §S20 records for the seeder itself. It is idempotent:
+    /// on a machine that already has a current file the outcome is <c>AlreadyCurrent</c> and nothing
+    /// is written.
+    /// </para>
+    /// </remarks>
+    private static async Task SeedRulesAsync()
+    {
+        RulesSeedOutcome outcome = await new RulesSeeder(new FileSystemRulesStore())
+            .EnsureSeededAsync(TestContext.Current.CancellationToken)
+            .ConfigureAwait(false);
+
+        outcome.Should().NotBe(RulesSeedOutcome.WriteFailed);
+        outcome.Should().NotBe(RulesSeedOutcome.PackagedSeedUnusable);
+    }
 
     private static Process StartHarness(string arguments)
     {
@@ -100,11 +132,26 @@ public sealed class ShmDrainIntegrationTests
 
     private static void AssertRecordsAreHonest(List<FlFrameRecord> records)
     {
-        // frameIndex is assigned once per OBSERVED present, so contiguity from 0 is the exact form of
-        // "every present we saw became exactly one record".
-        for (int i = 0; i < records.Count; i++)
+        // CONTIGUOUS, BUT NOT NECESSARILY FROM ZERO — and the difference is the reader working, not a
+        // gap in the stream.
+        //
+        // This asserted `FrameIndex == i` and passed until the seeding call above was added, which
+        // changed the timing enough to make the first drained record frameIndex 2. That is CORRECT:
+        // TryAttach seeds the read index from writeIndex, precisely so a reader never ingests records
+        // published before it attached. Between FlGuardedInject returning and the attach succeeding the
+        // Overlay is already presenting, so the frames in that window belong to nobody.
+        //
+        // A test can be wrong in a way that looks exactly like the code being wrong. What "every present
+        // we saw became exactly one record" actually means here is that the indices we DID see form an
+        // unbroken run — no hole, no repeat — starting wherever we came in.
+        records[0].FrameIndex.Should().BeLessThan(50u,
+            "we attach within a few frames of injecting; a large first index means the attach seed drifted");
+
+        for (int i = 1; i < records.Count; i++)
         {
-            records[i].FrameIndex.Should().Be((uint)i, "frameIndex must be a contiguous run from 0");
+            records[i].FrameIndex.Should().Be(
+                records[i - 1].FrameIndex + 1,
+                "frameIndex is assigned once per observed present, so the drained run must be unbroken");
         }
 
         records.Select(r => r.Qpc).Should().BeInAscendingOrder("QPC is read at hook entry");
@@ -146,6 +193,8 @@ public sealed class ShmDrainIntegrationTests
     [Fact]
     public async Task TheGuardInjectsTheOverlayAndTheReaderDrainsRealFrames()
     {
+        await SeedRulesAsync();
+
         Process harness = StartHarness("--real --hold-presenting 12");
         try
         {
@@ -206,6 +255,8 @@ public sealed class ShmDrainIntegrationTests
         // The safety stop, driven through the reader the Agent will use rather than through a test that
         // pokes the mapping directly. 19_SAFETY calls this the single most important runtime behaviour
         // in the capture layer.
+        await SeedRulesAsync();
+
         Process harness = StartHarness("--real --hold-presenting 15");
         try
         {

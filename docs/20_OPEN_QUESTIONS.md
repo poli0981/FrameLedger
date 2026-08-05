@@ -53,6 +53,7 @@ or it becomes the next stale status claim this file exists to record.
 |---|---|---|
 | S3, S5, S7, S8, S9, S10, S11, S15, S16, S17, S18, S21, S22 | ✅ **resolved** | Thirteen. Reasoning kept in place rather than deleted |
 | **S25, S26** | ✅ **resolved 2026-08-05** | The two runtime stops unreachable in a non-presenting process; occlusion probes recorded as frames |
+| **S28** | ✅ **resolved 2026-08-05** | The guard's entry points share process-wide statics; a concurrent call cleared the blocklist mid-match and every check fell through to `Allow`. Reproduced by CI, not argued |
 | **S27** | ✅ **resolved by NOT building it** | The chokepoint is the anti-cheat gate, not the consent gate. No injecting entry point ships until the `games` table exists; the drain is exercised by an integration test against our own harness |
 | S12 | ✅ **deferred, rationale written** | Cautious mode → v1.1; it disabled nothing in v1 |
 | **S1** | 🅓 **deferred, rationale written** | Owner decision 2026-08-05. Deciding input — a title loading a presentation runtime lazily — is not on this machine |
@@ -99,6 +100,47 @@ than going unsupervised because it stopped drawing.
 records** in the ring against the pre-fix writer and **0** after. The test asserts
 `status == READY` and `faultCount == 0` alongside the count, so "empty because we
 unhooked" and "empty because we faulted" cannot pass for the right answer.
+
+### S28 ✅ · The guard is not re-entrant, and nothing enforced that — **closed 2026-08-05**
+
+Predicted by the drain design review, then **reproduced by CI** rather than argued.
+
+`fl_guard_abi.h` states the one-at-a-time contract and three more comments in the
+native tree repeat it. It was a comment, not a mechanism: `NativeAntiCheatGuard`
+dispatched every call onto an arbitrary thread-pool thread, and `grep` for
+`lock`/`SemaphoreSlim`/`Interlocked` over `Application` and `Infrastructure`
+returned nothing.
+
+**All four entry points share process-wide statics.** `ParseRules` keeps a
+`static jsmntok_t toks[]` and is reached by `FlGuardEvaluate` and `FlGuardedInject`
+through `LoadRules`, by `FlStaticPreScan`, and by `FlGuardCheckRules`.
+`EvaluateImpl` additionally clears a function-scope `static Rules` on entry.
+
+**Why that is a fail-open and not merely a race.** A second concurrent call clears
+the blocklist while the first is matching against it — and an **empty blocklist
+matches nothing**, so `CheckServices` iterates zero families, `CheckModules` and
+`CheckDrivers` fall through, and `Evaluate` returns `Allow` from checks that looked
+at nothing. `CheckModules` already refuses an empty *scan set* on the grounds that
+it "must never read as clean"; the same rule had never been applied to an empty
+*blocklist*.
+
+**How it surfaced.** The drain integration test injects through the guard;
+`RulesSeedingEndToEndTests` validates a document through `FlGuardCheckRules`; xUnit
+runs test classes in parallel. The seeder test returned the wrong outcome. Two
+callers, two entry points, one static — and neither test is about concurrency.
+
+**Closed by a `static SemaphoreSlim(1,1)` in `NativeAntiCheatGuard`**, around every
+native call including the synchronous `NativeCheckRules`. It goes in the facade
+because that is the one place every native call passes through (§S15: one matcher,
+not two), and it is `static` because the contract is a property of the loaded DLL
+rather than of an instance.
+
+> **What this does NOT do**, said rather than left to be assumed: it serialises
+> *managed* callers. The native contract is still unenforced for anything that
+> reaches the ABI another way — the Vulkan layer compiles `fl_ac_rules.cpp` in and
+> parses its own copy at init, which is a different process and therefore fine
+> today, and `fl_guard_test` drives the guard directly. If a second managed host
+> ever loads the DLL, this lock does not span processes.
 
 ### S27 · The chokepoint is the ANTI-CHEAT gate, and it is not the consent gate
 
