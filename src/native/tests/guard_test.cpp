@@ -1236,6 +1236,92 @@ TEST_CASE("the injected Overlay publishes a handshake the Agent can validate", "
     CloseHandle(mapping);
 }
 
+TEST_CASE("an OpenGL title is recorded through wglSwapBuffers", "[guard][inject][shm][gl]") {
+    // OpenGL has no vtable and no swapchain: wglSwapBuffers is a flat export, so
+    // MinHook patches it directly and the HDC is the stream identity.
+    //
+    // This is the one case with a real environment dependency. wglCreateContext
+    // needs an HDC with a pixel format, which needs an HWND, which needs a window
+    // station -- there is no WARP-equivalent to force. The harness exits 3 when
+    // that is unavailable, and this SKIPS with the reason rather than passing:
+    // "OpenGL is absent here" and "the hook is broken" must not produce the same
+    // green.
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --hold-presenting-gl 10";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+
+    DWORD early = STILL_ACTIVE;
+    GetExitCodeProcess(child.pi.hProcess, &early);
+    if (early == 3) {
+        SKIP("OpenGL is not available in this environment (no window station or no GL ICD); "
+             "the harness reported it rather than the hook being exercised");
+    }
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    void* base = MapViewOfFile(mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    auto* st = reinterpret_cast<fl::FlWriterState*>(static_cast<unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    auto* ctl = reinterpret_cast<fl::FlControlBlock*>(static_cast<unsigned char*>(base) + FL_SHM_CONTROL_OFFSET);
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    REQUIRE(st->status == fl::FL_STATUS_READY);
+
+    fl::RingReader rd;
+    REQUIRE(rd.Init(base, FL_SHM_DEFAULT_CAPACITY));
+    std::vector<fl::FlFrameRecord> all;
+    for (int i = 0; i < 50 && all.size() < 30; ++i) {
+        ++ctl->guardTicks;
+        fl::FlFrameRecord buf[256]{};
+        const auto        r = rd.Drain(buf, 256);
+        for (std::uint32_t k = 0; k < r.copied; ++k) {
+            all.push_back(buf[k]);
+        }
+        Sleep(100);
+    }
+    INFO("status=" << st->status << " faults=" << st->faultCount << " writeIndex=" << st->writeIndex
+                   << " apiMask=" << st->apiMask << " drained=" << all.size());
+    REQUIRE(all.size() > 10);
+
+    bool allGl = true;
+    for (const auto& rec : all) {
+        if (rec.api != fl::FL_API_OPENGL || rec.swapchainId == 0 ||
+            rec.measuredMask != fl::FL_MEASURED_OUTPUT_RES || (rec.rtFlags & fl::FL_RT_NOT_MEASURED) == 0) {
+            allGl = false;
+        }
+    }
+    CHECK(allGl);
+    CHECK((st->apiMask & (1u << fl::FL_API_OPENGL)) != 0);
+    // No DXGI swapchain was ever presented through, so neither D3D bit may be set
+    // -- the GL and DXGI paths share one identity table and one id space, and
+    // this is what catches them bleeding into each other.
+    CHECK((st->apiMask & (1u << fl::FL_API_D3D11)) == 0);
+    CHECK((st->apiMask & (1u << fl::FL_API_D3D12)) == 0);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}
+
 TEST_CASE("a D3D12 title is recorded as D3D12, not as the D3D11 we used to assume", "[guard][inject][shm]") {
     // One hook on the SHARED dxgi.dll class vtable catches D3D11 and D3D12 alike,
     // so the present call itself cannot tell them apart -- and `api` was

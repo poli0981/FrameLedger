@@ -12,12 +12,18 @@
 // both, and `api` is resolved per swapchain by asking the swapchain which device
 // created it -- FL_API_UNKNOWN when it will not say, never a guess.
 //
-// NOT HERE: OpenGL (wglSwapBuffers is a flat export in opengl32.dll and needs no
-// vtable, but hook-harness has no OpenGL mode, and shipping an untested hook into
-// a game process is not something this project does), Vulkan (the layer, P1), and
-// the upscaler / FG / RT feature hooks. The record's measuredMask says so on
-// every frame rather than letting the zero-defaults assert a measurement nobody
-// made.
+// OPENGL TOO, via a flat MinHook patch on wglSwapBuffers -- no vtable, no dummy
+// object. Installed only if opengl32.dll is ALREADY mapped, and resolved with
+// GetModuleHandleW rather than LoadLibraryW: loading GL into a process that did
+// not ask for it would change the host's module list for our convenience, which
+// is not something an observer does. The Overlay does not import opengl32
+// either, for the same reason.
+//
+// NOT HERE: Vulkan (the layer, P1), a title that loads opengl32 AFTER we inject
+// (that is the deferred LoadLibrary hook §H2 leaves open, and it is why "we hook
+// OpenGL" must not be read as covering lazy loaders), and the upscaler / FG / RT
+// feature hooks. The record's measuredMask says so on every frame rather than
+// letting the zero-defaults assert a measurement nobody made.
 //
 // docs/17_HOOK_ENGINE.md is the specification. The constraints that shape every
 // line:
@@ -298,6 +304,38 @@ uint8_t ResolveApi(IDXGISwapChain* sc) noexcept {
 SwapChainSlot g_chains[kMaxSwapChains]{};
 uint32_t      g_nextChainId = 1;
 
+// Identity lookup keyed on an opaque pointer, so the DXGI path (IDXGISwapChain*)
+// and the GL path (HDC) share ONE table and one id space. Two tables would be two
+// id spaces, and the Agent segments on swapchainId.
+SwapChainSlot* FindOrAddRaw(void* key, uint8_t api) noexcept {
+    for (auto& s : g_chains) {
+        if (s.ptr == key) {
+            return &s;
+        }
+    }
+    for (auto& s : g_chains) {
+        if (s.ptr == nullptr) {
+            s.ptr = key;
+            s.id = g_nextChainId++;
+            s.api = api;
+            if (api == FL_API_OPENGL) {
+                HWND wnd = WindowFromDC(static_cast<HDC>(key));
+                RECT r{};
+                if (wnd != nullptr && GetClientRect(wnd, &r)) {
+                    s.outW = static_cast<uint16_t>(r.right - r.left);
+                    s.outH = static_cast<uint16_t>(r.bottom - r.top);
+                }
+            }
+            if (api != FL_API_UNKNOWN && g_state != nullptr) {
+                std::atomic_ref<uint32_t> mask{g_state->apiMask};
+                mask.fetch_or(1u << api, std::memory_order_relaxed);
+            }
+            return &s;
+        }
+    }
+    return nullptr;
+}
+
 SwapChainSlot* FindOrAdd(IDXGISwapChain* sc) noexcept {
     for (auto& s : g_chains) {
         if (s.ptr == sc) {
@@ -523,6 +561,71 @@ HRESULT STDMETHODCALLTYPE Hook_ResizeBuffers(IDXGISwapChain* sc, UINT count, UIN
     return hr;
 }
 
+// ---------------------------------------------------------------------------
+// OpenGL. A flat C export, so there is no vtable and no dummy object -- MinHook
+// patches wglSwapBuffers directly (17_HOOK_ENGINE §Hook inventory names this
+// entry point, not the GDI SwapBuffers).
+//
+// Installed ONLY if opengl32.dll is already mapped. A title that loads it later
+// is missed, and that is the LoadLibrary-hook case §H2 defers -- recorded here
+// rather than papered over, because "we hooked OpenGL" would otherwise read as
+// covering lazy loaders.
+// ---------------------------------------------------------------------------
+using PFN_wglSwapBuffers = BOOL(WINAPI*)(HDC);
+PFN_wglSwapBuffers g_origWglSwapBuffers = nullptr;
+
+// The HDC is the stream identity for GL, the way the swapchain pointer is for
+// DXGI: one hook sees every context in the process.
+void RecordGlPresent(HDC hdc) noexcept {
+    if (!MayObserve()) {
+        return;
+    }
+    LARGE_INTEGER qpc{};
+    QueryPerformanceCounter(&qpc);
+
+    SwapChainSlot* slot = FindOrAddRaw(hdc, FL_API_OPENGL);
+
+    FlFrameRecord rec{};
+    rec.qpc = static_cast<uint64_t>(qpc.QuadPart);
+    rec.frameIndex = g_frameIndex++;
+    rec.api = FL_API_OPENGL;
+    rec.swapchainId = slot != nullptr ? slot->id : 0u;
+    if (slot != nullptr) {
+        rec.outputW = slot->outW;
+        rec.outputH = slot->outH;
+    }
+    // Same honesty rule as the DXGI path: a present-only writer may claim the
+    // output size and nothing else.
+    rec.measuredMask = FL_MEASURED_OUTPUT_RES;
+    rec.rtFlags = FL_RT_NOT_MEASURED;
+
+    g_writer.Publish(rec);
+}
+
+BOOL WINAPI Hook_wglSwapBuffers(HDC hdc) {
+    FL_HOOK_GUARD({ RecordGlPresent(hdc); })
+    return g_origWglSwapBuffers(hdc);
+}
+
+bool InstallOpenGlHook() noexcept {
+    // GetModuleHandleW, never LoadLibrary: loading opengl32 into a process that
+    // did not ask for it would change the host's module list for our
+    // convenience, which is not something an observer does.
+    HMODULE gl = GetModuleHandleW(L"opengl32.dll");
+    if (gl == nullptr) {
+        return false;
+    }
+    void* target = reinterpret_cast<void*>(GetProcAddress(gl, "wglSwapBuffers"));
+    if (target == nullptr) {
+        return false;
+    }
+    if (MH_CreateHook(target, reinterpret_cast<void*>(&Hook_wglSwapBuffers),
+                      reinterpret_cast<void**>(&g_origWglSwapBuffers)) != MH_OK) {
+        return false;
+    }
+    return MH_EnableHook(target) == MH_OK;
+}
+
 // A throwaway WARP swapchain, purely to read the shared class vtable. Released
 // immediately: 17_HOOK_ENGINE §Getting vtable addresses. Never hardcode the
 // pointer, never keep the object.
@@ -607,7 +710,15 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
 
     std::atomic_ref<uint32_t> status{g_state->status};
 
-    if (MH_Initialize() != MH_OK || !InstallPresentHooks()) {
+    if (MH_Initialize() != MH_OK) {
+        status.store(FL_STATUS_INIT, std::memory_order_release);
+        return 1;
+    }
+    // OpenGL is opportunistic and its absence is normal -- most titles are DXGI.
+    // The DXGI hooks are what READY depends on.
+    const bool gl = InstallOpenGlHook();
+    (void)gl;
+    if (!InstallPresentHooks()) {
         // Hooking failed, so nothing will ever be recorded. Staying at INIT says
         // exactly that; READY would be a claim about a capture side that does not
         // exist, and the Agent's degradation path is what should run instead.

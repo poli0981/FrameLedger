@@ -36,6 +36,7 @@
 #include <d3d11.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <gl/GL.h>
 
 #include <algorithm>
 #include <atomic>
@@ -48,6 +49,7 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "opengl32.lib")
 
 namespace {
 
@@ -686,6 +688,88 @@ bool ProbeFrameIdentity(Gfx& g) {
 
 }    // namespace
 
+// OpenGL hold. Returns false only for a real failure; a missing GL stack exits
+// the process with 3 so a caller can tell "not available" from "broken".
+bool RunGlHold(int seconds, bool real) {
+    std::printf("\n[gl] hidden-window OpenGL context\n");
+
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = L"FlHarnessGL";
+    RegisterClassExW(&wc);
+
+    // WS_POPUP with no WS_VISIBLE: created, never shown. It still needs a window
+    // station, which is the part that can be absent on a hosted runner.
+    HWND hwnd = CreateWindowExW(0, wc.lpszClassName, L"", WS_POPUP, 0, 0, 64, 64, nullptr, nullptr, wc.hInstance,
+                                nullptr);
+    if (hwnd == nullptr) {
+        std::printf("  OpenGL UNAVAILABLE: CreateWindowExW failed (%lu)\n", GetLastError());
+        std::exit(3);
+    }
+
+    HDC hdc = GetDC(hwnd);
+    if (hdc == nullptr) {
+        std::printf("  OpenGL UNAVAILABLE: GetDC failed\n");
+        std::exit(3);
+    }
+
+    PIXELFORMATDESCRIPTOR pfd{};
+    pfd.nSize = sizeof(pfd);
+    pfd.nVersion = 1;
+    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+    pfd.iPixelType = PFD_TYPE_RGBA;
+    pfd.cColorBits = 32;
+    const int fmt = ChoosePixelFormat(hdc, &pfd);
+    if (fmt == 0 || !SetPixelFormat(hdc, fmt, &pfd)) {
+        std::printf("  OpenGL UNAVAILABLE: no usable pixel format (%lu)\n", GetLastError());
+        std::exit(3);
+    }
+
+    HGLRC rc = wglCreateContext(hdc);
+    if (rc == nullptr || !wglMakeCurrent(hdc, rc)) {
+        std::printf("  OpenGL UNAVAILABLE: wglCreateContext/MakeCurrent failed (%lu)\n", GetLastError());
+        std::exit(3);
+    }
+    std::printf("  GL_VERSION = %s\n", reinterpret_cast<const char*>(glGetString(GL_VERSION)));
+
+    // wglSwapBuffers, NOT the GDI SwapBuffers. 17_HOOK_ENGINE §Hook inventory
+    // names the wgl entry point, and that is what the Overlay hooks; presenting
+    // through the GDI one would exercise a different symbol and the count would
+    // be a lie about what we intercept.
+    std::printf("  presenting GL for %d second(s) [%s]\n", seconds, real ? "REAL" : "no-op");
+    std::fflush(stdout);
+    const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
+    long long       presented = 0;
+    // Resolved by name rather than by import: wglSwapBuffers is declared behind
+    // header guards that WIN32_LEAN_AND_MEAN-style builds do not always expose,
+    // and going through GetProcAddress is exactly what the Overlay does to hook
+    // it -- so the harness and the hook are talking about the same symbol by
+    // construction rather than by assumption.
+    using PFN_wglSwapBuffers = BOOL(WINAPI*)(HDC);
+    auto swap = reinterpret_cast<PFN_wglSwapBuffers>(
+        reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"opengl32.dll"), "wglSwapBuffers")));
+    if (swap == nullptr) {
+        std::printf("  OpenGL UNAVAILABLE: opengl32 exports no wglSwapBuffers\n");
+        std::exit(3);
+    }
+    while (GetTickCount64() < until) {
+        glClear(GL_COLOR_BUFFER_BIT);
+        swap(hdc);
+        ++presented;
+        Sleep(8);
+    }
+    std::printf("  presented=%lld\n", presented);
+    std::fflush(stdout);
+
+    wglMakeCurrent(nullptr, nullptr);
+    wglDeleteContext(rc);
+    ReleaseDC(hwnd, hdc);
+    DestroyWindow(hwnd);
+    return true;
+}
+
 int main(int argc, char** argv) {
     std::printf("FrameLedger hook-harness (WARP, headless — no GPU or window required)\n");
 
@@ -746,6 +830,20 @@ int main(int argc, char** argv) {
             std::printf("  holding for %d second(s)\n", std::atoi(argv[i + 1]));
             std::fflush(stdout);
             Sleep(static_cast<DWORD>(std::atoi(argv[++i])) * 1000);
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting-gl") == 0 && i + 1 < argc) {
+            // OpenGL cannot use the two tricks that make the D3D modes headless.
+            // There is no WARP equivalent to force, and wglCreateContext needs a
+            // real HDC with a pixel format, which means a real HWND. So this
+            // creates a HIDDEN window: no WS_VISIBLE, never shown, 64x64.
+            //
+            // That is a genuine environment dependency, and it is reported rather
+            // than hidden: exit code 3 means "OpenGL is not available here",
+            // which is a different fact from "the hook is broken". A test that
+            // could not tell those apart would pass on a machine with no GL at
+            // all, which is the shape this repository keeps finding.
+            const int seconds = std::atoi(argv[++i]);
+            ok = RunGlHold(seconds, real) && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting-d3d12") == 0 && i + 1 < argc) {
             // The same shape as --hold-presenting, but the swapchain is created
