@@ -57,7 +57,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
 | **S19(b)** | 🅓 **deferred, rationale written** | Its true shape is a `CryptCATAdmin*` PR, and `WinVerifyTrust`'s default revocation check does network I/O from inside the hard gate (NFR-10) |
 | **S14** | 🔨 **scheduled — exe-name half only** | Owner decision 2026-08-05: wire it, empty list, unresolvable identity refuses. The **store-id half is blocked** on the platform metadata extractors and cannot be reached through the guard ABI by design |
-| **S23-1** | ◐ **half closed 2026-08-05** | The C# mirror can now READ `buildId` out of the handshake. The Agent still has **no build id of its own** to compare it against, so `07_IPC`'s refuse-to-attach-on-mismatch still cannot run. The drain PR owns the other half |
+| **S23-1** | ✅ **resolved 2026-08-05** | `FlGuardBuildId` gives the Agent a build id of its own, and `ShmHandshakeValidator` performs the comparison `07_IPC` and `04_CAPTURE` both specify. Every refusal path is driven, including **both ids empty** — the shape the feature shipped in, where `"" == ""` reported `Ok` for every process on the machine |
 | **S23-4** | ✅ **resolved 2026-08-05** | `19_SAFETY` §During a session said "the module scan and the driver scan"; `EvaluateImpl` runs four. Reworded to "every pre-injection check" so it cannot go stale when a check is added, with the two omissions named — `services` is the only tier measured firing on real anti-cheat, and the pre-scan is the only one touching the filesystem |
 | **S2 part three** | ⏳ **open, sequenced** | In-layer supervision lands with `vkQueuePresentKHR` (P1). Building it sooner would be a predicate whose wrong answer changes nothing observable |
 | **S4 signing** | ⏳ **open, residual accepted** | HTTPS authenticates the host, not the content. Recorded rather than closed — needs a rationale written or a decision |
@@ -1461,6 +1461,36 @@ Eight PRs merged in one session; the audit ran afterwards, as
 the same PR that records this. What follows is the residue — real gaps, recorded
 so the next session finds them by reading rather than by tripping over them.
 
+**1. ✅ `FL_BUILD_ID` has a writer and no reader — closed 2026-08-05.**
+`FlGuardBuildId` on `FrameLedger.Guard.dll` gives the Agent the value `04_CAPTURE`
+calls "its own", and `FrameLedger.Shared.ShmHandshakeValidator` is the comparison.
+
+**Why the GUARD carries it and not the Overlay.** The Overlay exports
+`FlGetBuildId()`, and the Agent cannot call it: reaching that export means
+`LoadLibraryW` on `FrameLedger.Overlay.dll`, which starts its init thread and
+creates a ring under the **Agent's own pid**. The payload is not something its own
+host may load. The guard is already loaded by the Agent, by absolute path from our
+install directory (§S22).
+
+**Guard and Overlay agree by construction, not by test, and that is stated rather
+than implied.** `FL_BUILD_ID` is one INTERFACE compile definition on
+`FrameLedger.Shm`, set once per CMake configure, and both targets link it. No test
+asserts the equality because `fl_guard_abi.cpp` is not compiled into
+`fl_guard_test` — `guard_test.cpp` says so at the assertion that covers the
+Overlay's half.
+
+**The failure this closes is a fail-open, and the test for it was nearly missed.**
+The naive implementation compares two strings. With neither side carrying an id,
+`string.Equals("", "")` is **true**, so the gate reports `Ok` and permits attaching
+to anything — measured, by removing the emptiness guards and watching
+`ShmAttachRefusal.Ok` come back. The first draft of the test file asserted "no id
+of our own refuses" and "no id in the handshake refuses" as separate cases and
+**never put both halves in one call**, which is the only arrangement that reaches
+the defect. Recorded because a suite can cover each half of a condition and still
+miss the condition.
+
+<details><summary>The finding as recorded</summary>
+
 **1. `FL_BUILD_ID` has a writer and no reader.** §S22-era work gave
 `FlShmHandshake::buildId` a producer, which it had never had. But the contract is
 a *comparison* — `07_IPC` "the Agent compares … against its own",
@@ -1470,6 +1500,8 @@ INTERFACE compile definition visible only to native targets, and `grep -rni
 buildid` over `src/**/*.cs`, `*.csproj` and `*.props` returns **zero**. So the
 refuse-to-attach-on-mismatch gate still cannot run. Half a mechanism reads as a
 whole one in the CHANGELOG, and that is corrected here rather than there.
+
+</details>
 
 **2. `rules-publish`'s removal check is not a required status check.** `main`'s
 required contexts are exactly `check`, `analyze (csharp, none)` and

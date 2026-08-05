@@ -142,6 +142,21 @@ same class of bug as record drift.
   then resumes at `writeIndex - capacity`. This keeps the hot path free of an
   extra atomic and puts the accounting where the information actually exists.
 - Version handshake: Agent compares `layoutVersion` + `recordSize` + `buildId` against its own. **Mismatch → refuse to attach**, tell the user to restart the game (this happens when the app updates while a game is running).
+
+  > **Implemented 2026-08-05** as `FrameLedger.Shared.ShmHandshakeValidator`, a pure
+  > function so every refusal is drivable without a live target. The Agent's own build
+  > id comes from `FlGuardBuildId` on the guard DLL — **not** from the Overlay, whose
+  > `FlGetBuildId` the Agent cannot reach without `LoadLibraryW`-ing the payload into
+  > itself and creating a ring under its own pid (§S23-1).
+  >
+  > Three things the check does that "compare three fields" does not imply:
+  > `layoutVersion == 0` is **`Incomplete`, not a mismatch**, because the Overlay
+  > publishes that field last behind a release fence, so zero means "not ready yet" and
+  > the Agent should retry rather than tell the user to restart; the version is checked
+  > **before** the fields it vouches for, since a record size read under a layout we do
+  > not know names the wrong cause; and an **absent** id on either side refuses rather
+  > than matching — with neither side carrying one, `"" == ""` is true and the gate
+  > would permit attaching to anything, which is the shape it shipped in.
 - **`guardTicks` counts completed guard evaluations, not seconds.** It was
   specified as "Agent bumps every second", and a timer-driven tick is the wrong
   signal: it attests that the Agent *process* is alive, while the guard loop can

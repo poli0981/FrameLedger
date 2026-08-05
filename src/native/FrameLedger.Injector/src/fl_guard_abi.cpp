@@ -79,6 +79,33 @@ std::int32_t FlGuardRulesFilePath(wchar_t* out, std::int32_t cap) {
     return static_cast<std::int32_t>(wcslen(out));
 }
 
+std::int32_t FlGuardBuildId(char* out, std::int32_t cap) {
+    if (out == nullptr || cap <= 0) {
+        return 0;
+    }
+    out[0] = '\0';
+
+    const char* id = FL_BUILD_ID;
+    std::size_t n = 0;
+    while (id[n] != '\0') {
+        ++n;
+    }
+    // Refuse rather than truncate. A shortened id is not a partial answer, it is
+    // a DIFFERENT id -- and it would compare unequal against the handshake
+    // forever, producing a permanent refuse-to-attach whose cause is this
+    // function rather than any real version skew. Same rule as
+    // FlGuardRulesFilePath: never hand back something that names another thing.
+    if (n + 1 > static_cast<std::size_t>(cap)) {
+        return 0;
+    }
+
+    for (std::size_t i = 0; i < n; ++i) {
+        out[i] = id[i];
+    }
+    out[n] = '\0';
+    return static_cast<std::int32_t>(n);
+}
+
 std::int32_t FlGuardCheckRules(const char* json, std::int32_t length) {
     if (json == nullptr || length <= 0) {
         return static_cast<std::int32_t>(fl::guard::ParseResult::kMalformed);

@@ -1208,6 +1208,18 @@ TEST_CASE("the injected Overlay publishes a handshake the Agent can validate", "
     CHECK(h->recordSize == sizeof(fl::FlFrameRecord));
     CHECK(h->capacity == FL_SHM_DEFAULT_CAPACITY);
     CHECK(h->pid == child.pi.dwProcessId);
+    // The Overlay's half of the S23-1 comparison. The Agent's half is
+    // FlGuardBuildId on FrameLedger.Guard.dll, exercised from the managed side
+    // (ShmHandshakeValidatorTests) because fl_guard_abi.cpp is not compiled into
+    // this binary -- it exists only in the shared library.
+    //
+    // WHAT NOTHING MEASURES, stated rather than implied: that the guard's id and
+    // the Overlay's id are equal. They are equal BY CONSTRUCTION -- FL_BUILD_ID is
+    // one INTERFACE compile definition on FrameLedger.Shm, set once per CMake
+    // configure, and both targets link it -- so there is no code path that could
+    // make them differ without changing the build. That is an argument, not a
+    // measurement, and it is the right place to notice if someone ever gives
+    // either target its own id.
     CHECK(std::strcmp(h->buildId, FL_BUILD_ID) == 0);
     CHECK(h->qpcEpoch != 0);
     // 0 = NOT YET KNOWN, and it must stay 0 until first present: at init we are
