@@ -13,13 +13,37 @@ The hook rewrite front-loads risk: almost everything uncertain is in P0/P1. That
 
 Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit criteria pass.
 
-> **Status as of 2026-08-04.** Items **2 and 3 done**; 0 and 1 partly. The
+> **Status as of 2026-08-05.** Items **2, 3 and 5 done**; 0 and 1 partly. The
 > safety work that had to precede the first injection — the guard, its matrix,
 > the chokepoint, the layer's gates — is in, and the first real injection has
 > happened. Everything still open needs either **feature hooks that do not exist
 > yet** (4, 6, 7 — a throwaway build, per the exit criteria, not all of P1),
 > absent hardware (8, and the AMD/Intel half of the capability matrix), or is P1
 > by construction (the layer's presentation hooks). Item 0's residual is check 3.
+>
+> **The Overlay stopped being a scaffold on 2026-08-05, and this file was the last
+> to hear about it.** Five PRs (#40–#44) landed the SPSC ring, the mapping and
+> handshake, the DXGI present hook, the safety stop and supervision loss, and
+> per-swapchain `api` resolution — and changed **8 files, all under `src/native/`,
+> with no documentation edit anywhere.** For a day this section, `20_OPEN_QUESTIONS`
+> §S6, `spike-notes.md` §8 and `legal/DISCLAIMER.md` all described a DLL with no
+> hooks. Recorded rather than quietly corrected, because it is the same failure the
+> 2026-08-04 handoff audit found and the reason a stale ledger makes the next
+> session over-scope.
+>
+> **What that does and does not move.** It does *not* advance items 4, 6 or 7: the
+> Overlay records `qpc`, `frameIndex`, `presentFlags`, `syncInterval`, `api`,
+> `swapchainId` and `outputW/H`, and sets `measuredMask = FL_MEASURED_OUTPUT_RES`
+> with `rtFlags = FL_RT_NOT_MEASURED` on every record — i.e. it says in the data
+> that it has measured no upscaler, no frame generation and no ray tracing. What it
+> moves is the *prerequisite*: there is now a writer for those fields to be written
+> by. **There is still no reader** — `src/FrameLedger.Shared` holds a `.csproj` and
+> no `.cs` files, and no managed code maps the shared memory — so the present hook's
+> output is observable only from inside `guard_test.cpp`.
+>
+> Work that P1 owns on paper and that landed here: the ring writer, the present
+> hook and the fault policy. The unhook path is partial (`MH_DisableHook`, not the
+> compare-and-restore body §H7 specifies).
 >
 > **Three safety items moved 2026-08-04.**
 >

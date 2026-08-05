@@ -4,13 +4,21 @@
     IPC contracts (System.Text.Json source-generated contexts, docs/07_IPC.md)
     and the C# mirrors of the native shared-memory structs.
 
-    The mirrors are the dangerous part: FlFrameRecord, FlShmHandshake,
-    FlWriterState and FlControlBlock each exist twice, once in C++ and once
-    here as [StructLayout(LayoutKind.Sequential)]. A test in
-    FrameLedger.Infrastructure.Tests asserts sizeof AND every field offset on
-    both sides against a dump emitted by the native build. Struct drift between
-    the two layers is the most dangerous silent bug in this architecture
-    (CLAUDE.md §Struct mirroring, docs/12_BUILD.md §Managed build).
+    THIS PROJECT IS EMPTY. It contains no .cs files, and the paragraph below
+    described its intended contents in the PRESENT TENSE until 2026-08-05:
+    "each exist twice", "a test ... asserts". Neither is true: the mirrors exist
+    only in C++ (src/native/FrameLedger.Shm/include/fl_shm.h) and no managed
+    test references FlFrameRecord. build.ps1:335-342 skips the gate loudly and
+    says why; build.ps1:324-329 enumerates the nine files that claimed
+    otherwise, of which this was one.
+
+    THE INTENT, unchanged and now scheduled (20_OPEN_QUESTIONS §R10, §S24):
+    FlFrameRecord, FlShmHandshake, FlWriterState and FlControlBlock each exist
+    twice, once in C++ and once here as [StructLayout(LayoutKind.Sequential)],
+    with a test in FrameLedger.Infrastructure.Tests asserting sizeof AND every
+    field offset on both sides against the dump emitted by tools/fl-layout-dump.
+    Struct drift between the two layers is the most dangerous silent bug in this
+    architecture (CLAUDE.md §Struct mirroring, docs/12_BUILD.md §Managed build).
   -->
 
 </Project>

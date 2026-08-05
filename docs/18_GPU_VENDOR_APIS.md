@@ -127,3 +127,26 @@ Writing our own IGCL declarations to avoid vendoring the headers is **not an app
 | CPU temp | ✗ | ✓ (elevated + PawnIO) | ✗ |
 
 Replace `?` with measured results per vendor. The matrix drives what the UI advertises as available, and the AMD/Intel columns of L2 are the ones that decide whether the Intel gap is actually noticeable to users.
+
+> **🅓 The AMD and Intel results are deferred as `untested` — owner decision,
+> 2026-08-05** (`20_OPEN_QUESTIONS` §R5/§R6). Not deferred for cost: the dev machine
+> has one adapter, an RTX 5080, and a `KF` CPU with no iGPU (`spike-notes.md`
+> §Environment), so there is no measurement to take. **AFMF is unreachable for the
+> same reason** — it is an AMD driver-side feature.
+>
+> The rule that travels with the deferral: an unmeasured cell is **`untested`**, never
+> `?` and never a checkmark inferred from a vendor's documentation. `?` reads as "we
+> have not got to it yet"; `untested` reads as "we cannot, here" — and this table is
+> what the UI consults before advertising a capability to a user.
+>
+> **This table cannot currently express that.** Its columns are the three layers, with
+> no vendor axis, so "measured on NVIDIA, untested on AMD/Intel" has nowhere to go —
+> and every `?` below is therefore ambiguous between the two meanings. **Adding the
+> vendor axis is a prerequisite of filling it**, not a tidy-up afterwards, because a
+> single-axis table forces whoever fills the NVIDIA half to overwrite cells that are
+> also making a claim about hardware they never had. P0 item 8 owns this.
+>
+> The NVIDIA half is **not** deferred and none of it exists in code yet — no PDH, no
+> DXGI telemetry, no LibreHardwareMonitor, no NVAPI. §M5 in particular (do LHM GPU
+> sensors work unelevated, without PawnIO?) decides whether the default unelevated
+> Agent has temperatures at all, and therefore how ADR-9 reads to users.

@@ -479,8 +479,26 @@ checked stays untrusted and refuses — that direction is deliberate.
 
 ### During a session
 
-Re-run **both the module scan and the driver scan** every 30 s, for **every
-Tier-1 session — injected or layered**.
+Re-run **every pre-injection check** every 30 s, for **every Tier-1 session —
+injected or layered**.
+
+> **This said "both the module scan and the driver scan" until 2026-08-05, and
+> the loop runs four checks, not two** (`20_OPEN_QUESTIONS` §S23-4).
+> `FlGuardEvaluate` → `EvaluateImpl` runs `CheckDrivers`, `CheckServices`,
+> `CheckModules` **and** `CheckStaticPreScan`. The two omitted from this sentence
+> are not incidental: **`services` is the only tier ever measured firing on real
+> anti-cheat** (`spike-notes.md` §13 — a live Easy Anti-Cheat session was caught
+> by it, not by the module or driver tiers), and the **static pre-scan is the only
+> one that touches the filesystem**, so it dominates what the loop costs and any
+> argument about shrinking the 30 s window (§S6) has been reasoning about the
+> cheap half.
+>
+> The wording is now "every pre-injection check" rather than a list, so the
+> sentence cannot go stale again the next time a check is added. The list of
+> checks lives in §Pre-injection checks above, once — **including its ⚠ that
+> check 3 is unwired.** The re-scan inherits that gap rather than closing it:
+> "every check" means every check that runs, and one of the four documented ones
+> still does not.
 
 > **Scoping this to "hooked" sessions was a real gap.** Everything about the
 > re-scan was written as "during a hooked session" / "loading *after*

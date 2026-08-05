@@ -601,6 +601,51 @@ measured on a real game, and that number is not this one.
 Not registered as a ctest: a timing threshold on a shared CI runner fails for
 reasons that have nothing to do with the code. Run it deliberately.
 
+### ✅ The Overlay is a real capture side now — and what it does NOT measure (2026-08-05)
+
+Recorded here retrospectively: PRs #40–#44 changed 8 files, all under `src/native/`,
+and touched no documentation, so none of the below was written down at the time.
+
+| | |
+|---|---|
+| Hooks installed | **three**, on the shared `dxgi.dll` class vtable: `Present` (8), `ResizeBuffers` (13), `Present1` (22) |
+| Acquisition | throwaway WARP D3D11 device + `CreateSwapChainForComposition`, vtable read, dummy released — no HWND, runs headless |
+| Ring | `Local\FrameLedger.Ring.<pid>`, DACL = current user's SID only, `ERROR_ALREADY_EXISTS` refuses |
+| ctests | **15**, incl. four `[inject][shm]` cases that inject the **real** Overlay into `hook-harness` cross-process |
+
+**The `api` field, and a Windows API that does not do what the docs imply.**
+`IDXGISwapChain::GetDevice` on a **D3D12** swapchain returns the **device**, not the
+command queue — even though `CreateSwapChainForComposition` is *given* the queue. DXGI
+resolves the queue to its owning device before storing it. The obvious implementation
+(query the result for `ID3D12CommandQueue`) made every record from a real D3D12 target
+come back `FL_API_UNKNOWN`. Both queries are kept: a DXGI that *did* hand back the queue
+would otherwise regress to `UNKNOWN` silently.
+
+**What the Overlay measures today is 8 of 23 record fields**, and the other 15 are
+reported as *not measured* rather than defaulted:
+
+| Written | Left at "not measured" |
+|---|---|
+| `qpc`, `frameIndex`, `presentFlags`, `syncInterval`, `api`, `swapchainId`, `outputW/H` | `renderW/H`, `upscaler`, `upscalerQuality`, `fgMode`, `fgEvaluations`, `rtFlags`, `dispatchRaysVolume`, `maxTraceRecursionDepth`, `psoCreatedThisFrame`, `vramUsedBytes`, `reflexLatencyUs`, `hdr` |
+
+`measuredMask = FL_MEASURED_OUTPUT_RES` and `rtFlags = FL_RT_NOT_MEASURED` on every
+record. Without those two bytes a present-only writer would assert "no upscaler, no
+frame generation, no ray tracing" as *measured fact* ~118 times a second — `fg_factor`
+1.0 (rule 6) and a definite RT `No` (rule 7) about a title nobody looked at.
+
+**Two fields have a producer and no consumer, and one has neither:**
+`FlWriterState::vramBudgetMb` is never written (no `QueryVideoMemoryInfo` hook);
+`FlControlBlock::overlayEnabled` is never read; and `FlControlBlock::pauseRequested` is
+never written by anything, while its only reader is unreachable on any frame where
+`guardTicks` changed.
+
+**Still not measured on the present path**, and both are `20_OPEN_QUESTIONS` §S24 items:
+the 65-second supervision deadline **in its real configuration** (a canary proves the
+comparison fires, not that 65000 is the number on the shipped path — and it is evaluated
+only when the game presents, which `fl_shm.h:67-70` says it must not be), and the
+three-fault self-disable, which has no test at all
+(`src/native/tests/CMakeLists.txt:147`).
+
 ### Still open in §3
 
 Both remaining items need something this harness cannot synthesise:
@@ -1038,9 +1083,16 @@ been run on three real installs; the per-title runtime rows still need a
 **hooked** session.
 
 **That is no longer item 2.** Item 2 closed on 2026-08-03 — the Overlay loads
-into a real title and the process survives it (§7). But nothing is hooked yet:
-`Present` interception, the ring writer and the fault policy are P1 by
-construction. So these rows are blocked on P1, not on finding a game.
+into a real title and the process survives it (§7).
+
+> **"Nothing is hooked yet" was true when written and is not now** (corrected
+> 2026-08-05). `Present` interception, the ring writer and the fault policy all
+> landed in #40–#44, ahead of the P1 label they were filed under. What blocks the
+> rows above is therefore no longer the *present* path — it is that **no upscaler,
+> FG or RT hook exists** (P0 items 4, 6 and 7), and that **nothing reads the ring**:
+> `src/FrameLedger.Shared` holds a `.csproj` and no `.cs` files, so the Overlay's
+> output is observable only from inside `guard_test.cpp`. Both are prerequisites of
+> filling this table, and neither is "finding a game".
 
 ## 9 · Frame generation
 
