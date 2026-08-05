@@ -103,6 +103,10 @@ The version handshake is wired end to end as of 2026-08-05: `FlGuardBuildId` giv
 
 ## Reading order
 
+0. **`docs/HANDOFF.md` — what to do next and in what order.** It carries sequencing,
+   decisions that live in no other file, and the traps that cost a cycle each. It
+   deliberately carries **no status**: it points at the four files that do. Start there
+   if you are picking up work; start at 1 if you are learning the system.
 1. `docs/19_SAFETY_AND_ANTICHEAT.md` — the guard, the refusal list, what we will not build
 2. `docs/01_ARCHITECTURE.md` — processes, injection flow, lifecycle
 3. `docs/02_SPEC.md` — FR/NFR ids used everywhere
