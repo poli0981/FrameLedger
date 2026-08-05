@@ -570,6 +570,32 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     if (!MayObserve()) {
         return;
     }
+
+    // DXGI_PRESENT_TEST IS NOT A FRAME, AND THE RING ONLY CARRIES FRAMES.
+    //
+    // It is the occlusion probe: DXGI runs the presentation test and submits
+    // nothing. Measured on this harness (#35): 500 of them leave
+    // GetLastPresentCount at 0 while 37 real presents move it by 37. Applications
+    // issue them while minimised or fully occluded, so a backgrounded game can
+    // emit a steady stream of non-frames.
+    //
+    // Recording them would corrupt exactly the metric this product exists to
+    // report. frameIndex would advance without a frame; 03_METRICS derives
+    // Displayed FPS from count(F_disp)/D and frame times from consecutive qpc, so
+    // a minimised game would report a frame rate it is not rendering, and the
+    // interval either side of a probe burst is not a frame time at all.
+    //
+    // WHO FILTERS was undecided until 2026-08-05 -- 07_IPC assigned it to nobody
+    // and 03_METRICS was silent, which is how a criterion counting "N presents ->
+    // N records" once became satisfiable only by a writer that counts non-frames.
+    // Decided: the WRITER drops them, so the ring means one thing and no
+    // downstream consumer has to remember to filter. Cost is one AND and one
+    // branch on the hot path, after the safety checks so a probe-only process
+    // still evaluates the stop.
+    if ((flags & DXGI_PRESENT_TEST) != 0u) {
+        return;
+    }
+
     LARGE_INTEGER qpc{};
     QueryPerformanceCounter(&qpc);
 

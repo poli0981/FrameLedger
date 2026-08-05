@@ -1500,6 +1500,68 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
     CloseHandle(mapping);
 }
 
+TEST_CASE("occlusion probes are not frames and reach the ring as nothing", "[guard][inject][shm]") {
+    // --hold-presenting WITHOUT --real: the harness presents continuously with
+    // DXGI_PRESENT_TEST, which runs the presentation test and submits nothing
+    // (main.cpp:790, `flags = real ? 0u : DXGI_PRESENT_TEST`).
+    //
+    // This is the fixture that once made an acceptance criterion vacuous: every
+    // present in this harness used to be a probe, so "N presents -> N records"
+    // was satisfiable ONLY by a writer that counts non-frames, and a correct
+    // writer had no green path (#35). Now it is the negative control.
+    //
+    // The target is alive, hooked, READY and presenting hard. The ring must stay
+    // empty -- not because nothing happened, but because none of it was a frame.
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --hold-presenting 12";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    void* base = MapViewOfFile(mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    auto* st = reinterpret_cast<fl::FlWriterState*>(static_cast<unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    auto* ctl = reinterpret_cast<fl::FlControlBlock*>(static_cast<unsigned char*>(base) + FL_SHM_CONTROL_OFFSET);
+
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    REQUIRE(st->status == fl::FL_STATUS_READY);
+
+    // Hold supervision alive so a stop cannot be the reason the ring is empty --
+    // "no records because we unhooked" would pass this test for the wrong reason.
+    for (int i = 0; i < 20; ++i) {
+        ++ctl->guardTicks;
+        Sleep(100);
+    }
+
+    CHECK(st->status == fl::FL_STATUS_READY);    // still observing
+    CHECK(st->faultCount == 0);                  // the filter is a branch, not a fault
+    CHECK(st->writeIndex == 0);                  // and not one probe became a frame
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}
+
 TEST_CASE("a PAUSED session records nothing, including across a guard tick", "[guard][inject][shm]") {
     // pauseRequested had exactly one reader and it was UNREACHABLE on any frame
     // where guardTicks had changed: the freshness check sat in front of it and

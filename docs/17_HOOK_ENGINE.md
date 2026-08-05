@@ -100,7 +100,7 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 ### Presentation
 | Hook | Purpose |
 |---|---|
-| ✅ `IDXGISwapChain::Present`, `Present1` | Frame boundary, QPC, sync interval, present flags |
+| ✅ `IDXGISwapChain::Present`, `Present1` | Frame boundary, QPC, sync interval, present flags. **`DXGI_PRESENT_TEST` calls are dropped without a record** — the occlusion probe submits nothing, and a minimised game emits a stream of them (`07_IPC` §Protocol rules) |
 | ✅ `IDXGISwapChain::ResizeBuffers` · ⏳ `ResizeTarget` | Output resolution changes mid-session. `ResizeBuffers` re-reads the swapchain description *after* the original returns; `ResizeTarget` is not hooked |
 | ⏳ `IDXGISwapChain::SetFullscreenState` | Fullscreen ↔ borderless transitions |
 | ⏳ `IDXGISwapChain3::SetColorSpace1` | HDR output detection. **`IDXGISwapChain3`, not 4** — 4 adds only `SetHDRMetaData` (`20_OPEN_QUESTIONS` §H9). Unbuilt, which is why `hdr` is reported via `FL_MEASURED_HDR` as *not measured* rather than as `0` |

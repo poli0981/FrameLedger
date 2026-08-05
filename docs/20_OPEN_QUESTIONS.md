@@ -75,6 +75,29 @@ or it becomes the next stale status claim this file exists to record.
 gets either work or a written rationale, and until the owner acts on S23-2 — which
 no amount of code will do.
 
+### S26 ✅ · The ring counted occlusion probes as frames — **closed 2026-08-05**
+
+`DXGI_PRESENT_TEST` runs the presentation test and **submits nothing**. The writer
+recorded them like any other present, so a minimised or fully occluded game — which
+issues them continuously — produced records that `03_METRICS` would have turned into
+a frame rate it was not rendering, and into frame-time intervals that bound no frame.
+
+**Who was responsible for filtering was assigned to nobody.** `07_IPC` did not say,
+`03_METRICS:9` lists `presentFlags` among the consumed fields and is silent on this
+value, and the harness's own history shows why that matters: every present in
+`hook-harness` was once a probe, which made "N presents → N records" satisfiable
+**only** by a writer that counts non-frames (`gates-that-cannot-fail`, #35).
+
+**Decided: the writer drops them**, so the ring means one thing. The filter is placed
+*after* the safety checks, so a probe-only process still evaluates the stop rather
+than going unsupervised because it stopped drawing.
+
+**Measured, both directions.** `hook-harness --hold-presenting 12` *without* `--real`
+— a live, hooked, supervised target presenting nothing but probes — puts **142
+records** in the ring against the pre-fix writer and **0** after. The test asserts
+`status == READY` and `faultCount == 0` alongside the count, so "empty because we
+unhooked" and "empty because we faulted" cannot pass for the right answer.
+
 ### S25 ✅ · Both runtime stops were unreachable in a non-presenting process, and pause was unreachable on a ticking one — **closed 2026-08-05**
 
 Found by tracing call paths while planning the next phase, in code merged the
