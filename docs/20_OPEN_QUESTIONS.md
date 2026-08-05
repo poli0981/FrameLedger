@@ -1571,6 +1571,32 @@ our hook on the **real** vtable. The hook still fires: the proxy forwards via
 catches it one layer down. A proxy having its own vtable does *not* by itself
 make us miss the present.
 
+> **Case 3 is now probed, bounded, and blocked on a LICENCE rather than on
+> hardware** (2026-08-05, `fl-probe-interposer`, `spike-notes.md` §5). Loading a
+> real `sl.interposer.dll` — Cyberpunk 2077 and Black Myth: Wukong — into our own
+> process shows it forwards to `dxgi.dll` and leaves both the factory and the
+> swapchain vtable untouched **until `slInit()` runs**, which the probe proves by
+> enumerating its own modules and finding no `sl.*` plugin mapped. So the
+> comparison is currently measuring passthrough, and the probe reports
+> **inconclusive** rather than a verdict.
+>
+> Recorded because the first version of that probe did **not**: it printed "the
+> vtable is THE SAME — a hook DOES catch Streamline presents" for both titles,
+> which would have closed §H5 case 3 on a measurement of nothing. The tell was in
+> its own output — an interposing Streamline cannot leave the *factory* vtable
+> unwrapped, since wrapping the factory is how it reaches the swapchain.
+>
+> Reaching the wrapped path needs `slInit`'s `sl::Preferences`, i.e. vendor ABI,
+> i.e. the question `legal/THIRD_PARTY_NOTICES.md` answers for Intel IGCL and
+> nobody has asked for NVIDIA. **The risk is also narrower than the entry
+> implies:** NGX-direct titles never wrap the swapchain, so the vtable premise is
+> only in question for Streamline-shimmed ones.
+>
+> What the probe *did* settle is the premise underneath everything else, and it
+> is now ctest `fl_vtable_identity_control`: two independently created swapchains
+> share one vtable, and a different interface does not — both directions, so a
+> regression in either fails the build.
+
 **What still has to be measured on a real title:**
 
 1. A forwarding proxy is the easy case. DLSS-G presents *interpolated* frames
