@@ -111,6 +111,22 @@ same class of bug as record drift.
   (acquire), skip if odd, copy, `atomic_thread_fence(acquire)`, then re-load
   `seq` and accept only if unchanged.
 
+- **The ring carries FRAMES, and `DXGI_PRESENT_TEST` is not one.** The writer drops
+  occlusion probes before allocating a slot, so `writeIndex` counts frames and no
+  consumer has to remember to filter. Decided 2026-08-05; before that the question
+  was assigned to nobody here and `03_METRICS` was silent about it.
+
+  > A probe runs the presentation test and submits nothing — measured, 500 of them
+  > leave `GetLastPresentCount` at 0 while 37 real presents move it by 37. An
+  > application issues them while minimised or fully occluded, so a backgrounded
+  > game emits a steady stream of non-frames: **142 of them reached the ring in one
+  > 2-second canary run** against a writer without the filter. `03_METRICS` derives
+  > Displayed FPS from `count(F_disp)/D` and frame times from consecutive `qpc`, so
+  > recording them makes a minimised game report a frame rate it is not rendering.
+  >
+  > The filter sits **after** the safety checks, so a probe-only process still
+  > evaluates the stop rather than going unsupervised because it stopped drawing.
+
 - **A skipped torn record is a data gap, not a missing frame.** Dropping it
   silently makes the two surrounding frame times merge into one double-length
   interval — i.e. it *manufactures a stutter* in the metric the whole product
