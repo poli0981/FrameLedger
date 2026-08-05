@@ -103,17 +103,39 @@ jobs:
             # remove; a removal channel that bypasses it defeats the whole
             # mechanism.
             #
-            # trustedSigners is included for the opposite polarity: it is the one
-            # ALLOW-widening list, deliberately excluded from the floor, and a
-            # silent ADDITION there suppresses refusals. §S19(d) already records
-            # that rules-publish cannot see such an addition. It can now.
+            # trustedSigners is DELIBERATELY NOT HERE, and the reason is polarity.
+            #
+            # This function feeds a REMOVAL check ($removed = old - new). For the
+            # five groups and for nameFragments that is the right direction:
+            # removing an entry weakens the gate. trustedSigners is the one
+            # ALLOW-widening list, so its hazard runs the other way — an ADDITION
+            # suppresses refusals, while a REMOVAL makes the guard stricter.
+            #
+            # Feeding it to the removal check therefore gated the safe direction
+            # and left the dangerous one wide open, under a comment that claimed
+            # the opposite in as many words ("rules-publish cannot see such an
+            # addition. It can now."). A token that appears only in $new is never
+            # in old-minus-new. It is checked below against $new - $old, which is
+            # the direction that can hurt.
             if ($null -ne $ac.PSObject.Properties['heuristic']) {
               foreach ($v in @($ac.heuristic.nameFragments)) { $out += "heuristic/nameFragments/$v" }
-              foreach ($v in @($ac.heuristic.trustedSigners)) { $out += "heuristic/trustedSigners/$v" }
             }
             return $out
           }
           $removed = @(Get-Tokens $old | Where-Object { $_ -notin (Get-Tokens $new) })
+
+          # The opposite polarity, and it needs its own comparison rather than a
+          # place in Get-Tokens. trustedSigners feeds IsTrustedSigner
+          # (fl_ac_rules.h), which SUPPRESSES the fuzzy tier's refusals; it is
+          # deliberately excluded from the §S21 compiled-in floor because
+          # flooring an allowlist has the wrong polarity; and 19_SAFETY forbids
+          # letting a rules push widen the hard gate's blind spot. So here the
+          # reviewable event is an ADDITION.
+          function Get-Signers($ac) {
+            if ($null -eq $ac.PSObject.Properties['heuristic']) { return @() }
+            return @(@($ac.heuristic.trustedSigners) | Where-Object { $null -ne $_ })
+          }
+          $widened = @(Get-Signers $new | Where-Object { $_ -notin (Get-Signers $old) })
 
           # Per-title lists carry no family, so compare them by count.
           $shrunk = @()
@@ -122,10 +144,11 @@ jobs:
             if ($n -lt $o) { $shrunk += "$k ($o -> $n)" }
           }
 
-          if ($removed.Count -gt 0 -or $shrunk.Count -gt 0) {
+          if ($removed.Count -gt 0 -or $shrunk.Count -gt 0 -or $widened.Count -gt 0) {
             if ($removed.Count -gt 0) { Write-Host "::error::Anti-cheat blocklist entries removed: $($removed -join ', ')" }
             if ($shrunk.Count -gt 0) { Write-Host "::error::Anti-cheat block shrank: $($shrunk -join ', ')" }
-            Write-Host 'This is a SAFETY change. It is gated deliberately: removing a blocklist entry is reviewed like a security fix (docs/19_SAFETY_AND_ANTICHEAT.md), in public, not waved through with a warning.'
+            if ($widened.Count -gt 0) { Write-Host "::error::Trusted signers ADDED: $($widened -join ', '). heuristic.trustedSigners suppresses the unknown-but-suspicious tier's refusals, so an addition widens the hard gate's blind spot. Reviewed like a removal." }
+            Write-Host 'This is a SAFETY change. It is gated deliberately: weakening the blocklist — by removing an entry, shrinking a per-title list, or adding a trusted signer — is reviewed like a security fix (docs/19_SAFETY_AND_ANTICHEAT.md), in public, not waved through with a warning.'
             exit 1
           }
-          Write-Host 'No anti-cheat families removed and no per-title list shrank.'
+          Write-Host 'No anti-cheat families removed, no per-title list shrank, and no trusted signer added.'

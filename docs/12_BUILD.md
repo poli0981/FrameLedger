@@ -32,7 +32,7 @@ Compiler/linker flags (enforced in CMake, not per-target ad hoc): `/std:c++20 /M
 
 **MinHook** is fetched by CMake `FetchContent` and built from source, pinned to the **commit** behind tag `v1.3.4` (`c3fcafdc`) rather than to the tag name — a tag can be moved, a commit cannot. FetchContent over a submodule so a fresh clone needs no extra step and CI has nothing to remember. Upstream warnings are not subjected to our `/W4 /WX`: warnings in third-party code are upstream's to fix, and failing our build on them would only tempt someone to patch the fetched copy, which drags it out of "consumed unmodified". The BSD-2-Clause notice ships in `legal/licenses/`, and `tools/license-check.ps1` fails the build if it goes missing while the FetchContent declaration is still present.
 
-**NVAPI SDK** (MIT) is vendored under `src/native/third_party/nvapi/` — headers + `nvapi64.lib`, pinned by upstream tag, with the SPDX blocks left untouched and the licence copied to `legal/licenses/nvapi-MIT.txt`. Link it normally; do **not** resolve NVAPI by ordinal (that was a workaround for a licensing constraint that no longer exists, and it breaks across driver versions). Still guard `NvAPI_Initialize` failure as a normal path — plenty of users have no NVIDIA GPU.
+**NVAPI SDK** (MIT) **is not vendored yet** — corrected 2026-08-05, having been stated here and in `legal/THIRD_PARTY_NOTICES.md` as present. `src/native/third_party/` contains `CMakeLists.txt` and `vulkan-headers` only, no code links NVAPI, and L3 telemetry is `15_ROADMAP` P0 item 8, unstarted. When it lands it goes under `src/native/third_party/nvapi/` — headers + `nvapi64.lib`, pinned by upstream tag, SPDX blocks untouched, licence already copied to `legal/licenses/nvapi-MIT.txt`. Link it normally; do **not** resolve NVAPI by ordinal (that was a workaround for a licensing constraint that no longer exists, and it breaks across driver versions). Still guard `NvAPI_Initialize` failure as a normal path — plenty of users have no NVIDIA GPU.
 
 **No AMD or Intel GPU SDK is vendored.** Those vendors are covered by LibreHardwareMonitor and the DXGI/PDH baseline (`18_GPU_VENDOR_APIS`). A build that pulls in Intel IGCL or AMD ADLX material is a licensing regression, not a feature — CI greps for it.
 
@@ -81,7 +81,7 @@ Agent flags: `--serve`, `--console`, `--diag`, `--install-task`, `--uninstall-ta
 
 ## Bundled assets
 
-- `assets/native/PresentMon.exe` (pinned, SHA-256 verified at build) for the Tier-2 fallback.
+- `assets/native/PresentMon.exe` (pinned, SHA-256 verified at build) for the Tier-2 fallback — **planned, not present.** `assets/` does not exist, nothing fetches or verifies the binary, and `EtwFrameSource` is unwritten. `20_OPEN_QUESTIONS` §M2 (does the pinned console binary still exist, run unelevated, and emit the 2.x column set?) is unanswered, so this is not merely unpinned — there is nothing to pin yet.
 - Vulkan layer manifest, **written** with the installed layer path at install time (Velopack hook) — but **not registered there**. Registration is a separate, later act.
 
 ### The Vulkan layer is not registered at install time

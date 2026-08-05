@@ -151,6 +151,56 @@ if (Test-Path $nvapiDir) {
     }
 }
 
+# --- 2c. The notices file's BUNDLING claim must match the filesystem ---------
+#
+# Every other check here is keyed on the directory a component WOULD occupy, so
+# it fires on vendored-without-a-licence and is structurally blind to the
+# reverse: legal/THIRD_PARTY_NOTICES.md claiming material the tree does not
+# contain. Both live claims were false when this was written (2026-08-05) —
+# NVAPI ("Yes — headers and import library vendored. Verified 2026-08-02") and
+# Intel PresentMon ("Bundled as a pinned native binary; SHA-256 verified at
+# build"). Neither directory exists. That is a gate whose verdict is decided
+# before it looks, inside the one file the EULA incorporates by reference, and
+# shipping a notice for material we do not distribute is over-disclosure — a
+# defect in the same way an omission is.
+#
+# BIDIRECTIONAL ON PURPOSE. A check that only caught "claimed but absent" would
+# go quiet the day somebody vendors a component and forgets the notice, which is
+# this same defect wearing the other face.
+#
+# Only TABLE ROWS are read (lines starting with '|'), so the prose accuracy
+# block above the table — which necessarily quotes the old wording — cannot
+# satisfy or trip the check.
+$noticesPath = Join-Path $RepoRoot 'legal/THIRD_PARTY_NOTICES.md'
+if (-not (Test-Path $noticesPath)) {
+    $violations.Add('legal/THIRD_PARTY_NOTICES.md is missing, so no bundling claim can be checked')
+}
+else {
+    $rows = @(Get-Content $noticesPath | Where-Object { $_.TrimStart().StartsWith('|') })
+    $claims = @(
+        @{ Marker = 'NVIDIA NVAPI SDK'; Path = 'src/native/third_party/nvapi' },
+        @{ Marker = 'Intel PresentMon'; Path = 'assets/native/PresentMon.exe' },
+        @{ Marker = 'Vulkan headers'; Path = 'src/native/third_party/vulkan-headers' }
+    )
+    foreach ($c in $claims) {
+        $matched = @($rows | Where-Object { $_ -match [regex]::Escape($c.Marker) })
+        if ($matched.Count -eq 0) {
+            # Fail rather than skip: a renamed row must break the build, not
+            # silently retire the check (the rules-validate precedent).
+            $violations.Add("No table row in THIRD_PARTY_NOTICES.md mentions '$($c.Marker)', so its bundling claim cannot be checked")
+            continue
+        }
+        $present = Test-Path (Join-Path $RepoRoot $c.Path)
+        $saysNotYet = @($matched | Where-Object { $_ -match 'Not yet' })
+        if ($present -and $saysNotYet.Count -gt 0) {
+            $violations.Add("'$($c.Marker)' exists at $($c.Path) but THIRD_PARTY_NOTICES.md still says 'Not yet' — the notice under-discloses material we now ship")
+        }
+        elseif (-not $present -and $saysNotYet.Count -ne $matched.Count) {
+            $violations.Add("THIRD_PARTY_NOTICES.md claims '$($c.Marker)' is bundled but $($c.Path) does not exist — a legal document asserting material this repository does not contain")
+        }
+    }
+}
+
 # --- Report -----------------------------------------------------------------
 if ($violations.Count -gt 0) {
     Write-Host 'LICENCE CHECK FAILED' -ForegroundColor Red
