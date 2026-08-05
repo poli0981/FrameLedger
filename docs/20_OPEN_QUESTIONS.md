@@ -827,13 +827,29 @@ not a copy: it is derived at build time and cannot drift.
 >   passes, `Test-Json` passes, and the CI floor silently ceases to exist. The
 >   check worth building is a canary carrying `nameFragments: []` that must be
 >   rejected — not an imperative duplicate of the schema.
-> - **`trustedSigners` has no gate at all, in the direction that matters.**
->   `rules-publish.yml` fails on family *removals*; an *addition* to the signer
->   allowlist is invisible to it. That field suppresses refusals, and
->   `19_SAFETY:74-81` already forbids exactly this shape for the launcher list —
->   "a data-driven cutoff would let a rules push widen the hard gate's blind
->   spot … the boundary of what the gate looks at is code". It must be settled
->   before §S19(b) turns the field live.
+> - **✅ `trustedSigners` now has a gate in the direction that matters — closed
+>   2026-08-05, and it took two attempts.** The original entry was right: the job
+>   failed on family *removals* while an *addition* to the signer allowlist was
+>   invisible, and that field suppresses refusals, which `19_SAFETY:74-81` already
+>   forbids for the launcher list ("a data-driven cutoff would let a rules push
+>   widen the hard gate's blind spot … the boundary of what the gate looks at is
+>   code").
+>
+>   `cea744e` appeared to close it and did not. It added `trustedSigners` to
+>   `Get-Tokens`, whose sole consumer is `$removed = old − new` — so an addition,
+>   present only in *new*, still could not appear. Worse, removals then **did**
+>   fire, and removing a trusted signer makes the guard stricter: the gate blocked
+>   the safe direction and passed the dangerous one, beneath a comment asserting
+>   "rules-publish cannot see such an addition. **It can now.**" A shipped comment
+>   claiming a capability the code structurally cannot have, which is this file's
+>   own recurring defect, in the commit that wrote this bullet's neighbours.
+>
+>   The field now has its own `$new − $old` comparison. Proven by extracting the
+>   shipped step from the YAML and running it against the real seed — five cases,
+>   before and after: adding a signer `PASS → FAIL`, removing one `FAIL → PASS`,
+>   the three pre-existing cases unchanged. **Still a prerequisite of §S19(b)** in
+>   the sense that matters: the gate makes an addition *reviewable*, not
+>   impossible, and the field stays inert until the signer half is wired.
 
 > Adding a runtime floor is right but not free: routing it through the existing
 > `kRulesIncomplete` would make that reason's hardcoded signal — *"a required
@@ -1338,6 +1354,24 @@ accuracy block, in one of four files, with a hardcoded count. It went stale
 within hours: a fourth unimplemented promise was added directly beneath a header
 saying "Three". The block now says so about itself, which is a note and not a
 gate.
+
+> **◐ Partly closed 2026-08-05, and what it cost to find is the point.**
+> `license-check.ps1` now binds `THIRD_PARTY_NOTICES.md`'s bundling claims to the
+> filesystem, bidirectionally, failing rather than skipping on a renamed row. That
+> is the first real gate over anything in `legal/`.
+>
+> It was written because the un-audited half was **already false in two rows**:
+> NVAPI ("**Yes** — headers and import library vendored. **Verified 2026-08-02**")
+> and Intel PresentMon ("Bundled as a pinned native binary; SHA-256 verified at
+> build"). Neither exists — `src/native/third_party/` holds `CMakeLists.txt` and
+> `vulkan-headers`, and `assets/` is not a directory. The old check keyed on the
+> path a component *would* occupy, so it could only ever fire on
+> vendored-without-a-licence; the reverse was structurally invisible.
+>
+> **Still open, and it is the larger half:** the *accuracy blocks* — DISCLAIMER's
+> four-going-on-five unimplemented promises, and now this file's bundling audit —
+> remain hand-maintained prose that nothing verifies. A gate over one table is not
+> a gate over `legal/`.
 
 ### S14 ◐ · Pre-injection check 3 is **unwired**, and has no "cannot determine" state
 

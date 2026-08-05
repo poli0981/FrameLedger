@@ -2,12 +2,34 @@
 
 FrameLedger is licensed under **GPL-3.0-only**. It includes or depends on the third-party components below, each under its own license. All listed licenses are compatible with distribution alongside/within a GPL-3.0 application. Full license texts must be shipped in `legal/licenses/` in release packages. Populating that directory is a P4 task, driven by a license-gathering script and enforced at build time by `tools/license-check` (`docs/12_BUILD.md` §Local quality gate).
 
+> ⚠ **Bundling audit — last checked 2026-08-05.** Two rows below claimed material
+> this repository does not contain, and the licence gate could not have caught
+> either: `tools/license-check.ps1` keys its check on the directory a component
+> *would* occupy, so it fires on **vendored-without-a-licence** and never on
+> **claimed-vendored-but-absent**. A gate whose verdict is decided before it
+> looks, inside the file the EULA incorporates by reference — the same shape as
+> the privacy policy disclosing a network request that did not exist.
+>
+> - **NVIDIA NVAPI SDK** said *"Yes — headers and import library vendored,
+>   Verified 2026-08-02"*. `src/native/third_party/` holds `CMakeLists.txt` and
+>   `vulkan-headers` and nothing else; the only `nvapi` path in the tree is the
+>   licence copy. The **licence** verification was real and is kept; the
+>   **bundling** claim was not.
+> - **Intel PresentMon** said *"Bundled as a pinned native binary; SHA-256
+>   verified at build"*. `assets/` does not exist.
+>
+> Both rows now say **Not yet**, and `license-check.ps1` gained a bidirectional
+> check so the claim and the filesystem cannot drift again in either direction.
+> Nothing here was a licence violation: shipping a notice for material we do not
+> distribute is over-disclosure, which is its own defect in a document a user
+> relies on.
+
 ## Bundled / linked components
 
 | Component | Use | License | Notes |
 |---|---|---|---|
 | **MinHook** | Inline function hooking in `FrameLedger.Overlay` | BSD-2-Clause | Vendored and built from source, pinned by commit. Copyright notice must ship in `legal/licenses/` |
-| Intel PresentMon (console binary) | Tier-2 fallback frame timing (ETW) | MIT | Bundled as a pinned native binary; SHA-256 verified at build. © Intel Corporation |
+| Intel PresentMon (console binary) | Tier-2 fallback frame timing (ETW) | MIT | **Not yet bundled** — planned as a pinned native binary, SHA-256 verified at build. `assets/` does not exist in this repository and the Tier-2 source is unimplemented. © Intel Corporation |
 | Vulkan headers / loader interfaces | `FrameLedger.VkLayer` implicit layer | Apache-2.0 | Khronos headers; layer implemented against the documented loader–layer interface |
 | LibreHardwareMonitorLib | GPU sensors (all vendors) + CPU/motherboard sensors (optional, elevated) | MPL-2.0 | See §GPU telemetry below. Consumed unmodified |
 | WPF UI (`Wpf.Ui`, lepoco) | Fluent UI theme/controls/navigation | MIT | © lepo.co, Leszek Pomianowski and contributors. License copy must ship with the app (MIT requirement) |
@@ -19,7 +41,7 @@ FrameLedger is licensed under **GPL-3.0-only**. It includes or depends on the th
 | Microsoft.Data.Sqlite / SQLitePCLraw | Database | MIT / Apache-2.0 | SQLite itself: public domain |
 | Dapper | Data access | Apache-2.0 | |
 | CsWin32 (build-time) | Win32 interop source generator | MIT | Build-time only |
-| NVIDIA NVAPI SDK | NVIDIA GPU telemetry + Reflex latency | MIT | Headers + import library vendored — see §GPU telemetry below |
+| NVIDIA NVAPI SDK | NVIDIA GPU telemetry + Reflex latency | MIT | **Not yet vendored** — licence cleared, material not present. See §GPU telemetry below |
 | H.NotifyIcon.Wpf | Tray icon | MIT | |
 | Roslynator, Meziantou.Analyzer, VS Threading Analyzers (build-time) | Static analysis | Apache-2.0 / MIT | Build-time only |
 
@@ -29,7 +51,7 @@ Telemetry is layered so no proprietary vendor licence is ever required (`docs/18
 
 | Component | How we use it | Licence | Bundled? |
 |---|---|---|---|
-| **NVIDIA NVAPI SDK** (headers, interface definitions, `nvapi64.lib`) | Linked normally; NVIDIA-only telemetry, throttle reasons, Reflex/PC latency | **MIT** — <https://github.com/NVIDIA/nvapi> | **Yes** — headers and import library vendored. **Verified 2026-08-02:** `amd64/nvapi64.lib` is a tracked file *in that repository*, and its `License.txt` opens "nvapi.lib and nvapi64.lib are licensed under the following terms" + `SPDX-License-Identifier: MIT` — the grant names the import libraries explicitly. Notice ships in `legal/licenses/nvapi-MIT.txt` |
+| **NVIDIA NVAPI SDK** (headers, interface definitions, `nvapi64.lib`) | Planned: NVIDIA-only telemetry, throttle reasons, Reflex/PC latency. **No code links it today** | **MIT** — <https://github.com/NVIDIA/nvapi> | **Not yet vendored.** The *licence* question is settled — **verified 2026-08-02:** `amd64/nvapi64.lib` is a tracked file *in that repository*, and its `License.txt` opens "nvapi.lib and nvapi64.lib are licensed under the following terms" + `SPDX-License-Identifier: MIT`, so the grant names the import libraries explicitly. The *material* is absent: `src/native/third_party/` contains only `CMakeLists.txt` and `vulkan-headers`. `legal/licenses/nvapi-MIT.txt` ships ahead of it, which costs nothing and is not evidence of bundling |
 | `nvapi64.dll` (runtime implementation) | Loaded at runtime from the user's system | Part of the NVIDIA graphics driver | No — never redistributed by us |
 | **LibreHardwareMonitorLib** | GPU sensors for **all vendors** (AMD, Intel, NVIDIA) + CPU/board sensors when elevated | **MPL-2.0** | Yes, as an unmodified NuGet package |
 | **DXGI + Windows performance counters (PDH)** | Vendor-neutral baseline: utilisation, VRAM, adapter identity | Windows OS APIs | n/a |
@@ -69,5 +91,5 @@ All product names, logos, and brands are property of their respective owners and
 - [ ] PresentMon license + copyright shipped beside the bundled binary
 - [ ] MPL-2.0 source-availability note points to upstream LibreHardwareMonitor repository
 - [x] LHM checked for MPL-2.0 Exhibit B on any depended-upon file — clear as of 0.9.6 / commit `3d331e33`, 2026-08-02
-- [ ] Vendored NVAPI headers still carry their `SPDX-License-Identifier: MIT` blocks unmodified
+- [ ] **If and when NVAPI is vendored** — its headers still carry their `SPDX-License-Identifier: MIT` blocks unmodified. Not vendored today; `license-check.ps1` enforces that this line and the table agree with the filesystem
 - [ ] No Intel IGCL or AMD ADLX material anywhere in the tree (CI grep, see `docs/13_CI_CD.md`)

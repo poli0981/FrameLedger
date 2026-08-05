@@ -12,6 +12,47 @@ GitHub release body, so a missing section means an empty release note.
 ## [Unreleased]
 
 ### Fixed
+- **The `trustedSigners` gate was polarity-inverted, and its own comment claimed
+  the capability the code structurally could not have.** Added one commit earlier
+  (`cea744e`), which is what makes it worth recording rather than quietly fixing.
+  `rules-publish.yml` fed `heuristic.trustedSigners` into `Get-Tokens`, whose only
+  consumer is `$removed = old − new`. A token that appears only in the *new* file
+  can never be in old-minus-new, so an **addition** — the direction that suppresses
+  refusals, and the one the comment named — always passed. Meanwhile *removals*
+  did fire, and removing a trusted signer makes the guard **stricter**. The gate
+  blocked the safe direction and waved through the dangerous one, under a comment
+  reading "§S19(d) already records that rules-publish cannot see such an addition.
+  It can now."
+  - `trustedSigners` now has its own `$new − $old` comparison, because it is the
+    one ALLOW-widening list and shares no polarity with the five groups or with
+    `nameFragments`. Those stay on the removal check, which is right for them.
+  - Proven by **extracting the shipped step from the YAML and running it**, rather
+    than re-implementing it — a second copy of a check is a second checker that
+    can disagree. Five cases against the real seed, before and after: adding a
+    signer went `PASS → FAIL`, removing one went `FAIL → PASS`, and the three
+    pre-existing cases (unchanged, a removed blocklist value, a removed
+    `nameFragment`) were unaffected in both directions.
+- **`legal/THIRD_PARTY_NOTICES.md` asserted two bundled components this
+  repository does not contain**, in the one document the EULA incorporates by
+  reference. NVIDIA NVAPI said *"**Yes** — headers and import library vendored.
+  **Verified 2026-08-02**"*; `src/native/third_party/` holds `CMakeLists.txt` and
+  `vulkan-headers` and nothing else, and the only `nvapi` path in the tree is the
+  licence copy. Intel PresentMon said *"Bundled as a pinned native binary; SHA-256
+  verified at build"*; `assets/` does not exist. `docs/12_BUILD.md` repeated both.
+  - **Not a licence violation — over-disclosure**, which is its own defect in a
+    document a user relies on, and the same shape as the privacy policy disclosing
+    a weekly network request that did not exist. The NVAPI *licence* verification
+    was real and is kept; only the *bundling* claim was false.
+  - **The licence gate could not have caught either.** `license-check.ps1` keyed
+    its check on the directory a component *would* occupy, so it fires on
+    vendored-without-a-licence and never on claimed-vendored-but-absent — a gate
+    whose verdict is decided before it looks, inside `legal/`, which §S23-6
+    already records as audited by nothing.
+  - It now cross-checks each component's table row against the filesystem
+    **bidirectionally**: claimed-but-absent fails, and present-but-still-marked
+    "Not yet" fails too, because a one-way check goes quiet the day someone
+    vendors a component and forgets the notice. A renamed row **fails rather than
+    skips**. Four canaries, each proven red, plus the clean tree proven green.
 - **The anti-cheat guard gated the target process and nothing gated the payload**
   (`20_OPEN_QUESTIONS` §S22). `FlGuardedInject` — an exported C ABI on the shipped
   `FrameLedger.Guard.dll` — asked only whether a file existed at the caller's
