@@ -28,6 +28,12 @@ public enum ShmAttachRefusal
     CapacityInvalid = 5,
 
     /// <summary>
+    /// The capacity is a legal power of two, but the ring it describes does not fit in the mapping we
+    /// were given. Indexing it would read past the end of the section.
+    /// </summary>
+    CapacityExceedsMapping = 7,
+
+    /// <summary>
     /// The handshake is not published yet, or we have no build id of our own to compare against.
     /// "Could not look" is its own answer and must never collapse into <see cref="Ok"/>.
     /// </summary>
@@ -49,7 +55,12 @@ public static class ShmHandshakeValidator
     /// </summary>
     /// <param name="handshake">The mapped region 1, read once.</param>
     /// <param name="ownBuildId">This install's build id, from <c>FlGuardBuildId</c>. Empty means we could not obtain it, which refuses.</param>
-    public static ShmAttachRefusal Validate(FlShmHandshake handshake, string? ownBuildId)
+    /// <param name="mappedBytes">
+    /// The size of the view we actually hold, from <c>SafeMemoryMappedViewHandle.ByteLength</c> — never
+    /// <see cref="ShmLayout.DefaultCapacity"/>, which would be checking the handshake against an
+    /// assumption instead of against the mapping.
+    /// </param>
+    public static ShmAttachRefusal Validate(FlShmHandshake handshake, string? ownBuildId, long mappedBytes)
     {
         // ORDER MATTERS, and it is version first for a reason: every field below is only meaningful
         // under a layout we agree on. Reporting "record size wrong" about a struct laid out by a
@@ -74,6 +85,21 @@ public static class ShmHandshakeValidator
         if (handshake.Capacity == 0 || (handshake.Capacity & (handshake.Capacity - 1)) != 0)
         {
             return ShmAttachRefusal.CapacityInvalid;
+        }
+
+        // AND IT MUST FIT. A power of two is not by itself a safe capacity: every value up to 2^31 is
+        // one, and the reader indexes the ring by raw pointer arithmetic because the seqlock needs
+        // ordering that MemoryMappedViewAccessor.Read<T> does not provide — so it gives up that API's
+        // bounds check at the same time. Nothing else in the drain relates the handshake's claim to the
+        // section we were actually given.
+        //
+        // No benign divergence exists today: the writer sizes the section and publishes the capacity
+        // from one constant, and the buildId gate above already refuses any writer that is not our own
+        // build. This is hardening for a region that is mapped read-write inside a game process we do
+        // not control, and for a future writer that sizes the ring at runtime.
+        if (ShmLayout.SizeForCapacity(handshake.Capacity) > mappedBytes)
+        {
+            return ShmAttachRefusal.CapacityExceedsMapping;
         }
 
         if (string.IsNullOrEmpty(ownBuildId))
