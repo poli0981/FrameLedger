@@ -30,6 +30,11 @@
 //                        issue DXGI_PRESENT_TEST, which submits nothing
 //   --plus-ui K      also present K frames on a SECOND swapchain in the same
 //                        process (fixture for stream separation)
+//   --hold-presenting-overflow N
+//                    fill the Overlay's fixed 16-slot swapchain table, then
+//                    present for N seconds on one that cannot get a slot. The
+//                    only path where the writer KNOWS it has no output size
+//                    (20_OPEN_QUESTIONS §S29(g))
 
 #include <windows.h>
 
@@ -855,6 +860,85 @@ int main(int argc, char** argv) {
             // drained from the ring rather than asserting "more than zero".
             std::printf("  presented=%lld\n", presented);
             std::fflush(stdout);
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting-overflow") == 0 && i + 1 < argc) {
+            // Drives the Overlay's swapchain table PAST its fixed capacity, which
+            // is the one path where the writer knows it has no output size and
+            // used to claim one anyway (20_OPEN_QUESTIONS §S29(g)).
+            //
+            // dllmain.cpp's FindOrAdd is a fixed 16-slot linear scan and returns
+            // nullptr once they are taken; RecordPresent then leaves outputW/H at
+            // zero. It set FL_MEASURED_OUTPUT_RES regardless, so the record said
+            // "output resolution MEASURED: 0 x 0" -- and 03_METRICS computes the
+            // upscale ratio from exactly those two fields.
+            //
+            // WHY A NEW MODE AND NOT --plus-ui: that flag creates ONE extra
+            // swapchain, which is a second stream, not an overflow. Nothing in
+            // the harness could reach slot 17 before this.
+            //
+            // The extra chains are kept ALIVE for the whole hold on purpose. The
+            // Overlay keys its table on the raw pointer and never evicts, so a
+            // released chain whose address a later allocation reuses would alias
+            // an existing slot and quietly un-overflow the test.
+            const int  seconds = std::atoi(argv[++i]);
+            const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
+            // One more than the Overlay's kMaxSwapChains, minus the primary that
+            // already occupies a slot: 15 fill the table, the 16th overflows.
+            constexpr int kExtras = 16;
+
+            std::vector<IDXGISwapChain*> extras;
+            extras.reserve(kExtras);
+            for (int k = 0; k < kExtras; ++k) {
+                IDXGISwapChain* sc = CreateSecondSwapChain(g);
+                if (sc == nullptr) {
+                    Check(false, "could not create an extra swapchain for the overflow mode");
+                    ok = false;
+                    break;
+                }
+                extras.push_back(sc);
+            }
+
+            if (extras.size() == static_cast<size_t>(kExtras)) {
+                // ROUND-ROBIN FOR THE WHOLE HOLD, and the first version of this
+                // mode got it wrong in a way worth keeping written down.
+                //
+                // It filled the table once at startup and then held on the 17th
+                // chain. But the Overlay is injected ~800 ms LATER and only ever
+                // sees presents that happen after it hooks — so it observed an
+                // empty table, gave the "overflowed" chain slot 1, and every
+                // record came back with a real id. The test's own vacuity guard
+                // caught it: 206 records drained, 0 from an overflowed stream.
+                //
+                // Presenting on all 17 for the whole hold means the Overlay sees
+                // 17 distinct chains whenever it attaches, fills its 16 slots in
+                // the order it meets them, and the last one it meets can never
+                // get one.
+                std::vector<IDXGISwapChain*> chains;
+                chains.reserve(extras.size() + 1);
+                chains.push_back(g.swapChain);
+                for (auto* sc : extras) {
+                    chains.push_back(sc);
+                }
+                std::printf("  presenting on %zu swapchains for %d second(s) [%s]; the Overlay holds 16\n",
+                            chains.size(), seconds, real ? "REAL" : "DXGI_PRESENT_TEST");
+                std::fflush(stdout);
+
+                const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
+                long long       presented = 0;
+                while (GetTickCount64() < until) {
+                    for (auto* sc : chains) {
+                        sc->Present(0, flags);
+                        ++presented;
+                    }
+                    Sleep(8);
+                }
+                std::printf("  presented=%lld\n", presented);
+                std::fflush(stdout);
+            }
+
+            for (auto* sc : extras) {
+                sc->Release();
+            }
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--present") == 0 && i + 1 < argc) {
             const int frames = std::atoi(argv[++i]);

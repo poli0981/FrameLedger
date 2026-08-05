@@ -1542,6 +1542,115 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
     CloseHandle(mapping);
 }
 
+TEST_CASE("a writer with no output size claims none", "[guard][inject][shm]") {
+    // §S29(g). The record used to set FL_MEASURED_OUTPUT_RES unconditionally, so
+    // in the one path where the writer KNOWS it has no size it published
+    // "output resolution MEASURED: 0 x 0" ~120 times a second. 03_METRICS
+    // computes the upscale ratio as sqrt((outW*outH)/(renW*renH)) from exactly
+    // those two fields, so that is not a harmless zero.
+    //
+    // The path: dllmain.cpp's FindOrAdd is a fixed 16-slot linear scan that
+    // returns nullptr once they are taken, and RecordPresent then leaves
+    // outputW/H at zero. --hold-presenting-overflow fills the table and then
+    // presents on a swapchain that cannot get a slot; nothing in the harness
+    // could reach that branch before, which is why the defect survived the
+    // end-to-end test sitting directly above this one.
+    //
+    // BOTH DIRECTIONS ARE ALREADY HERE: the test above asserts the mask is
+    // exactly FL_MEASURED_OUTPUT_RES on a normal target. This one asserts it is
+    // exactly 0 on an overflowed one. A writer that always claimed, or never
+    // claimed, fails one of the two.
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --hold-presenting-overflow 8";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    const auto* st =
+        reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    REQUIRE(st->status == fl::FL_STATUS_READY);
+
+    fl::RingReader rd;
+    REQUIRE(rd.Init(base, FL_SHM_DEFAULT_CAPACITY));
+
+    // The harness round-robins 17 swapchains, so the overflowed one is exactly
+    // 1/17 of presents. Collect enough that its share is a meaningful count
+    // rather than a handful: at ~1100 presents/s, 1000 records arrive in about a
+    // second and ~59 of them are the stream under test.
+    std::vector<fl::FlFrameRecord> all;
+    for (int i = 0; i < 120 && all.size() < 1000; ++i) {
+        fl::FlFrameRecord buf[512]{};
+        const auto        r = rd.Drain(buf, 512);
+        for (std::uint32_t k = 0; k < r.copied; ++k) {
+            all.push_back(buf[k]);
+        }
+        Sleep(50);
+    }
+
+    // Select the overflowed stream by its own signature rather than by position:
+    // id 0 is what fl_shm.h defines as "unidentified", and a chain that could not
+    // get a slot is the only thing that can carry it.
+    std::size_t overflowed = 0;
+    for (const auto& rec : all) {
+        if (rec.swapchainId == 0) {
+            ++overflowed;
+            // The claim under test. Not "the bit is clear" -- the whole mask,
+            // because a writer that swapped one wrong claim for another would
+            // satisfy a narrower check.
+            CHECK(rec.measuredMask == 0);
+            CHECK(rec.outputW == 0);
+            CHECK(rec.outputH == 0);
+            // Still supervised, still honest about RT: the fix must not have
+            // turned the record into a blank.
+            CHECK((rec.rtFlags & fl::FL_RT_NOT_MEASURED) != 0);
+        }
+    }
+
+    INFO("drained " << all.size() << " record(s), " << overflowed << " from the overflowed swapchain");
+    // WITHOUT THESE TWO THE LOOP ABOVE IS VACUOUS. If the harness failed to
+    // overflow -- a creation failure, or a future kMaxSwapChains raised past 16
+    // -- every record carries a real id, the loop body never runs, and every
+    // CHECK inside it passes by never executing. That is the shape this suite has
+    // been caught by before, and it caught the first version of this very test:
+    // the harness filled its table BEFORE injection, so the Overlay saw an empty
+    // one, and this assertion reported 0.
+    //
+    // An absolute floor alone is not enough. A harness that presented on ONE
+    // chain for the whole hold would sail past it, so the second check pins the
+    // SHARE: 17 chains round-robin means the overflowed stream is ~1/17 of
+    // records, and half of that is the tolerance for drain timing.
+    CHECK(overflowed > 30);
+    CHECK(overflowed * 34 > all.size());
+    CHECK(st->faultCount == 0);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}
+
 TEST_CASE("occlusion probes are not frames and reach the ring as nothing", "[guard][inject][shm]") {
     // --hold-presenting WITHOUT --real: the harness presents continuously with
     // DXGI_PRESENT_TEST, which runs the presentation test and submits nothing

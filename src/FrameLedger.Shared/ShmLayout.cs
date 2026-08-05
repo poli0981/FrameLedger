@@ -21,6 +21,7 @@
 // second, and sharing a line would put a cross-process cache-line bounce on the
 // hot path.
 
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace FrameLedger.Shared;
@@ -49,8 +50,21 @@ public static class ShmLayout
     /// </summary>
     public const uint GuardTickDeadlineMs = 65000u;
 
-    /// <summary>Total mapping size for a given ring capacity. Mirrors <c>FlShmSizeForCapacity</c>.</summary>
-    public static long SizeForCapacity(uint capacity) => RingOffset + ((long)capacity * 64L);
+    /// <summary>
+    /// Total mapping size for a given ring capacity. Mirrors <c>FlShmSizeForCapacity</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Derived from <see cref="FlFrameRecord"/> rather than from a literal 64. The literal was a
+    /// fifth independent statement of the record size, and it feeds the
+    /// <see cref="ShmAttachRefusal.CapacityExceedsMapping"/> bounds check — the one that stands
+    /// between a hostile or stale <c>capacity</c> and raw pointer arithmetic over a mapped view.
+    /// A record that grew while this stayed 64 would under-state the required size and let the
+    /// refusal pass a mapping too small for the ring it describes.
+    /// </para>
+    /// </remarks>
+    public static long SizeForCapacity(uint capacity) =>
+        RingOffset + ((long)capacity * Unsafe.SizeOf<FlFrameRecord>());
 }
 
 /// <summary>Values published in <see cref="FlWriterState.Status"/>.</summary>

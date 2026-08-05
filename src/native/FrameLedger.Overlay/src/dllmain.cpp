@@ -622,7 +622,21 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     // upscaler, no frame generation, no ray tracing" as MEASURED FACT ~118 times
     // a second -- producing fg_factor 1.0 (CLAUDE.md rule 6) and a definite RT
     // No (rule 7) about a title nobody looked at.
-    rec.measuredMask = FL_MEASURED_OUTPUT_RES;
+    //
+    // ...AND IT CLAIMED THE ONE THING UNCONDITIONALLY, WHICH IS THE SAME DEFECT.
+    // The bit was set even when there was no size to claim, and two paths reach
+    // that (20_OPEN_QUESTIONS §S29(g)):
+    //
+    //   - FindOrAdd returns nullptr once kMaxSwapChains slots are taken, so
+    //     outputW/H are never assigned and stay 0.
+    //   - GetDesc failing in FindOrAdd or ForgetChainSize leaves them 0.
+    //
+    // A record saying "output resolution MEASURED: 0 x 0" is worse than one
+    // saying nothing: 03_METRICS computes the upscale ratio as
+    // sqrt((outW*outH)/(renW*renH)) from exactly these fields. The bit is now
+    // conditional on there being a value behind it, which is what every other
+    // bit in this mask already means.
+    rec.measuredMask = (rec.outputW != 0 && rec.outputH != 0) ? FL_MEASURED_OUTPUT_RES : 0u;
     rec.rtFlags = FL_RT_NOT_MEASURED;
 
     g_writer.Publish(rec);
