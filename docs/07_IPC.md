@@ -139,6 +139,17 @@ same class of bug as record drift.
   within **65 seconds** (`FL_GUARD_TICK_DEADLINE_MS`, `fl_shm.h`), the capture
   side stops recording.
 
+  > **Evaluated OFF the present path, by a watchdog thread** (`17_HOOK_ENGINE`
+  > §The watchdog thread). For one day it was evaluated only inside the present
+  > hook, which made it unreachable in a hung or alt-tabbed game — the exact
+  > scenario it exists for, and the one `fl_shm.h` warns about in capitals over
+  > the constant. `20_OPEN_QUESTIONS` §S25 records the measurement.
+  >
+  > **The safety stop (`unhookRequested`) is checked in BOTH places**, and the
+  > asymmetry is deliberate: this rule tolerates a second of latency, while the
+  > safety stop is required within one frame, which only the present path can
+  > deliver while frames exist.
+
   > **This sentence had no number until 2026-08-05.** One grep over `docs`, `src`
   > and `tools` for "deadline" returned exactly one line — this one, the sentence
   > that depends on it. A rule with no value is not implementable, and this had

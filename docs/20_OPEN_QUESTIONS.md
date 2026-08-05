@@ -75,6 +75,69 @@ or it becomes the next stale status claim this file exists to record.
 gets either work or a written rationale, and until the owner acts on S23-2 — which
 no amount of code will do.
 
+### S25 ✅ · Both runtime stops were unreachable in a non-presenting process, and pause was unreachable on a ticking one — **closed 2026-08-05**
+
+Found by tracing call paths while planning the next phase, in code merged the
+same day (#43). Two defects, one root cause: **`MayObserve()` had exactly one
+caller.** `RecordPresent` calls it, and only `Hook_Present` and `Hook_Present1`
+call that. `Hook_ResizeBuffers` does not.
+
+**(a) Neither stop fired in a process that had stopped presenting.** A game that
+has hung, been alt-tabbed, or is sitting in a menu makes no present calls, so
+`unhookRequested` was never read and the `guardTicks` deadline was never
+evaluated. The hooks stayed patched in for the life of the process.
+
+`fl_shm.h` states over `FL_GUARD_TICK_DEADLINE_MS`, in capitals, that this must
+not be driven by the present hook — *"the clock would stop when presents stop,
+which is the exact scenario this exists for — a game that has hung, or been
+alt-tabbed, while anti-cheat loads behind it"* — and §S2 rejected a
+present-driven re-scan for that reason a day earlier. **A normative comment
+prescribing the opposite of the code beneath it**, which is the same shape as the
+`MoveFileEx`/`ReplaceFileW` prescription §S21 records: a comment that names a
+mechanism is a design somebody builds against.
+
+Be precise about the exposure rather than overstating it: a process that is not
+presenting is also not *recording*, so nothing false was written. What failed is
+`19_SAFETY` §During a session's clean unhook on detection, and the promise
+`legal/DISCLAIMER.md` §2 makes to the user in its own words.
+
+**Measured, both directions.** `unhookRequested = 1` against a live injected
+`hook-harness --hold` target (240 presents, then sleep): `status` stayed
+`FL_STATUS_READY` through 10 s of polling. After the fix it reaches
+`FL_STATUS_UNHOOKED`. ctest `fl_guard`, *"the safety stop fires in a target that
+has STOPPED presenting"*.
+
+**(b) `pauseRequested` was unreachable on any frame where `guardTicks` changed.**
+The tick-freshness check sat between the safety stop and the pause check and
+`return`ed `true` as soon as the tick differed from its cached value — so the
+first present after every guard evaluation was recorded regardless of pause.
+
+**Measured: 12 leaked records across 12 guard ticks, exactly one per tick**
+(`writeIndex` 9 → 21 while paused). Each carries a `qpc` ~30 s after its
+predecessor at the real re-scan cadence, which is a **fabricated 30-second frame
+interval** in the series `03_METRICS` computes 1% and 0.1% lows from — the exact
+artefact `07_IPC:114-119` forbids for torn records. Latent only because nothing
+writes `pauseRequested` yet.
+
+**Closed by a watchdog thread** (`17_HOOK_ENGINE` §The watchdog thread), which
+takes the deadline off the present path entirely and thereby fixes (b) by
+construction — there is no early return left to jump over the pause check. The
+present path keeps its `unhookRequested` check, because `07_IPC` requires that
+within one frame and a one-second watchdog cannot promise it. `StopObserving` is
+now a compare-exchange, since two threads can reach it and `MH_DisableHook` must
+run once; the **first** reason wins, so a self-disable is not overwritten by a
+safety stop arriving a millisecond later.
+
+**One thing this did NOT close, stated rather than left to look covered.** The
+same trace found that `NoteFault` called `MH_DisableHook`, **discarded its return
+value**, and stored `SELF_DISABLED` unconditionally — while setting no
+`g_observing`, the flag whose own canary comment calls it *"the only thing that
+holds if `MH_DisableHook` ever fails"*. That claim was true of the safety stop and
+false of the fault policy. It is now routed through `StopObserving`, **but there
+is still no fault-policy test at all**, so the fix has no regression net. The
+vehicle is the blocker, not the assertions; `src/native/tests/CMakeLists.txt`
+records both rejected approaches and why.
+
 ### S1 · The guard is structurally blind in launch mode
 
 > **§S1 does not gate the Vulkan path.** Added 2026-08-03, because "launch mode

@@ -1500,6 +1500,160 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
     CloseHandle(mapping);
 }
 
+TEST_CASE("a PAUSED session records nothing, including across a guard tick", "[guard][inject][shm]") {
+    // pauseRequested had exactly one reader and it was UNREACHABLE on any frame
+    // where guardTicks had changed: the freshness check sat in front of it and
+    // returned true as soon as the tick differed from the cached value. So the
+    // first present after every guard evaluation was recorded regardless of
+    // pause.
+    //
+    // "One record per 30 s" undersells it. That record's qpc is ~30 s after its
+    // predecessor, which is a fabricated 30-second frame interval in the series
+    // 03_METRICS computes 1% and 0.1% lows from -- the exact artefact 07_IPC
+    // forbids for torn records.
+    //
+    // THIS TEST TICKS WHILE PAUSED ON PURPOSE. A version that paused and then
+    // stopped ticking would pass against the broken code, because the leak only
+    // happens on the frames where the tick CHANGES.
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --hold-presenting 20";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    void* base = MapViewOfFile(mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    auto* st = reinterpret_cast<fl::FlWriterState*>(static_cast<unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    auto* ctl = reinterpret_cast<fl::FlControlBlock*>(static_cast<unsigned char*>(base) + FL_SHM_CONTROL_OFFSET);
+
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    REQUIRE(st->status == fl::FL_STATUS_READY);
+
+    // GREEN DIRECTION FIRST: it really is recording. A pause test against a
+    // capture side that was never writing proves nothing.
+    std::uint64_t running = 0;
+    for (int i = 0; i < 40 && running < 5; ++i) {
+        ++ctl->guardTicks;
+        Sleep(100);
+        running = st->writeIndex;
+    }
+    REQUIRE(running > 5);
+
+    // PAUSE, and keep the guard ticking. Every tick change is a frame on which
+    // the old code returned early, before it ever looked at pauseRequested.
+    ctl->pauseRequested = 1;
+    Sleep(200);    // let any present already in flight land
+    const std::uint64_t atPause = st->writeIndex;
+    for (int i = 0; i < 12; ++i) {
+        ++ctl->guardTicks;
+        Sleep(100);
+    }
+    CHECK(st->writeIndex == atPause);
+    // Still supervised and still hooked -- pausing is not stopping, and a pause
+    // that quietly unhooked would pass the line above for the wrong reason.
+    CHECK(st->status == fl::FL_STATUS_READY);
+
+    // AND IT RESUMES. Pause is the one control-block signal that is NOT one-way,
+    // so an implementation that latched it would satisfy every assertion above.
+    ctl->pauseRequested = 0;
+    std::uint64_t after = st->writeIndex;
+    for (int i = 0; i < 40 && after <= atPause; ++i) {
+        ++ctl->guardTicks;
+        Sleep(100);
+        after = st->writeIndex;
+    }
+    CHECK(after > atPause);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}
+
+TEST_CASE("the safety stop fires in a target that has STOPPED presenting", "[guard][inject][shm]") {
+    // The case the present path structurally cannot serve, and the reason the
+    // watchdog exists. MayObserve has one caller (RecordPresent), which has two
+    // (the Present and Present1 hooks) -- so with no presents, unhookRequested
+    // was never read and the hooks stayed patched in for the life of the process.
+    //
+    // fl_shm.h says over FL_GUARD_TICK_DEADLINE_MS, in capitals, that this must
+    // not be driven by the present hook, "because the clock would stop when
+    // presents stop, which is the exact scenario this exists for -- a game that
+    // has hung, or been alt-tabbed, while anti-cheat loads behind it". It was.
+    //
+    // --hold, NOT --hold-presenting: it presents 240 frames and then sleeps, so
+    // by the time we inject ~800 ms later the presents are long over. That
+    // property is already asserted one test above via writeIndex == 0, which is
+    // what makes this fixture the right one rather than a hopeful one.
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --hold 30";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    void* base = MapViewOfFile(mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    auto* st = reinterpret_cast<fl::FlWriterState*>(static_cast<unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    auto* ctl = reinterpret_cast<fl::FlControlBlock*>(static_cast<unsigned char*>(base) + FL_SHM_CONTROL_OFFSET);
+
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    REQUIRE(st->status == fl::FL_STATUS_READY);
+    // The precondition that makes this case what it says it is: hooked, alive,
+    // and NOT presenting. If a future harness change made --hold present for the
+    // whole hold, this REQUIRE fails rather than the test silently becoming a
+    // duplicate of the one that uses --hold-presenting.
+    REQUIRE(st->writeIndex == 0);
+
+    ctl->unhookRequested = 1;
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_UNHOOKED; ++i) {
+        Sleep(100);
+    }
+    CHECK(st->status == fl::FL_STATUS_UNHOOKED);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}
+
 TEST_CASE("a REFUSED guard injects nothing", "[guard][inject]") {
     // The assertion the whole design exists for. The target is a real process,
     // the DLL is real and loadable, and the only thing standing between them is

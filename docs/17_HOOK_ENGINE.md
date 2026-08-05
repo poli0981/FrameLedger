@@ -349,6 +349,48 @@ Field notes — each of these was a defect in an earlier revision:
 - **The hot path performs: one QPC read, a few field reads from cached state, one 60-byte store, two relaxed atomic stores and two compiler fences.** No syscall, no allocation, no lock, no logging. Target ≤ 1 µs per present.
 - Per-frame mutable state (current upscaler, render res, dispatch counts) lives in a small struct updated by the feature hooks and *read* by the present hook; counters reset at present.
 
+## The watchdog thread — the only thread we add to the game
+
+One thread, started on the init thread *after* the hooks are installed, sleeping
+`1000 ms` at a time. It evaluates `unhookRequested` and the `guardTicks` deadline,
+calls `StopObserving` when either fires, and **exits** once stopped.
+
+**Why it exists.** Both stops used to be evaluated only on the present path, and
+`MayObserve` is reachable only from `RecordPresent`, which is reachable only from
+the two present hooks. In a process that had stopped presenting — hung,
+alt-tabbed, sitting in a menu — neither check ever ran and the hooks stayed
+patched in for the life of the process. `fl_shm.h` says over
+`FL_GUARD_TICK_DEADLINE_MS`, in capitals, that the deadline must **not** be driven
+by the present hook, *"because the clock would stop when presents stop, which is
+the exact scenario this exists for"*. The code did what its own normative comment
+forbade. Measured: `unhookRequested` set on a `hook-harness --hold` target left
+`status` at `READY` indefinitely.
+
+**It supplements the present path, it does not replace it.** `07_IPC` requires the
+safety stop within one frame, and a one-second watchdog cannot promise that, so
+the present path keeps its `unhookRequested` check. Same shape as §S6's
+`LoadLibrary` hook supplementing the 30 s poll.
+
+**Why a thread here, when `20_OPEN_QUESTIONS` §S2 rejected one for the Vulkan
+layer.** All three of §S2's reasons are properties of the *layer*: the Vulkan
+loader owns the layer's mapping, so a thread outliving it access-violates a host
+we do not own; the re-scan it would have run allocates ~1.15 MB transiently; and
+it would have called `NtQuerySystemInformation` and probed the SCM from inside a
+game, which is the behavioural signature of anti-analysis code (CLAUDE.md rule 3).
+None applies to the Overlay, which is loaded by documented `LoadLibraryW` and is
+never `FreeLibrary`'d from a live process. **This thread enumerates nothing,
+probes nothing and allocates nothing** — it reads two `uint32`s from our own
+mapping and sleeps. That distinction is the whole justification and must survive
+any future change: a watchdog that starts scanning is a different object under
+rule 3.
+
+Failing to create it is **not** fatal — the present-path checks still work, and an
+Overlay that reacts only while presenting is strictly better than none. The
+failure is recorded in `faultCount` so the Agent can see it rather than infer it.
+
+`legal/DISCLAIMER.md` §2 discloses this thread to the user in plain language,
+because "what runs inside the game" is exactly what that document exists to state.
+
 ## Fault policy
 
 Every hook body is wrapped:
