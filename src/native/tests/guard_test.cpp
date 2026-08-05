@@ -1236,6 +1236,82 @@ TEST_CASE("the injected Overlay publishes a handshake the Agent can validate", "
     CloseHandle(mapping);
 }
 
+TEST_CASE("the Agent's safety stop halts recording within a frame", "[guard][inject][shm]") {
+    // 19_SAFETY calls the mid-session stop "the single most important runtime
+    // behavior in the whole capture layer", and legal/DISCLAIMER.md promises it
+    // to the user. Until this case existed nothing drove it.
+    //
+    // Both directions, because a stop that was never shown to have been running
+    // proves nothing: records must arrive BEFORE the flag and must cease AFTER.
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --hold-presenting 14";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    // WRITE access: the control block is the Agent's half of the shared memory,
+    // and this test is standing in for the Agent.
+    void* base = MapViewOfFile(mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    auto* st = reinterpret_cast<fl::FlWriterState*>(static_cast<unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    auto* ctl = reinterpret_cast<fl::FlControlBlock*>(static_cast<unsigned char*>(base) + FL_SHM_CONTROL_OFFSET);
+
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    REQUIRE(st->status == fl::FL_STATUS_READY);
+
+    // The supervision clock is running, so keep the guard looking alive while we
+    // establish that recording works. Without this the 65 s deadline would be the
+    // thing under test, which is a different case.
+    std::uint64_t before = 0;
+    for (int i = 0; i < 40 && before < 5; ++i) {
+        ++ctl->guardTicks;
+        Sleep(100);
+        before = st->writeIndex;
+    }
+    REQUIRE(before > 5);    // it really was recording
+
+    // THE STOP.
+    ctl->unhookRequested = 1;
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_UNHOOKED; ++i) {
+        Sleep(50);
+    }
+    CHECK(st->status == fl::FL_STATUS_UNHOOKED);
+
+    // And it stays stopped. The harness is still presenting for several more
+    // seconds, so an Overlay that merely reported the status while continuing to
+    // write would be caught here.
+    const std::uint64_t atStop = st->writeIndex;
+    for (int i = 0; i < 10; ++i) {
+        ++ctl->guardTicks;    // ticks resume: stopping is ONE-WAY, not a pause
+        Sleep(100);
+    }
+    CHECK(st->writeIndex == atStop);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}
+
 TEST_CASE("the injected Overlay records real presents into the ring", "[guard][inject][shm]") {
     // The end-to-end claim the whole hook layer exists for, against a target that
     // is PRESENTING WHILE WE INJECT. --hold cannot be used here: it presents 240

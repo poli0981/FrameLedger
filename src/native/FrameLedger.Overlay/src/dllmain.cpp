@@ -1,10 +1,17 @@
 // FrameLedger.Overlay — the injected DLL.
 //
-// THIS SLICE: DllMain, the init thread, the shared mapping, and the handshake.
-// NO HOOKS YET. `status` stays FL_STATUS_INIT precisely because nothing is
-// hooked; publishing FL_STATUS_READY here would tell the Agent a capture side
-// exists when the ring will never receive a record. The present hook and the
-// fault policy land in the next change, and `status` moves with them.
+// WHAT IS HERE: DllMain, the init thread, the shared mapping and handshake, the
+// DXGI present hooks, the ring writer, the fault policy, and the two runtime
+// stops -- the Agent's safety unhook and supervision loss.
+//
+// `status` is INIT until hooks are actually installed and only then READY,
+// because READY claims a capture side exists; if MinHook fails it stays INIT and
+// the Agent's degradation path is what should run.
+//
+// NOT HERE: D3D12 and OpenGL device-type refinement (`api` reports D3D11, which
+// is what the dummy device resolves), and the upscaler / FG / RT feature hooks.
+// The record's measuredMask says so on every frame rather than letting the
+// zero-defaults assert a measurement nobody made.
 //
 // docs/17_HOOK_ENGINE.md is the specification. The constraints that shape every
 // line:
@@ -297,10 +304,93 @@ void PublishAdapterOnce(IDXGISwapChain* sc) noexcept {
 
 uint32_t g_frameIndex = 0;
 
+// ---------------------------------------------------------------------------
+// The safety stop, and supervision loss (07_IPC §Protocol rules, 19_SAFETY
+// §During a session).
+//
+// Both are checked ON THE PRESENT PATH, which is the only place that runs often
+// enough to react "within one frame" as 07_IPC requires. Neither costs a
+// syscall: the control block is mapped memory, and GetTickCount64 reads
+// KUSER_SHARED_DATA.
+//
+// STOPPING IS ONE-WAY. Once we stop observing we do not resume, even if ticks
+// start again -- a capture side that can un-stop itself is a capture side whose
+// stop is advisory, and this is the behaviour 19_SAFETY calls the single most
+// important runtime behavior in the whole capture layer.
+// ---------------------------------------------------------------------------
+FlControlBlock* g_control = nullptr;
+bool            g_observing = true;
+uint32_t        g_lastTicks = 0;
+ULONGLONG       g_lastTickAt = 0;
+
+// CANARY RESULT, recorded because it is not what I expected. Removing
+// `g_observing = false` and leaving only MH_DisableHook keeps the suite GREEN:
+// unhooking alone stops the writes, so the flag is not what the test is proving.
+// It is kept deliberately and is not redundant -- it closes the window between a
+// thread already inside our hook body and the patch being removed, and it is the
+// only thing that holds if MH_DisableHook ever fails -- but "the flag is
+// necessary" is NOT a property this suite verifies, and saying so is cheaper than
+// letting a reader assume it does.
+void StopObserving(uint32_t reason) noexcept {
+    if (!g_observing) {
+        return;
+    }
+    g_observing = false;
+    MH_DisableHook(MH_ALL_HOOKS);
+    if (g_state != nullptr) {
+        std::atomic_ref<uint32_t> status{g_state->status};
+        status.store(reason, std::memory_order_release);
+    }
+}
+
+// Returns false when we must not record this present.
+bool MayObserve() noexcept {
+    if (!g_observing || g_control == nullptr) {
+        return g_observing;
+    }
+
+    // The safety stop first: the Agent's guard fired mid-session and wants the
+    // hooks gone. 07_IPC calls this the fastest, most-tested path in the DLL.
+    std::atomic_ref<uint32_t> unhook{g_control->unhookRequested};
+    if (unhook.load(std::memory_order_acquire) != 0) {
+        StopObserving(FL_STATUS_UNHOOKED);
+        return false;
+    }
+
+    // Supervision loss. guardTicks counts COMPLETED guard evaluations, not
+    // seconds, so a stalled guard loop stops it advancing even while the Agent
+    // process is alive -- which is exactly the case a timer-driven heartbeat
+    // would have missed.
+    //
+    // "Never advanced" and "stopped advancing" are the same state: the clock
+    // starts when the mapping is published, so a capture side no Agent ever
+    // adopted is inert from the beginning rather than enjoying a grace window.
+    std::atomic_ref<uint32_t> ticks{g_control->guardTicks};
+    const uint32_t            now = ticks.load(std::memory_order_acquire);
+    const ULONGLONG           t = GetTickCount64();
+    if (now != g_lastTicks) {
+        g_lastTicks = now;
+        g_lastTickAt = t;
+        return true;
+    }
+    if (t - g_lastTickAt >= FL_GUARD_TICK_DEADLINE_MS) {
+        StopObserving(FL_STATUS_UNHOOKED);
+        return false;
+    }
+
+    // Pausing is not stopping: the Agent asked us to hold, and the supervision
+    // clock keeps running, so a paused session still stops if the guard dies.
+    std::atomic_ref<uint32_t> paused{g_control->pauseRequested};
+    return paused.load(std::memory_order_relaxed) == 0;
+}
+
 // The hot path. One QPC read, a few cached-state reads, one 60-byte store in two
 // spans, two relaxed atomic stores, two fences. No syscall, no allocation, no
 // lock, no logging (NFR-1, target <= 1 us; a bare vtable detour measured 8.4 ns).
 void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
+    if (!MayObserve()) {
+        return;
+    }
     LARGE_INTEGER qpc{};
     QueryPerformanceCounter(&qpc);
 
@@ -439,6 +529,12 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
     PublishHandshake();
 
     g_state = reinterpret_cast<FlWriterState*>(static_cast<unsigned char*>(g_base) + FL_SHM_WRITER_OFFSET);
+    g_control = reinterpret_cast<FlControlBlock*>(static_cast<unsigned char*>(g_base) + FL_SHM_CONTROL_OFFSET);
+    // The supervision clock starts HERE, when the mapping is published -- not at
+    // first present. 07_IPC is explicit that a capture side no Agent ever adopts
+    // is inert from the beginning rather than enjoying a grace window.
+    g_lastTicks = 0;
+    g_lastTickAt = GetTickCount64();
     if (!g_writer.Init(g_base, FL_SHM_DEFAULT_CAPACITY)) {
         return 1;
     }
@@ -491,12 +587,7 @@ __declspec(dllexport) unsigned int FlGetStatus() {
 // part of what an anti-cheat vendor inspects, and a DLL whose exports change
 // shape between builds is harder to identify, not easier.
 __declspec(dllexport) void FlRequestUnhook() {
-    if (g_base == nullptr) {
-        return;
-    }
-    auto* state = reinterpret_cast<FlWriterState*>(static_cast<unsigned char*>(g_base) + FL_SHM_WRITER_OFFSET);
-    std::atomic_ref<uint32_t> status{state->status};
-    status.store(FL_STATUS_UNHOOKED, std::memory_order_release);
+    StopObserving(FL_STATUS_UNHOOKED);
 }
 
 }    // extern "C"
