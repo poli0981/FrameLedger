@@ -12,6 +12,118 @@ GitHub release body, so a missing section means an empty release note.
 ## [Unreleased]
 
 ### Added
+
+> **These five entries were written retrospectively.** PRs #40–#44 changed 8 files,
+> every one under `src/native/`, and touched no documentation at all — so for a day the
+> repository's own ledger described an Overlay with no hooks. CLAUDE.md's "any deviation
+> from a doc updates that doc in the same PR" did not catch it, because none of the five
+> deviated from a doc: they implemented specifications that were already written, and
+> the staleness landed in the *status* claims of other files. `legal/DISCLAIMER.md` §Accuracy
+> audit records the same drift from the user-facing side.
+
+- **`api` is resolved per swapchain, and `GetDevice` does not return what the docs imply**
+  (#44). `api` was hardcoded to `FL_API_D3D11` on every record — a guess written into a
+  field `03_METRICS` consumes and `06_DATA_MODEL` persists. One hook on the shared
+  `dxgi.dll` class vtable catches D3D11 and D3D12 alike, so the present call cannot tell
+  them apart; the Overlay now asks the swapchain which device created it, once per
+  swapchain, and caches it.
+  - **Measured, and the obvious implementation was wrong.**
+    `CreateSwapChainForComposition` takes a **command queue** for D3D12, so the first
+    version queried the returned device for `ID3D12CommandQueue` — and every record from
+    a real D3D12 target came back `FL_API_UNKNOWN`. DXGI resolves the queue to its owning
+    device before storing it, so `ID3D12Device` is what answers. The queue query is kept
+    anyway: it costs one failed QI per swapchain, and a DXGI that *did* hand back the
+    queue would otherwise regress to `UNKNOWN` silently.
+  - `apiMask` now records what was **seen presenting**, not what the process loaded — a
+    title can link `d3d12.dll` and present through D3D11.
+  - Both directions, which is what makes either assertion mean anything: a new
+    `--hold-presenting-d3d12` harness mode builds device → command queue → swapchain, and
+    the D3D11 case gained the mirror assertion, so a resolver that always answered D3D12
+    fails there.
+  - **OpenGL is not attempted.** `wglSwapBuffers` is a flat export and the hook is small,
+    but `hook-harness` has no OpenGL mode, and shipping an unexercised hook into a game
+    process is not something this project does. The harness mode is the prerequisite.
+
+- **The safety stop and supervision loss, on the present path** (#43). `19_SAFETY` calls
+  the mid-session stop the single most important runtime behaviour in the capture layer,
+  and `legal/DISCLAIMER.md` promises both to the user. Until now neither existed —
+  `FlRequestUnhook` set a status field while the hooks kept running.
+  - `unhookRequested` → hooks out, status `UNHOOKED`. `guardTicks` stalled past
+    `FL_GUARD_TICK_DEADLINE_MS` → the same. The clock starts when the **mapping is
+    published**, not at first present, because `07_IPC` is explicit that "never advanced"
+    and "stopped advancing" are the same state.
+  - **Stopping is one-way.** Resuming ticks does not resume recording; a capture side
+    that can un-stop itself is one whose stop is advisory.
+  - **Two of three canaries red, and the third is recorded rather than hidden.** Removing
+    `g_observing = false` and leaving only `MH_DisableHook` kept the suite **green** — so
+    "the flag is necessary" is *not* a property this suite proves. The flag is kept
+    deliberately (it closes the window for a thread already inside the hook body, and it
+    is the only thing that holds if `MH_DisableHook` fails) and the comment now says so.
+  - **Not covered, and stated rather than left to look covered:** the 65-second expiry in
+    its real configuration. The canary proves the comparison fires, not that 65000 is the
+    number on the shipped path.
+
+- **The present hook, and a harness that presents while we inject** (#42). MinHook on the
+  shared `dxgi.dll` class vtable, read off a throwaway WARP composition swapchain that is
+  released immediately — slots 8 `Present`, 13 `ResizeBuffers`, 22 `Present1`, proved by
+  behaviour in ctest `fl_vtable_indices`, never hardcoded.
+  - **`--hold-presenting` had to exist first.** `--hold` presents 240 frames and *then*
+    sleeps; those are over in milliseconds while `fl_guard_test` injects ~800 ms later, so
+    an Overlay injected into `--hold` observes exactly **zero**. Every "N presents → N
+    records" assertion written against it would have been vacuous — the same shape as the
+    `DXGI_PRESENT_TEST` defect this harness was already fixed for once. The handshake test
+    now asserts `writeIndex == 0` against `--hold` deliberately, so the trap has a test on
+    it instead of a comment.
+  - **Honesty, which is why #36 spent two bytes.** A present-only writer sets
+    `measuredMask = FL_MEASURED_OUTPUT_RES` and `rtFlags = FL_RT_NOT_MEASURED` and claims
+    nothing else. Leaving the mask at 0 with the zero-defaults would assert "no upscaler,
+    no frame generation, no ray tracing" as measured fact ~118 times a second — producing
+    `fg_factor 1.0` (rule 6) and a definite RT `No` (rule 7) about a title nobody looked at.
+  - `FL_HOOK_GUARD` wraps **only our code, never the call to the original** — otherwise a
+    game's own fault inside the trampoline is counted as ours. Three faults →
+    `MH_DisableHook(MH_ALL_HOOKS)` and `status = self_disabled`.
+  - `status` reaches `READY` only when hooks are actually installed; a failed
+    `MH_Initialize` leaves it `INIT`, because `READY` would claim a capture side that does
+    not exist and the Agent's degradation path is what should run.
+  - Four canaries, each proven red: claiming everything measured, asserting a definite RT
+    `No`, a `frameIndex` that stops advancing, and a swapchain never identified.
+
+- **The DLL gets inside, maps its ring, and publishes a handshake** (#41). The first real
+  code in `FrameLedger.Overlay`, which until then was a 30-line scaffold exporting one
+  function. `DllMain` does **only** `DisableThreadLibraryCalls` and `CreateThread`;
+  everything else runs on the init thread, outside the loader lock (§H2).
+  - The mapping carries a DACL granting only the current user's SID.
+    `BuildUserOnlySecurity` returns false rather than falling back to a default DACL — a
+    mapping the machine can write is not a degraded version of this one, because the
+    Agent's control block is in it and `unhookRequested` is the safety stop.
+    `ERROR_ALREADY_EXISTS` also refuses.
+  - `layoutVersion` is published **last**, behind a release fence, because it is the field
+    a reader validates first: a reader that saw the version while `capacity` was still
+    zero would compute a ring of no slots and read garbage.
+  - **`status` is `INIT`, not `READY`, and that is the point** — nothing was hooked in that
+    slice, so no record could ever arrive.
+  - Three canaries, each proven red: claiming `READY` with no hooks, leaving `capacity`
+    unpublished, and corrupting `buildId`.
+
+- **The SPSC ring, and an honest account of which half the suite proves** (#40).
+  `fl_ring.h` implements `07_IPC` §Protocol rules and nothing else; where the two
+  disagree the document wins and the header is the bug. Drop accounting lives on the
+  **reader**, the only side that knows what it consumed.
+  - **Two of four canaries came back GREEN, and that is the finding.** *"The payload write
+    steps over `seq`"* and *"the reader re-reads `seq`"* both survive, because the damage
+    is observable only inside a 64-byte memcpy and neither a 1024-slot nor an 8-slot
+    concurrency case lands in it across 200,000 records. **Those two properties are
+    therefore unverified**, and the file header says so rather than letting nine
+    assertions imply coverage.
+  - **One test was wrong in a way that looked like the code was wrong**: "the payload write
+    never touches `seq`" asserted on slot 1 because the record's `frameIndex` was 1 — but
+    the slot is chosen by the publish counter, which starts at 0. It failed against a
+    correct writer.
+  - Claims `FL_MEASURED_HDR` (bit 7) in the last free window. `hdr` had no "not measured"
+    state; #36 fixed that class for five other fields and missed this one. The byte is
+    already written every frame, so it costs no layout change now — and after the C#
+    mirror exists the identical edit is user-visible and a SemVer MAJOR.
+
 - **`fl-probe-interposer` — the vtable premise, proven, and the Streamline
   question narrowed to a licence decision** (`20_OPEN_QUESTIONS` §H5 case 3,
   `spike-notes.md` §5, previously an empty template). It runs in **our own

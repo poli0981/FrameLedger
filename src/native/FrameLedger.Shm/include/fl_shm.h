@@ -1,9 +1,21 @@
 // FrameLedger shared-memory layout.
 //
 // NORMATIVE. This header and docs/07_IPC.md must agree; the static_asserts
-// below are what enforce it. Mirrored in C# by FrameLedger.Shared, and a test
-// in FrameLedger.Infrastructure.Tests compares both sides against the offsets
-// emitted by tools/fl-layout-dump (CLAUDE.md §Struct mirroring).
+// below are what enforce it.
+//
+// THE C# MIRROR DOES NOT EXIST YET. Until 2026-08-05 the line above continued
+// "Mirrored in C# by FrameLedger.Shared, and a test in
+// FrameLedger.Infrastructure.Tests compares both sides against the offsets
+// emitted by tools/fl-layout-dump" -- present tense, in the file that defines
+// the ABI, about a mirror and a test that do not exist. src/FrameLedger.Shared
+// holds a .csproj and no .cs files. That is the intent (CLAUDE.md
+// §Struct mirroring), tracked as 20_OPEN_QUESTIONS §R10 and scheduled in §S24;
+// build.ps1 skips the gate loudly rather than pretending it runs.
+//
+// Read the consequence, not just the correction: the static_asserts below bind
+// this header to itself and to 07_IPC. NOTHING binds it to a managed reader,
+// so until the mirror lands, changing a field here breaks the Agent silently
+// and at runtime rather than at build time.
 //
 // Header-only by design: the Overlay writes these structs from inside a game
 // process and the Agent reads them from outside, so there must be exactly one

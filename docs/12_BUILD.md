@@ -8,7 +8,7 @@ Mixed toolchain: .NET 10 for managed projects, MSVC for the native layer.
 - **Vulkan SDK** (for the layer + validation layers during development).
 - CMake ≥ 3.28 (native projects use CMake; consumed by the solution via a build target — see below).
 - Optional: PawnIO for CPU-temperature testing; an NVIDIA GPU for the NVAPI/Reflex paths (dev machine: RTX 5080). AMD/Intel telemetry paths need no SDK — if you have such hardware, testing L1/L2 coverage there is valuable.
-- **No admin needed for normal development**: `FL_MOCK=1` runs everything with a synthetic source and zero injection.
+- **No admin needed for normal development.** `FL_MOCK=1` is **specified but not implemented** — `grep -rn FL_MOCK src tests tools build.ps1` returns nothing (CLAUDE.md §Dev mode records the same, and this line contradicted it in the present tense until 2026-08-05). When it exists it runs the whole app with a synthetic source and zero injection. Until then the no-injection development path is `hook-harness`, which needs no admin either.
 
 ## Native build
 
@@ -49,7 +49,9 @@ Compiler/linker flags (enforced in CMake, not per-target ad hoc): `/std:c++20 /M
 - **Native output reaches the managed side through `.targets` files imported by `FrameLedger.Agent`**, not through `FrameLedger.Infrastructure`: `/FrameLedger.Guard.targets` (the guard DLL), `/FrameLedger.Overlay.targets` (the payload, §S22) and `/FrameLedger.Rules.targets` (the blocklist seed). Ordering comes from `build.ps1`, which runs the native build first — **not** from the solution: `FrameLedger.slnx` contains no native project.
 
   > **This bullet was wrong in four ways and is corrected 2026-08-04.** It named a copy of `FrameLedger.Injector.exe`, which §S9 closed and which line 25 above says does not exist, 24 lines earlier in the same document. It attributed the copying to a build target in `FrameLedger.Infrastructure.csproj`, which contains no `<Target>` at all. It said the copies happen there, when the guard DLL was deliberately moved out to a `.targets` file so it would stop flowing to every referencing project (§S18 blocker 3). And it credited the solution with an ordering the solution cannot express.
-- **Struct mirror check:** a test in `FrameLedger.Infrastructure.Tests` reads offsets emitted by a tiny generated header dump from the native build and asserts they match the C# `[StructLayout]` mirror. Struct drift between the two layers is the most dangerous silent bug in this architecture; the build catches it.
+- **Struct mirror check — ⏳ SPECIFIED, NOT BUILT.** The intent: a test in `FrameLedger.Infrastructure.Tests` reads offsets emitted by a generated header dump from the native build and asserts they match the C# `[StructLayout]` mirror. Struct drift between the two layers is the most dangerous silent bug in this architecture.
+
+  > **The last clause used to read "the build catches it", in the present tense, and it does not.** `src/FrameLedger.Shared/` holds a `.csproj` and no `.cs` files; nothing under `tests/` references `FlFrameRecord`; `build.ps1` skips the gate loudly for exactly this reason. **This document contradicted itself** — line 138 below has said so correctly all along. `20_OPEN_QUESTIONS` §R10 tracks it and §S24 schedules it. When the mirror lands, this bullet and the eight other present-tense sites `build.ps1:324-329` enumerates flip together.
 
 ## Debugging
 

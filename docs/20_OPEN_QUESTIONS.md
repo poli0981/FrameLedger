@@ -38,6 +38,43 @@ The project's central promise is that injection is opt-in per game, the guard is
 a hard gate with **no override anywhere**, and no evasion is ever implemented.
 Each item below is a place where the documents themselves leak a gap.
 
+### S24 · The S-series ledger — read this before planning against the entries below
+
+P0 exit criterion 2 (`spike-notes.md` §Exit criteria) is *"every S-series item
+resolved, **or explicitly deferred with a written rationale**"*. That is not
+auditable by reading 1,700 lines and counting ✅ marks — the markers are
+load-bearing but they distinguish two states where the criterion needs four.
+This table is the index; the entries remain the authority.
+
+Added 2026-08-05. **Keep it current in the same PR that changes an item's state**,
+or it becomes the next stale status claim this file exists to record.
+
+| Item | State | Note |
+|---|---|---|
+| S3, S5, S7, S8, S9, S10, S11, S15, S16, S17, S18, S21, S22 | ✅ **resolved** | Thirteen. Reasoning kept in place rather than deleted |
+| S12 | ✅ **deferred, rationale written** | Cautious mode → v1.1; it disabled nothing in v1 |
+| **S1** | 🅓 **deferred, rationale written** | Owner decision 2026-08-05. Deciding input — a title loading a presentation runtime lazily — is not on this machine |
+| **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
+| **S19(b)** | 🅓 **deferred, rationale written** | Its true shape is a `CryptCATAdmin*` PR, and `WinVerifyTrust`'s default revocation check does network I/O from inside the hard gate (NFR-10) |
+| **S14** | 🔨 **scheduled — exe-name half only** | Owner decision 2026-08-05: wire it, empty list, unresolvable identity refuses. The **store-id half is blocked** on the platform metadata extractors and cannot be reached through the guard ABI by design |
+| **S23-1** | 🔨 **scheduled** | `FL_BUILD_ID` gets its first reader with the C# mirror |
+| **S23-4** | ✅ **resolved 2026-08-05** | `19_SAFETY` §During a session said "the module scan and the driver scan"; `EvaluateImpl` runs four. Reworded to "every pre-injection check" so it cannot go stale when a check is added, with the two omissions named — `services` is the only tier measured firing on real anti-cheat, and the pre-scan is the only one touching the filesystem |
+| **S2 part three** | ⏳ **open, sequenced** | In-layer supervision lands with `vkQueuePresentKHR` (P1). Building it sooner would be a predicate whose wrong answer changes nothing observable |
+| **S4 signing** | ⏳ **open, residual accepted** | HTTPS authenticates the host, not the content. Recorded rather than closed — needs a rationale written or a decision |
+| **S6** | ❓ **open, disposition undecided** | Owner: work, or deferral-with-rationale? See the correction block under §S6 for what #40–#44 changed and what it does not |
+| **S19(a)** | ❓ **open, disposition undecided** | `gameguard` can never fire — `guard` subsumes it. Cosmetic until someone removes `guard` |
+| **S19(c)** | ❓ **open, disposition undecided** | `signerField` and `action` are schema-`required` and parsed by nobody. Costing `action` honestly means first deciding `warn`/`allow` may exist, and CLAUDE.md rule 2 says they may not |
+| **S19(d) residual** | ❓ **open, disposition undecided** | The schema canary does not discriminate on `nameFragments: []`; the runtime hole is closed by the generated floor |
+| **S20 feed half** | ❓ **open, disposition undecided** | **FR-7.3 is unmet**: a rules edit reaches no installed machine until a release |
+| **S23-3** | ⏳ **open, sequenced** | `08_UI`'s refusal notice is wrong in the commonest case; needs to reach `08_UI` and the `Safety_*` keys before any UI exists (P3) |
+| **S23-5** | ❓ **open, disposition undecided** | A fourth statement of the gate's composition lives in the shipped `detection-rules.json` `$comment` |
+| **S23-6** | ◐ **partly closed** | `license-check` now binds `THIRD_PARTY_NOTICES` bidirectionally — the first real gate over anything in `legal/`. The **accuracy blocks remain hand-maintained prose that nothing verifies**, and `DISCLAIMER.md`'s went stale a second time on 2026-08-05 |
+| **S23-2** | 🚫 **owner only — no PR can close it** | `Rules / validate` is **not** a required status check on `main`. **Re-verified against the live branch protection 2026-08-05**, not repeated from the entry: `required_status_checks.contexts` is exactly `["check", "analyze (csharp, none)", "analyze (cpp, manual)"]` (`strict: true`, `enforce_admins: true`, `required_linear_history: true`). The `validate` job is path-filtered and `pull_request`-only, so a red removal check does not block the merge button. **The gate that exists to make the anti-cheat blocklist un-removable is advisory.** This is a branch-protection setting |
+
+**Six items are ❓ and one is 🚫.** P0 cannot meet exit criterion 2 until each ❓
+gets either work or a written rationale, and until the owner acts on S23-2 — which
+no amount of code will do.
+
 ### S1 · The guard is structurally blind in launch mode
 
 > **§S1 does not gate the Vulkan path.** Added 2026-08-03, because "launch mode
@@ -81,6 +118,31 @@ presentation runtime lazily. The local fixtures are `hook-harness` (creates D3D
 at startup) and a 2D GOG prologue; a number from either would not generalise,
 which is worse than recording it unmeasured. This is the one input §S13(c)
 still lacks.
+
+> #### 🅓 Deferred 2026-08-05, by owner decision, with this as the rationale
+>
+> The decision between "inject late" and "no launch mode at all" **is not taken**,
+> and deferring it is the recorded answer rather than an omission — P0 exit
+> criterion 2 admits a written deferral, and this is it.
+>
+> **Why deferring is defensible and not merely convenient.** The choice turns on
+> one number nobody has: how much early-init upscaler data injecting late actually
+> costs. Taking the decision without it would fix a design on an assumption, and
+> §S13(c)'s own text has said since 2026-08-02 that the input is missing. Choosing
+> "inject late" unmeasured risks shipping a mode that captures nothing useful;
+> choosing "drop launch mode" unmeasured throws away **Vulkan Tier 1 entirely**,
+> because `enable_environment` can only be set by the process that starts the game
+> (`17_HOOK_ENGINE:161`). Neither is a decision to take blind.
+>
+> **What the deferral costs, stated rather than implied.** Launch-mode injection
+> does not work today and will not until this is decided; attach mode is the only
+> injection path that ships. Vulkan Tier 1 stays unreachable, though it is
+> independently blocked on `vkQueuePresentKHR` (P1), so the deferral is not
+> currently the binding constraint there.
+>
+> **What would end the deferral:** one title that loads `dxgi`/`d3d11`/`d3d12`,
+> `opengl32` or `vulkan-1` lazily rather than at startup. The owner supplies real
+> fixtures on request; this one has not been found on this machine.
 
 ### S2 ◐ · The Vulkan layer has no guard — **both halves done; mid-session unhook still open**
 
@@ -297,6 +359,15 @@ Decide whether that is acceptable, or whether launch-mode injection is dropped.
 actually costs. It needs a title that loads a presentation runtime lazily; the
 local fixtures (`hook-harness`, which creates D3D at startup, and a 2D GOG
 prologue) cannot produce a figure that generalises.
+
+> **🅓 Deferred 2026-08-05 by owner decision — the rationale is written once, under
+> §S1**, because this item and §S1 turn on the same missing measurement and two
+> copies of a rationale is how they drift apart. §S24 lists both as deferred.
+>
+> Note what the deferral does **not** touch: the externally observable proxy this
+> entry proposes (resume, then poll until the target has mapped a presentation
+> runtime *and* the scan passes *and* the blocklist is clean) remains the only
+> candidate design for "inject late". It is unbuilt, not rejected.
 
 ### S15 ✅ · The four consequences of putting the guard in C++ (§S13(a)) — **closed**
 
@@ -1330,7 +1401,14 @@ the name of a game they are not playing. The requirement created by that
 measurement was written only into the spike log; it needs to reach `08_UI` and
 the `Safety_*` resx keys before any UI exists.
 
-**4. The runtime re-scan loop is described as two checks and implements four.**
+**4. ✅ The runtime re-scan loop is described as two checks and implements four — closed 2026-08-05.**
+`19_SAFETY` §During a session now reads "every pre-injection check", deferring to the
+one list in §Pre-injection checks — including its ⚠ that check 3 is unwired, which the
+re-scan inherits rather than closes. A list restated in two places is what went stale;
+the fix is to stop restating it, not to correct the copy. The two checks the old wording
+omitted are named there, with why each matters.
+
+<details><summary>The finding as recorded</summary>
 `19_SAFETY` §During a session reasons explicitly about the loop's composition and
 names the module and driver scans. `GuardSupervisor.ScanOnceAsync` →
 `FlGuardEvaluate` → `EvaluateImpl` runs drivers, **services** and the **static
@@ -1338,6 +1416,8 @@ pre-scan** as well. That omits the only tier ever measured firing on real
 anti-cheat (services) and the only one touching the filesystem (check 4) — whose
 cost this session raised by deepening the walk. The paragraph that decides what
 the loop costs is missing the expensive half.
+
+</details>
 
 **5. A fourth statement of the gate's composition lives in the shipped data.**
 `rules/detection-rules.json`'s own `$comment` describes checks "1, 2 and 4",
@@ -1432,6 +1512,24 @@ to shrink it.
 > reader was being told a mechanism sat there unused. `17_HOOK_ENGINE` §DLL entry
 > words the same thing correctly, as *specification*. The sentence below is
 > retained in its original form because the plan it describes is still the plan.
+>
+> > **Every factual clause in the paragraph above is now false** (2026-08-05,
+> > after #40–#44), and it is corrected rather than deleted because the *reasoning*
+> > it carried is what the next reader needs. `FrameLedger.Overlay/src/` holds
+> > **one** file; `dllmain.cpp` exports **four** functions (`FlGetLayoutVersion`,
+> > `FlGetBuildId`, `FlGetStatus`, `FlRequestUnhook`); and there are **three**
+> > `MH_CreateHook` calls in it — slots 8, 13 and 22 on the shared `dxgi.dll`
+> > class vtable.
+> >
+> > **What that changes for §S6, stated narrowly.** The premise of the correction
+> > — "downstream of the entire P1 hook layer" — is now only partly true: MinHook
+> > is initialised and a hook layer exists to hang a `LoadLibrary` hook on, so the
+> > *distance* to §S6 is shorter than it was. It does **not** follow that §S6 is
+> > now cheap or that it is scheduled. `17_HOOK_ENGINE` §DLL entry still specifies
+> > a **deferred** install (§H2), the poll it would supplement still has no
+> > production driver (nothing writes `guardTicks`), and no phase owns this item.
+> > Its disposition — work, or deferral-with-rationale — is an open owner
+> > decision, listed as such in §S24.
 
 The Overlay is specified to install a `LoadLibrary` hook for lazily
 loaded graphics DLLs (`17_HOOK_ENGINE` §DLL entry); the same hook could raise the
@@ -1720,6 +1818,32 @@ no drain) stays in P0. Items 5–9 below are still open.
 6. **`18_GPU_VENDOR_APIS`'s capability matrix cannot be filled for AMD/Intel** on
    the stated dev machine, yet it drives what the UI advertises as available.
    Leave explicit "untested" markers rather than `?`.
+
+   > #### 🅓 §R5 and §R6 deferred 2026-08-05, by owner decision, with this rationale
+   >
+   > **The AMD/Intel half of the capability matrix and the AFMF question are not
+   > deferred for cost — they are unreachable on the only machine that exists.**
+   > `spike-notes.md` §Environment records it: one adapter, an RTX 5080, and a `KF`
+   > CPU with no iGPU. There is no measurement to take. Deferring is the only
+   > honest option; the alternative is a matrix filled from documentation, which is
+   > exactly what §M3/§M4 were run first to avoid.
+   >
+   > **The NVIDIA half is not deferred** and remains P0 item 8: L1 (DXGI + PDH),
+   > L2 (LibreHardwareMonitor — including §M5, whether GPU sensors work unelevated
+   > without PawnIO, which decides whether the default Agent has temperatures at
+   > all) and L3 (NVAPI). None of it exists in code today.
+   >
+   > **What the deferral costs.** The matrix drives what the UI advertises as
+   > available, so on AMD and Intel hardware v1 ships advertising capabilities
+   > nobody has verified. The mitigation is the marker, not a guess: **`untested`,
+   > never `?`, and never a checkmark inferred from a vendor's documentation.**
+   >
+   > **And the matrix as written cannot record this deferral**, which is its own
+   > defect and is why the note lives here as well as there: its columns are
+   > `L1 | L2 | L3` with no vendor axis, so "measured on NVIDIA, untested on
+   > AMD/Intel" is not expressible in it. Whoever fills it for item 8 has to add
+   > that axis first, or the distinction this deferral rests on is lost in the
+   > artifact that consumes it.
 7. **CI is scheduled for P5**, but CLAUDE.md makes green C# **and** C++ builds
    plus passing tests a per-PR gate from the first PR. CI belongs in bootstrap.
 8. **P1 at 1.5 weeks is the largest under-estimate** — present hooks for three
@@ -1751,5 +1875,16 @@ no drain) stays in P0. Items 5–9 below are still open.
     right answer here**: a gate that is not written should be named and skipped,
     not omitted.
 
-    Not urgent — the ring is P1 and there is nothing to mirror yet. Recorded so
-    it is found by reading, not by trusting.
+    ~~Not urgent — the ring is P1 and there is nothing to mirror yet.~~ **That
+    stopped being true on 2026-08-05.** `fl_shm.h` defines four structs with
+    39 pinned offsets, `fl_ring.h` implements the protocol, and the Overlay
+    writes real records into a real mapping — so there is now a live ABI with
+    **nothing binding it to a managed reader**, which is the state the gate
+    exists to prevent rather than the state that made it unnecessary. The count
+    also grew: `build.ps1:324-329` enumerates **nine** files describing the
+    mechanism in the present tense, and the two strongest sites are `fl_shm.h`
+    (normative) and `fl-layout-dump/CMakeLists.txt` (a build file, which reads as
+    a wiring fact rather than as prose). All nine were marked pending on
+    2026-08-05; §S24 schedules the mirror itself.
+
+    Recorded so it is found by reading, not by trusting.

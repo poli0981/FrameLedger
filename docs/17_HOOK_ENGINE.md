@@ -82,16 +82,31 @@ Prefer hooking the **vtable entry** over inline-patching for COM methods (cleane
 
 Every hook must be listed here with a purpose. Anything not on this list is not allowed to exist (`19_SAFETY` review checklist).
 
+> **This table is a SPECIFICATION, and as of 2026-08-05 exactly three of its rows are
+> built.** `FrameLedger.Overlay` installs `Present` (slot 8), `ResizeBuffers` (13) and
+> `Present1` (22) via MinHook on the shared `dxgi.dll` class vtable — indices proved by
+> behaviour, never hardcoded (ctest `fl_vtable_indices`). **Every other row below is
+> unwritten**, including `SetFullscreenState`, `SetColorSpace1`, `CreateSwapChain*`,
+> `wglSwapBuffers`, and all of §Upscaling, §Ray tracing, §Pipeline and §Memory/latency.
+>
+> Stated here because the distinction is invisible from the table and it is what the
+> record honestly reports: a present-only writer sets `measuredMask =
+> FL_MEASURED_OUTPUT_RES` and `rtFlags = FL_RT_NOT_MEASURED`, so the fields those
+> unwritten rows would fill are marked *not measured* rather than defaulted to "none"
+> (`fl_shm.h` §FlMeasured, CLAUDE.md rules 6 and 7).
+>
+> Marked ✅ per row below. When a row is built, flip it in the same PR.
+
 ### Presentation
 | Hook | Purpose |
 |---|---|
-| `IDXGISwapChain::Present`, `Present1` | Frame boundary, QPC, sync interval, present flags |
-| `IDXGISwapChain::ResizeBuffers`, `ResizeTarget` | Output resolution changes mid-session |
-| `IDXGISwapChain::SetFullscreenState` | Fullscreen ↔ borderless transitions |
-| `IDXGISwapChain3::SetColorSpace1` | HDR output detection. **`IDXGISwapChain3`, not 4** — 4 adds only `SetHDRMetaData` (`20_OPEN_QUESTIONS` §H9) |
-| `IDXGIFactory::CreateSwapChain*` | Capture swapchain desc (format, buffer count, swap effect, flags) at creation |
-| `wglSwapBuffers` | OpenGL titles |
-| Vulkan `vkQueuePresentKHR` | via layer, not hook (below) |
+| ✅ `IDXGISwapChain::Present`, `Present1` | Frame boundary, QPC, sync interval, present flags |
+| ✅ `IDXGISwapChain::ResizeBuffers` · ⏳ `ResizeTarget` | Output resolution changes mid-session. `ResizeBuffers` re-reads the swapchain description *after* the original returns; `ResizeTarget` is not hooked |
+| ⏳ `IDXGISwapChain::SetFullscreenState` | Fullscreen ↔ borderless transitions |
+| ⏳ `IDXGISwapChain3::SetColorSpace1` | HDR output detection. **`IDXGISwapChain3`, not 4** — 4 adds only `SetHDRMetaData` (`20_OPEN_QUESTIONS` §H9). Unbuilt, which is why `hdr` is reported via `FL_MEASURED_HDR` as *not measured* rather than as `0` |
+| ⏳ `IDXGIFactory::CreateSwapChain*` | Capture swapchain desc (format, buffer count, swap effect, flags) at creation. Unbuilt — the swapchain description is currently read on demand in the present hook via `GetDesc` |
+| ⏳ `wglSwapBuffers` | OpenGL titles. Unbuilt, and deliberately not attempted before `hook-harness` has an OpenGL mode: the hook is small (a flat export, no vtable) but shipping an unexercised hook into a game process is not something this project does. Measured 2026-08-05: `opengl32!wglSwapBuffers` is a `jmp` thunk (`E9 <rel32>`) into the vendor ICD, which is already mapped before the first call |
+| ⏳ Vulkan `vkQueuePresentKHR` | via layer, not hook (below). Unbuilt — P1, and §S2's in-layer supervision check lands with it. The layer today loads, gates and self-scans, and intercepts nothing |
 
 ### Upscaling / frame generation (the accuracy problem this rewrite exists to solve)
 | Hook | Yields |
