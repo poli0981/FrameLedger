@@ -36,4 +36,11 @@
   -->
   <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Rules.targets" />
 
+  <!--
+    fl-layout-dump.exe, whose JSON is the native side of the struct-mirror
+    assertion. ShmLayoutMirrorTests runs it rather than restating its numbers,
+    because a second copy of the layout is what the mirror exists to catch.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.LayoutDump.targets" />
+
 </Project>

@@ -1,21 +1,20 @@
 // FrameLedger shared-memory layout.
 //
 // NORMATIVE. This header and docs/07_IPC.md must agree; the static_asserts
-// below are what enforce it.
+// below are what enforce it. Mirrored in C# by FrameLedger.Shared's
+// ShmLayout.cs, and ShmLayoutMirrorTests compares both sides against the
+// offsets emitted by tools/fl-layout-dump (CLAUDE.md §Struct mirroring).
 //
-// THE C# MIRROR DOES NOT EXIST YET. Until 2026-08-05 the line above continued
-// "Mirrored in C# by FrameLedger.Shared, and a test in
-// FrameLedger.Infrastructure.Tests compares both sides against the offsets
-// emitted by tools/fl-layout-dump" -- present tense, in the file that defines
-// the ABI, about a mirror and a test that do not exist. src/FrameLedger.Shared
-// holds a .csproj and no .cs files. That is the intent (CLAUDE.md
-// §Struct mirroring), tracked as 20_OPEN_QUESTIONS §R10 and scheduled in §S24;
-// build.ps1 skips the gate loudly rather than pretending it runs.
+// That sentence was present tense and FALSE from the day this file was written
+// until 2026-08-05 -- there was no mirror and no test. It is true now, and the
+// reason it is worth a note is where the false claim sat: in the normative
+// header, where a reader is most entitled to trust it. build.ps1:324-329
+// enumerates the other eight sites.
 //
-// Read the consequence, not just the correction: the static_asserts below bind
-// this header to itself and to 07_IPC. NOTHING binds it to a managed reader,
-// so until the mirror lands, changing a field here breaks the Agent silently
-// and at runtime rather than at build time.
+// SO: A FIELD CHANGED HERE MUST BE CHANGED IN ShmLayout.cs, and the build tells
+// you. Add it to tools/fl-layout-dump too -- the test walks the dump's field
+// list in BOTH directions, so a field this header gains and the dump does not
+// report is a field the mirror silently stops checking.
 //
 // Header-only by design: the Overlay writes these structs from inside a game
 // process and the Agent reads them from outside, so there must be exactly one

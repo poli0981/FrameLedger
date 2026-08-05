@@ -1,0 +1,52 @@
+<Project>
+
+  <!--
+    Ships fl-layout-dump.exe beside the importing project's output.
+
+    It emits the native shared-memory struct layout as JSON, and
+    ShmLayoutMirrorTests consumes it to assert that the C# mirrors in
+    FrameLedger.Shared match fl_shm.h field for field. That is the mechanism
+    CLAUDE.md §Struct mirroring calls the protection for the shm ABI, and until
+    2026-08-05 it did not exist: nine files described it in the present tense
+    while src/FrameLedger.Shared held only a .csproj.
+
+    WHY THE DUMP AND NOT A TABLE IN THE TEST. A hand-written offset table in C#
+    is a SECOND statement of the layout, and two statements of one fact drift —
+    which is the defect the whole mirror exists to catch, reintroduced in the
+    thing catching it. tools/rules-validate.ps1 makes the same choice for the
+    rules bounds: extract the constants from the header, and FAIL rather than
+    skip if they cannot be read.
+
+    Imported by exactly one project: FrameLedger.Infrastructure.Tests.
+
+    Unlike FrameLedger.Guard.targets this stages a TOOL, not a shipped artifact.
+    It never reaches out/app: nothing in the product runs it, and an executable
+    that dumps internal layout has no business in a release.
+  -->
+  <PropertyGroup>
+    <FlLayoutDumpDir>$(MSBuildThisFileDirectory)build\native\x64-release\tools\fl-layout-dump\</FlLayoutDumpDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(FlLayoutDumpDir)fl-layout-dump.exe" Condition="Exists('$(FlLayoutDumpDir)fl-layout-dump.exe')">
+      <Link>fl-layout-dump.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!--
+    Warn at BUILD time, fail at TEST time. build.ps1 runs the native build first,
+    so by the time this evaluates the exe exists; a hard error here would make
+    `dotnet build` on a fresh clone fail for a reason unrelated to managed code.
+
+    The test itself does NOT extend that courtesy: a mirror test that cannot find
+    its native input reports FAILED, never "skipped", because "could not look"
+    reading as "looked and it matched" is exactly the defect class this
+    repository keeps recording.
+  -->
+  <Target Name="FlWarnOnMissingLayoutDump" AfterTargets="Build"
+          Condition="!Exists('$(FlLayoutDumpDir)fl-layout-dump.exe')">
+    <Warning Text="fl-layout-dump.exe was not found at $(FlLayoutDumpDir). Run build.ps1 native first; ShmLayoutMirrorTests will fail without it." />
+  </Target>
+
+</Project>
