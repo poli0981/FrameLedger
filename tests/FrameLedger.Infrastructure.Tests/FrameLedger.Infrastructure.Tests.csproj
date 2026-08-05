@@ -49,4 +49,10 @@
   -->
   <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.LayoutDump.targets" />
 
+  <!--
+    The Overlay (payload) and hook-harness (target) for the drain integration test.
+    The payload must sit in the guard's own directory or §S22 refuses the injection.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.DrainFixtures.targets" />
+
 </Project>

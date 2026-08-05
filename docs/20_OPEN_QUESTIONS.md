@@ -52,6 +52,8 @@ or it becomes the next stale status claim this file exists to record.
 | Item | State | Note |
 |---|---|---|
 | S3, S5, S7, S8, S9, S10, S11, S15, S16, S17, S18, S21, S22 | ✅ **resolved** | Thirteen. Reasoning kept in place rather than deleted |
+| **S25, S26** | ✅ **resolved 2026-08-05** | The two runtime stops unreachable in a non-presenting process; occlusion probes recorded as frames |
+| **S27** | ✅ **resolved by NOT building it** | The chokepoint is the anti-cheat gate, not the consent gate. No injecting entry point ships until the `games` table exists; the drain is exercised by an integration test against our own harness |
 | S12 | ✅ **deferred, rationale written** | Cautious mode → v1.1; it disabled nothing in v1 |
 | **S1** | 🅓 **deferred, rationale written** | Owner decision 2026-08-05. Deciding input — a title loading a presentation runtime lazily — is not on this machine |
 | **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
@@ -97,6 +99,52 @@ than going unsupervised because it stopped drawing.
 records** in the ring against the pre-fix writer and **0** after. The test asserts
 `status == READY` and `faultCount == 0` alongside the count, so "empty because we
 unhooked" and "empty because we faulted" cannot pass for the right answer.
+
+### S27 · The chokepoint is the ANTI-CHEAT gate, and it is not the consent gate
+
+Found 2026-08-05 by an adversarial review of the drain host's design, before it was
+built. Recorded because the design said `FlGuardedInject` "ONLY (the chokepoint)"
+and read as though that covered the whole of CLAUDE.md rule 1. It does not.
+
+`fl_guard_abi.h` says so in its own header: the ABI *"deliberately does NOT carry
+per-game consent … This ABI enforces the ANTI-CHEAT gate — the part that protects
+accounts — not the opt-in."* `fl_guard.h` adds `kHookNotEnabled` / `kConsentMissing`
+/ `kPreviouslyBlocked` and states **"the guard itself never returns these"**. The
+only producer is `HookedCaptureGate`, and its three inputs — `hook_enabled`,
+`hook_consent_at`, `hook_blocked_reason` — come from a `games` table that **exists
+in `06_DATA_MODEL` and in no `.cs` file**.
+
+So the proposed `Agent --diag <pid>`, on a binary `12_BUILD` publishes
+self-contained, would have loaded the Overlay into any x64 process a user named on
+a command line: no game record, no consent stamp, no enablement, and the
+`19_SAFETY` disclosure never shown. Rule 1's "never automatic", automatically. Not
+an anti-cheat bypass — every anti-cheat check still runs — but a **consent and
+disclosure gap in a shipped binary**, which is its own class.
+
+**Two tempting fixes were rejected.**
+
+- *Route it through `HookedCaptureGate` with `HookEnabled = true, ConsentedAt =
+  UtcNow` synthesised.* It compiles. It is a gate whose verdict is decided before
+  it looks — this file's signature defect, wearing the gate's own name.
+- *Build it as a native `fl-session-probe` instead.* Strictly worse: a native tool
+  structurally cannot read `games.hook_consent_at`, so the opt-in gate could not
+  exist inside it at all, and it is then §S9's user-runnable injector renamed.
+
+**What was built instead.** `ShmDrainIntegrationTests` — nothing packages it, and
+the target is `hook-harness`, our own dummy D3D app built from this tree, carrying
+no anti-cheat and belonging to no publisher. Injecting into it raises no consent
+question: no game, no account, no terms of service. The test asserts that
+constraint **on itself**, so it cannot grow into something that injects elsewhere
+by increments.
+
+**The real gate arrives with the `games` table, not before.** Until then there is
+no injecting entry point on any shipped binary, and that is the correct state
+rather than a missing feature.
+
+> Also settled by the same review, and worth keeping where the next reader will
+> look: **`--diag` is already taken.** `10_LOGGING_AND_BUG_REPORTS` assigns it to
+> the App as a stdout capability report while `12_BUILD` and `Program.cs` list it
+> as an Agent flag. Whatever the eventual capture flag is called, it is not that.
 
 ### S25 ✅ · Both runtime stops were unreachable in a non-presenting process, and pause was unreachable on a ticking one — **closed 2026-08-05**
 

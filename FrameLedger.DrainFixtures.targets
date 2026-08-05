@@ -1,0 +1,54 @@
+<Project>
+
+  <!--
+    Stages the two native binaries the drain integration test drives:
+    FrameLedger.Overlay.dll (the payload) and hook-harness.exe (the target).
+
+    WHY BOTH, AND WHY BESIDE THE TEST BINARY.
+
+    §S22(a) requires the injection payload to resolve into the directory the
+    GUARD's own code was loaded from, compared by file id. FrameLedger.Guard.targets
+    already puts FrameLedger.Guard.dll beside this test, so "the guard's directory"
+    IS the test's output directory — and the Overlay has to be there too or every
+    injection refuses with PayloadNotOurs. src/native/tests does exactly the same
+    thing for fl_guard_test, for exactly the same reason.
+
+    THE HARNESS IS A FIXTURE, NOT A PRODUCT ARTIFACT. It is our own dummy D3D app.
+    Injecting into it raises no consent question — no game, no account, no terms of
+    service — which is precisely why the drain is exercised against it rather than
+    behind a flag on the shipped Agent. See ShmDrainIntegrationTests for the rule
+    that keeps it that way.
+
+    Neither file reaches out/app through this: it is imported by the test project
+    only, and FrameLedger.Overlay.targets remains the Agent's own route for the
+    payload it ships.
+  -->
+  <PropertyGroup>
+    <FlOverlayDir>$(MSBuildThisFileDirectory)build\native\x64-release\FrameLedger.Overlay\</FlOverlayDir>
+    <FlHarnessDir>$(MSBuildThisFileDirectory)build\native\x64-release\tools\hook-harness\</FlHarnessDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(FlOverlayDir)FrameLedger.Overlay.dll" Condition="Exists('$(FlOverlayDir)FrameLedger.Overlay.dll')">
+      <Link>FrameLedger.Overlay.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="$(FlHarnessDir)hook-harness.exe" Condition="Exists('$(FlHarnessDir)hook-harness.exe')">
+      <Link>hook-harness.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!--
+    Warn at build, fail at test. build.ps1 runs the native build first, so by the
+    time this evaluates both exist; a hard error here would break `dotnet build` on
+    a fresh clone for a reason unrelated to managed code. The test itself refuses to
+    skip: an integration test that quietly does nothing when its fixtures are absent
+    is a gate that cannot fail.
+  -->
+  <Target Name="FlWarnOnMissingDrainFixtures" AfterTargets="Build"
+          Condition="!Exists('$(FlOverlayDir)FrameLedger.Overlay.dll') Or !Exists('$(FlHarnessDir)hook-harness.exe')">
+    <Warning Text="FrameLedger.Overlay.dll or hook-harness.exe is missing from the native build tree. Run build.ps1 native first; ShmDrainIntegrationTests will fail without them." />
+  </Target>
+
+</Project>
