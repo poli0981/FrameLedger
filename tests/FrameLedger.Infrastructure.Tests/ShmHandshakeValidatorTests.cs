@@ -17,6 +17,9 @@ public sealed class ShmHandshakeValidatorTests
 {
     private const string _ours = "v0.1.0-42-gabc123def456";
 
+    /// <summary>A mapping big enough for the default ring, i.e. what the shipped writer creates.</summary>
+    private const long _mapped = ShmLayout.RingOffset + ((long)ShmLayout.DefaultCapacity * 64L);
+
     private static unsafe FlShmHandshake Handshake(
         string buildId,
         uint layoutVersion = ShmLayout.LayoutVersion,
@@ -44,7 +47,7 @@ public sealed class ShmHandshakeValidatorTests
     {
         // The GREEN direction, asserted separately and first. A validator that refuses everything
         // carries exactly as much information as one that accepts everything.
-        ShmHandshakeValidator.Validate(Handshake(_ours), _ours).Should().Be(ShmAttachRefusal.Ok);
+        ShmHandshakeValidator.Validate(Handshake(_ours), _ours, _mapped).Should().Be(ShmAttachRefusal.Ok);
     }
 
     [Fact]
@@ -52,7 +55,7 @@ public sealed class ShmHandshakeValidatorTests
     {
         // The case 04_CAPTURE describes: the app updated while the game was running, so the DLL inside
         // it is from another build. Tell the user to restart the game.
-        ShmHandshakeValidator.Validate(Handshake("v0.1.0-43-gfeed0000beef"), _ours)
+        ShmHandshakeValidator.Validate(Handshake("v0.1.0-43-gfeed0000beef"), _ours, _mapped)
             .Should().Be(ShmAttachRefusal.BuildIdMismatch);
     }
 
@@ -61,14 +64,14 @@ public sealed class ShmHandshakeValidatorTests
     {
         // layoutVersion is published LAST behind a release fence, so zero means "the Overlay has not
         // finished initialising" — a state to retry, not a version disagreement to report to the user.
-        ShmHandshakeValidator.Validate(Handshake(_ours, layoutVersion: 0), _ours)
+        ShmHandshakeValidator.Validate(Handshake(_ours, layoutVersion: 0), _ours, _mapped)
             .Should().Be(ShmAttachRefusal.Incomplete);
     }
 
     [Fact]
     public void AnUnknownLayoutVersionIsRefused()
     {
-        ShmHandshakeValidator.Validate(Handshake(_ours, layoutVersion: ShmLayout.LayoutVersion + 1), _ours)
+        ShmHandshakeValidator.Validate(Handshake(_ours, layoutVersion: ShmLayout.LayoutVersion + 1), _ours, _mapped)
             .Should().Be(ShmAttachRefusal.LayoutVersionMismatch);
     }
 
@@ -79,7 +82,7 @@ public sealed class ShmHandshakeValidatorTests
         // every other field is only meaningful under a layout both sides agree on — and the two
         // refusals mean different things to the user.
         ShmHandshakeValidator.Validate(
-                Handshake(_ours, layoutVersion: ShmLayout.LayoutVersion + 1, recordSize: 48), _ours)
+                Handshake(_ours, layoutVersion: ShmLayout.LayoutVersion + 1, recordSize: 48), _ours, _mapped)
             .Should().Be(ShmAttachRefusal.LayoutVersionMismatch);
     }
 
@@ -88,7 +91,7 @@ public sealed class ShmHandshakeValidatorTests
     {
         // Belt-and-braces against struct drift that did not bump the version, which is exactly the
         // mistake the mirror test exists to prevent and this catches at runtime if it ever ships.
-        ShmHandshakeValidator.Validate(Handshake(_ours, recordSize: 48), _ours)
+        ShmHandshakeValidator.Validate(Handshake(_ours, recordSize: 48), _ours, _mapped)
             .Should().Be(ShmAttachRefusal.RecordSizeMismatch);
     }
 
@@ -100,7 +103,7 @@ public sealed class ShmHandshakeValidatorTests
     {
         // The ring masks indices with capacity-1. A non-power-of-two makes that arithmetic silently
         // address the wrong slots rather than fail, so it has to be refused at the door.
-        ShmHandshakeValidator.Validate(Handshake(_ours, capacity: capacity), _ours)
+        ShmHandshakeValidator.Validate(Handshake(_ours, capacity: capacity), _ours, _mapped)
             .Should().Be(ShmAttachRefusal.CapacityInvalid);
     }
 
@@ -112,14 +115,14 @@ public sealed class ShmHandshakeValidatorTests
         // THE STATE THAT MADE THIS CHECK UNIMPLEMENTABLE. Before FlGuardBuildId existed the managed
         // side had no value here, and the obvious implementation — compare two strings — would have
         // compared "" with "" and reported a match forever. A gate that cannot fail, guarding the ABI.
-        ShmHandshakeValidator.Validate(Handshake(_ours), mine).Should().Be(ShmAttachRefusal.Incomplete);
+        ShmHandshakeValidator.Validate(Handshake(_ours), mine, _mapped).Should().Be(ShmAttachRefusal.Incomplete);
     }
 
     [Fact]
     public void AnEmptyBuildIdInTheHandshakeRefuses()
     {
         // The other half of the same trap: a producer that never wrote the field.
-        ShmHandshakeValidator.Validate(Handshake(string.Empty), _ours).Should().Be(ShmAttachRefusal.Incomplete);
+        ShmHandshakeValidator.Validate(Handshake(string.Empty), _ours, _mapped).Should().Be(ShmAttachRefusal.Incomplete);
     }
 
     [Fact]
@@ -132,10 +135,30 @@ public sealed class ShmHandshakeValidatorTests
         // §S23-1 described this as "compares '' with '' forever". It is worth its own case because a
         // suite can assert each half separately and still never put both halves in the same call —
         // which is what I did on the first draft of this file.
-        ShmHandshakeValidator.Validate(Handshake(string.Empty), string.Empty)
+        ShmHandshakeValidator.Validate(Handshake(string.Empty), string.Empty, _mapped)
             .Should().Be(ShmAttachRefusal.Incomplete);
-        ShmHandshakeValidator.Validate(Handshake(string.Empty), null)
+        ShmHandshakeValidator.Validate(Handshake(string.Empty), null, _mapped)
             .Should().Be(ShmAttachRefusal.Incomplete);
+    }
+
+    [Fact]
+    public void ACapacityTheMappingCannotHoldIsRefused()
+    {
+        // A power of two is not by itself a safe capacity: EVERY value up to 2^31 is one, and the
+        // check above accepts them all. The reader indexes the ring by raw pointer arithmetic — it has
+        // to, because the seqlock needs ordering MemoryMappedViewAccessor.Read<T> does not give — so it
+        // also gives up that API's bounds check. Nothing else relates the handshake's claim to the
+        // section we were actually handed.
+        ShmHandshakeValidator.Validate(Handshake(_ours, capacity: 1u << 31), _ours, _mapped)
+            .Should().Be(ShmAttachRefusal.CapacityExceedsMapping);
+
+        // One slot too many for this mapping, which is the boundary rather than an absurd value.
+        ShmHandshakeValidator.Validate(Handshake(_ours), _ours, _mapped - 64)
+            .Should().Be(ShmAttachRefusal.CapacityExceedsMapping);
+
+        // And exactly fitting is accepted — a bound that refused the shipped writer would be a gate
+        // that cannot pass.
+        ShmHandshakeValidator.Validate(Handshake(_ours), _ours, _mapped).Should().Be(ShmAttachRefusal.Ok);
     }
 
     [Fact]
@@ -159,7 +182,7 @@ public sealed class ShmHandshakeValidatorTests
         id.Length.Should().BeLessThan(32, "FlShmHandshake.buildId holds 31 characters plus NUL");
 
         // And it must actually work as the comparison input, not merely be non-empty.
-        ShmHandshakeValidator.Validate(Handshake(id), id).Should().Be(ShmAttachRefusal.Ok);
-        ShmHandshakeValidator.Validate(Handshake(id + "x"), id).Should().Be(ShmAttachRefusal.BuildIdMismatch);
+        ShmHandshakeValidator.Validate(Handshake(id), id, _mapped).Should().Be(ShmAttachRefusal.Ok);
+        ShmHandshakeValidator.Validate(Handshake(id + "x"), id, _mapped).Should().Be(ShmAttachRefusal.BuildIdMismatch);
     }
 }
