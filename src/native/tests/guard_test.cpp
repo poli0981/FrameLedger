@@ -1072,6 +1072,11 @@ TEST_CASE("a suspicious module name refuses while the signer path is unwired", "
 
 #include <psapi.h>
 
+// The shared-memory contract the injected Overlay publishes. Included here rather
+// than at the top of the file so it travels with the injection block it belongs
+// to, which is the only part of this suite that has a live Overlay to inspect.
+#include <fl_shm.h>
+
 namespace {
 
 bool TargetHasModule(DWORD pid, const wchar_t* leaf) {
@@ -1151,6 +1156,72 @@ TEST_CASE("the injection primitive really loads our DLL into another process", "
     CHECK(v.signal[0] == '\0');    // an empty signal means the injection took
 
     CHECK(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+TEST_CASE("the injected Overlay publishes a handshake the Agent can validate", "[guard][inject][shm]") {
+    // End to end, through the real DLL: inject, then open Local\FrameLedger.Ring.<pid>
+    // from THIS process and check every field 04_CAPTURE says the Agent validates
+    // before attaching. Until this existed, FlShmHandshake had no producer at all
+    // and the version handshake compared "" with "" forever.
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --hold 30";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources());
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+    REQUIRE(v.Allowed());
+
+    // The init thread runs off the loader lock, so the mapping appears shortly
+    // after LoadLibrary returns rather than during it. Poll instead of sleeping a
+    // guessed amount: a fixed sleep is either flaky or slow, and on a loaded CI
+    // runner it is both.
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+
+    const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    const auto* h =
+        reinterpret_cast<const fl::FlShmHandshake*>(static_cast<const unsigned char*>(base) + FL_SHM_HANDSHAKE_OFFSET);
+    const auto* st =
+        reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+
+    CHECK(h->layoutVersion == FL_SHM_LAYOUT_VERSION);
+    CHECK(h->recordSize == sizeof(fl::FlFrameRecord));
+    CHECK(h->capacity == FL_SHM_DEFAULT_CAPACITY);
+    CHECK(h->pid == child.pi.dwProcessId);
+    CHECK(std::strcmp(h->buildId, FL_BUILD_ID) == 0);
+    CHECK(h->qpcEpoch != 0);
+    // 0 = NOT YET KNOWN, and it must stay 0 until first present: at init we are
+    // two steps before any graphics module is resolved, and a confident answer
+    // about the wrong GPU is worse than an admission (#36).
+    CHECK(h->adapterLuid == 0);
+
+    // NOT ready. Nothing is hooked in this slice, so the ring will never receive
+    // a record, and FL_STATUS_READY would claim a capture side that does not
+    // exist -- the defect class 20_OPEN_QUESTIONS exists to record.
+    CHECK(st->status == fl::FL_STATUS_INIT);
+    CHECK(st->writeIndex == 0);
+    CHECK(st->faultCount == 0);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
 }
 
 TEST_CASE("a REFUSED guard injects nothing", "[guard][inject]") {
