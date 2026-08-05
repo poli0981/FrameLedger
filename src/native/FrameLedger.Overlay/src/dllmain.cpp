@@ -22,9 +22,14 @@
 
 #include <windows.h>
 
+#include <d3d11.h>
+#include <dxgi1_2.h>
+
 #include <cstdio>
+#include <cstring>
 #include <fl_ring.h>
 #include <fl_shm.h>
+#include <MinHook.h>
 #include <sddl.h>
 
 using namespace fl;
@@ -166,21 +171,291 @@ void PublishHandshake() noexcept {
     version.store(FL_SHM_LAYOUT_VERSION, std::memory_order_release);
 }
 
+// ---------------------------------------------------------------------------
+// Fault policy (docs/17_HOOK_ENGINE.md §Fault policy, NFR-3).
+// ---------------------------------------------------------------------------
+FlWriterState* g_state = nullptr;
+
+// Only OUR code is guarded, never the call to the original -- otherwise a game's
+// own fault inside the trampoline would be counted as ours, and ours as the
+// game's. Both directions of that confusion are bad.
+LONG FlFilter(DWORD code) noexcept {
+    // EXCEPTION_BREAKPOINT belongs to a debugger, not to us.
+    if (code == EXCEPTION_BREAKPOINT || code == EXCEPTION_SINGLE_STEP) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+void NoteFault() noexcept {
+    if (g_state == nullptr) {
+        return;
+    }
+    std::atomic_ref<uint32_t> faults{g_state->faultCount};
+    const uint32_t            n = faults.fetch_add(1, std::memory_order_acq_rel) + 1;
+    if (n >= 3) {
+        // Three faults total => stop writing and go dormant. MH_DisableHook is
+        // safe here because we are outside our own guarded body by now.
+        MH_DisableHook(MH_ALL_HOOKS);
+        std::atomic_ref<uint32_t> status{g_state->status};
+        status.store(FL_STATUS_SELF_DISABLED, std::memory_order_release);
+    }
+}
+
+#define FL_HOOK_GUARD(body)                                                                                            \
+    __try {                                                                                                            \
+        body                                                                                                           \
+    } __except (FlFilter(GetExceptionCode())) {                                                                        \
+        NoteFault();                                                                                                   \
+    }
+
+// ---------------------------------------------------------------------------
+// Per-swapchain identity and cached output size.
+//
+// Patching a vtable slot patches the SHARED dxgi.dll class vtable, so ONE hook
+// sees EVERY swapchain in the process -- measured across five configurations
+// (#36). A title with a separate UI or video swapchain therefore inflates F_disp
+// unless the records say which stream they came from.
+//
+// Fixed capacity, linear scan, no allocation: this runs on the present path.
+// Overflow yields id 0, which fl_shm.h defines as "unidentified" and the Agent
+// must treat as one undifferentiated stream -- never as a valid id.
+// ---------------------------------------------------------------------------
+constexpr size_t kMaxSwapChains = 16;
+
+struct SwapChainSlot {
+    void*    ptr = nullptr;
+    uint32_t id = 0;
+    uint16_t outW = 0;
+    uint16_t outH = 0;
+};
+
+SwapChainSlot g_chains[kMaxSwapChains]{};
+uint32_t      g_nextChainId = 1;
+
+SwapChainSlot* FindOrAdd(IDXGISwapChain* sc) noexcept {
+    for (auto& s : g_chains) {
+        if (s.ptr == sc) {
+            return &s;
+        }
+    }
+    for (auto& s : g_chains) {
+        if (s.ptr == nullptr) {
+            s.ptr = sc;
+            s.id = g_nextChainId++;
+            DXGI_SWAP_CHAIN_DESC desc{};
+            if (SUCCEEDED(sc->GetDesc(&desc))) {
+                s.outW = static_cast<uint16_t>(desc.BufferDesc.Width);
+                s.outH = static_cast<uint16_t>(desc.BufferDesc.Height);
+            }
+            return &s;
+        }
+    }
+    return nullptr;
+}
+
+void ForgetChainSize(IDXGISwapChain* sc) noexcept {
+    for (auto& s : g_chains) {
+        if (s.ptr == sc) {
+            s.outW = 0;
+            s.outH = 0;
+            DXGI_SWAP_CHAIN_DESC desc{};
+            if (SUCCEEDED(sc->GetDesc(&desc))) {
+                s.outW = static_cast<uint16_t>(desc.BufferDesc.Width);
+                s.outH = static_cast<uint16_t>(desc.BufferDesc.Height);
+            }
+            return;
+        }
+    }
+}
+
+// adapterLuid is published at FIRST PRESENT, not at init: at init we are two
+// steps before any graphics module is resolved and our dummy device's adapter is
+// not the game's. 0 means "not yet known" (#36).
+void PublishAdapterOnce(IDXGISwapChain* sc) noexcept {
+    auto* h = reinterpret_cast<FlShmHandshake*>(static_cast<unsigned char*>(g_base) + FL_SHM_HANDSHAKE_OFFSET);
+    std::atomic_ref<uint64_t> luid{h->adapterLuid};
+    if (luid.load(std::memory_order_relaxed) != 0) {
+        return;
+    }
+    IDXGIDevice* dev = nullptr;
+    if (FAILED(sc->GetDevice(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dev))) || dev == nullptr) {
+        return;
+    }
+    IDXGIAdapter* ad = nullptr;
+    if (SUCCEEDED(dev->GetAdapter(&ad)) && ad != nullptr) {
+        DXGI_ADAPTER_DESC d{};
+        if (SUCCEEDED(ad->GetDesc(&d))) {
+            uint64_t v = 0;
+            std::memcpy(&v, &d.AdapterLuid, sizeof(v));
+            luid.store(v, std::memory_order_release);
+        }
+        ad->Release();
+    }
+    dev->Release();
+}
+
+uint32_t g_frameIndex = 0;
+
+// The hot path. One QPC read, a few cached-state reads, one 60-byte store in two
+// spans, two relaxed atomic stores, two fences. No syscall, no allocation, no
+// lock, no logging (NFR-1, target <= 1 us; a bare vtable detour measured 8.4 ns).
+void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
+    LARGE_INTEGER qpc{};
+    QueryPerformanceCounter(&qpc);
+
+    SwapChainSlot* slot = FindOrAdd(sc);
+    PublishAdapterOnce(sc);
+
+    FlFrameRecord rec{};
+    rec.qpc = static_cast<uint64_t>(qpc.QuadPart);
+    rec.frameIndex = g_frameIndex++;
+    rec.presentFlags = flags;
+    rec.syncInterval = static_cast<uint16_t>(syncInterval);
+    rec.api = FL_API_D3D11;    // refined when the device type is resolved
+    rec.swapchainId = slot != nullptr ? slot->id : 0u;
+    if (slot != nullptr) {
+        rec.outputW = slot->outW;
+        rec.outputH = slot->outH;
+    }
+
+    // HONESTY, and it is the whole reason #36 spent two bytes. A present-only
+    // writer has installed no upscaler, FG, RT, PSO, VRAM or latency hook, so it
+    // may claim exactly one thing: the output size it read off the swapchain.
+    // Leaving measuredMask at 0 with the zero-defaults would assert "no
+    // upscaler, no frame generation, no ray tracing" as MEASURED FACT ~118 times
+    // a second -- producing fg_factor 1.0 (CLAUDE.md rule 6) and a definite RT
+    // No (rule 7) about a title nobody looked at.
+    rec.measuredMask = FL_MEASURED_OUTPUT_RES;
+    rec.rtFlags = FL_RT_NOT_MEASURED;
+
+    g_writer.Publish(rec);
+}
+
+// ---------------------------------------------------------------------------
+// The hooks. Indices proved BY BEHAVIOUR, not asserted: slot 8 Present, 13
+// ResizeBuffers, 22 Present1 (spike-notes.md §H4, ctest fl_vtable_indices).
+// ---------------------------------------------------------------------------
+using PFN_Present = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+using PFN_Present1 = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
+using PFN_ResizeBuffers = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT, UINT, DXGI_FORMAT, UINT);
+
+PFN_Present       g_origPresent = nullptr;
+PFN_Present1      g_origPresent1 = nullptr;
+PFN_ResizeBuffers g_origResizeBuffers = nullptr;
+
+HRESULT STDMETHODCALLTYPE Hook_Present(IDXGISwapChain* sc, UINT sync, UINT flags) {
+    FL_HOOK_GUARD({ RecordPresent(sc, sync, flags); })
+    // ALWAYS exactly once, on every path including the fault path. Never inside
+    // the __try: a fault in the game's own present must not be attributed to us.
+    return g_origPresent(sc, sync, flags);
+}
+
+HRESULT STDMETHODCALLTYPE Hook_Present1(IDXGISwapChain1* sc, UINT sync, UINT flags,
+                                        const DXGI_PRESENT_PARAMETERS* params) {
+    FL_HOOK_GUARD({ RecordPresent(reinterpret_cast<IDXGISwapChain*>(sc), sync, flags); })
+    return g_origPresent1(sc, sync, flags, params);
+}
+
+HRESULT STDMETHODCALLTYPE Hook_ResizeBuffers(IDXGISwapChain* sc, UINT count, UINT w, UINT h, DXGI_FORMAT fmt,
+                                             UINT flags) {
+    // The size is re-read AFTER the original runs, or we would cache the size
+    // that is being replaced. 17_HOOK_ENGINE hooks this precisely because output
+    // resolution changes mid-session.
+    const HRESULT hr = g_origResizeBuffers(sc, count, w, h, fmt, flags);
+    FL_HOOK_GUARD({ ForgetChainSize(sc); })
+    return hr;
+}
+
+// A throwaway WARP swapchain, purely to read the shared class vtable. Released
+// immediately: 17_HOOK_ENGINE §Getting vtable addresses. Never hardcode the
+// pointer, never keep the object.
+bool InstallPresentHooks() noexcept {
+    ID3D11Device*        dev = nullptr;
+    ID3D11DeviceContext* ctx = nullptr;
+    D3D_FEATURE_LEVEL    got{};
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0,
+                                 D3D11_SDK_VERSION, &dev, &got, &ctx))) {
+        return false;
+    }
+
+    IDXGIDevice*     dxgiDev = nullptr;
+    IDXGIAdapter*    adapter = nullptr;
+    IDXGIFactory2*   factory = nullptr;
+    IDXGISwapChain1* dummy = nullptr;
+    bool             ok = false;
+
+    if (SUCCEEDED(dev->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDev))) &&
+        SUCCEEDED(dxgiDev->GetAdapter(&adapter)) &&
+        SUCCEEDED(adapter->GetParent(__uuidof(IDXGIFactory2), reinterpret_cast<void**>(&factory)))) {
+        DXGI_SWAP_CHAIN_DESC1 desc{};
+        desc.Width = 8;
+        desc.Height = 8;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 2;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        desc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+        // Composition, so no HWND and no interactive window station is needed --
+        // the same choice that lets hook-harness run headless on CI.
+        if (SUCCEEDED(factory->CreateSwapChainForComposition(dev, &desc, nullptr, &dummy)) && dummy != nullptr) {
+            void** vtbl = *reinterpret_cast<void***>(dummy);
+            ok = MH_CreateHook(vtbl[8], reinterpret_cast<void*>(&Hook_Present),
+                               reinterpret_cast<void**>(&g_origPresent)) == MH_OK &&
+                 MH_CreateHook(vtbl[13], reinterpret_cast<void*>(&Hook_ResizeBuffers),
+                               reinterpret_cast<void**>(&g_origResizeBuffers)) == MH_OK &&
+                 MH_CreateHook(vtbl[22], reinterpret_cast<void*>(&Hook_Present1),
+                               reinterpret_cast<void**>(&g_origPresent1)) == MH_OK &&
+                 MH_EnableHook(MH_ALL_HOOKS) == MH_OK;
+        }
+    }
+
+    if (dummy != nullptr) {
+        dummy->Release();
+    }
+    if (factory != nullptr) {
+        factory->Release();
+    }
+    if (adapter != nullptr) {
+        adapter->Release();
+    }
+    if (dxgiDev != nullptr) {
+        dxgiDev->Release();
+    }
+    if (ctx != nullptr) {
+        ctx->Release();
+    }
+    if (dev != nullptr) {
+        dev->Release();
+    }
+    return ok;
+}
+
 DWORD WINAPI InitThread(LPVOID) noexcept {
     if (!CreateRing()) {
         return 1;
     }
     PublishHandshake();
 
-    auto* state = reinterpret_cast<FlWriterState*>(static_cast<unsigned char*>(g_base) + FL_SHM_WRITER_OFFSET);
+    g_state = reinterpret_cast<FlWriterState*>(static_cast<unsigned char*>(g_base) + FL_SHM_WRITER_OFFSET);
     if (!g_writer.Init(g_base, FL_SHM_DEFAULT_CAPACITY)) {
         return 1;
     }
 
-    // NOT FL_STATUS_READY. Nothing is hooked yet, so no record will ever arrive,
-    // and READY would be a claim about a capture side that does not exist.
-    std::atomic_ref<uint32_t> status{state->status};
-    status.store(FL_STATUS_INIT, std::memory_order_release);
+    std::atomic_ref<uint32_t> status{g_state->status};
+
+    if (MH_Initialize() != MH_OK || !InstallPresentHooks()) {
+        // Hooking failed, so nothing will ever be recorded. Staying at INIT says
+        // exactly that; READY would be a claim about a capture side that does not
+        // exist, and the Agent's degradation path is what should run instead.
+        status.store(FL_STATUS_INIT, std::memory_order_release);
+        return 1;
+    }
+
+    std::atomic_ref<uint32_t> apiMask{g_state->apiMask};
+    apiMask.store(1u << FL_API_D3D11, std::memory_order_relaxed);
+    status.store(FL_STATUS_READY, std::memory_order_release);
     return 0;
 }
 

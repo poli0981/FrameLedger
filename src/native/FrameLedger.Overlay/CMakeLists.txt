@@ -5,8 +5,11 @@ add_library(FrameLedger.Overlay SHARED src/dllmain.cpp)
 # SID (07_IPC §Security), which needs the token's user SID and the SDDL
 # converters. Not a convenience — the Agent's control block lives in that
 # mapping, and unhookRequested is the safety stop.
+# d3d11/dxgi: the present hook reads the SHARED class vtable off a throwaway WARP
+# composition swapchain (17_HOOK_ENGINE §Getting vtable addresses) — never a
+# hardcoded pointer, and the dummy object is released immediately.
 target_link_libraries(FrameLedger.Overlay PRIVATE FrameLedger.Shm fl_native_flags fl_hostile_env_flags minhook
-    Advapi32)
+    Advapi32 d3d11 dxgi)
 set_target_properties(FrameLedger.Overlay PROPERTIES OUTPUT_NAME "FrameLedger.Overlay")
 
 # VERSIONINFO is mandatory and the build fails without it: being plainly

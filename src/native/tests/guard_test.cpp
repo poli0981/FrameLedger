@@ -1075,7 +1075,9 @@ TEST_CASE("a suspicious module name refuses while the signer path is unwired", "
 // The shared-memory contract the injected Overlay publishes. Included here rather
 // than at the top of the file so it travels with the injection block it belongs
 // to, which is the only part of this suite that has a live Overlay to inspect.
+#include <fl_ring.h>
 #include <fl_shm.h>
+#include <vector>
 
 namespace {
 
@@ -1213,11 +1215,127 @@ TEST_CASE("the injected Overlay publishes a handshake the Agent can validate", "
     // about the wrong GPU is worse than an admission (#36).
     CHECK(h->adapterLuid == 0);
 
-    // NOT ready. Nothing is hooked in this slice, so the ring will never receive
-    // a record, and FL_STATUS_READY would claim a capture side that does not
-    // exist -- the defect class 20_OPEN_QUESTIONS exists to record.
-    CHECK(st->status == fl::FL_STATUS_INIT);
+    // READY once the present hooks are installed. This assertion read
+    // FL_STATUS_INIT in the slice that added the handshake, when nothing was
+    // hooked and READY would have claimed a capture side that did not exist.
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    CHECK(st->status == fl::FL_STATUS_READY);
+
+    // AND YET NO RECORDS, which is the trap worth keeping a test on.
+    // hook-harness --hold presents 240 frames and THEN sleeps; we inject ~800 ms
+    // later, by which time those frames are long gone. Hooks installed, target
+    // alive, ring empty. Any acceptance criterion of the form "N presents -> N
+    // records" written against --hold would be vacuous -- which is why
+    // --hold-presenting exists and why the next case uses it.
     CHECK(st->writeIndex == 0);
+    CHECK(st->faultCount == 0);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}
+
+TEST_CASE("the injected Overlay records real presents into the ring", "[guard][inject][shm]") {
+    // The end-to-end claim the whole hook layer exists for, against a target that
+    // is PRESENTING WHILE WE INJECT. --hold cannot be used here: it presents 240
+    // frames and then sleeps, and we inject ~800 ms later, so an Overlay in a
+    // --hold target observes exactly zero. --hold-presenting exists for this.
+    //
+    // --real matters just as much: DXGI_PRESENT_TEST submits nothing, and an
+    // acceptance criterion that counts presents against a stream of non-frames is
+    // satisfiable only by a writer that counts non-frames (#35).
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --hold-presenting 8";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources());
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+    REQUIRE(v.Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    const auto* st =
+        reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+
+    // READY means hooks are installed. Poll: hook installation happens on the
+    // init thread after the mapping is published.
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    REQUIRE(st->status == fl::FL_STATUS_READY);
+
+    fl::RingReader rd;
+    REQUIRE(rd.Init(base, FL_SHM_DEFAULT_CAPACITY));
+
+    std::vector<fl::FlFrameRecord> all;
+    for (int i = 0; i < 60 && all.size() < 200; ++i) {
+        fl::FlFrameRecord buf[256]{};
+        const auto        r = rd.Drain(buf, 256);
+        for (std::uint32_t k = 0; k < r.copied; ++k) {
+            all.push_back(buf[k]);
+        }
+        CHECK(r.dropped == 0);    // 8192 slots against ~120/s: a drop means we stalled for seconds
+        Sleep(100);
+    }
+
+    INFO("drained " << all.size() << " record(s)");
+    REQUIRE(all.size() > 20);    // ~120/s for several seconds; 20 is a floor, not a target
+
+    // N PRESENTS -> N RECORDS, in the only form this side can verify exactly:
+    // frameIndex is assigned by the writer once per observed present, so a
+    // contiguous run from 0 proves no present was double-counted and none was
+    // dropped between the hook and the ring.
+    for (std::size_t i = 0; i < all.size(); ++i) {
+        REQUIRE(all[i].frameIndex == static_cast<std::uint32_t>(i));
+    }
+
+    bool timeMovesForward = true;
+    bool honest = true;
+    bool identified = true;
+    for (std::size_t i = 0; i < all.size(); ++i) {
+        if (i > 0 && all[i].qpc <= all[i - 1].qpc) {
+            timeMovesForward = false;
+        }
+        // The honesty property, and the reason #36 spent two bytes: a
+        // present-only writer may claim the output size and NOTHING else.
+        // measuredMask 0 with the zero-defaults would assert "no upscaler, no
+        // frame generation, no ray tracing" as measured fact.
+        if (all[i].measuredMask != fl::FL_MEASURED_OUTPUT_RES || (all[i].rtFlags & fl::FL_RT_NOT_MEASURED) == 0) {
+            honest = false;
+        }
+        if (all[i].swapchainId == 0) {
+            identified = false;
+        }
+    }
+    CHECK(timeMovesForward);
+    CHECK(honest);
+    CHECK(identified);
+
+    // Published at first present, never at init: our dummy device's adapter is
+    // not the game's (#36).
+    const auto* h =
+        reinterpret_cast<const fl::FlShmHandshake*>(static_cast<const unsigned char*>(base) + FL_SHM_HANDSHAKE_OFFSET);
+    CHECK(h->adapterLuid != 0);
     CHECK(st->faultCount == 0);
 
     UnmapViewOfFile(base);
