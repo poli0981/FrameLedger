@@ -204,12 +204,25 @@ enum class ParseResult : std::uint8_t {
 // Per-title lists (check 3). Return the matching rule so the caller can report
 // the family and the reason, or nullptr.
 //
-// TWO SEPARATE REASONS THESE MATCH NOTHING TODAY, and §S14 records only the
-// first: both arrays are empty in the shipped seed, AND neither function has a
-// single call site anywhere in the tree — check 3 is UNWIRED, not merely
-// unpopulated, so filling the data would change nothing. `storeId` is the
-// joined form ("steam:730"); an unresolvable identity must reach the caller as
-// unknown, never as a clean miss (§S14's second question, still open).
+// THE TWO HALVES ARE NO LONGER IN THE SAME STATE, and this comment used to say
+// they were. Corrected 2026-08-05, because a comment that names a mechanism is a
+// design somebody builds against.
+//
+//   MatchesBlockedExecutable — WIRED. `CheckBlockedExecutable` calls it from
+//   inside `EvaluateImpl`, between the module scan and the static pre-scan. The
+//   shipped array is still empty, so it refuses nothing today; what changed is
+//   that filling it now does something.
+//
+//   MatchesBlockedStoreId — UNCALLED, and it cannot be called, for three
+//   independent reasons rather than for want of effort (§S14): nothing produces
+//   a store id (the platform metadata extractors are unbuilt), `FlGuardEvaluate`
+//   takes a pid and nothing else BY DESIGN (§S3 forbids a caller asserting a
+//   safety fact), and "unknown refuses" applied to it would refuse every title
+//   on every machine — a gate that cannot pass. Do NOT "fix" the second by
+//   widening the ABI.
+//
+// `storeId` is the joined form ("steam:730"); an unresolvable identity must
+// reach the caller as unknown, never as a clean miss.
 [[nodiscard]] const TitleRule* MatchesBlockedExecutable(const Rules& rules, const char* exeName) noexcept;
 [[nodiscard]] const TitleRule* MatchesBlockedStoreId(const Rules& rules, const char* storeId) noexcept;
 

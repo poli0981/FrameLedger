@@ -4,6 +4,26 @@
 
 > No telemetry. No accounts. All data stays on your machine.
 
+> ⚠ **Accuracy note — 2026-08-05. This README describes the finished product; the software
+> is pre-alpha and most of what follows is not built yet.** Added because every other
+> user-facing document here carries such a note and this one — the first thing anyone
+> reads — carried none, while `legal/DISCLAIMER.md` had already been through two rounds of
+> exactly this correction.
+>
+> **What actually works today:** frame boundaries, frame times and output resolution, from
+> a Direct3D 11/12 present hook, written into shared memory and read back by the Agent's
+> ring reader. The anti-cheat guard runs all of its pre-injection checks and refuses.
+>
+> **What does not yet exist**, and is written above in the present tense: every bullet
+> under *What makes it different* except output resolution — no upscaler, quality preset,
+> render resolution, frame generation, ray tracing, VRAM, shader-stutter or Reflex hook has
+> been written. The capture side says so in its own data rather than defaulting to "none"
+> (`docs/03_METRICS.md`, CLAUDE.md rules 6 and 7). There is also no storage, no charts, no
+> library import, no UI and no installer.
+>
+> The two rows that describe **safety behaviour** are qualified where they sit, rather than
+> here, because that is where a reader checking their own risk will look.
+
 ## What makes it different
 
 Most tools tell you your frame rate. FrameLedger tells you **what produced that frame rate**:
@@ -29,7 +49,7 @@ FrameLedger is built to keep that risk small and to be honest about it:
 | Safeguard | |
 |---|---|
 | **Off by default** | Injection is disabled for every game until you enable it individually, after a consent prompt |
-| **Hard refusal** | Known anti-cheat/anti-tamper components are detected before injection and every 30 s during a session. Detected ⇒ FrameLedger refuses, or stops capturing at the next scan — so up to 30 s can pass before it reacts to anti-cheat that loads mid-session. For Direct3D/OpenGL that means hooks are removed; for Vulkan it means the layer goes passthrough, because a layer cannot leave the loader chain of a running game. **There is no override — not in settings, not in a config file, not on the command line** |
+| **Hard refusal** | Known anti-cheat/anti-tamper components are detected before injection and every 30 s during a session. Detected ⇒ FrameLedger refuses, or stops capturing at the next scan — so up to 30 s can pass before it reacts to anti-cheat that loads mid-session. For Direct3D/OpenGL that means hooks are removed; for Vulkan it means the layer goes passthrough, because a layer cannot leave the loader chain of a running game. **There is no override — not in settings, not in a config file, not on the command line**<br><br>⚠ **Half of this is built.** The *pre-injection* refusal is real and runs every documented check. The **in-session re-scan does not run at all**: the component inside the game removes its hooks within one frame of being told to, and within 65 s if it stops hearing from the scanner — but nothing yet drives the scanner during a session, so nothing ever tells it. `legal/DISCLAIMER.md` §2 states this in full. The Vulkan layer additionally intercepts nothing yet, so there is no Vulkan capture to stop. |
 | **No evasion, ever** | FrameLedger does not hide, rename, obfuscate, or disguise itself. It keeps its real name, real exports, and version info. It is meant to be plainly visible to any security software that looks. This is an architectural rule, not a setting |
 | **Read-only** | It never reads or writes game memory, never modifies game behavior, never touches saves or input, and never changes GPU clocks, fans, or power limits |
 | **Always a way out** | A no-injection mode (ETW-based) is the default for anything the software is unsure about. It needs the Agent running elevated, because Windows restricts the trace sessions it uses — FrameLedger tells you when that applies rather than silently recording less |
@@ -71,7 +91,9 @@ Elevation is **optional for Tier-1 hooked capture** — that is the normal path 
 
 ## Privacy
 
-Everything lives locally in `%LOCALAPPDATA%\FrameLedger`. The only network calls: update checks against GitHub Releases, detection-rules updates from this repository, and *optional, opt-in* store metadata lookups. Bug reports are always built locally, shown to you, and submitted by you. Full policy: [`legal/PRIVACY_POLICY.md`](legal/PRIVACY_POLICY.md).
+Everything lives locally in `%LOCALAPPDATA%\FrameLedger`. The only network calls FrameLedger will ever make: update checks against GitHub Releases, detection-rules updates from this repository, and *optional, opt-in* store metadata lookups. Bug reports are always built locally, shown to you, and submitted by you. Full policy: [`legal/PRIVACY_POLICY.md`](legal/PRIVACY_POLICY.md).
+
+**Today it makes none of them.** The rules feed in particular does not exist — the blocklist ships with the build and updates only when you install a new one (`docs/20_OPEN_QUESTIONS.md` §S20). Listing a fetch that has no code is over-disclosure, and this document was already corrected once for describing a weekly outbound request the software never made.
 
 ## License
 
@@ -85,7 +107,9 @@ Developer/AI-facing docs in [`docs/`](docs/). Start with `CLAUDE.md`, then `docs
 
 ## Reporting a safety gap
 
-If you find a game with anti-cheat that FrameLedger fails to detect, please open an issue — **that is a safety bug and is treated with the same priority as a security report.** Blocklist entries ship as data and can be updated without a new release.
+If you find a game with anti-cheat that FrameLedger fails to detect, please open an issue — **that is a safety bug and is treated with the same priority as a security report.**
+
+**How fast a fix can reach you, stated accurately.** Blocklist entries are data rather than code, so a fix is a one-line change here. But the software has **no rules-update path yet**: it installs the blocklist that shipped with your build and never fetches another (`docs/20_OPEN_QUESTIONS.md` §S20, feed half). Until that exists, a blocklist fix reaches you **only when you install a new release**. This paragraph previously said the opposite, and the sentence it said it in was a response-time promise attached to a security-priority commitment.
 
 ---
 

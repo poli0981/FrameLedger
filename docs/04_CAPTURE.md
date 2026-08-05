@@ -75,8 +75,29 @@ What the Agent checks **before** asking the guard is the thing the native side s
 ## Ring draining
 
 - Map `Local\FrameLedger.Ring.<pid>`; validate layout version + build id against our own. Mismatch (app updated while game running) → refuse to attach, tell the user to restart the game.
+
+  > **"Our own" needed a source, and this document never named one** — which is the
+  > gap §S23-1 was raised for: the check was specified in two documents and could not
+  > run in either direction. It is `FlGuardBuildId`, exported by the guard DLL the
+  > Agent already loads by absolute path from our install directory. **Not** the
+  > Overlay's `FlGetBuildId`: reaching that would mean `LoadLibraryW`-ing the payload
+  > into the Agent, which starts its init thread and creates a ring under the Agent's
+  > own pid.
+  >
+  > Implemented as `FrameLedger.Shared.ShmHandshakeValidator`; `07_IPC` §Protocol
+  > rules carries the five refusals and why `layoutVersion == 0` means *retry*
+  > rather than *restart the game*.
 - Drain every 100 ms: read `writeIndex` (acquire), copy new records, validate `seq` before/after each (skip torn), advance the read index. Protocol in `07_IPC` §Protocol rules.
 - **Dropped records are computed here, not read from the header.** The Overlay has no reader index and cannot know whether a slot it overwrites was consumed. The Agent owns the read index, so it owns the accounting: when `writeIndex - readIndex > capacity`, add the excess to the session's data-quality counter and resume at `writeIndex - capacity`. A non-zero value means the Agent stalled for over ~16 s — log it, surface it as a session warning, never silently accept it.
+
+  > **That sentence is true only because the read index is seeded from the writer at
+  > attach**, and neither this document nor `07_IPC` said so until 2026-08-05.
+  > Seeded at 0 instead, a drain attaching to a ring at `writeIndex` 1,000,000
+  > reports 999,992 drops on its first pass — so the warning would fire on every
+  > attach to a game that had been running a while, and its magnitude would be set
+  > by the game's uptime rather than by anything the Agent did. Records already
+  > published at attach are counted separately as `RecordsBeforeAttach`; that is not
+  > a stall and must not raise this warning.
 - **A torn record is a gap, not a skipped frame.** Silently dropping it merges two frame times into one double-length interval, i.e. fabricates a stutter. Record an explicit gap at that index; `03_METRICS` excludes gap-adjacent intervals from frame-time statistics.
 - Records go into an in-memory buffer (`ArrayPool<FlFrameRecord>` segments). Every 60 s, a crash-safety flush writes raw buffers to `%LOCALAPPDATA%\FrameLedger\tmp\<sessionGuid>.partial`.
 

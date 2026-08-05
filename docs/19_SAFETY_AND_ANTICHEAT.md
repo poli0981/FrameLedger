@@ -437,7 +437,7 @@ normative documentation. Write tokens here exactly as the data must hold them.
 | Anti-Cheat Expert | `services` | name | `AntiCheatExpert Protection`, `AntiCheatExpert Service` |
 | Anti-Cheat Expert | `files` | name | `PGameProtectDriver_X64.sys` |
 | **Activision Ricochet** | — | — | **No data yet** — driver and service names unconfirmed (`20_OPEN_QUESTIONS` §S5) |
-| **Valve VAC** | — | — | **No data yet** — needs `blockedStoreIds`, and check 3 is unwired (§S14). **Measured 2026-08-04: a real VAC title returns `Allow`** (`spike-notes.md` §13) |
+| **Valve VAC** | — | — | **No data yet** — needs `blockedStoreIds`, whose half of check 3 **cannot be called** (§S14; the executable half was wired in #52, but a renamed exe defeats it anyway, which is why this row reserves the store-id route). **Measured 2026-08-04: a real VAC title returns `Allow`** (`spike-notes.md` §13) |
 
 The "no data yet" rows are deliberately kept rather than deleted. An admitted
 gap is reviewable; a deleted row is invisible.
@@ -508,9 +508,20 @@ injected or layered**.
 > The wording is now "every pre-injection check" rather than a list, so the
 > sentence cannot go stale again the next time a check is added. The list of
 > checks lives in §Pre-injection checks above, once — **including its ⚠ that
-> check 3 is unwired.** The re-scan inherits that gap rather than closing it:
-> "every check" means every check that runs, and one of the four documented ones
-> still does not.
+> check 3's store-id half cannot be called.** The re-scan inherits that gap
+> rather than closing it.
+>
+> > **This clause was corrected on 2026-08-05 and it is worth saying why it went
+> > wrong.** It read *"including its ⚠ that check 3 is unwired … one of the four
+> > documented ones still does not [run]"*. #52 rewrote the ⚠ it points at, three
+> > hundred lines above, and left this sentence citing it — **the restate-in-two-
+> > places failure this very entry was closed for, reintroduced by the closure.**
+> > Deferring to another section is not the same as not restating it: a pointer
+> > that paraphrases what it points at is a copy.
+> >
+> > Two things were wrong, not one. Check 3's *executable* half runs; and "four
+> > documented" undercounts, because 2b (`services`) is a documented check and is
+> > the only tier ever measured firing on real anti-cheat. Five run.
 
 > **Scoping this to "hooked" sessions was a real gap.** Everything about the
 > re-scan was written as "during a hooked session" / "loading *after*

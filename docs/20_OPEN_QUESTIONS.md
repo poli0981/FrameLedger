@@ -74,9 +74,26 @@ or it becomes the next stale status claim this file exists to record.
 | **S23-6** | ◐ **partly closed** | `license-check` now binds `THIRD_PARTY_NOTICES` bidirectionally — the first real gate over anything in `legal/`. The **accuracy blocks remain hand-maintained prose that nothing verifies**, and `DISCLAIMER.md`'s went stale a second time on 2026-08-05 |
 | **S23-2** | 🚫 **owner only — no PR can close it** | `Rules / validate` is **not** a required status check on `main`. **Re-verified against the live branch protection 2026-08-05**, not repeated from the entry: `required_status_checks.contexts` is exactly `["check", "analyze (csharp, none)", "analyze (cpp, manual)"]` (`strict: true`, `enforce_admins: true`, `required_linear_history: true`). The `validate` job is path-filtered and `pull_request`-only, so a red removal check does not block the merge button. **The gate that exists to make the anti-cheat blocklist un-removable is advisory.** This is a branch-protection setting |
 
-**Six items are ❓ and one is 🚫.** P0 cannot meet exit criterion 2 until each ❓
-gets either work or a written rationale, and until the owner acts on S23-2 — which
-no amount of code will do.
+| **S29** | 🔴 **open, new 2026-08-05** | Six findings from the P0 completion audit. Four are gates: the items-4/6/7 honesty assertion is not in the merge gate, `fl_vtable_indices` pins the harness rather than the Overlay, a second tickless supervision path, and `vklayer-blastradius` case 3 cannot fail. Plus no session-end signal, and a **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery |
+
+~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
+exit criterion 2, not seven, and the undercount came from reading only the ❓ rows.**
+The criterion is *"resolved, **or** explicitly deferred with a written rationale"* —
+so ⏳ (open, sequenced) and ◐ (partly closed) are just as open as ❓, and each needs
+either work or a rationale written down:
+
+- **six ❓** — S6, S19(a), S19(c), S19(d) residual, S20 feed half, S23-5
+- **three ⏳** — S2 part three, S4 signing, S23-3
+- **two ◐** — S14, S23-6
+- **one 🔴** — S29, added by the audit that produced this recount
+- **plus 🚫 S23-2**, which no amount of code will do — the owner has to change a
+  branch-protection setting.
+
+**The markers themselves are part of the problem and should be unified.** One
+disposition — *deferred, with a rationale written* — currently wears three glyphs:
+S12 is `✅ deferred`, S1 and S13(c) are `🅓 deferred`, S19(b) is `🔴 deferred, but
+now MEASURED`. This table exists so the criterion can be audited by *counting
+markers*; three glyphs for one state defeats the only thing it is for.
 
 ### S26 ✅ · The ring counted occlusion probes as frames — **closed 2026-08-05**
 
@@ -141,6 +158,75 @@ rather than of an instance.
 > parses its own copy at init, which is a different process and therefore fine
 > today, and `fl_guard_test` drives the guard directly. If a second managed host
 > ever loads the DLL, this lock does not span processes.
+
+### S29 · What the 2026-08-05 P0 completion audit found — five gates and one contradiction
+
+A five-slice audit of the tree against the docs, with every claim re-checked by a
+refuter told to default to *refuted*. The ledger drift it found is fixed in the PR
+that records this. What follows is the residue: things that need code, recorded so
+the next session finds them by reading.
+
+**(a) 🔴 The honesty contract for items 4/6/7 is not in the merge gate.**
+`measuredMask` and `rtFlags` are what stop a present-only writer asserting "no
+upscaler, no frame generation, no ray tracing" as measured fact (CLAUDE.md rules 6
+and 7). The assertion that would catch a violation — `MeasuredMask ==
+FlMeasured.OutputRes` exactly, on records from a real injection — lives only in
+`ShmDrainIntegrationTests`, which is `Category=Integration`, which CI skips for
+§S19(b). **So a feature-hook PR that sets `FL_MEASURED_UPSCALER` with no hook
+behind it, or installs a hook and forgets the bit, merges green.** The only other
+`MeasuredMask` reference in the suite is a synthetic writer asserting against its
+own fixture. This makes §S19(b) a *prerequisite* of the item-4/6/7 work rather
+than a parallel track.
+
+**(b) 🔴 `ctest fl_vtable_indices` does not pin the Overlay's vtable indices.**
+`hook-harness` declares `kPresentIndex = 8` / `kResizeBuffersIndex = 13` /
+`kPresent1Index = 22` as its own literals, textually duplicated from the inline
+values in `dllmain.cpp` with no shared header. Change the Overlay's 8 to a 9 and
+the ctest still passes: it proves a fact about `dxgi.dll`, not a fact about
+`FrameLedger.Overlay`. The only test coupling the two is the integration class CI
+skips — so in the merge gate the coupling is absent entirely. Fix: one shared
+constant header, consumed by both. Note this also weakens what P0 item 2's ✅ rests
+on, since "vtable indices proved by behaviour" is one of its four claims.
+
+**(c) 🔴 `HookedCaptureGate.ShouldUnhookAsync` is a second in-session re-scan path**
+that publishes no tick and does not latch — the two properties `GuardSupervisor`
+and `fl_shm.h` §`guardTicks` spend paragraphs establishing as the point of the
+design. It is unit-tested, so it reads as sanctioned, and it is the **more
+discoverable** of the two APIs because a drain loop is already holding the gate. A
+loop wired to it supervises the target while the Overlay's watchdog counts down to
+a supervision-loss stop that never resets. Either route it through
+`GuardSupervisor` or delete it; leaving both is how the counter quietly stops
+meaning what it says.
+
+**(d) 🔴 `tools/vklayer-blastradius.ps1` case 3 cannot fail.** It prints in both
+branches and never adds to `$errors`. That is the only exercise of
+`enable_environment`, the gate `15_ROADMAP` calls the highest blast radius in the
+spike — a passthrough bug loads FrameLedger into every Vulkan process on the
+machine. The script is also excluded from `build.ps1` and CI by design (it writes
+`HKCU`), so the 2026-08-02 measurement has no regression net of any kind.
+
+**(e) ❓ The reader cannot tell a dead target from a quiet one.** `ShmRingReader`
+holds the section open, so a game that exits leaves `writeIndex` frozen and
+`status` `READY` — byte-for-byte identical to a loading screen or an alt-tabbed
+window. Whatever drives the drain needs a session-end signal, and there is none.
+
+**(f) ❓ CLAUDE.md rule 7 and `03_METRICS` §RT disagree about inline RayQuery, and
+one of them is normative.** Rule 7 names *"inline RayQuery without DXIL scan"* as a
+case where measurement is genuinely impossible and `N/A` is the only honest answer.
+`03_METRICS:128` says the opposite in as many words: *"Hooking
+`BuildRaytracingAccelerationStructure` is what makes inline ray tracing (DXR 1.1
+`RayQuery`) detectable at all"*, and `README:14` promises it to users.
+
+They are reconcilable — AS-build activity proves *ray tracing is happening* in a
+RayQuery-only title, while *classifying* the technique as RayQuery is what needs a
+DXIL scan — but neither document says so, and the two readings produce opposite
+answers for the same title. **Whoever builds P0 item 6 has to settle this before
+writing the hook**, because it decides whether a RayQuery-only title reports `Yes`
+or `N/A`. Related, and worse: `03_METRICS` defines the tri-state's **`No`** branch
+as *"RT-capable device present, no AS builds and no dispatches for the whole
+session"* — and nothing measures device RT tier, no record field carries it, and
+every byte of the 64-byte record is allocated. **As the record stands, item 6 can
+reach `Yes` or `N/A` and never `No`.**
 
 ### S27 · The chokepoint is the ANTI-CHEAT gate, and it is not the consent gate
 
@@ -1657,10 +1743,19 @@ the `Safety_*` resx keys before any UI exists.
 
 **4. ✅ The runtime re-scan loop is described as two checks and implements four — closed 2026-08-05.**
 `19_SAFETY` §During a session now reads "every pre-injection check", deferring to the
-one list in §Pre-injection checks — including its ⚠ that check 3 is unwired, which the
-re-scan inherits rather than closes. A list restated in two places is what went stale;
-the fix is to stop restating it, not to correct the copy. The two checks the old wording
-omitted are named there, with why each matters.
+one list in §Pre-injection checks — including its ⚠ that check 3's store-id half cannot
+be called, which the re-scan inherits rather than closes. A list restated in two places
+is what went stale; the fix is to stop restating it, not to correct the copy. The two
+checks the old wording omitted are named there, with why each matters.
+
+> **This closure was itself stale within hours, and the mechanism is worth naming.**
+> The sentence it landed said *"including its ⚠ that check 3 is unwired … one of the
+> four documented ones still does not [run]"*. #52 rewrote that ⚠ three hundred lines
+> away and the pointer kept paraphrasing the old text — **the exact restate-in-two-
+> places failure this item was closed for, committed by the closure.** Deferring to
+> another section does not help if the pointer restates what it points at; a paraphrase
+> is a copy. It was also wrong about the count: 2b is a documented check, so five run,
+> not four. Corrected 2026-08-05.
 
 <details><summary>The finding as recorded</summary>
 `19_SAFETY` §During a session reasons explicitly about the loop's composition and
@@ -1769,18 +1864,28 @@ nothing.
 > already makes.
 
 > **Check 4 is now implemented** (`fl_prescan.cpp`, inside `EvaluateImpl`), so
-> checks 1, 2, 2b and 4 run. **Check 3 remains unwired** and this item stays
-> open on that.
+> ~~checks 1, 2, 2b and 4 run. **Check 3 remains unwired** and this item stays
+> open on that.~~
+>
+> > **Superseded by the block above, which sits forty lines higher in this same
+> > section.** For part of 2026-08-05 §S14 said both "the executable half is
+> > wired" and "check 3 remains unwired", and a reader greping for the status
+> > found whichever copy came first. Struck rather than deleted: two statements
+> > of one status inside one section is the drift shape this file exists to
+> > record, reintroduced inside the recorder. **`EvaluateImpl` runs five checks:
+> > 1, 2, 2b, 3 (executable half) and 4.**
 >
 > The parser now reads both per-title arrays in their real object shape, so the
 > data can be written before the wiring lands — it used to read them as bare
 > strings, and the first entry ever added would have refused the whole rules
 > file (§S17).
 
-The gate is not currently weakened — checks 1, 2, 2b and 4 run, and every
-family in the seed is caught by a module, driver, service or directory signal —
-but a documented check that does nothing will read as "this title is not a known
-online title" to the next person who trusts it.
+The gate is not currently weakened — checks 1, 2, 2b, 3 (exe) and 4 run, and
+every family in the seed is caught by a module, driver, service or directory
+signal — but a documented check that does nothing will read as "this title is
+not a known online title" to the next person who trusts it. That still applies
+to the store-id half, and to the executable half for as long as its list ships
+empty.
 
 Two decisions, both the owner's:
 
@@ -2160,9 +2265,9 @@ no drain) stays in P0. Items 5–9 below are still open.
     | Named where | Artifact | State |
     |---|---|---|
     | `12_BUILD:139`, `13_CI_CD:11`, `09_I18N:28`, `CLAUDE.md:66` | `tools/resx-audit` | Absent. **Honestly handled** — `build.ps1:309` skips it loudly with a reason, and no `.resx` files exist yet |
-    | `12_BUILD:136`, `13_CI_CD:11` | the managed **struct-mirror** test | Absent. Nothing under `tests/` references `FlFrameRecord`. Both docs state `dotnet test` includes it, so this one reads as a gate that runs |
+    | `12_BUILD:136`, `13_CI_CD:11` | the managed **struct-mirror** test | ~~Absent. Nothing under `tests/` references `FlFrameRecord`.~~ **✅ Built in #47** — `ShmLayout.cs` + `ShmLayoutMirrorTests`, driven by `fl-layout-dump`'s JSON rather than a transcribed table, asserting blittability as well as offsets, and walking the field list in both directions. `build.ps1`'s gate now reads the run's `.trx` and fails when the class did not execute, so **deleting the test is red too** — it used to `Test-Path` a source file |
     | `13_CI_CD:21`, `12_BUILD:121`, `CHANGELOG:9` | `.github/workflows/release.yml` | Absent. `CHANGELOG`'s header instructs an author to write for a consumer that does not exist |
-    | `12_BUILD` §Local quality gate | three gates omitted from the list | `build.ps1` runs **13** steps; the doc lists 10, missing `coverage-gate`, `versioninfo-check` and `chokepoint-check` |
+    | `12_BUILD` §Local quality gate | gates omitted from the list | **Three documents give three different counts, which is the finding.** `build.ps1` has **15** `Write-Step` calls as of 2026-08-05 (14 before this PR's `changelog-check`); `12_BUILD` lists 10; this row said 13. Nothing derives the list from the script, so all three drift independently |
 
     The struct-mirror row is the one that matters. `CLAUDE.md` §Struct mirroring
     makes that test the mechanism protecting the shared-memory ABI, and a doc that
