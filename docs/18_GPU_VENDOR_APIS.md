@@ -44,6 +44,25 @@ Implementations compose rather than compete:
 - **Driver version:** `SetupAPI` / registry adapter properties. Feeds the hardware snapshot and the trend-chart change markers (`06_DATA_MODEL`).
 - **Optional probe, P0 evaluation only:** `D3DKMTQueryAdapterInfo` with `KMTQAITYPE_ADAPTERPERFDATA` reportedly exposes temperature, power and fan for any vendor. The D3DKMT structures are **not fully documented and have changed across Windows builds**. Treat as an experiment: if it proves stable on both Win 10 22H2 and Win 11 during P0, keep it as an L1 extra behind a capability flag; if it looks fragile, drop it and let L2 handle temperatures. Never let it be load-bearing.
 
+  > **🅓 The two-OS requirement is deferred to Win 11 only — owner decision, 2026-08-05.**
+  > There is one machine and it is Windows 11 (`spike-notes.md` §Environment). Win 10 22H2
+  > is a **shipped configuration** — CLAUDE.md pins `SupportedOSPlatformVersion` to
+  > `10.0.19045.0` and the owner confirmed that floor **stays** — so this is not the same
+  > kind of gap as AMD/Intel, where the hardware simply does not exist to be tested on. It
+  > is a gap that could be closed with a VM and is being left open on purpose.
+  >
+  > **What makes that acceptable is the last sentence above, and it is now enforced rather
+  > than hoped for:** the probe must never be load-bearing. Concretely — every field it
+  > would fill (core temp, power, fan) is also reachable through **L2**, and
+  > `CompositeTelemetrySource`'s precedence must treat a D3DKMT value as an *extra* behind
+  > a capability flag, never as the only source. If that ever stops being true, this
+  > deferral stops being valid and the Win 10 measurement becomes a release blocker.
+  >
+  > **Recorded because it was previously invisible.** This requirement was written in two
+  > documents, satisfiable on neither machine anyone has, and — unlike §R5/§R6 — carried
+  > **no written deferral at all**, which is the state P0 exit criterion 2 exists to
+  > forbid.
+
 L1 gives no temperatures on its own (unless the D3DKMT probe pans out). That is what L2 is for.
 
 ## L2 — LibreHardwareMonitorLib (MPL-2.0, all vendors)
@@ -59,7 +78,9 @@ CPU and motherboard sensors remain LHM-only, elevated-only, PawnIO-dependent, an
 
 ## L3 — NVAPI (MIT, NVIDIA only)
 
-**Integration: vendored headers + import library, linked normally.** NVIDIA publishes the NVAPI SDK — headers, interface definitions, and `nvapi64.lib` — under the **MIT licence** (verified 2026-08-02: `amd64/nvapi64.lib` is a tracked file in the MIT repo and `License.txt` names the import libraries as the subject of the grant, so the binary is covered and not only the headers), so the SDK material can live in our GPL-3.0 repository with only the usual MIT attribution obligation. The runtime implementation lives in `nvapi64.dll`, which ships with the installed NVIDIA driver.
+**Integration: vendored headers + import library, linked normally. ✅ Vendored 2026-08-05** at `src/native/third_party/nvapi/` — nine headers (`nvapi.h`'s include closure plus `nvapi_interface.h`), `License.txt`, and `amd64/nvapi64.lib`; **x64 only**, `x86/nvapi.lib` deliberately not taken. Consumed through the `fl_nvapi` INTERFACE target. NVIDIA publishes the NVAPI SDK — headers, interface definitions, and `nvapi64.lib` — under the **MIT licence** (verified 2026-08-02 and re-verified on the vendored copy: `amd64/nvapi64.lib` is a tracked file in the MIT repo and `License.txt` names the import libraries as the subject of the grant, so the binary is covered and not only the headers), so the SDK material can live in our GPL-3.0 repository with only the usual MIT attribution obligation. The runtime implementation lives in `nvapi64.dll`, which ships with the installed NVIDIA driver.
+
+> **This section claimed the vendoring in the present tense while it had not happened**, and CLAUDE.md's pinned stack said the same — `src/native/third_party/` held `vulkan-headers` and nothing else. `legal/THIRD_PARTY_NOTICES.md` had already caught the identical claim about *itself* and gained a bidirectional licence gate for it; nothing propagated here. That gate is what turned the vendoring into a two-step with a free canary: adding the material while the notice still read "Not yet vendored" **failed the build**, in the present-but-marked-absent direction that was structurally invisible before the check was made bidirectional.
 
 > This supersedes the earlier design's dynamic-loading-by-ordinal approach. That was a workaround for a licensing constraint that no longer exists; ordinal resolution is fragile across driver versions and should not be reintroduced. Vendored headers are simpler, type-safe, and maintainable.
 
@@ -71,7 +92,7 @@ Still resolve **entry points defensively at runtime**: `nvapi64.dll` may be abse
 | Temperatures | `NvAPI_GPU_GetThermalSettings` (+ extended thermal query for hotspot/memory where available) |
 | Utilisation | `NvAPI_GPU_GetDynamicPstatesInfoEx` (GPU / FB / VID / BUS domains) |
 | Clocks | `NvAPI_GPU_GetAllClockFrequencies` |
-| Memory | `NvAPI_GPU_GetMemoryInfo` |
+| Memory | `NvAPI_GPU_GetMemoryInfoEx` — **not `NvAPI_GPU_GetMemoryInfo`**, which this table named until 2026-08-05. The vendored headers mark it `__nvapi_deprecated_function` ("deprecated in release 520"), so under `/W4 /WX` a call to it fails the native build |
 | **Throttle reasons** | `NvAPI_GPU_GetPerfDecreaseInfo` — not available from L1 or L2 |
 | Driver version | `NvAPI_SYS_GetDriverAndBranchVersion` |
 | **Reflex / PC latency** | `NvAPI_D3D_GetLatency` → per-frame sim/render/present/driver/GPU timestamps; hooking `NvAPI_D3D_SetSleepMode` / `SetLatencyMarker` in the Overlay tells us the game enabled Reflex (`17_HOOK_ENGINE`) |
@@ -111,22 +132,95 @@ Writing our own IGCL declarations to avoid vendoring the headers is **not an app
 
 ## Capability matrix (fill during P0 on real hardware)
 
-| Field | L1 (DXGI/PDH) | L2 (LHM) | L3 (NVAPI) |
-|---|---|---|---|
-| GPU utilisation | ✓ | ? | ? (per-domain) |
-| Adapter VRAM | ✓ | ? | ? |
-| Per-process VRAM | ✓ (also from Overlay) | ✗ | ✗ |
-| Driver version | ✓ | ? | ? |
-| Core temp | ? (D3DKMT probe) | ? | ? |
-| Hotspot / memory temp | ✗ | ? | ? |
-| Clocks | ✗ | ? | ? |
-| Power | ? (D3DKMT probe) | ? | ? |
-| Fan | ? (D3DKMT probe) | ? | ? |
-| Throttle reasons | ✗ | ✗ | ? |
-| Reflex / PC latency | ✗ | ✗ | ? |
-| CPU temp | ✗ | ✓ (elevated + PawnIO) | ✗ |
+**Restructured to vendor × layer on 2026-08-05**, before anything was filled in, because
+the note below said in this document's own words that the old single-axis table *"cannot
+currently express"* the AMD/Intel deferral and that adding the axis is *"a prerequisite of
+filling it, not a tidy-up afterwards"*. Filling the NVIDIA half into the old table would
+have overwritten cells that were simultaneously making an unverified claim about hardware
+nobody here has.
 
-Replace `?` with measured results per vendor. The matrix drives what the UI advertises as available, and the AMD/Intel columns of L2 are the ones that decide whether the Intel gap is actually noticeable to users.
+**Legend, and the distinction the restructure exists to preserve:**
+
+| Mark | Meaning |
+|---|---|
+| ✓ / ✗ | **Measured** on that vendor, available / not available |
+| `arch` | Not available **by architecture** — no measurement needed or possible |
+| `?` | **Not yet measured, and measurable here.** A to-do |
+| `untested` | **Cannot be measured on this machine.** Not a to-do — a deferral (§R5/§R6) |
+
+`?` and `untested` are what the old table could not tell apart. The UI consults this before
+advertising a capability, and "we have not got to it" and "we cannot, here" must not render
+as the same thing.
+
+### L1 — DXGI + PDH (vendor-neutral by construction)
+
+| Field | NVIDIA | AMD | Intel |
+|---|---|---|---|
+| GPU utilisation | ? | untested | untested |
+| Adapter VRAM | ? | untested | untested |
+| Per-process VRAM | ? (also from Overlay) | untested | untested |
+| Driver version | ? | untested | untested |
+| Core temp | ? (D3DKMT probe, Win 11 only — see below) | untested | untested |
+| Power | ? (D3DKMT probe) | untested | untested |
+| Fan | ? (D3DKMT probe) | untested | untested |
+| Hotspot / memory temp, Clocks, Throttle, Reflex, CPU temp | `arch` | `arch` | `arch` |
+
+L1 is vendor-neutral **by construction** — DXGI and PDH expose the same counters whatever
+the adapter is — so the AMD/Intel `untested` cells are expected to match NVIDIA and are
+still not claims. **One cell genuinely cannot be filled here even on NVIDIA:** multi-adapter
+LUID instance filtering, because this machine has exactly one adapter and a `KF` CPU with no
+iGPU. It must be written and can only be reasoned about.
+
+### L2 — LibreHardwareMonitor
+
+| Field | NVIDIA | AMD | Intel |
+|---|---|---|---|
+| GPU utilisation, Adapter VRAM, Driver version | ? | untested | untested |
+| Core temp, Hotspot / memory temp | ? | untested | untested |
+| Clocks, Power, Fan | ? | untested | untested |
+| Per-process VRAM | `arch` | `arch` | `arch` |
+| Throttle reasons, Reflex / PC latency | `arch` | `arch` | `arch` |
+| CPU temp | ✓ elevated + PawnIO | ✓ elevated + PawnIO | ✓ elevated + PawnIO |
+| **GPU sensors unelevated, no PawnIO (§M5)** | ? | untested | untested |
+
+§M5 is the row that decides whether the **default, unelevated** Agent has temperatures at
+all, and it is answerable on this machine with only code as the prerequisite.
+
+### L3 — NVAPI (NVIDIA only, `arch` elsewhere)
+
+| Field | NVIDIA | AMD | Intel |
+|---|---|---|---|
+| **Initialises at all** | ✓ **measured 2026-08-05** | `arch` | `arch` |
+| **Driver version** | ✓ **measured** — `610.88`, branch `r610_85` | `arch` | `arch` |
+| **GPU enumeration + name** | ✓ **measured** — 1 GPU, "NVIDIA GeForce RTX 5080" | `arch` | `arch` |
+| **Degrades cleanly when absent** | ✓ **measured** — see below | `arch` | `arch` |
+| Core / hotspot / memory temp | ? | `arch` | `arch` |
+| Per-domain utilisation | ? | `arch` | `arch` |
+| Clocks, Power | ? | `arch` | `arch` |
+| Throttle reasons | ? | `arch` | `arch` |
+| Reflex / PC latency | ? | `arch` | `arch` |
+
+The four measured rows come from `ctest fl_nvapi_probe` (`src/native/tools/fl-probe-nvapi`),
+which exists because vendoring added 2.4 MB of headers and an import library that **nothing
+else compiles against yet** — an unconsumed vendored dependency is one whose header closure
+could be short by a file with every gate still green.
+
+**"Degrades cleanly when absent" is measured on CI, not argued.** `nvapi64.lib` is a
+*static* library of stubs that reach `nvapi64.dll` through `nvapi_QueryInterface` at first
+call, so linking it does **not** make the DLL a load-time dependency: a hosted runner with
+no NVIDIA driver loads the binary and `NvAPI_Initialize` returns an error. The probe takes
+that branch, prints **`BRANCH: DEGRADED`**, and exits 0 — while the dev box prints
+**`BRANCH: AVAILABLE`**. Two different words, because a probe printing the same line on both
+kinds of machine would exit 0 on one where NVAPI was completely broken.
+
+> ⚠ **`NvAPI_GPU_GetMemoryInfo` was named in §L3's function table below and must not be
+> used.** The vendored headers carry
+> `__nvapi_deprecated_function("...deprecated in release 520. Instead, use
+> NvAPI_GPU_GetMemoryInfoEx.")` on it, so under `/W4 /WX` a call fails the native build.
+> Corrected in the table. Recorded because it is the class `17_HOOK_ENGINE` calls the
+> highest false-confidence risk in the spike — a name that resolves to nothing degrades to
+> "unknown", which reads as "working, no data" — found by vendoring the material and
+> compiling against it rather than by reading a vendor's web documentation.
 
 > **🅓 The AMD and Intel results are deferred as `untested` — owner decision,
 > 2026-08-05** (`20_OPEN_QUESTIONS` §R5/§R6). Not deferred for cost: the dev machine
@@ -139,12 +233,17 @@ Replace `?` with measured results per vendor. The matrix drives what the UI adve
 > have not got to it yet"; `untested` reads as "we cannot, here" — and this table is
 > what the UI consults before advertising a capability to a user.
 >
-> **This table cannot currently express that.** Its columns are the three layers, with
+> ~~**This table cannot currently express that.** Its columns are the three layers, with
 > no vendor axis, so "measured on NVIDIA, untested on AMD/Intel" has nowhere to go —
 > and every `?` below is therefore ambiguous between the two meanings. **Adding the
 > vendor axis is a prerequisite of filling it**, not a tidy-up afterwards, because a
 > single-axis table forces whoever fills the NVIDIA half to overwrite cells that are
-> also making a claim about hardware they never had. P0 item 8 owns this.
+> also making a claim about hardware they never had. P0 item 8 owns this.~~
+>
+> > **Done 2026-08-05, before anything was filled in**, which was the point of calling it
+> > a prerequisite. Three tables, one per layer, with a vendor axis and a four-symbol
+> > legend that separates `?` (a to-do, measurable here) from `untested` (a deferral,
+> > not measurable here) from `arch` (not available by architecture, so neither).
 >
 > The NVIDIA half is **not** deferred and none of it exists in code yet — no PDH, no
 > DXGI telemetry, no LibreHardwareMonitor, no NVAPI. §M5 in particular (do LHM GPU

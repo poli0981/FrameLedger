@@ -96,3 +96,35 @@ target_include_directories(fl_vulkan_headers SYSTEM INTERFACE
 # SYSTEM: these are consumed unmodified, so /W4 /WX must not fail our build on
 # somebody else's warnings. Patching a vendored header would drag it out of
 # "consumed unmodified" and into modification territory for no benefit.
+
+# ---------------------------------------------------------------------------
+# NVAPI (MIT) — VENDORED, same reasoning as the Vulkan headers and one more.
+#
+# CLAUDE.md's pinned stack claimed "headers vendored" in the present tense while
+# this directory held only vulkan-headers. legal/THIRD_PARTY_NOTICES.md had
+# already caught the identical claim about ITSELF and gained a bidirectional
+# licence gate for it; nothing propagated to CLAUDE.md. Vendored 2026-08-05 —
+# see nvapi/README.md for provenance, the commit, and what was deliberately
+# left behind.
+#
+# WHY THE .lib IS SAFE TO VENDOR AND THE SDK'S IS NOT: amd64/nvapi64.lib is a
+# tracked file in the MIT repository and License.txt names the import libraries
+# as the subject of the grant (docs/spike-notes.md §0, M3). The same file from
+# the SDK installer would carry the SDK agreement instead.
+#
+# x64 ONLY. x86/nvapi.lib is not taken: FrameLedger is x64 only, so a 32-bit
+# import library would be material we can never link and must still disclose.
+add_library(fl_nvapi INTERFACE)
+target_include_directories(fl_nvapi SYSTEM INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/nvapi"
+)
+target_link_libraries(fl_nvapi INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/nvapi/amd64/nvapi64.lib"
+)
+# NOT a load-time dependency, which is the property L3's degradation rests on.
+# nvapi64.lib is a STATIC library of stubs that reach nvapi64.dll through
+# nvapi_QueryInterface at first call, so a machine with no NVIDIA driver still
+# loads our binaries and NvAPI_Initialize returns an error instead. That is
+# asserted by ctest fl_nvapi_probe rather than assumed — a vendored dependency
+# nothing compiles against is a dependency whose header closure could be
+# incomplete with nobody the wiser.
