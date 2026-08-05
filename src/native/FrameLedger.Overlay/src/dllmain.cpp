@@ -8,10 +8,16 @@
 // because READY claims a capture side exists; if MinHook fails it stays INIT and
 // the Agent's degradation path is what should run.
 //
-// NOT HERE: D3D12 and OpenGL device-type refinement (`api` reports D3D11, which
-// is what the dummy device resolves), and the upscaler / FG / RT feature hooks.
-// The record's measuredMask says so on every frame rather than letting the
-// zero-defaults assert a measurement nobody made.
+// D3D11 AND D3D12 BOTH: one hook on the shared dxgi.dll class vtable catches
+// both, and `api` is resolved per swapchain by asking the swapchain which device
+// created it -- FL_API_UNKNOWN when it will not say, never a guess.
+//
+// NOT HERE: OpenGL (wglSwapBuffers is a flat export in opengl32.dll and needs no
+// vtable, but hook-harness has no OpenGL mode, and shipping an untested hook into
+// a game process is not something this project does), Vulkan (the layer, P1), and
+// the upscaler / FG / RT feature hooks. The record's measuredMask says so on
+// every frame rather than letting the zero-defaults assert a measurement nobody
+// made.
 //
 // docs/17_HOOK_ENGINE.md is the specification. The constraints that shape every
 // line:
@@ -30,6 +36,7 @@
 #include <windows.h>
 
 #include <d3d11.h>
+#include <d3d12.h>
 #include <dxgi1_2.h>
 
 #include <cstdio>
@@ -235,7 +242,58 @@ struct SwapChainSlot {
     uint32_t id = 0;
     uint16_t outW = 0;
     uint16_t outH = 0;
+    uint8_t  api = FL_API_UNKNOWN;
 };
+
+// Which API this swapchain belongs to, asked of the swapchain itself.
+//
+// One hook sees every swapchain in the process, and a D3D11 title and a D3D12
+// title are not distinguishable from the present call -- so the api byte was
+// hardcoded to D3D11 until now, which was a guess written into a field
+// 03_METRICS consumes and 06_DATA_MODEL persists.
+//
+// GetDevice returns what the swapchain was CREATED WITH, and for D3D12 that is
+// the COMMAND QUEUE, not the device (CreateSwapChainForComposition takes the
+// queue). Querying for ID3D12Device on it fails; ID3D12CommandQueue is the
+// interface that answers.
+//
+// FL_API_UNKNOWN when neither answers. 0 is the honest value for "we could not
+// tell", and it is what the enum reserves it for -- guessing D3D11 is how the
+// field became wrong in the first place.
+uint8_t ResolveApi(IDXGISwapChain* sc) noexcept {
+    IUnknown* dev = nullptr;
+    if (FAILED(sc->GetDevice(__uuidof(IUnknown), reinterpret_cast<void**>(&dev))) || dev == nullptr) {
+        return FL_API_UNKNOWN;
+    }
+    // BOTH D3D12 shapes are tried, because MEASURED: GetDevice does not return
+    // the command queue that was passed to CreateSwapChainForComposition. The
+    // first version of this asked only for ID3D12CommandQueue on the grounds that
+    // the queue is what creates a D3D12 swapchain, and every record from a real
+    // D3D12 target came back FL_API_UNKNOWN. DXGI resolves the queue to its
+    // owning device before storing it, so ID3D12Device is what answers.
+    //
+    // The queue query is kept rather than deleted: it costs one failed QI on a
+    // path that runs once per swapchain, and a DXGI version that does hand back
+    // the queue would otherwise regress to UNKNOWN silently.
+    uint8_t             api = FL_API_UNKNOWN;
+    ID3D12Device*       d12 = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D11Device*       d11 = nullptr;
+    if (SUCCEEDED(dev->QueryInterface(__uuidof(ID3D12Device), reinterpret_cast<void**>(&d12))) && d12 != nullptr) {
+        api = FL_API_D3D12;
+        d12->Release();
+    } else if (SUCCEEDED(dev->QueryInterface(__uuidof(ID3D12CommandQueue), reinterpret_cast<void**>(&queue))) &&
+               queue != nullptr) {
+        api = FL_API_D3D12;
+        queue->Release();
+    } else if (SUCCEEDED(dev->QueryInterface(__uuidof(ID3D11Device), reinterpret_cast<void**>(&d11))) &&
+               d11 != nullptr) {
+        api = FL_API_D3D11;
+        d11->Release();
+    }
+    dev->Release();
+    return api;
+}
 
 SwapChainSlot g_chains[kMaxSwapChains]{};
 uint32_t      g_nextChainId = 1;
@@ -254,6 +312,14 @@ SwapChainSlot* FindOrAdd(IDXGISwapChain* sc) noexcept {
             if (SUCCEEDED(sc->GetDesc(&desc))) {
                 s.outW = static_cast<uint16_t>(desc.BufferDesc.Width);
                 s.outH = static_cast<uint16_t>(desc.BufferDesc.Height);
+            }
+            s.api = ResolveApi(sc);
+            // apiMask records what we have ACTUALLY seen present, not what the
+            // process happens to have loaded: a game can link d3d12.dll and
+            // present through D3D11.
+            if (s.api != FL_API_UNKNOWN && g_state != nullptr) {
+                std::atomic_ref<uint32_t> mask{g_state->apiMask};
+                mask.fetch_or(1u << s.api, std::memory_order_relaxed);
             }
             return &s;
         }
@@ -402,7 +468,7 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     rec.frameIndex = g_frameIndex++;
     rec.presentFlags = flags;
     rec.syncInterval = static_cast<uint16_t>(syncInterval);
-    rec.api = FL_API_D3D11;    // refined when the device type is resolved
+    rec.api = slot != nullptr ? slot->api : static_cast<uint8_t>(FL_API_UNKNOWN);
     rec.swapchainId = slot != nullptr ? slot->id : 0u;
     if (slot != nullptr) {
         rec.outputW = slot->outW;
@@ -549,8 +615,6 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
         return 1;
     }
 
-    std::atomic_ref<uint32_t> apiMask{g_state->apiMask};
-    apiMask.store(1u << FL_API_D3D11, std::memory_order_relaxed);
     status.store(FL_STATUS_READY, std::memory_order_release);
     return 0;
 }
