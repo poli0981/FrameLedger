@@ -502,6 +502,53 @@ const char* ReasonName(Reason r) noexcept {
 
 namespace {
 
+// Check 3 — the per-title blocklist, EXECUTABLE HALF.
+//
+// 19_SAFETY has listed this as check 3 since the beginning and it had NO CALL
+// SITE: MatchesBlockedExecutable was implemented, tested, and asked by nobody, so
+// populating the data would have changed nothing (§S14). "Check 3 passed" read as
+// "this title is not a known online title" while nothing had looked.
+//
+// UNRESOLVABLE IDENTITY REFUSES. §S14's second decision, and 19_SAFETY says an
+// unresolvable identity "must read UNKNOWN, never clean". A pid whose image we
+// cannot name is a pid whose identity we do not have, so kFailed and kIncomplete
+// both refuse with kProcessUnreadable -- the same reason CheckModules already
+// uses for the same underlying inability.
+//
+// THE STORE-ID HALF IS NOT HERE, and that is a limitation rather than an
+// omission. MatchesBlockedStoreId exists and is tested; it cannot be called,
+// for three independent reasons (§S14):
+//
+//   1. NO PRODUCER. Nothing in the tree parses Steam .acf, GOG .info or Epic
+//      .item -- the platform metadata extractors were never built, so `store_id`
+//      is null for every title.
+//   2. NO CHANNEL, BY DESIGN. FlGuardEvaluate takes a pid and nothing else, and
+//      fl_guard_abi.h says so deliberately: "no way to hand in evidence -- the
+//      guard collects its own". A store id passed in by the caller is a caller
+//      asserting a safety fact, which §S3's rule forbids in as many words.
+//   3. APPLYING "unknown refuses" TO IT WOULD BE A GATE THAT CANNOT PASS. If the
+//      guard can never resolve a store id and an unresolved store id refuses,
+//      every title on every machine refuses.
+//
+// So the exe-name half runs and the store-id half is named as blocked. Do not
+// "fix" (2) by widening the ABI.
+Verdict CheckBlockedExecutable(const Sources& s, const Rules& rules, std::uint32_t targetPid) noexcept {
+    if (s.ImageFileName == nullptr) {
+        return Refuse(Reason::kProcessUnreadable, nullptr, "no image-name source");
+    }
+
+    char            name[kMaxValueLen] = {};
+    const Collected got = s.ImageFileName(targetPid, name, sizeof(name));
+    if (got != Collected::kOk || name[0] == '\0') {
+        return Refuse(Reason::kProcessUnreadable, nullptr, "could not name the target's executable");
+    }
+
+    if (const TitleRule* hit = MatchesBlockedExecutable(rules, name); hit != nullptr) {
+        return Refuse(Reason::kBlockedExecutable, hit->family, name);
+    }
+    return Allow();
+}
+
 Verdict EvaluateImpl(std::uint32_t targetPid, const Sources& sources) noexcept {
     // Static so the 1 MiB of rules storage inside LoadRules is not duplicated
     // on the stack. Cleared on every call: a stale blocklist from a previous
@@ -521,6 +568,11 @@ Verdict EvaluateImpl(std::uint32_t targetPid, const Sources& sources) noexcept {
         return v;
     }
     if (Verdict v = CheckModules(sources, rules, targetPid); !v.Allowed()) {
+        return v;
+    }
+    // Check 3, at last. Cheap -- one OpenProcess and a string compare -- and it
+    // runs before check 4 because it needs no filesystem walk.
+    if (Verdict v = CheckBlockedExecutable(sources, rules, targetPid); !v.Allowed()) {
         return v;
     }
     // Check 4, INSIDE the chokepoint rather than beside it.

@@ -213,9 +213,21 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
    > never as *clean*. `20_OPEN_QUESTIONS` §S7 tracks the remaining work.
 3. **Rules blocklist** — `detection-rules.json` carries `anticheat.blockedExecutables` (exe names) and `anticheat.blockedStoreIds` (Steam appids etc.) for known competitive/online titles, updatable independently of app releases (`05_DETECTION` §Rules updates).
 
-   > ⚠ **This check is UNWIRED, which is worse than empty.** Both arrays are
-   > empty, *and* `MatchesBlockedExecutable`/`MatchesBlockedStoreId` have no call
-   > site anywhere — `EvaluateImpl` never asks them. Populating the data would
+   > ⚠ **◐ The EXECUTABLE half is wired as of 2026-08-05; the STORE-ID half is
+   > blocked.** `CheckBlockedExecutable` runs inside `EvaluateImpl` between the
+   > module scan and the pre-scan, and an unresolvable identity refuses with
+   > `kProcessUnreadable`. The list ships **empty**, so nothing is refused today —
+   > but populating it now does something, which it did not before.
+   >
+   > `MatchesBlockedStoreId` is still uncalled and cannot be called: no component
+   > produces a `store_id`, the guard ABI deliberately accepts no evidence from its
+   > caller (§S3), and refusing on an identity the guard can never resolve would be
+   > a gate that cannot pass. `20_OPEN_QUESTIONS` §S14 carries the detail.
+   >
+   > The paragraph that follows is the state before that change, kept because the
+   > shape recurs: both arrays are
+   > empty, *and* `MatchesBlockedExecutable`/`MatchesBlockedStoreId` had no call
+   > site anywhere — `EvaluateImpl` never asked them. Populating the data would
    > therefore change nothing. The gate is not weakened, because checks 1, 2 and
    > 4 run and every family in the seed below is caught by a module, driver,
    > service or directory signal — but the per-title layer this bullet describes
