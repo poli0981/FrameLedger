@@ -1184,7 +1184,21 @@ into a real title and the process survives it (§7).
   matrix; use explicit "untested", never `?`, for absent hardware):
 - L2: **GPU sensors unelevated, without PawnIO** (§M5) — decides whether the
   default unelevated Agent has temperatures at all:
-- L3: Reflex latency, throttle reasons, per-domain utilisation:
+- L3: Reflex latency, throttle reasons, per-domain utilisation: **not yet** — but L3
+  now initialises and is proven to degrade cleanly. Measured 2026-08-05 by
+  `ctest fl_nvapi_probe` after vendoring: `NvAPI_Initialize` → `NVAPI_OK`, driver
+  **610.88** (branch `r610_85`), **1** physical GPU, "NVIDIA GeForce RTX 5080".
+  The absent-driver path is exercised by CI, where the probe prints
+  `BRANCH: DEGRADED` and exits 0 — `nvapi64.lib` is a static stub library reaching
+  `nvapi64.dll` through `nvapi_QueryInterface` at first call, so it is **not** a
+  load-time dependency and a machine with no NVIDIA driver still loads the binary.
+  The fields in this bullet need `NvapiTelemetrySource`, which does not exist.
+- L3 · **a doc error the vendoring found, which reading vendor documentation would
+  not have**: `18_GPU_VENDOR_APIS` §L3's table named `NvAPI_GPU_GetMemoryInfo`. The
+  vendored headers mark it `__nvapi_deprecated_function` ("deprecated in release
+  520 — use `NvAPI_GPU_GetMemoryInfoEx`"), so under `/W4 /WX` a call to it fails the
+  native build. Table corrected. This is the class `17_HOOK_ENGINE` calls the highest
+  false-confidence risk in the spike, in a document rather than in code.
 
 ## 11 · PresentMon / Tier 2 *(§M2, §M6)*
 

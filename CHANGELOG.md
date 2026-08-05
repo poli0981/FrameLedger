@@ -13,6 +13,66 @@ GitHub release body, so a missing section means an empty release note.
 
 ### Added
 
+- **NVAPI is vendored, and the capability matrix gets the axis it could not be filled
+  without.** `src/native/third_party/nvapi/` now holds nine headers (`nvapi.h`'s include
+  closure plus `nvapi_interface.h`), `License.txt` and `amd64/nvapi64.lib`, from
+  `github.com/NVIDIA/nvapi` @ `cd6918f6` (MIT). **x64 only** — `x86/nvapi.lib` is 438 KB of
+  material we could never link and would still have to disclose. `NvApiDriverSettings.{c,h}`
+  and the HLSL-extension headers are left behind for the same reason.
+  - **Why that repository and not the SDK installer** is the whole licence argument:
+    `amd64/nvapi64.lib` is a *tracked file in the MIT repo* and `License.txt` names the
+    import libraries as the subject of the grant, so the **binary** is covered. The same
+    file from the SDK installer arrives under NVIDIA's own agreement and could not be
+    vendored into a GPL-3.0 tree.
+  - **The canary came for free, and it ran in the order that makes it evidence.**
+    `license-check.ps1` was made bidirectional after it was found unable to see
+    *claimed-but-absent* material. Vendoring while `THIRD_PARTY_NOTICES.md` still said
+    "Not yet vendored" failed the build — the *present-but-marked-absent* direction, which
+    was structurally invisible before. The notice was flipped afterwards, not before.
+  - **`ctest fl_nvapi_probe` exists because an unconsumed vendored dependency is
+    unverified.** Nothing else compiles against `fl_nvapi` yet, so a short include closure
+    or a wrong-architecture `.lib` would sit there with every gate green. The probe's
+    *compile* is half the test.
+    - **It is green on both kinds of machine, and exiting 0 is not what makes it green.**
+      `nvapi64.lib` is a **static** stub library reaching `nvapi64.dll` through
+      `nvapi_QueryInterface` at first call, so it is not a load-time dependency: a CI runner
+      with no NVIDIA driver loads the binary and `NvAPI_Initialize` returns an error, which
+      is exactly the degradation §L3 requires. Both branches exit 0 — so ctest additionally
+      requires the string `BRANCH: (AVAILABLE|DEGRADED)`. **Canary: a probe gutted to
+      `int main(){return 0;}` compiles, exits 0, and is now RED** at
+      *"Required regular expression not found"*, with the native build and the other 15
+      ctests still green. The alternation has to stay: pinning one branch would turn the
+      other kind of machine red for being itself.
+    - **What that still does not give you, said rather than implied:** ctest prints a
+      passing test's output nowhere, so a CI log shows a branch was reached and **not
+      which**. On a hosted runner it is inferable — no NVIDIA driver exists there, and the
+      probe returns in ~0.01 s against ~1.4 s here — but inferable is not observed, and
+      `18_GPU_VENDOR_APIS` §L3 now separates the two rather than claiming the stronger
+      thing. What the run *does* prove is the load-time claim: a load-time dependency on an
+      absent `nvapi64.dll` would not have started at all.
+    - It refuses a **zero** GPU count rather than letting the name loop run no iterations,
+      because every assertion inside a loop that never runs is vacuous.
+  - **Measured on this machine:** driver `610.88` (branch `r610_85`), 1 physical GPU,
+    "NVIDIA GeForce RTX 5080".
+  - **A doc error the vendoring found and reading vendor documentation would not have:**
+    §L3's function table named `NvAPI_GPU_GetMemoryInfo`. The headers mark it
+    `__nvapi_deprecated_function` ("deprecated in release 520 — use
+    `NvAPI_GPU_GetMemoryInfoEx`"), so under `/W4 /WX` a call to it **fails the native
+    build**. Corrected. This is the class `17_HOOK_ENGINE:128` calls the highest
+    false-confidence risk in the spike, sitting in a document instead of in code.
+  - **The capability matrix is now vendor × layer**, restructured *before* anything was
+    filled in — `18_GPU_VENDOR_APIS:137` said in its own words that the single-axis table
+    "cannot express" the AMD/Intel deferral and that the axis is "a prerequisite of filling
+    it, not a tidy-up afterwards". The legend separates `?` (a to-do, measurable here) from
+    `untested` (a deferral, not measurable here) from `arch` (not available by
+    architecture), which is precisely what the old table could not distinguish and what the
+    UI consults before advertising a capability.
+  - **The D3DKMT probe's two-OS requirement is deferred to Win 11, with a rationale.** One
+    machine, and it is Win 11; Win 10 22H2 **stays a supported floor** and is explicitly
+    unmeasured. Unlike the AMD/Intel gap this one *could* be closed with a VM and is being
+    left open deliberately — so the deferral is conditional on the probe staying
+    non-load-bearing, which the doc now states as the condition rather than as advice.
+
 > **These five entries were written retrospectively.** PRs #40–#44 changed 8 files,
 > every one under `src/native/`, and touched no documentation at all — so for a day the
 > repository's own ledger described an Overlay with no hooks. CLAUDE.md's "any deviation

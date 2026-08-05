@@ -41,7 +41,7 @@ FrameLedger is licensed under **GPL-3.0-only**. It includes or depends on the th
 | Microsoft.Data.Sqlite / SQLitePCLraw | Database | MIT / Apache-2.0 | SQLite itself: public domain |
 | Dapper | Data access | Apache-2.0 | |
 | CsWin32 (build-time) | Win32 interop source generator | MIT | Build-time only |
-| NVIDIA NVAPI SDK | NVIDIA GPU telemetry + Reflex latency | MIT | **Not yet vendored** — licence cleared, material not present. See §GPU telemetry below |
+| NVIDIA NVAPI SDK | NVIDIA GPU telemetry + Reflex latency | MIT | **Vendored 2026-08-05** — nine headers + `amd64/nvapi64.lib`, at `src/native/third_party/nvapi/`. See §GPU telemetry below |
 | H.NotifyIcon.Wpf | Tray icon | MIT | |
 | Roslynator, Meziantou.Analyzer, VS Threading Analyzers (build-time) | Static analysis | Apache-2.0 / MIT | Build-time only |
 
@@ -51,7 +51,7 @@ Telemetry is layered so no proprietary vendor licence is ever required (`docs/18
 
 | Component | How we use it | Licence | Bundled? |
 |---|---|---|---|
-| **NVIDIA NVAPI SDK** (headers, interface definitions, `nvapi64.lib`) | Planned: NVIDIA-only telemetry, throttle reasons, Reflex/PC latency. **No code links it today** | **MIT** — <https://github.com/NVIDIA/nvapi> | **Not yet vendored.** The *licence* question is settled — **verified 2026-08-02:** `amd64/nvapi64.lib` is a tracked file *in that repository*, and its `License.txt` opens "nvapi.lib and nvapi64.lib are licensed under the following terms" + `SPDX-License-Identifier: MIT`, so the grant names the import libraries explicitly. The *material* is absent: `src/native/third_party/` contains only `CMakeLists.txt` and `vulkan-headers`. `legal/licenses/nvapi-MIT.txt` ships ahead of it, which costs nothing and is not evidence of bundling |
+| **NVIDIA NVAPI SDK** (headers, interface definitions, `nvapi64.lib`) | Planned: NVIDIA-only telemetry, throttle reasons, Reflex/PC latency. **No code links it yet** — the `fl_nvapi` target exists and nothing consumes it | **MIT** — <https://github.com/NVIDIA/nvapi> @ `cd6918f6` (2026-06-24) | **Vendored 2026-08-05** at `src/native/third_party/nvapi/`: nine headers (`nvapi.h` and its include closure, plus `nvapi_interface.h`), `License.txt`, and `amd64/nvapi64.lib` — **x64 only**, `x86/nvapi.lib` deliberately not taken. **Verified 2026-08-02 and re-verified on the vendored copy:** `License.txt` opens "nvapi.lib and nvapi64.lib are licensed under the following terms" + `SPDX-License-Identifier: MIT`, so the grant names the import libraries explicitly and the binary is covered rather than only the headers. Every vendored header retains its own SPDX MIT block, which `license-check.ps1` asserts file by file |
 | `nvapi64.dll` (runtime implementation) | Loaded at runtime from the user's system | Part of the NVIDIA graphics driver | No — never redistributed by us |
 | **LibreHardwareMonitorLib** | GPU sensors for **all vendors** (AMD, Intel, NVIDIA) + CPU/board sensors when elevated | **MPL-2.0** | Yes, as an unmodified NuGet package |
 | **DXGI + Windows performance counters (PDH)** | Vendor-neutral baseline: utilisation, VRAM, adapter identity | Windows OS APIs | n/a |
@@ -91,5 +91,5 @@ All product names, logos, and brands are property of their respective owners and
 - [ ] PresentMon license + copyright shipped beside the bundled binary
 - [ ] MPL-2.0 source-availability note points to upstream LibreHardwareMonitor repository
 - [x] LHM checked for MPL-2.0 Exhibit B on any depended-upon file — clear as of 0.9.6 / commit `3d331e33`, 2026-08-02
-- [ ] **If and when NVAPI is vendored** — its headers still carry their `SPDX-License-Identifier: MIT` blocks unmodified. Not vendored today; `license-check.ps1` enforces that this line and the table agree with the filesystem
+- [x] **NVAPI is vendored** (2026-08-05) and all nine headers carry their `SPDX-License-Identifier: MIT` blocks unmodified — asserted file by file, not sampled. `license-check.ps1` enforces that this line and the table agree with the filesystem, **in both directions**: vendoring the material while the table still said "Not yet" failed the build, which is how this row came to be flipped
 - [ ] No Intel IGCL or AMD ADLX material anywhere in the tree (CI grep, see `docs/13_CI_CD.md`)
