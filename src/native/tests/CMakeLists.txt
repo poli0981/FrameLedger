@@ -130,4 +130,18 @@ target_compile_definitions(fl_rules_budget_test PRIVATE
 
 add_test(NAME fl_rules_budget COMMAND fl_rules_budget_test)
 
-# TODO(P1): ring-buffer and fault-policy suites, now that Catch2 is here.
+# The SPSC ring (14_TESTING §Native unit tests). Half of the TODO that used to
+# sit here; the fault-policy suite lands with the hook bodies it guards, since a
+# fault policy with no hook to fault in is a gate on something that does not
+# exist.
+#
+# /EHsc because Catch2 reports failures by throwing, and <thread> for the
+# hammering-writer case. FrameLedger.Shm only — the ring has no business near the
+# injector, and keeping it out means this target cannot become a second place
+# that reaches the injection primitive.
+add_executable(fl_ring_test ring_test.cpp)
+target_link_libraries(fl_ring_test PRIVATE FrameLedger.Shm fl_native_flags Catch2::Catch2WithMain)
+target_compile_options(fl_ring_test PRIVATE /EHsc)
+add_test(NAME fl_ring COMMAND fl_ring_test)
+
+# TODO(P1): the fault-policy suite, with the hook bodies.

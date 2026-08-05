@@ -155,6 +155,24 @@ enum FlMeasured : uint8_t {
     FL_MEASURED_VRAM = 1u << 4,          // vramUsedBytes
     FL_MEASURED_LATENCY = 1u << 5,       // reflexLatencyUs
     FL_MEASURED_OUTPUT_RES = 1u << 6,    // outputW/H — from the swapchain desc, not a feature hook
+
+    // `hdr` @31 had no "not measured" state, and #36 missed it while fixing
+    // exactly this class everywhere else.
+    //
+    // HDR output is only knowable by hooking IDXGISwapChain3::SetColorSpace1
+    // (17_HOOK_ENGINE §Hook inventory). A present-only writer does not install
+    // it, so `hdr = 0` would assert "we looked and this title is not HDR" about a
+    // title nobody asked -- the same affirmative negative measuredMask exists to
+    // prevent, and 06_DATA_MODEL persists the value in sessions.hdr.
+    //
+    // Spending bit 7 costs nothing: the byte is already inside the record and
+    // already written every frame, so this is not a layout change and needs no
+    // FL_SHM_LAYOUT_VERSION bump. It is claimed NOW because after the C# mirror
+    // exists (§R10) the identical edit becomes user-visible -- the Agent refuses
+    // to attach and tells the user to restart the game -- and 11_UPDATER makes
+    // FL_SHM_LAYOUT_VERSION a SemVer MAJOR. Same argument #36 made for the other
+    // five decisions; this is the last field it left unclaimed.
+    FL_MEASURED_HDR = 1u << 7,    // hdr
 };
 
 // ---------------------------------------------------------------------------
