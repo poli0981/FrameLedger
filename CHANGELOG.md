@@ -13,6 +13,63 @@ GitHub release body, so a missing section means an empty release note.
 
 ### Added
 
+- **Shared-memory layout v3: the zero value of every enum in the record is now "nobody
+  said", not a fact.** `FL_SHM_LAYOUT_VERSION` 2 → 3, spent deliberately in the last window
+  where it costs nothing — nothing has shipped and no user has a session, and after the
+  first release the same edit is a SemVer MAJOR that makes the Agent refuse to attach and
+  tell the user to restart the game.
+  - **The generator of the defect, not four instances of it.** `FlFrameRecord rec{}`
+    zero-initialises, so whatever 0 means is what a writer publishes when it **forgets**. In
+    v2, 0 meant `FL_UPSCALER_NONE`, `FL_FG_NONE`, and an `rtFlags` with no evidence bits —
+    three measured negatives about a title nobody examined, which `03_METRICS` turns into
+    `upscaler none` and `fg_factor 1.0`, the single inflated number rule 6 forbids.
+    `measuredMask` made that safe **by convention**; v3 makes it safe **by construction**,
+    and the mask becomes corroboration rather than the sole defence. `rtFlags`' polarity is
+    flipped so every bit means *observed*.
+  - **Four answers items 4/6/7 owe had no home.** DLSS super-resolution **and** Ray
+    Reconstruction concurrently — RR was a mutually exclusive `upscaler` *value* while
+    `03_METRICS` makes it an independent tri-state axis — plus `upscalerSharpness`, and, in
+    `FlWriterState` because they are session facts rather than per-frame, the device
+    **RT tier** without which rule 7's definite `No` had no producer at all, with
+    `rtStateObjectsCreated` and `rasterPsoCreated`.
+  - **Paid for by two narrowings that are corrections, not sacrifices.** `vramUsedBytes`
+    (u64 bytes → u32 MiB) carried 64 bits of byte precision that every consumer divided
+    away, to feed a comparison against `vramBudgetMb` — **already MiB** — that was
+    unit-mismatched at the point of use. `fgEvaluations` (u32 → u8): ×4 multi-frame
+    generation is 3, so saturating at 255 would mean 256× frame generation.
+  - **`seq` @56 and `swapchainId` @60 did not move**, so `fl_ring.h`'s two pins hold
+    verbatim, the seqlock's payload spans are unchanged, and the ring needed no edit.
+  - **Three mask bits split producers that do not arrive together** — the same defect three
+    times. `FL_MEASURED_UPSCALER_PARAMS`, because an NGX-direct title exports only the
+    parameter-object *factories* so a writer knowing *which* upscaler ran knows nothing
+    about quality (publishing `0` = "DLSS Performance" as measurement);
+    `FL_MEASURED_PRESENT_ARGS`, because `wglSwapBuffers` and `vkQueuePresentKHR` have no
+    such arguments and `syncInterval = 0` is a *real* DXGI value with no in-band sentinel;
+    and `FL_MEASURED_FG_COUNTS`, because identity and per-present counts are two hook rows
+    and a writer with only the first would publish `fg_factor 1.0` having counted nothing.
+  - `FL_RT_PSO_ALIVE` → `FL_RT_PSO_CREATED_EVER`: creation is observed at
+    `CreateStateObject` and destruction is COM `Release`, which is not in the inventory and
+    must not be added — so the bit latches and could only ever mean "created ever".
+  - **`03_METRICS`' RT `No` is now three conjuncts**, and the second is the one that is easy
+    to drop: `hooksInstalledMask` must contain the **AS-build** hook. A writer with only
+    `DispatchRays` sees nothing on an inline-RayQuery title, and its silence would otherwise
+    be indistinguishable from a real negative.
+  - **`pt_confidence` loses its fourth input rather than substituting one.** "The ratio of
+    RT to raster work" has no cheap denominator — counting raster work means a per-draw hook
+    — and §H6 records that a command-list count measures *recorded* rather than *executed*
+    work anyway. The score may only ever *suggest*, so a weaker score is not a fabrication.
+  - **The design came from a four-way panel, three judges and three refuters**, and the most
+    useful thing the refuters found was not in any proposal: see the `FL_MEASURED_OUTPUT_RES`
+    fix under Fixed. They also killed a claim this entry would otherwise have made — that
+    reserved bytes let a future field skip the version bump. They do not: `recordSize` and
+    `layoutVersion` are compared before a reader looks at anything, so an old reader refuses
+    a new writer and never reaches an unknown field. What the reserve buys is that existing
+    offsets do not move.
+  - **Hook-path cost:** `RecordPresent` gains one comparison of two `uint16`s already in
+    registers, and `Publish`'s two memcpy spans are `offsetof`-derived and byte-identical.
+    **Not carried forward: the 8.4 ns figure.** That is `--probe-cost`'s empty-detour floor,
+    which the tool says of itself; no instrument in the tree measures `RecordPresent`.
+
 - **NVAPI is vendored, and the capability matrix gets the axis it could not be filled
   without.** `src/native/third_party/nvapi/` now holds nine headers (`nvapi.h`'s include
   closure plus `nvapi_interface.h`), `License.txt` and `amd64/nvapi64.lib`, from

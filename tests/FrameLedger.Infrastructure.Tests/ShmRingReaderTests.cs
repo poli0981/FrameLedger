@@ -77,8 +77,11 @@ public sealed class ShmRingReaderTests
             slot->Seq = s + 1;                       // odd: writing
             slot->FrameIndex = frameIndex;
             slot->Qpc = 1000 + frameIndex;
-            slot->MeasuredMask = (byte)FlMeasured.OutputRes;
-            slot->RtFlags = (byte)FlRtFlags.NotMeasured;
+            slot->MeasuredMask = (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs);
+
+            // v3: the rtFlags bits are *_OBSERVED, so 0 is the honest value and FlMeasured.Rt staying
+            // clear is what says nobody looked. The old opt-in NotMeasured bit is retired.
+            slot->RtFlags = (byte)FlRtFlags.None;
             slot->Seq = s + 2;                       // even: complete
             State->WriteIndex = idx + 1;
         }

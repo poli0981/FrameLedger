@@ -83,13 +83,30 @@ CREATE TABLE sessions (
   overlay_build_id TEXT,                       -- native DLL build that produced this data
   exit_status TEXT NOT NULL,                   -- normal|crashed|unhooked_safety|degraded|interrupted
 
+  -- Layout v3 (2026-08-05) changed four things here, and none had shipped:
+  --   * `hdr INTEGER` -> `hdr_flag`/`hdr_source`, matching the three tri-states
+  --     beside it. The record's `hdr` bool became `colorSpace` and a bool has no
+  --     third state; an INTEGER column would have reintroduced zero-means-two-
+  --     things one layer down.
+  --   * `dlss_rr` leaves the `upscaler` domain. RR is an independent axis and is
+  --     already stored as `rr_flag`; it was a mutually exclusive upscaler VALUE in
+  --     the record, which is the conflation v3 removed. A session where DLSS-SR
+  --     and RR ran together stores `upscaler='dlss'` with `rr_flag='yes'`.
+  --   * `rt_tier` + `hooks_installed_mask`: 03_METRICS' definite RT `No` needs
+  --     both, and neither had a column. Without them the verdict is decided at
+  --     finalize from evidence that cannot distinguish "no rays" from "no hook".
+  --   * `upscaler_sharpness`, so the accessor hook's yield has somewhere to land.
+  -- Free exactly once: 0001_init.sql does not exist yet (see below).
+
   -- presentation
-  api TEXT, present_mode TEXT, swap_effect TEXT, hdr INTEGER,
+  api TEXT, present_mode TEXT, swap_effect TEXT,
+  hdr_flag TEXT NOT NULL DEFAULT 'na', hdr_source TEXT,  -- tri-state, like rt/rr beside it
   sync_interval_mode TEXT,                     -- observed vsync behavior
 
   -- upscaling / FG (measured at tier 1)
-  upscaler TEXT,                               -- none|dlss|dlss_rr|fsr2|fsr3|fsr4|xess|nis|unknown
+  upscaler TEXT,                               -- none|dlss|fsr2|fsr3|fsr4|xess|nis|unknown
   upscaler_quality TEXT,
+  upscaler_sharpness INTEGER,                  -- percent; NULL when the API reports none
   render_w INTEGER, render_h INTEGER,          -- dominant segment
   output_w INTEGER, output_h INTEGER,
   upscale_ratio REAL,
@@ -104,6 +121,9 @@ CREATE TABLE sessions (
   pt_confidence REAL,                          -- heuristic score, never auto-promoted to 'yes'
   rr_flag TEXT NOT NULL DEFAULT 'na', rr_source TEXT,
   rt_frame_pct REAL, rays_per_pixel REAL, rt_pso_count INTEGER,
+  rt_tier INTEGER,                             -- D3D12_RAYTRACING_TIER x10; NULL = not queried
+  hooks_installed_mask INTEGER,                -- FlHookFamily union over the session
+  raster_pso_count INTEGER,
 
   -- frame statistics
   frame_count INTEGER NOT NULL, app_frame_count INTEGER NOT NULL,

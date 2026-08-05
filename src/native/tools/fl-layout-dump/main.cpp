@@ -58,7 +58,11 @@ int main() {
     // additive fields" is a promise about WHERE they may go -- and a mirror that
     // declares it while the dump stays silent cannot be checked in both
     // directions. Found by the managed test's reverse walk on 2026-08-05.
-    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 10, true);
+    Field("rtTier", offsetof(FlWriterState, rtTier), sizeof(uint32_t));
+    Field("hooksInstalledMask", offsetof(FlWriterState, hooksInstalledMask), sizeof(uint32_t));
+    Field("rtStateObjectsCreated", offsetof(FlWriterState, rtStateObjectsCreated), sizeof(uint32_t));
+    Field("rasterPsoCreated", offsetof(FlWriterState, rasterPsoCreated), sizeof(uint32_t));
+    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 6, true);
     std::printf("    ] },\n");
 
     std::printf("    \"FlControlBlock\": { \"size\": %zu, \"fields\": [\n", sizeof(FlControlBlock));
@@ -83,14 +87,17 @@ int main() {
     Field("upscalerQuality", offsetof(FlFrameRecord, upscalerQuality), sizeof(uint8_t));
     Field("fgMode", offsetof(FlFrameRecord, fgMode), sizeof(uint8_t));
     Field("rtFlags", offsetof(FlFrameRecord, rtFlags), sizeof(uint8_t));
-    Field("hdr", offsetof(FlFrameRecord, hdr), sizeof(uint8_t));
+    Field("colorSpace", offsetof(FlFrameRecord, colorSpace), sizeof(uint8_t));
     Field("dispatchRaysVolume", offsetof(FlFrameRecord, dispatchRaysVolume), sizeof(uint32_t));
     Field("psoCreatedThisFrame", offsetof(FlFrameRecord, psoCreatedThisFrame), sizeof(uint16_t));
     Field("maxTraceRecursionDepth", offsetof(FlFrameRecord, maxTraceRecursionDepth), sizeof(uint8_t));
-    Field("measuredMask", offsetof(FlFrameRecord, measuredMask), sizeof(uint8_t));
-    Field("vramUsedBytes", offsetof(FlFrameRecord, vramUsedBytes), sizeof(uint64_t));
+    Field("featureFlags", offsetof(FlFrameRecord, featureFlags), sizeof(uint8_t));
+    Field("measuredMask", offsetof(FlFrameRecord, measuredMask), sizeof(uint16_t));
+    Field("upscalerSharpness", offsetof(FlFrameRecord, upscalerSharpness), sizeof(uint8_t));
+    Field("fgEvaluations", offsetof(FlFrameRecord, fgEvaluations), sizeof(uint8_t));
+    Field("vramUsedMb", offsetof(FlFrameRecord, vramUsedMb), sizeof(uint32_t));
     Field("reflexLatencyUs", offsetof(FlFrameRecord, reflexLatencyUs), sizeof(uint32_t));
-    Field("fgEvaluations", offsetof(FlFrameRecord, fgEvaluations), sizeof(uint32_t));
+    Field("reserved", offsetof(FlFrameRecord, reserved), sizeof(uint32_t));
     Field("seq", offsetof(FlFrameRecord, seq), sizeof(uint32_t));
     Field("swapchainId", offsetof(FlFrameRecord, swapchainId), sizeof(uint32_t), true);
     std::printf("    ] }\n");

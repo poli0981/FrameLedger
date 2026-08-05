@@ -6,7 +6,9 @@ Every metric declares which **capture tier** it requires (`01_ARCHITECTURE` §Ca
 
 ## Inputs
 
-**Tier 1** — `FlFrameRecord` stream from the ring (`17_HOOK_ENGINE` §Ring writer), which is the authoritative field list. Every field is consumed: `qpc`, `frameIndex`, `presentFlags`, `syncInterval`, `renderW/H`, `outputW/H`, `api`, `upscaler`, `upscalerQuality`, `fgMode`, `fgEvaluations`, `rtFlags`, `dispatchRaysVolume`, `maxTraceRecursionDepth`, `psoCreatedThisFrame`, `vramUsedBytes`, `reflexLatencyUs`, `hdr`. Plus `vramBudgetMb` from `FlWriterState`, needed for `budget_exceeded_pct`.
+**Tier 1** — `FlFrameRecord` stream from the ring (`17_HOOK_ENGINE` §Ring writer), which is the authoritative field list. Every field is consumed **except the two protocol fields** `seq` and `reserved`, which are named here so "every field is consumed" does not have to be read as a promise about them: `qpc`, `frameIndex`, `presentFlags`, `syncInterval`, `renderW/H`, `outputW/H`, `api`, `upscaler`, `upscalerQuality`, `upscalerSharpness`, `fgMode`, `fgEvaluations`, `rtFlags`, `featureFlags`, `dispatchRaysVolume`, `maxTraceRecursionDepth`, `psoCreatedThisFrame`, `vramUsedMb`, `reflexLatencyUs`, `colorSpace`, `measuredMask`, `swapchainId`. Plus, from `FlWriterState`: `vramBudgetMb` for `budget_exceeded_pct`, `rtTier` and `hooksInstalledMask` for the RT tri-state, and `rtStateObjectsCreated` / `rasterPsoCreated` for `pt_confidence`.
+
+> **Renamed in layout v3 (2026-08-05):** `vramUsedBytes` → `vramUsedMb` (MiB, matching the `vramBudgetMb` it is compared against and the `vram_mb` this document already exported), and `hdr` → `colorSpace` (a bool had no third state). `measuredMask` is 16-bit.
 
 **Tier 2** — PresentMon CSV. **Pin the version:** `FrameType` exists only in PresentMon 2.x, while `MsBetweenPresents` / `MsBetweenDisplayChange` are 1.x column names — no single binary emits both sets, so a parser written against this list as originally stated could never succeed. v1 targets the **2.x console** and its column names; the header-map parser (`14_TESTING` §Parsers) resolves columns by name and reports an explicit capability loss when `FrameType` is absent rather than silently reporting `fg_mode = none`.
 
@@ -118,7 +120,7 @@ Tri-state `Yes | No | N/A` per session with `source` (`measured | manual | inher
 | Flag | Tier-1 evidence | Result |
 |---|---|---|
 | **Ray Tracing** | `BuildRaytracingAccelerationStructure` called, **or** `DispatchRays` called, in ≥ 5% of frames | `Yes` |
-| | RT-capable device (`D3D12_FEATURE_D3D12_OPTIONS5` tier ≥ 1.0) present, no AS builds and no dispatches for the whole session | `No` |
+| | **All three of:** `FlWriterState.rtTier ≥ 10` (an RT-capable device, `D3D12_FEATURE_D3D12_OPTIONS5` tier ≥ 1.0 — 0 means *not queried*, not *not capable*); `hooksInstalledMask` contains **`RtAsBuild`**; and no AS builds and no dispatches for the whole session | `No` |
 | | No RT-capable API in use (D3D11/OpenGL), or evidence inconclusive | `N/A` |
 | **Ray Reconstruction** | NGX `RayReconstruction` feature created **and evaluated** (or Streamline `DLSS_RR`) | `Yes` / `No` if DLSS is active without it |
 | **Path Tracing** | heuristic only — see below | usually `N/A` |
@@ -126,14 +128,17 @@ Tri-state `Yes | No | N/A` per session with `source` (`measured | manual | inher
 **Honest limits, documented in the UI tooltip:**
 
 - Hooking `BuildRaytracingAccelerationStructure` is what makes **inline ray tracing (DXR 1.1 `RayQuery`)** detectable at all — those shaders never call `DispatchRays`, so dispatch counting alone would report `No` for a game that is very much ray tracing. AS-build activity catches both paths. This is why both hooks exist.
-- **Path tracing has no API-level signature.** The heuristic combines: rays dispatched per output pixel ≥ ~1.0, `MaxTraceRecursionDepth` from the RT PSO config, number of distinct RT state objects, and the ratio of RT to raster work. It produces a **confidence score**, and only ≥ 0.8 offers a *suggestion* in the UI ("looks like path tracing — confirm?"). It never sets `Yes` on its own. Manual override remains the authoritative path, per game, inherited by future sessions.
+- **The `No` branch needs all three conjuncts, and the second is the one that is easy to drop.** The AS-build hook is what makes inline `RayQuery` visible; a writer that installed only `DispatchRays` sees nothing on a RayQuery-only title, and its silence is indistinguishable from a real negative. Requiring `RtAsBuild` to have been *installed* — not merely for RT to have been "measured" — is what stops that becoming a confident `No` about a title that ray-traces every frame. Where any conjunct fails the answer is `N/A`.
+- **Path tracing has no API-level signature.** The heuristic combines three inputs: rays dispatched per output pixel ≥ ~1.0, `MaxTraceRecursionDepth` from the RT PSO config, and the number of distinct RT state objects (`FlWriterState.rtStateObjectsCreated`). It produces a **confidence score**, and only ≥ 0.8 offers a *suggestion* in the UI ("looks like path tracing — confirm?"). It never sets `Yes` on its own. Manual override remains the authoritative path, per game, inherited by future sessions.
+
+  > **A fourth input — "the ratio of RT to raster work" — was listed here and is removed, 2026-08-05.** It has no cheap denominator: counting raster work means a per-draw hook, which is a hot-path cost this project will not pay, and `§H6` records that a command-list count measures *recorded* rather than *executed* work anyway. `rays_per_pixel` already carries the intent. Removing an input weakens a score that may only ever *suggest*; it cannot produce a fabrication, which is why it is a removal and not a blocker. `FlWriterState.rasterPsoCreated` is kept as the cheapest available proxy should anyone revisit it.
 - A game can also enable RT for a subset of effects only; `Yes` means "rays were traced", not "everything is ray traced". The UI says so.
 
 Derived extras (Tier 1): `rays_per_pixel` (mean dispatch volume ÷ output pixels), `rt_frame_pct` (share of frames with RT activity), `rt_pso_count`.
 
 ## Per-process VRAM (Tier 1)
 
-`vramUsedBytes` from `IDXGIAdapter3::QueryVideoMemoryInfo(LOCAL)` inside the game = **this game's** usage and budget. Stored as its own series and clearly labelled apart from the adapter-wide figure from `18_GPU_VENDOR_APIS`. Aggregates: avg, max, and `budget_exceeded_pct` (share of samples where `CurrentUsage > Budget`, i.e. the driver was likely evicting — a genuinely useful stutter explanation).
+`vramUsedMb` from `IDXGIAdapter3::QueryVideoMemoryInfo(LOCAL)` inside the game = **this game's** usage and budget. **MiB, truncating, and it must use the same divisor as `vramBudgetMb`** — the two are compared, and mismatched rounding would put a systematic bias into `budget_exceeded_pct`. Residual: a flip within 1 MiB of the budget, 0.004% of a 24 GiB card. Stored as its own series and clearly labelled apart from the adapter-wide figure from `18_GPU_VENDOR_APIS`. Aggregates: avg, max, and `budget_exceeded_pct` (share of samples where `CurrentUsage > Budget`, i.e. the driver was likely evicting — a genuinely useful stutter explanation).
 
 ## Sensor aggregates
 

@@ -1508,11 +1508,18 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
         if (i > 0 && all[i].qpc <= all[i - 1].qpc) {
             timeMovesForward = false;
         }
-        // The honesty property, and the reason #36 spent two bytes: a
-        // present-only writer may claim the output size and NOTHING else.
-        // measuredMask 0 with the zero-defaults would assert "no upscaler, no
-        // frame generation, no ray tracing" as measured fact.
-        if (all[i].measuredMask != fl::FL_MEASURED_OUTPUT_RES || (all[i].rtFlags & fl::FL_RT_NOT_MEASURED) == 0) {
+        // The honesty property: a present-only writer may claim the output size
+        // and its own call arguments, and NOTHING else.
+        //
+        // Layout v3 changed how "nothing else" is spelled. rtFlags bits are now
+        // *_OBSERVED, so 0 is the honest value and FL_MEASURED_RT staying clear
+        // is what says nobody looked; the old opt-in FL_RT_NOT_MEASURED is
+        // retired. The enums moved with it: FL_UPSCALER_NOT_REPORTED and
+        // FL_FG_NOT_REPORTED are 0, so the zero-defaults no longer assert "no
+        // upscaler, no frame generation" and are checked here as such.
+        const uint16_t entitled = static_cast<uint16_t>(fl::FL_MEASURED_OUTPUT_RES | fl::FL_MEASURED_PRESENT_ARGS);
+        if (all[i].measuredMask != entitled || all[i].rtFlags != 0 || all[i].upscaler != fl::FL_UPSCALER_NOT_REPORTED ||
+            all[i].fgMode != fl::FL_FG_NOT_REPORTED || all[i].featureFlags != 0) {
             honest = false;
         }
         if (all[i].swapchainId == 0) {
@@ -1618,15 +1625,19 @@ TEST_CASE("a writer with no output size claims none", "[guard][inject][shm]") {
     for (const auto& rec : all) {
         if (rec.swapchainId == 0) {
             ++overflowed;
-            // The claim under test. Not "the bit is clear" -- the whole mask,
-            // because a writer that swapped one wrong claim for another would
-            // satisfy a narrower check.
-            CHECK(rec.measuredMask == 0);
+            // The claim under test. Not "the OUTPUT_RES bit is clear" -- the
+            // whole mask, because a writer that swapped one wrong claim for
+            // another would satisfy a narrower check. PRESENT_ARGS stays set:
+            // this writer genuinely does have the present call's own arguments,
+            // and losing that would be the opposite defect.
+            CHECK(rec.measuredMask == fl::FL_MEASURED_PRESENT_ARGS);
             CHECK(rec.outputW == 0);
             CHECK(rec.outputH == 0);
-            // Still supervised, still honest about RT: the fix must not have
-            // turned the record into a blank.
-            CHECK((rec.rtFlags & fl::FL_RT_NOT_MEASURED) != 0);
+            // Still honest about RT under v3's flipped polarity: no OBSERVED bit
+            // set, and FL_MEASURED_RT clear so the Agent reads N/A rather than a
+            // measured absence.
+            CHECK(rec.rtFlags == 0);
+            CHECK((rec.measuredMask & fl::FL_MEASURED_RT) == 0);
         }
     }
 

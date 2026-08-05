@@ -156,12 +156,20 @@ public sealed class ShmDrainIntegrationTests
 
         records.Select(r => r.Qpc).Should().BeInAscendingOrder("QPC is read at hook entry");
 
-        // A present-only writer measured the output resolution and nothing else; the mask is what stops
-        // the zero-defaults being read as measured facts.
-        records.Should().OnlyContain(r => r.MeasuredMask == (byte)FlMeasured.OutputRes,
+        // A present-only writer measured the output resolution and its own call arguments, and nothing
+        // else. In layout v3 the zero-defaults are honest by construction — FlUpscaler.NotReported and
+        // FlFgMode.NotReported are 0 — and the mask corroborates rather than being the sole defence.
+        records.Should().OnlyContain(
+            r => r.MeasuredMask == (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs),
             "the writer must claim exactly what it measured — no more, and no less");
-        records.Should().OnlyContain(r => (r.RtFlags & (byte)FlRtFlags.NotMeasured) != 0,
-            "rtFlags = 0 would assert a MEASURED 'this title does not ray-trace'");
+        records.Should().OnlyContain(r => r.RtFlags == 0,
+            "v3 rtFlags bits are *_OBSERVED, so a present-only writer sets none of them");
+        records.Should().OnlyContain(r => (r.MeasuredMask & (ushort)FlMeasured.Rt) == 0,
+            "and FlMeasured.Rt clear is what makes that zero read as N/A rather than a measured absence");
+        records.Should().OnlyContain(r => r.Upscaler == (byte)FlUpscaler.NotReported,
+            "the v3 zero-default must not say 'we looked and there was no upscaler'");
+        records.Should().OnlyContain(r => r.FgMode == (byte)FlFgMode.NotReported);
+        records.Should().OnlyContain(r => r.FeatureFlags == 0);
         records.Should().OnlyContain(r => r.Api == (byte)FlApi.D3D11);
         records.Should().OnlyContain(r => r.SwapchainId != 0, "0 means the writer could not identify it");
         records.Should().OnlyContain(r => r.OutputW > 0 && r.OutputH > 0);
