@@ -639,12 +639,23 @@ frame generation, no ray tracing" as *measured fact* ~118 times a second — `fg
 never written by anything, while its only reader is unreachable on any frame where
 `guardTicks` changed.
 
-**Still not measured on the present path**, and both are `20_OPEN_QUESTIONS` §S24 items:
-the 65-second supervision deadline **in its real configuration** (a canary proves the
-comparison fires, not that 65000 is the number on the shipped path — and it is evaluated
-only when the game presents, which `fl_shm.h:67-70` says it must not be), and the
-three-fault self-disable, which has no test at all
-(`src/native/tests/CMakeLists.txt:147`).
+**Two gaps found the same day by tracing call paths, and one is still open.**
+
+- ✅ **Both runtime stops were unreachable in a non-presenting process**, and
+  `pauseRequested` was unreachable on any frame where `guardTicks` changed — one root
+  cause, `MayObserve()` having exactly one caller. Measured in both directions:
+  `unhookRequested` against a live `--hold` target left `status` at `READY` through 10 s
+  of polling, and a paused session leaked **12 records across 12 guard ticks, exactly one
+  per tick** (`writeIndex` 9 → 21). Closed by the watchdog thread (§S25).
+- 🔴 **The three-fault self-disable still has no test at all.** `NoteFault` discarded
+  `MH_DisableHook`'s return and set no `g_observing`; that is fixed, without a regression
+  net. The blocker is the vehicle — a fault seam compiled into a DLL that ships into
+  games is rejected on sight, and the `VirtualProtectEx` alternative cannot locate the
+  target's view base. Both approaches and their failure modes are written into
+  `src/native/tests/CMakeLists.txt`.
+- The 65-second value **in its real configuration** is also unverified: the stop is proven
+  to fire, but a suite that runs on every build cannot wait 65 s, so what is tested is the
+  mechanism, not the number.
 
 ### Still open in §3
 

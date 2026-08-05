@@ -190,6 +190,10 @@ void PublishHandshake() noexcept {
 // ---------------------------------------------------------------------------
 FlWriterState* g_state = nullptr;
 
+// Defined below with the safety stop. NoteFault needs it, and the fault policy
+// is declared first because FL_HOOK_GUARD wraps every hook body.
+void StopObserving(uint32_t reason) noexcept;
+
 // Only OUR code is guarded, never the call to the original -- otherwise a game's
 // own fault inside the trampoline would be counted as ours, and ours as the
 // game's. Both directions of that confusion are bad.
@@ -210,9 +214,20 @@ void NoteFault() noexcept {
     if (n >= 3) {
         // Three faults total => stop writing and go dormant. MH_DisableHook is
         // safe here because we are outside our own guarded body by now.
-        MH_DisableHook(MH_ALL_HOOKS);
-        std::atomic_ref<uint32_t> status{g_state->status};
-        status.store(FL_STATUS_SELF_DISABLED, std::memory_order_release);
+        //
+        // ROUTED THROUGH StopObserving, and that is a fix rather than a tidy-up.
+        // This used to call MH_DisableHook directly, DISCARD ITS RETURN VALUE and
+        // then store the status unconditionally -- so on a MinHook failure the
+        // Overlay reported SELF_DISABLED while its hooks were still patched in and
+        // still writing. The status field is not consulted anywhere on the write
+        // path, so nothing else would have stopped it either.
+        //
+        // StopObserving clears g_observing, which IS consulted on the write path,
+        // and whose comment (below) already called it "the only thing that holds
+        // if MH_DisableHook ever fails". That claim was true of the safety stop
+        // and false of the fault policy, which is exactly the kind of asymmetry
+        // between two paths doing the same job that nobody re-reads for.
+        StopObserving(FL_STATUS_SELF_DISABLED);
     }
 }
 
@@ -374,10 +389,46 @@ uint32_t g_frameIndex = 0;
 // The safety stop, and supervision loss (07_IPC §Protocol rules, 19_SAFETY
 // §During a session).
 //
-// Both are checked ON THE PRESENT PATH, which is the only place that runs often
-// enough to react "within one frame" as 07_IPC requires. Neither costs a
-// syscall: the control block is mapped memory, and GetTickCount64 reads
-// KUSER_SHARED_DATA.
+// TWO PLACES EVALUATE THESE, AND THE SECOND ONE IS THE POINT.
+//
+// The present path reacts "within one frame", which is what 07_IPC requires of
+// the safety stop, and costs no syscall: the control block is mapped memory.
+//
+// But the present path is reachable ONLY WHILE THE GAME IS PRESENTING, and until
+// 2026-08-05 it was the only place either check ran. `MayObserve` has exactly one
+// caller (`RecordPresent`), which has two (the Present and Present1 hooks) -- so
+// in a process that had stopped presenting, because it hung or was alt-tabbed or
+// sat in a menu, unhookRequested was never read and the deadline was never
+// evaluated. The hooks stayed patched in indefinitely.
+//
+// That is the case the mechanism exists for. fl_shm.h says so in capitals over
+// FL_GUARD_TICK_DEADLINE_MS -- "NOT DRIVEN BY THE PRESENT HOOK ... the clock
+// would stop when presents stop, which is the exact scenario this exists for, a
+// game that has hung, or been alt-tabbed, while anti-cheat loads behind it" --
+// and the code did the thing its own normative comment forbade. A process that
+// has stopped presenting is also not RECORDING, so nothing false was written;
+// what failed is the promise in legal/DISCLAIMER.md §2 that the part inside the
+// game stops when contact is lost, and 19_SAFETY's clean unhook on detection.
+//
+// So the watchdog thread below supplements the present path rather than
+// replacing it: within-one-frame while presenting, within-one-second otherwise.
+// Same shape as §S6's LoadLibrary hook, which supplements the 30 s poll because
+// the poll also catches things the hook cannot.
+//
+// WHY A THREAD IS ACCEPTABLE HERE AND WAS REJECTED FOR THE VULKAN LAYER.
+// 20_OPEN_QUESTIONS §S2 rejected a layer-owned worker thread for three reasons,
+// all of which are properties of the LAYER: the Vulkan loader owns the layer's
+// mapping, so a thread outliving it access-violates a host we do not own; the
+// re-scan it would have run allocates ~1.15 MB transiently; and it would have
+// called NtQuerySystemInformation and probed the SCM from inside a game, which
+// is the behavioural signature of anti-analysis code (CLAUDE.md rule 3). None
+// applies here. The Overlay is loaded by documented LoadLibraryW and is never
+// FreeLibrary'd from a live process (17_HOOK_ENGINE §Unhooking), so we own the
+// lifetime; and this thread enumerates nothing, probes nothing and allocates
+// nothing -- it reads two uint32s out of our own mapping and sleeps.
+//
+// It also EXITS once stopped. There is nothing left for it to decide, and a
+// sleeping thread that can never do anything again is footprint for nothing.
 //
 // STOPPING IS ONE-WAY. Once we stop observing we do not resume, even if ticks
 // start again -- a capture side that can un-stop itself is a capture side whose
@@ -385,9 +436,23 @@ uint32_t g_frameIndex = 0;
 // important runtime behavior in the whole capture layer.
 // ---------------------------------------------------------------------------
 FlControlBlock* g_control = nullptr;
-bool            g_observing = true;
-uint32_t        g_lastTicks = 0;
-ULONGLONG       g_lastTickAt = 0;
+
+// ATOMIC because two threads now write it: a hook body reacting to
+// unhookRequested, and the watchdog. It was a plain bool while the present path
+// was the only writer.
+std::atomic<uint32_t> g_observing{1};
+
+// Owned by the watchdog thread ALONE. They used to live on the present path,
+// where they were read and written by whichever game thread happened to present
+// -- and where the freshness check returned early, which is what made
+// pauseRequested unreachable (see MayObserve).
+uint32_t  g_lastTicks = 0;
+ULONGLONG g_lastTickAt = 0;
+
+// One second. The safety stop's real deadline is the guard's, and this only
+// bounds how late we notice; 07_IPC's "within one frame" is still met by the
+// present path whenever the game is presenting at all.
+constexpr DWORD kWatchdogIntervalMs = 1000;
 
 // CANARY RESULT, recorded because it is not what I expected. Removing
 // `g_observing = false` and leaving only MH_DisableHook keeps the suite GREEN:
@@ -398,10 +463,16 @@ ULONGLONG       g_lastTickAt = 0;
 // necessary" is NOT a property this suite verifies, and saying so is cheaper than
 // letting a reader assume it does.
 void StopObserving(uint32_t reason) noexcept {
-    if (!g_observing) {
+    // Compare-exchange, not a plain check-then-set: the watchdog and a game
+    // thread inside a hook body can both arrive here, and MH_DisableHook must run
+    // exactly once. The loser returns without touching status, so the FIRST
+    // reason wins -- a self-disable already in flight is not overwritten by a
+    // safety stop that arrives a millisecond later, or the record of WHY we
+    // stopped would depend on thread scheduling.
+    uint32_t expected = 1;
+    if (!g_observing.compare_exchange_strong(expected, 0, std::memory_order_acq_rel, std::memory_order_acquire)) {
         return;
     }
-    g_observing = false;
     MH_DisableHook(MH_ALL_HOOKS);
     if (g_state != nullptr) {
         std::atomic_ref<uint32_t> status{g_state->status};
@@ -410,9 +481,17 @@ void StopObserving(uint32_t reason) noexcept {
 }
 
 // Returns false when we must not record this present.
+//
+// The supervision deadline is NOT here any more -- it is the watchdog's, which
+// is the whole point of having one. What stays is the safety stop, because
+// 07_IPC requires it within one frame and a one-second watchdog cannot promise
+// that, and the pause check, which is inherently per-frame.
 bool MayObserve() noexcept {
-    if (!g_observing || g_control == nullptr) {
-        return g_observing;
+    if (g_observing.load(std::memory_order_acquire) == 0) {
+        return false;
+    }
+    if (g_control == nullptr) {
+        return true;
     }
 
     // The safety stop first: the Agent's guard fired mid-session and wants the
@@ -423,31 +502,65 @@ bool MayObserve() noexcept {
         return false;
     }
 
-    // Supervision loss. guardTicks counts COMPLETED guard evaluations, not
-    // seconds, so a stalled guard loop stops it advancing even while the Agent
-    // process is alive -- which is exactly the case a timer-driven heartbeat
-    // would have missed.
-    //
-    // "Never advanced" and "stopped advancing" are the same state: the clock
-    // starts when the mapping is published, so a capture side no Agent ever
-    // adopted is inert from the beginning rather than enjoying a grace window.
-    std::atomic_ref<uint32_t> ticks{g_control->guardTicks};
-    const uint32_t            now = ticks.load(std::memory_order_acquire);
-    const ULONGLONG           t = GetTickCount64();
-    if (now != g_lastTicks) {
-        g_lastTicks = now;
-        g_lastTickAt = t;
-        return true;
-    }
-    if (t - g_lastTickAt >= FL_GUARD_TICK_DEADLINE_MS) {
-        StopObserving(FL_STATUS_UNHOOKED);
-        return false;
-    }
-
     // Pausing is not stopping: the Agent asked us to hold, and the supervision
-    // clock keeps running, so a paused session still stops if the guard dies.
+    // clock keeps running (in the watchdog), so a paused session still stops if
+    // the guard dies.
+    //
+    // THIS LINE WAS UNREACHABLE ON ANY FRAME WHERE guardTicks HAD CHANGED. The
+    // freshness check used to sit between the safety stop and here and `return
+    // true` as soon as the tick differed from the cached value -- so the first
+    // present after every guard evaluation was recorded regardless of pause. One
+    // leaked record per evaluation does not sound like much; its qpc is ~30 s
+    // after its predecessor, which is a FABRICATED 30-SECOND FRAME INTERVAL in
+    // the series 03_METRICS computes 1% and 0.1% lows from. 07_IPC forbids
+    // exactly that artefact for torn records and the same reasoning applies here.
+    // Latent until now only because nothing writes pauseRequested yet.
     std::atomic_ref<uint32_t> paused{g_control->pauseRequested};
     return paused.load(std::memory_order_relaxed) == 0;
+}
+
+// The watchdog. Runs whether or not the game presents, which is the reason it
+// exists; see the block comment above for why a thread is acceptable in the
+// Overlay and was not in the Vulkan layer.
+DWORD WINAPI WatchdogThread(LPVOID) noexcept {
+    for (;;) {
+        Sleep(kWatchdogIntervalMs);
+
+        if (g_observing.load(std::memory_order_acquire) == 0) {
+            return 0;    // stopped by us or by a hook body; nothing left to decide
+        }
+        if (g_control == nullptr) {
+            continue;
+        }
+
+        std::atomic_ref<uint32_t> unhook{g_control->unhookRequested};
+        if (unhook.load(std::memory_order_acquire) != 0) {
+            StopObserving(FL_STATUS_UNHOOKED);
+            return 0;
+        }
+
+        // Supervision loss. guardTicks counts COMPLETED guard evaluations, not
+        // seconds, so a stalled guard loop stops it advancing even while the
+        // Agent process is alive -- which is exactly the case a timer-driven
+        // heartbeat would have missed.
+        //
+        // "Never advanced" and "stopped advancing" are the same state: the clock
+        // starts when the mapping is published, so a capture side no Agent ever
+        // adopted is inert from the beginning rather than enjoying a grace
+        // window.
+        std::atomic_ref<uint32_t> ticks{g_control->guardTicks};
+        const uint32_t            now = ticks.load(std::memory_order_acquire);
+        const ULONGLONG           t = GetTickCount64();
+        if (now != g_lastTicks) {
+            g_lastTicks = now;
+            g_lastTickAt = t;
+            continue;
+        }
+        if (t - g_lastTickAt >= FL_GUARD_TICK_DEADLINE_MS) {
+            StopObserving(FL_STATUS_UNHOOKED);
+            return 0;
+        }
+    }
 }
 
 // The hot path. One QPC read, a few cached-state reads, one 60-byte store in two
@@ -616,6 +729,22 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
     }
 
     status.store(FL_STATUS_READY, std::memory_order_release);
+
+    // AFTER the hooks, deliberately. The watchdog's only job is to take them out
+    // again, so starting it earlier would create a window in which it could
+    // "stop" a capture side that had not started -- setting g_observing to 0
+    // before InstallPresentHooks ran, and leaving a permanently inert Overlay
+    // reporting UNHOOKED with nothing ever hooked. Failure to start it is NOT
+    // fatal: the present-path checks still work, and an Overlay that reacts only
+    // while the game presents is strictly better than none. It is recorded in the
+    // fault counter so the Agent can see it rather than inferring it.
+    HANDLE watchdog = CreateThread(nullptr, 0, WatchdogThread, nullptr, 0, nullptr);
+    if (watchdog == nullptr) {
+        std::atomic_ref<uint32_t> faults{g_state->faultCount};
+        faults.fetch_add(1, std::memory_order_acq_rel);
+    } else {
+        CloseHandle(watchdog);    // fire and forget; it exits on its own once stopped
+    }
     return 0;
 }
 
@@ -645,11 +774,15 @@ __declspec(dllexport) unsigned int FlGetStatus() {
     return status.load(std::memory_order_acquire);
 }
 
-// The safety stop's local entry point. It does nothing yet because nothing is
-// hooked; the body lands with the hooks, where 07_IPC requires it to be the
-// fastest, most-tested path in the DLL. Declared now because the export list is
-// part of what an anti-cheat vendor inspects, and a DLL whose exports change
-// shape between builds is harder to identify, not easier.
+// The safety stop's local entry point. This comment said "it does nothing yet
+// because nothing is hooked; the body lands with the hooks" until 2026-08-05 --
+// the body landed in #43 and the comment did not move. It removes the hooks and
+// records UNHOOKED, exactly like the control-block path.
+//
+// It is NOT how the Agent stops a session: that is FlControlBlock::unhookRequested,
+// read on the present path and by the watchdog. This export exists because the
+// export list is part of what an anti-cheat vendor inspects, and a DLL whose
+// exports change shape between builds is harder to identify, not easier.
 __declspec(dllexport) void FlRequestUnhook() {
     StopObserving(FL_STATUS_UNHOOKED);
 }

@@ -144,4 +144,29 @@ target_link_libraries(fl_ring_test PRIVATE FrameLedger.Shm fl_native_flags Catch
 target_compile_options(fl_ring_test PRIVATE /EHsc)
 add_test(NAME fl_ring COMMAND fl_ring_test)
 
-# TODO(P1): the fault-policy suite, with the hook bodies.
+# STILL NO FAULT-POLICY SUITE, and the reason is worth more than the TODO it
+# replaces. The three-fault self-disable is NFR-3's entire mechanism and the
+# clause 20_OPEN_QUESTIONS §H8 was closed on, and nothing exercises it.
+#
+# What blocks it is the VEHICLE, not the assertions. To count a fault we must
+# make our own hook body fault, in a live injected target, deterministically:
+#
+#   - A fault seam compiled into FrameLedger.Overlay is rejected on sight. It
+#     ships into game processes, and "an export that makes the DLL crash on
+#     demand" is a worse thing to hand an anti-cheat vendor than the bug.
+#     §S15's evidence-seam precedent (compiled out of everything that ships,
+#     verified with dumpbin) is the standard, and a fault seam cannot meet it
+#     because the fault has to happen on the REAL path to be counted by it.
+#   - VirtualProtectEx'ing the target's mapped ring to PAGE_NOACCESS was
+#     considered and is not safe as stated: the test cannot locate the view's
+#     base address in the target, and protecting the whole view makes
+#     StopObserving's own status store fault -- inside the __except handler,
+#     where there is no guard, which crashes the harness instead of testing it.
+#     Protecting the ring region ALONE would work, if the base address problem
+#     were solved.
+#
+# So the honest state is: FL_HOOK_GUARD's structure is reviewed and not
+# exercised, and NoteFault's routing through StopObserving (2026-08-05) is a fix
+# made WITHOUT a regression test. Recorded here rather than left as a bare TODO
+# so the next reader knows the gap is known and why, per build.ps1's
+# skip-loudly discipline. Tracked in 20_OPEN_QUESTIONS §S24.
