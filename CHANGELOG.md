@@ -353,6 +353,27 @@ GitHub release body, so a missing section means an empty release note.
     NGX-direct titles never wrap the swapchain.
 
 ### Fixed
+- **`ctest fl_vtable_indices` proved a fact about `dxgi.dll`, not about the Overlay**
+  (§S29(b)). `hook-harness` declared `kPresentIndex = 8` / `kResizeBuffersIndex = 13` /
+  `kPresent1Index = 22` as its own constants, textually duplicated from the inline literals
+  in `dllmain.cpp` with nothing binding them. **Change the Overlay's 8 to a 9 and the test
+  still passed** — it exercised the harness's copy. The only test coupling the two is the
+  drain integration class, which CI skips for §S19(b), so in the merge gate the coupling
+  was absent entirely.
+  - Closed by `FrameLedger.Overlay/include/fl_dxgi_vtable.h` and an `fl_dxgi_vtable`
+    INTERFACE target, so the harness reads the shipped constants without linking the DLL.
+  - **Canary:** setting `kPresentIndex = 9` leaves the native build **green** and turns
+    `fl_vtable_indices` red — along with three neighbouring harness tests, which depend on
+    hooking working at all. Restored: 16/16.
+  - **What it does not do**, said rather than implied: the indices are still not *trusted*.
+    The header is where the assumption is written once; `--probe-vtable` calling each slot
+    on a real swapchain is what makes it a measurement. It is also not licence to hardcode
+    a vtable *pointer* — the Overlay still reads the vtable off a throwaway WARP
+    composition swapchain and releases it. What is ABI-constant is the slot index, not the
+    address.
+  - P0 item 2's ✅ rests partly on "vtable indices proved by behaviour". Until now that
+    proof did not reach the shipped values.
+
 - **Four gates that could not fail, or could not discriminate** — §S19(a), §S19(d)'s
   residual, §S23-5, and §S29(d). Each is closed by a mechanism rather than by a
   correction, because three of the four were *already* corrections that had gone stale.

@@ -43,6 +43,7 @@
 #include <cstring>
 #include <vector>
 
+#include "fl_dxgi_vtable.h"
 #include "proxy_swapchain.h"
 
 #pragma comment(lib, "d3d11.lib")
@@ -62,9 +63,17 @@ void Check(bool ok, const char* what) {
 
 // Vtable slot expectations from 17_HOOK_ENGINE §Getting vtable addresses.
 // These are the numbers this harness exists to prove.
-constexpr unsigned kPresentIndex = 8;
-constexpr unsigned kResizeBuffersIndex = 13;
-constexpr unsigned kPresent1Index = 22;
+//
+// THEY COME FROM THE OVERLAY'S OWN HEADER NOW, and that is the whole point.
+// They used to be declared here, textually duplicated from the inline literals
+// in dllmain.cpp with nothing binding the two. `ctest fl_vtable_indices` was
+// therefore proving a fact about dxgi.dll and not about FrameLedger.Overlay:
+// change the Overlay's 8 to a 9 and this test still passed
+// (20_OPEN_QUESTIONS §S29(b)). One header, two consumers, and the proof lands
+// on the shipped value.
+using fl::dxgi::kPresent1Index;
+using fl::dxgi::kPresentIndex;
+using fl::dxgi::kResizeBuffersIndex;
 
 struct Gfx {
     ID3D11Device*        device = nullptr;

@@ -5,7 +5,9 @@
 # an injected DLL: it has no reason to give up exceptions, and the COM proxy in
 # proxy_swapchain.h is ordinary C++ that benefits from them.
 add_executable(hook-harness main.cpp proxy_swapchain.h)
-target_link_libraries(hook-harness PRIVATE FrameLedger.Shm fl_native_flags)
+# fl_dxgi_vtable, not a local copy of the slot numbers: this harness proves the
+# indices by behaviour, and it must prove the SHIPPED ones (§S29(b)).
+target_link_libraries(hook-harness PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags)
 target_compile_definitions(hook-harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
 # WARP + CreateSwapChainForComposition means no GPU and no HWND are needed, so

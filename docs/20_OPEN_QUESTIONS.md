@@ -184,15 +184,30 @@ behind it, or installs a hook and forgets the bit, merges green.** The only othe
 own fixture. This makes §S19(b) a *prerequisite* of the item-4/6/7 work rather
 than a parallel track.
 
-**(b) 🔴 `ctest fl_vtable_indices` does not pin the Overlay's vtable indices.**
-`hook-harness` declares `kPresentIndex = 8` / `kResizeBuffersIndex = 13` /
+**(b) ✅ `ctest fl_vtable_indices` did not pin the Overlay's vtable indices — closed 2026-08-05.**
+`hook-harness` declared `kPresentIndex = 8` / `kResizeBuffersIndex = 13` /
 `kPresent1Index = 22` as its own literals, textually duplicated from the inline
-values in `dllmain.cpp` with no shared header. Change the Overlay's 8 to a 9 and
-the ctest still passes: it proves a fact about `dxgi.dll`, not a fact about
+values in `dllmain.cpp` with no shared header. Changing the Overlay's 8 to a 9 left
+the ctest green: it proved a fact about `dxgi.dll`, not a fact about
 `FrameLedger.Overlay`. The only test coupling the two is the integration class CI
-skips — so in the merge gate the coupling is absent entirely. Fix: one shared
-constant header, consumed by both. Note this also weakens what P0 item 2's ✅ rests
-on, since "vtable indices proved by behaviour" is one of its four claims.
+skips — so in the merge gate the coupling was absent entirely.
+
+**Closed by one header and an INTERFACE target.**
+`FrameLedger.Overlay/include/fl_dxgi_vtable.h` holds the three slot numbers;
+`fl_dxgi_vtable` lets `hook-harness` consume them without linking the DLL. Proven:
+setting `kPresentIndex = 9` leaves the native build **green** and turns
+`fl_vtable_indices` **red** (with three neighbouring harness tests, which depend on
+hooking working). Restored: 16/16.
+
+> **What this does not do:** the indices are still not *trusted* — the header is
+> where the assumption is written once, and `--probe-vtable` calling each slot on a
+> real swapchain is what makes it a measurement. It also does not license a
+> hardcoded vtable *pointer*: the Overlay still reads the vtable off a throwaway
+> WARP composition swapchain and releases it. What is ABI-constant is the slot
+> index, not the address.
+>
+> P0 item 2's ✅ rests partly on "vtable indices proved by behaviour", and until now
+> that proof did not reach the shipped values. It does now.
 
 **(c) 🔴 `HookedCaptureGate.ShouldUnhookAsync` is a second in-session re-scan path**
 that publishes no tick and does not latch — the two properties `GuardSupervisor`
