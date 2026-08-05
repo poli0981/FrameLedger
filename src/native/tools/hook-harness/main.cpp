@@ -747,6 +747,37 @@ int main(int argc, char** argv) {
             std::fflush(stdout);
             Sleep(static_cast<DWORD>(std::atoi(argv[++i])) * 1000);
             ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting") == 0 && i + 1 < argc) {
+            // WHAT --hold CANNOT DO, and why the injection tests needed this.
+            //
+            // --hold presents 240 frames and THEN sleeps. Those 240 are over in
+            // milliseconds, while fl_guard_test injects ~800 ms after spawn -- so
+            // an Overlay injected into --hold installs its present hook into a
+            // process that has already stopped presenting and observes exactly
+            // ZERO frames. Every "N presents -> N records" assertion written
+            // against --hold would have been vacuous, which is the same shape as
+            // the DXGI_PRESENT_TEST defect this harness was fixed for once
+            // already.
+            //
+            // This mode presents for the WHOLE hold, at a deliberately modest
+            // cadence: an uncapped WARP loop pegs a core and starves the very
+            // injector under test on a shared runner.
+            const int  seconds = std::atoi(argv[++i]);
+            const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
+            std::printf("  presenting for %d second(s) [%s]\n", seconds, real ? "REAL" : "DXGI_PRESENT_TEST");
+            std::fflush(stdout);
+            const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
+            long long       presented = 0;
+            while (GetTickCount64() < until) {
+                g.swapChain->Present(0, flags);
+                ++presented;
+                Sleep(8);    // ~120/s, enough to be measurable without pegging a core
+            }
+            // The count goes to stdout so a test can compare it against records
+            // drained from the ring rather than asserting "more than zero".
+            std::printf("  presented=%lld\n", presented);
+            std::fflush(stdout);
+            ranSomething = true;
         } else if (std::strcmp(argv[i], "--present") == 0 && i + 1 < argc) {
             const int frames = std::atoi(argv[++i]);
             ok = PresentLoop(g, frames, real) == 0 && ok;
