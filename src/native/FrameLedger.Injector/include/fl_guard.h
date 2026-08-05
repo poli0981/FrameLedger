@@ -243,6 +243,23 @@ struct Sources {
     // find, and "we did not look" has never been a pass in this file.
     Collected (*ImageDirectory)(std::uint32_t pid, wchar_t* out, std::size_t cap) = nullptr;
 
+    // The target's executable LEAF NAME, for check 3. A separate seam from
+    // ImageDirectory because it is a different fact: that one deliberately
+    // resolves the INSTALL ROOT (Unreal puts the exe three levels below it), and
+    // the name is exactly what it throws away.
+    //
+    // NARROW on purpose. `blockedExecutables` is ASCII by schema and
+    // MatchesBlockedExecutable compares ASCII, so converting here keeps one
+    // encoding boundary instead of two. The impl refuses a lossy conversion
+    // rather than matching a mangled name -- §S21's ANSI defect was exactly a
+    // silent lossy conversion, and a `?` in a name matches nothing while looking
+    // like it looked.
+    //
+    // kFailed refuses (kProcessUnreadable). A target whose image we cannot name
+    // is a target whose identity we do not know, and 19_SAFETY's check 3 note is
+    // explicit that an unresolvable identity must read as UNKNOWN, never clean.
+    Collected (*ImageFileName)(std::uint32_t pid, char* out, std::size_t cap) = nullptr;
+
     // Entries at and below `dir`, flattened, bounded by the caps in
     // fl_prescan.h. `isDirectory` is what decides which blocklist group the
     // name is matched against, so it is part of the evidence rather than

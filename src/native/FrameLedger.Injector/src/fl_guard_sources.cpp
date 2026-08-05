@@ -386,6 +386,49 @@ Collected ImageDirectoryImpl(std::uint32_t pid, wchar_t* out, std::size_t cap) n
     return Collected::kOk;
 }
 
+// Check 3's evidence: the target's executable leaf name, narrow.
+Collected ImageFileNameImpl(std::uint32_t pid, char* out, std::size_t cap) noexcept {
+    if (out == nullptr || cap == 0) {
+        return Collected::kFailed;
+    }
+    out[0] = '\0';
+
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (h == nullptr) {
+        return Collected::kFailed;    // ACCESS_DENIED on a protected target: cannot determine
+    }
+
+    wchar_t    path[kMaxPreScanPathLen] = {};
+    DWORD      len = static_cast<DWORD>(kMaxPreScanPathLen);
+    const BOOL ok = QueryFullProcessImageNameW(h, 0, path, &len);
+    CloseHandle(h);
+    if (!ok || len == 0) {
+        return Collected::kFailed;
+    }
+
+    const wchar_t* leaf = path;
+    for (const wchar_t* p = path; *p != L'\0'; ++p) {
+        if (*p == L'\\' || *p == L'/') {
+            leaf = p + 1;
+        }
+    }
+    if (*leaf == L'\0') {
+        return Collected::kFailed;    // a path ending in a separator names no file
+    }
+
+    // WC_ERR_INVALID_CHARS + no default char: a name we cannot represent exactly
+    // FAILS rather than becoming a string with substitutions in it. §S21 is the
+    // precedent -- an ANSI conversion turned `Nguyễn` into `Nguy?n` and the guard
+    // then compared a name that was not the name.
+    const int written =
+        WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, leaf, -1, out, static_cast<int>(cap), nullptr, nullptr);
+    if (written <= 0) {
+        out[0] = '\0';
+        return Collected::kFailed;
+    }
+    return Collected::kOk;
+}
+
 // §S18 — our own install directory, and whether a pid's image lives in it.
 //
 // THREE mechanism choices here, each of which had an obvious wrong answer.
@@ -637,6 +680,7 @@ Sources SystemSources() noexcept {
     s.EnumerateScanSet = &EnumerateScanSetImpl;
     s.ReadRulesFile = &ReadRulesFileImpl;
     s.ImageDirectory = &ImageDirectoryImpl;
+    s.ImageFileName = &ImageFileNameImpl;
     s.EnumerateDirEntries = &EnumerateDirEntriesImpl;
     // Both identity seams, one implementation — see fl_guard.h §TWO SEAMS.
     s.ModuleIsOurOwn = &FileIsOurOwnImpl;

@@ -59,7 +59,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S1** | 🅓 **deferred, rationale written** | Owner decision 2026-08-05. Deciding input — a title loading a presentation runtime lazily — is not on this machine |
 | **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
 | **S19(b)** | 🔴 **deferred, but now MEASURED** | CI 2026-08-05: the fragment fires on `System.Security.Cryptography.ProtectedData.dll` loaded by a .NET **test host**, i.e. inside a real scan set in the launch-mode arrangement — refusing our own injection. The entry's "plausible and unmeasured" is superseded; the deferral rationale (a `CryptCATAdmin*` PR doing network I/O inside the hard gate, NFR-10) still stands |
-| **S14** | 🔨 **scheduled — exe-name half only** | Owner decision 2026-08-05: wire it, empty list, unresolvable identity refuses. The **store-id half is blocked** on the platform metadata extractors and cannot be reached through the guard ABI by design |
+| **S14** | ◐ **exe half wired 2026-08-05** | Owner decision 2026-08-05: wire it, empty list, unresolvable identity refuses. The **store-id half is blocked** on the platform metadata extractors and cannot be reached through the guard ABI by design |
 | **S23-1** | ✅ **resolved 2026-08-05** | `FlGuardBuildId` gives the Agent a build id of its own, and `ShmHandshakeValidator` performs the comparison `07_IPC` and `04_CAPTURE` both specify. Every refusal path is driven, including **both ids empty** — the shape the feature shipped in, where `"" == ""` reported `Ok` for every process on the machine |
 | **S23-4** | ✅ **resolved 2026-08-05** | `19_SAFETY` §During a session said "the module scan and the driver scan"; `EvaluateImpl` runs four. Reworded to "every pre-injection check" so it cannot go stale when a check is added, with the two omissions named — `services` is the only tier measured firing on real anti-cheat, and the pre-scan is the only one touching the filesystem |
 | **S2 part three** | ⏳ **open, sequenced** | In-layer supervision lands with `vkQueuePresentKHR` (P1). Building it sooner would be a predicate whose wrong answer changes nothing observable |
@@ -1726,6 +1726,48 @@ nothing.
 > `kAntiCheatFile` were declared, named in `ReasonName` and mirrored into the
 > managed enum, and nothing produced either.
 >
+> #### ◐ The EXECUTABLE half is wired, 2026-08-05. The store-id half is BLOCKED, and named.
+>
+> `CheckBlockedExecutable` runs inside `EvaluateImpl`, between the module scan and
+> the static pre-scan, so checks 1, 2, 2b, **3 (exe)** and 4 now run. It needed a
+> new seam — `Sources::ImageFileName` — because `ImageDirectory` deliberately
+> resolves the *install root* and throws the file name away, which is the one fact
+> check 3 matches on.
+>
+> **Unresolvable identity refuses** (`kProcessUnreadable`), per the owner decision
+> and `19_SAFETY`'s "must read UNKNOWN, never clean": `kFailed`, `kIncomplete`, an
+> empty name and a null seam all take the same path. The conversion to narrow is
+> `WC_ERR_INVALID_CHARS` with no default character, so a name that cannot be
+> represented exactly **fails** rather than becoming a string with `?` in it —
+> §S21's ANSI defect was exactly a silent lossy conversion.
+>
+> **The list ships empty**, so nothing is refused today. Which titles to list stays
+> the owner's product decision; what changed is that populating it would now *do*
+> something.
+>
+> **The store-id half cannot be called, for three independent reasons**, and this
+> is a limitation rather than an oversight:
+>
+> 1. **No producer.** Nothing parses Steam `.acf`, GOG `.info` or Epic `.item` —
+>    the platform metadata extractors were never built, so `store_id` is null for
+>    every title (`15_ROADMAP`).
+> 2. **No channel, by design.** `FlGuardEvaluate` takes a pid and nothing else, and
+>    `fl_guard_abi.h` says so deliberately: *"no way to hand in evidence — the guard
+>    collects its own."* A caller-supplied store id is a caller asserting a safety
+>    fact, which §S3 forbids in as many words.
+> 3. **"Unknown refuses" applied to it is a gate that cannot pass.** If the guard
+>    can never resolve a store id and an unresolved one refuses, every title on
+>    every machine refuses.
+>
+> So `MatchesBlockedStoreId` stays implemented, tested and uncalled. **Do not
+> "fix" (2) by widening the ABI.** The route is the metadata extractors plus a
+> guard-side resolver, which is its own PR and its own fail-closed matrix row.
+>
+> Proven red: disarming the matcher makes the guard **allow** a blocked
+> executable, and the test asserts `kBlockedExecutable` specifically rather than
+> "it refused" — which is indistinguishable from the four refusals the guard
+> already makes.
+
 > **Check 4 is now implemented** (`fl_prescan.cpp`, inside `EvaluateImpl`), so
 > checks 1, 2, 2b and 4 run. **Check 3 remains unwired** and this item stays
 > open on that.

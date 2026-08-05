@@ -69,6 +69,19 @@ const char* GoodRulesJson() {
 // Fakes. Globals rather than lambdas-with-capture because Sources holds plain
 // function pointers on purpose: a std::function in the guard would allocate.
 // ---------------------------------------------------------------------------
+std::string RulesWithBlockedExecutable() {
+    std::string       json = GoodRulesJson();
+    const std::string needle = "\"blockedExecutables\": []";
+    const std::size_t at = json.find(needle);
+    if (at == std::string::npos) {
+        return json;
+    }
+    json.replace(at, needle.size(),
+                 R"("blockedExecutables": [{ "family": "Example Online", "match": "exact", )"
+                 R"("values": ["ranked.exe"], "reason": "competitive online title" }])");
+    return json;
+}
+
 struct Fake {
     std::string rulesJson = GoodRulesJson();
     bool        rulesReadable = true;
@@ -90,6 +103,11 @@ struct Fake {
     std::map<std::uint32_t, std::vector<std::string>> modulesByPid;
     std::map<std::uint32_t, Collected>                moduleResultByPid;
     Collected                                         moduleResult = Collected::kOk;
+
+    // Check 3's evidence. Defaults to a name no blocklist entry matches, so every
+    // pre-existing case keeps its meaning: check 3 runs, looks, and allows.
+    std::string imageFileName = "hook-harness.exe";
+    Collected   imageFileNameResult = Collected::kOk;
 
     std::vector<std::string> drivers;
     Collected                driverResult = Collected::kOk;
@@ -220,6 +238,17 @@ Collected FakeImageDirectory(std::uint32_t, wchar_t* out, std::size_t cap) {
     return Collected::kOk;
 }
 
+Collected FakeImageFileName(std::uint32_t, char* out, std::size_t cap) {
+    if (g.imageFileNameResult != Collected::kOk) {
+        return g.imageFileNameResult;
+    }
+    if (g.imageFileName.size() + 1 > cap) {
+        return Collected::kFailed;
+    }
+    strcpy_s(out, cap, g.imageFileName.c_str());
+    return Collected::kOk;
+}
+
 Collected FakeEnumDirEntries(const wchar_t*, DirEntrySink sink, void* ctx) {
     for (const auto& e : g.dirEntries) {
         if (!sink(ctx, e.first.c_str(), e.second)) {
@@ -297,6 +326,7 @@ Sources FakeSources() {
     s.QueryService = &FakeQueryService;
     s.EnumerateScanSet = &FakeEnumScanSet;
     s.ImageDirectory = &FakeImageDirectory;
+    s.ImageFileName = &FakeImageFileName;
     s.EnumerateDirEntries = &FakeEnumDirEntries;
     s.ModuleIsOurOwn = &FakeModuleIsOurOwn;
     s.PayloadIsOurOwn = &FakePayloadIsOurOwn;
@@ -2318,6 +2348,78 @@ TEST_CASE("a service that is installed but STOPPED is not present", "[guard][ser
 // The reason table. This is the gate that FlGuardReasonCount and the managed
 // mirror both stand on.
 // ===========================================================================
+TEST_CASE("check 3 refuses a blocked executable, by that reason and not another", "[guard][check3]") {
+    // §S14: MatchesBlockedExecutable was implemented, tested, and asked by NOBODY --
+    // EvaluateImpl ran LoadRules -> drivers -> services -> modules -> pre-scan and
+    // stopped. Populating the data would have changed nothing, so "check 3 passed"
+    // read as "this title is not a known online title" while nothing had looked.
+    //
+    // THE REASON IS ASSERTED SPECIFICALLY. "It refuses" is indistinguishable from
+    // the four refusals the guard already makes, so a test that only checked
+    // !Allowed() would pass against a build where check 3 still does not exist.
+    ResetFake();
+    g.rulesJson = RulesWithBlockedExecutable();
+    g.imageFileName = "ranked.exe";
+
+    const Verdict v = EvaluateWithSources(1234, FakeSources());
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kBlockedExecutable);
+    CHECK(std::string(v.family) == "Example Online");
+}
+
+TEST_CASE("check 3 matches case-insensitively, the way a real exe name arrives", "[guard][check3]") {
+    ResetFake();
+    g.rulesJson = RulesWithBlockedExecutable();
+    g.imageFileName = "RANKED.EXE";
+
+    CHECK(EvaluateWithSources(1234, FakeSources()).reason == Reason::kBlockedExecutable);
+}
+
+TEST_CASE("check 3 allows a title that is not on the list", "[guard][check3]") {
+    // The GREEN direction, and it is not decoration: a check that refused every
+    // target would satisfy the two cases above and be worthless.
+    ResetFake();
+    g.rulesJson = RulesWithBlockedExecutable();
+    g.imageFileName = "singleplayer.exe";
+
+    CHECK(EvaluateWithSources(1234, FakeSources()).Allowed());
+}
+
+TEST_CASE("an unnameable target refuses: unknown identity is never clean", "[guard][check3][failclosed]") {
+    // §S14's second decision, and 19_SAFETY's wording: an unresolvable identity
+    // "must read UNKNOWN, never clean". Both tri-state failures refuse.
+    for (const Collected bad : {Collected::kFailed, Collected::kIncomplete}) {
+        ResetFake();
+        g.rulesJson = RulesWithBlockedExecutable();
+        g.imageFileNameResult = bad;
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kProcessUnreadable);
+    }
+
+    // And an empty name is the same state wearing a success code.
+    ResetFake();
+    g.rulesJson = RulesWithBlockedExecutable();
+    g.imageFileName = "";
+    CHECK(EvaluateWithSources(1234, FakeSources()).reason == Reason::kProcessUnreadable);
+}
+
+TEST_CASE("a null image-name seam refuses rather than skipping check 3", "[guard][check3][failclosed]") {
+    // A seam nobody wired must not become a check nobody runs -- which is exactly
+    // the state check 3 spent months in.
+    ResetFake();
+    g.rulesJson = RulesWithBlockedExecutable();
+    g.imageFileName = "ranked.exe";
+
+    Sources s = FakeSources();
+    s.ImageFileName = nullptr;
+
+    const Verdict v = EvaluateWithSources(1234, s);
+    REQUIRE_FALSE(v.Allowed());
+    CHECK(v.reason == Reason::kProcessUnreadable);
+}
+
 TEST_CASE("every Reason has a distinct name, and the count is derived", "[guard][mirror]") {
     // Reason::kCount replaced a static_assert that could not fire on the one
     // change it existed to catch: it pinned kRulesIncomplete == 16, and
