@@ -467,16 +467,29 @@ gap is reviewable; a deleted row is invisible.
 > *every* title, which is how a user ends up hunting for the override that
 > CLAUDE.md rule 2 says does not exist.
 
-The list is data, versioned in `detection-rules.json`, expandable without a release. Unknown-but-suspicious modules (filename containing one of the `nameFragments` — today `anticheat`, `antitamper`, `gameguard`, `guard`, `protect` — plus unsigned-by-known-vendor) produce a **warn-and-refuse** with a "report this to us" link rather than silently allowing.
+The list is data, versioned in `detection-rules.json`, expandable without a release. Unknown-but-suspicious modules (filename containing one of the `nameFragments` — today `anticheat`, `antitamper`, `guard`, `protect` — plus unsigned-by-known-vendor) produce a **warn-and-refuse** with a "report this to us" link rather than silently allowing.
 
-> **Three corrections to that sentence, all recorded in §S19.** It listed four
-> fragments while the data carried five (`gameguard` was missing here, and
-> nothing in CI cross-checks this list against the file). `gameguard` **cannot
-> fire** — the match is a case-insensitive substring and `guard` is a substring
-> of `gameguard`, so the shorter token always wins first. And **warn-and-refuse
-> is not configurable**: the schema requires an `action` field, but no code reads
-> it; the policy is hardcoded in `fl_guard.cpp`. The behaviour described here is
-> what happens, but not for the reason the sentence implies.
+> **Three corrections to that sentence, all recorded in §S19; one is now closed.**
+> It listed four fragments while the data carried five (`gameguard` was missing
+> here, and nothing in CI cross-checks this list against the file). `gameguard`
+> **could not fire** — the match is a case-insensitive substring and `guard` is a
+> substring of `gameguard`, so the shorter token always won first.
+>
+> > **§S19(a) closed 2026-08-05 by removing `gameguard` from the data**, which is
+> > why the list above is four again — this time matching the file. Nothing is
+> > lost: nProtect GameGuard has its own named module family (`GameGuard`,
+> > `npgg`, `GameMon`), so the fragment was redundant twice over, and `guard`
+> > remains as the fuzzy backstop. `rules-validate` now **fails** when any
+> > fragment contains another, so the list cannot grow a rule that cannot fire —
+> > and, more to the point, a future removal of `guard` is now visibly a removal
+> > rather than something `gameguard` appears to survive.
+>
+> And **warn-and-refuse is not configurable**: the schema requires an `action`
+> field, but no code reads it; the policy is hardcoded in `fl_guard.cpp`. The
+> behaviour described here is what happens, but not for the reason the sentence
+> implies. (§S19(c) — still open, and costing it honestly means first deciding
+> whether a non-refusing action may exist at all, which CLAUDE.md rule 2 answers
+> no.)
 
 **The signer comparison uses the certificate subject's `O=` field, not `CN=`**
 (`anticheat.heuristic.signerField`, a schema `const`). Measured 2026-08-02 on

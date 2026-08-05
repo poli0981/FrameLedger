@@ -57,7 +57,7 @@ const char* GoodRulesJson() {
         "blockedStoreIds": [],
         "heuristic": {
           "signerField": "O",
-          "nameFragments": ["anticheat", "antitamper", "gameguard", "guard", "protect"],
+          "nameFragments": ["anticheat", "antitamper", "guard", "protect"],
           "trustedSigners": ["Microsoft Corporation", "NVIDIA Corporation", "Valve Corp."],
           "action": "warn_and_refuse"
         }

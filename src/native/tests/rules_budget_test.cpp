@@ -75,7 +75,7 @@ struct Doc {
     std::string extraModules;    // extra entries inside modules[]
     std::string blockedExecutables = "[]";
     std::string blockedStoreIds = "[]";
-    std::string nameFragments = R"(["anticheat", "antitamper", "gameguard", "guard", "protect"])";
+    std::string nameFragments = R"(["anticheat", "antitamper", "guard", "protect"])";
     std::string trustedSigners = R"(["Microsoft Corporation"])";
 };
 
