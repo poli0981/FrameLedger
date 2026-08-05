@@ -57,7 +57,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
 | **S19(b)** | 🅓 **deferred, rationale written** | Its true shape is a `CryptCATAdmin*` PR, and `WinVerifyTrust`'s default revocation check does network I/O from inside the hard gate (NFR-10) |
 | **S14** | 🔨 **scheduled — exe-name half only** | Owner decision 2026-08-05: wire it, empty list, unresolvable identity refuses. The **store-id half is blocked** on the platform metadata extractors and cannot be reached through the guard ABI by design |
-| **S23-1** | 🔨 **scheduled** | `FL_BUILD_ID` gets its first reader with the C# mirror |
+| **S23-1** | ◐ **half closed 2026-08-05** | The C# mirror can now READ `buildId` out of the handshake. The Agent still has **no build id of its own** to compare it against, so `07_IPC`'s refuse-to-attach-on-mismatch still cannot run. The drain PR owns the other half |
 | **S23-4** | ✅ **resolved 2026-08-05** | `19_SAFETY` §During a session said "the module scan and the driver scan"; `EvaluateImpl` runs four. Reworded to "every pre-injection check" so it cannot go stale when a check is added, with the two omissions named — `services` is the only tier measured firing on real anti-cheat, and the pre-scan is the only one touching the filesystem |
 | **S2 part three** | ⏳ **open, sequenced** | In-layer supervision lands with `vkQueuePresentKHR` (P1). Building it sooner would be a predicate whose wrong answer changes nothing observable |
 | **S4 signing** | ⏳ **open, residual accepted** | HTTPS authenticates the host, not the content. Recorded rather than closed — needs a rationale written or a decision |

@@ -4,21 +4,71 @@
     IPC contracts (System.Text.Json source-generated contexts, docs/07_IPC.md)
     and the C# mirrors of the native shared-memory structs.
 
-    THIS PROJECT IS EMPTY. It contains no .cs files, and the paragraph below
-    described its intended contents in the PRESENT TENSE until 2026-08-05:
-    "each exist twice", "a test ... asserts". Neither is true: the mirrors exist
-    only in C++ (src/native/FrameLedger.Shm/include/fl_shm.h) and no managed
-    test references FlFrameRecord. build.ps1:335-342 skips the gate loudly and
-    says why; build.ps1:324-329 enumerates the nine files that claimed
-    otherwise, of which this was one.
+    The mirrors are the dangerous part: FlFrameRecord, FlShmHandshake,
+    FlWriterState and FlControlBlock each exist twice, once in C++
+    (src/native/FrameLedger.Shm/include/fl_shm.h, which is NORMATIVE) and once
+    here as [StructLayout(LayoutKind.Sequential)]. ShmLayoutMirrorTests asserts
+    size AND every field offset on both sides against the JSON emitted by
+    tools/fl-layout-dump, and asserts that every mirror is BLITTABLE — offsets
+    alone cannot see the difference between a fixed buffer and a marshalled
+    string, and only one of those can be read out of a memory-mapped view.
 
-    THE INTENT, unchanged and now scheduled (20_OPEN_QUESTIONS §R10, §S24):
-    FlFrameRecord, FlShmHandshake, FlWriterState and FlControlBlock each exist
-    twice, once in C++ and once here as [StructLayout(LayoutKind.Sequential)],
-    with a test in FrameLedger.Infrastructure.Tests asserting sizeof AND every
-    field offset on both sides against the dump emitted by tools/fl-layout-dump.
     Struct drift between the two layers is the most dangerous silent bug in this
-    architecture (CLAUDE.md §Struct mirroring, docs/12_BUILD.md §Managed build).
+    architecture: nothing crashes, the Agent just reads garbage into fields that
+    look plausible (CLAUDE.md §Struct mirroring, docs/12_BUILD.md §Managed build).
+
+    The IPC contracts half is still unwritten; only the mirrors are here.
   -->
+
+  <PropertyGroup>
+    <!--
+      For `fixed byte BuildId[32]` and `fixed uint Reserved[N]`. Those are the
+      native char[32] / uint32[N] arrays, and a fixed buffer is the only C#
+      construct that reproduces them WITHOUT making the struct non-blittable.
+      [MarshalAs(ByValTStr)] would satisfy every offset assertion and then fail
+      to read out of a MemoryMappedViewAccessor, which is the entire purpose.
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!--
+      FOUR ANALYZER RULES ARE SUPPRESSED FOR THIS PROJECT ONLY, and each is
+      suppressed because obeying it would BREAK THE MIRROR. That is the whole
+      justification: these types are not a C# API, they are a byte-for-byte
+      restatement of fl_shm.h, and every one of these rules is advice about
+      idiomatic C# API design.
+
+        CA1028  "make the underlying type Int32". The native enums are uint32_t
+                (FlStatus) and uint8_t (FlApi, FlUpscaler, FlFgMode, FlRtFlags,
+                FlMeasured). Widening any of them changes the size of the field
+                that carries it and the mirror test fails, which is the test
+                doing its job against a change this rule would have caused.
+        CA1711  "do not end a type name in 'Flags'". FlRtFlags IS the native
+                name. Renaming it makes the two sides harder to diff by eye,
+                which is how a drifting field gets missed in review.
+        CA1716  the namespace FrameLedger.Shared collides with a VB keyword.
+                It is the namespace CLAUDE.md §Solution layout assigns, it
+                predates this file, and renaming it is a solution-wide change
+                for a language this project does not target.
+        MA0048  one type per file. This file mirrors ONE header, and the four
+                structs plus their enums are a single contract that has to be
+                read together — the region offsets only make sense beside the
+                structs they bound. Splitting a 64-byte ABI across ten files
+                makes the thing this project exists to keep consistent harder
+                to check, and the mirror test is what enforces it either way.
+        CA1051  "do not declare visible instance fields". Public fields are the
+                point: Marshal.OffsetOf and the mirror test address them by
+                name, and properties have no defined offset at all. A property
+                cannot mirror a struct member.
+        CA1815  "override Equals and ==". These are windows onto shared memory,
+                not values anyone compares. Two records with identical bytes are
+                two different frames, so a meaningful Equals does not exist —
+                and writing one over a `fixed byte[32]` would be ceremony that
+                obscures the layout this file exists to state plainly.
+
+      Everything else stays on: this is a targeted list, not AnalysisLevel
+      turned down.
+    -->
+    <NoWarn>$(NoWarn);CA1028;CA1711;CA1716;MA0048;CA1051;CA1815</NoWarn>
+  </PropertyGroup>
 
 </Project>

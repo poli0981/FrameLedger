@@ -1,9 +1,17 @@
 // Emits the native shared-memory struct layout as JSON.
 //
-// FrameLedger.Infrastructure.Tests consumes this and asserts that the C#
-// [StructLayout(LayoutKind.Sequential)] mirrors in FrameLedger.Shared match
-// field for field. CLAUDE.md §Struct mirroring requires a test that checks
-// sizeof AND every field offset on both sides; this is the native half.
+// FrameLedger.Infrastructure.Tests consumes this (ShmLayoutMirrorTests) and
+// asserts that the C# [StructLayout(LayoutKind.Sequential)] mirrors in
+// FrameLedger.Shared match field for field. CLAUDE.md §Struct mirroring requires
+// a test that checks sizeof AND every field offset on both sides; this is the
+// native half, and as of 2026-08-05 the managed half exists -- this comment was
+// present tense about a consumer that did not, which is what
+// 20_OPEN_QUESTIONS §R10 recorded.
+//
+// EMIT EVERY FIELD, including the reserved tails. The test walks this list in
+// both directions: a field here and not in C# fails, and a field in C# and not
+// here fails too. A dump that quietly stops reporting a field would otherwise
+// shrink what the mirror checks while every assertion still passed.
 //
 // Struct drift between C++ and C# is the most dangerous silent bug in this
 // architecture: nothing crashes, the Agent just reads garbage into fields that
@@ -45,14 +53,20 @@ int main() {
     Field("status", offsetof(FlWriterState, status), sizeof(uint32_t));
     Field("apiMask", offsetof(FlWriterState, apiMask), sizeof(uint32_t));
     Field("faultCount", offsetof(FlWriterState, faultCount), sizeof(uint32_t));
-    Field("vramBudgetMb", offsetof(FlWriterState, vramBudgetMb), sizeof(uint32_t), true);
+    Field("vramBudgetMb", offsetof(FlWriterState, vramBudgetMb), sizeof(uint32_t));
+    // The reserved tail is emitted too. It is part of the layout -- "room for
+    // additive fields" is a promise about WHERE they may go -- and a mirror that
+    // declares it while the dump stays silent cannot be checked in both
+    // directions. Found by the managed test's reverse walk on 2026-08-05.
+    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 10, true);
     std::printf("    ] },\n");
 
     std::printf("    \"FlControlBlock\": { \"size\": %zu, \"fields\": [\n", sizeof(FlControlBlock));
     Field("pauseRequested", offsetof(FlControlBlock, pauseRequested), sizeof(uint32_t));
     Field("unhookRequested", offsetof(FlControlBlock, unhookRequested), sizeof(uint32_t));
     Field("overlayEnabled", offsetof(FlControlBlock, overlayEnabled), sizeof(uint32_t));
-    Field("guardTicks", offsetof(FlControlBlock, guardTicks), sizeof(uint32_t), true);
+    Field("guardTicks", offsetof(FlControlBlock, guardTicks), sizeof(uint32_t));
+    Field("reserved", offsetof(FlControlBlock, reserved), sizeof(uint32_t) * 12, true);
     std::printf("    ] },\n");
 
     std::printf("    \"FlFrameRecord\": { \"size\": %zu, \"fields\": [\n", sizeof(FlFrameRecord));

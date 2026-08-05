@@ -234,8 +234,11 @@ function Invoke-Managed([bool]$FixFormat) {
     # Clear them so the gate below sees this run and only this run.
     Get-ChildItem (Join-Path $repo 'tests') -Directory -Filter 'TestResults' -Recurse -ErrorAction SilentlyContinue |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    # --logger trx so downstream gates can assert that a NAMED test executed,
+    # not merely that the run was green. The struct-mirror gate below reads it.
     Invoke-Checked 'dotnet test' {
-        dotnet test $solution -c $Configuration --no-build --collect:"XPlat Code Coverage"
+        dotnet test $solution -c $Configuration --no-build --collect:"XPlat Code Coverage" `
+            --logger 'trx;LogFileName=results.trx'
     }
 
     # The cobertura reports above were produced and ignored from the day the
@@ -322,24 +325,44 @@ function Invoke-ProjectGates {
     }
 
     # The shared-memory struct mirror. CLAUDE.md §Struct mirroring calls this the
-    # mechanism protecting the shm ABI, and NINE files describe it in the present
-    # tense — including fl_shm.h itself, which is normative, and
-    # fl-layout-dump/CMakeLists.txt, which says a test consumes its output. None
-    # of it exists: src/FrameLedger.Shared holds only a .csproj, nothing under
-    # tests/ references FlFrameRecord, and fl-layout-dump has no add_test.
+    # mechanism protecting the shm ABI, and NINE files described it in the present
+    # tense while none of it existed. It exists as of 2026-08-05.
     #
-    # Named and SKIPPED LOUDLY rather than omitted, which is the discipline
-    # 20_OPEN_QUESTIONS §R10 asks for: a doc that says a gate runs is worse than
-    # one that says it is missing, because the second prompts someone to write it.
-    # Not urgent — the ring is P1 and there is nothing to mirror yet.
+    # THIS GATE USED TO BE A Test-Path ON A SOURCE FILE, and printed "covered by
+    # dotnet test" from that alone. It never looked for the test. So creating an
+    # EMPTY ShmLayout.cs would have turned the loud skip into a silent green, and
+    # deleting or renaming the mirror test afterwards would have kept it green
+    # forever — a gate whose verdict is decided before it looks, guarding the one
+    # mechanism CLAUDE.md calls the protection for the shm ABI.
+    #
+    # It now reads the trx from the run that just happened and requires the named
+    # test class to have EXECUTED and passed. `dotnet test` is what makes a
+    # regression red; this makes DELETING the regression test red too, which is a
+    # different failure and the one a Test-Path can never see.
     Write-Step 'struct-mirror'
-    $mirrorTest = Join-Path $repo 'src/FrameLedger.Shared/ShmLayout.cs'
-    if (Test-Path $mirrorTest) {
-        Write-Host '  covered by dotnet test (FrameLedger.Infrastructure.Tests)' -ForegroundColor DarkGray
+    $trx = Get-ChildItem (Join-Path $repo 'tests') -Recurse -Filter 'results.trx' -ErrorAction SilentlyContinue
+    if (-not $trx) {
+        throw "struct-mirror: no results.trx from this run — the gate cannot confirm the mirror test executed"
     }
-    else {
-        Skip-Gate 'struct-mirror' 'the C# mirror of fl_shm.h does not exist yet (20_OPEN_QUESTIONS §R10) — the shm ABI has no drift gate'
+
+    $mirrorResults = @()
+    foreach ($file in $trx) {
+        $xml = [xml](Get-Content -LiteralPath $file.FullName -Raw)
+        $mirrorResults += $xml.TestRun.Results.UnitTestResult |
+            Where-Object { $_ -and $_.testName -and $_.testName -match 'ShmLayoutMirrorTests' }
     }
+
+    if ($mirrorResults.Count -eq 0) {
+        # The failure mode the old gate could not express: the mirror test is
+        # gone, renamed or filtered out, and everything else is still green.
+        throw "struct-mirror: ShmLayoutMirrorTests did not run. The shm ABI has no drift gate — a mirror test that is absent must fail, not pass quietly (20_OPEN_QUESTIONS §R10)"
+    }
+
+    $failed = @($mirrorResults | Where-Object { $_.outcome -ne 'Passed' })
+    if ($failed.Count -gt 0) {
+        throw "struct-mirror: $($failed.Count) of $($mirrorResults.Count) mirror assertions did not pass"
+    }
+    Write-Host "  $($mirrorResults.Count) mirror assertion(s) executed and passed (fl_shm.h vs FrameLedger.Shared)" -ForegroundColor DarkGray
 
     Write-Step 'placeholder guard'
     # {{RELEASE_DATE}} is substituted at release time and is the only token

@@ -1,17 +1,22 @@
-# Emits the native struct offsets as JSON.
+# Emits the native struct offsets as JSON. FrameLedger.Infrastructure.Tests
+# (ShmLayoutMirrorTests) runs this and asserts the C# [StructLayout] mirrors
+# match field for field. Struct drift between the two layers is the most
+# dangerous silent bug in this architecture (CLAUDE.md §Struct mirroring) --
+# this is what catches it.
 #
-# NOTHING CONSUMES THIS YET. The comment here used to say
-# "FrameLedger.Infrastructure.Tests reads this and asserts the C# [StructLayout]
-# mirrors match field for field ... this is what catches it" -- present tense, in
-# a build file, about a test that does not exist. src/FrameLedger.Shared holds a
-# .csproj and no .cs files, and no managed test references FlFrameRecord.
-# build.ps1:324-329 enumerates the nine files that made this claim; this was one
-# of the two strongest sites, because a build file reads as a wiring fact rather
-# than as prose.
+# True since 2026-08-05, and it was written here in the present tense long
+# before it was: this was one of nine sites claiming a mechanism that did not
+# exist (build.ps1:324-329), and one of the two strongest, because a build file
+# reads as a wiring fact rather than as prose.
 #
-# Struct drift between the two layers is still the most dangerous silent bug in
-# this architecture (CLAUDE.md §Struct mirroring) -- which is the reason the gap
-# is named here rather than left implied. 20_OPEN_QUESTIONS §R10 tracks it,
-# §S24 schedules it. This tool is the intended input when it lands.
+# NO add_test HERE, deliberately. fl_shm.h's static_asserts already pin every
+# size and offset at compile time and layout_test.cpp says compiling IS the
+# test, so a ctest over this tool's stdout would be a second hand-maintained
+# copy of the same constants -- the exact thing the mirror exists to prevent.
+# The consumer that changes a verdict is the managed test.
+#
+# FrameLedger.LayoutDump.targets stages the exe beside that test. It is NOT
+# shipped: nothing in the product runs it, and an executable that dumps internal
+# layout has no business in a release.
 add_executable(fl-layout-dump main.cpp)
 target_link_libraries(fl-layout-dump PRIVATE FrameLedger.Shm fl_native_flags)
