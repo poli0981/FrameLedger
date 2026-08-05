@@ -205,13 +205,21 @@ which exists because vendoring added 2.4 MB of headers and an import library tha
 else compiles against yet** — an unconsumed vendored dependency is one whose header closure
 could be short by a file with every gate still green.
 
-**"Degrades cleanly when absent" is measured on CI, not argued.** `nvapi64.lib` is a
-*static* library of stubs that reach `nvapi64.dll` through `nvapi_QueryInterface` at first
-call, so linking it does **not** make the DLL a load-time dependency: a hosted runner with
-no NVIDIA driver loads the binary and `NvAPI_Initialize` returns an error. The probe takes
-that branch, prints **`BRANCH: DEGRADED`**, and exits 0 — while the dev box prints
-**`BRANCH: AVAILABLE`**. Two different words, because a probe printing the same line on both
-kinds of machine would exit 0 on one where NVAPI was completely broken.
+**"Degrades cleanly when absent" — what is observed, and what is inferred.** `nvapi64.lib`
+is a *static* library of stubs that reach `nvapi64.dll` through `nvapi_QueryInterface` at
+first call, so linking it does **not** make the DLL a load-time dependency: a machine with
+no NVIDIA driver loads the binary and `NvAPI_Initialize` returns an error instead. The probe
+prints **`BRANCH: AVAILABLE`** or **`BRANCH: DEGRADED`** and exits 0 either way, and ctest
+requires one of those two strings — so a probe gutted to `return 0` fails, which exit code
+alone could never catch.
+
+> **Stated precisely because the obvious sentence would be an overclaim.** *Observed on CI:*
+> the probe builds, links and passes on a hosted runner in ~0.01 s, against ~1.4 s on the dev
+> box. *Inferred, not observed:* that the runner took the DEGRADED branch — hosted Windows
+> runners have no NVIDIA driver and the timing matches an immediate `NvAPI_Initialize`
+> failure, but **ctest prints a passing test's output nowhere**, so the CI log shows that a
+> branch was reached and not which one. The load-time-dependency claim is what the run does
+> prove: a load-time dependency on an absent `nvapi64.dll` would have failed to start at all.
 
 > ⚠ **`NvAPI_GPU_GetMemoryInfo` was named in §L3's function table below and must not be
 > used.** The vendored headers carry

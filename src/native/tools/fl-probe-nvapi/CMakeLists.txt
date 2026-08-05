@@ -22,3 +22,24 @@ target_compile_definitions(fl-probe-nvapi PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 # machine where NVAPI was completely broken. The two branches print different
 # words and the enumerate branch refuses a zero GPU count.
 add_test(NAME fl_nvapi_probe COMMAND fl-probe-nvapi)
+
+# EXIT 0 IS NOT ENOUGH, and finding that out is why this line exists.
+#
+# Both branches exit 0 by design, so the exit code alone cannot distinguish
+# "took a branch and reported it" from "printed nothing and returned 0" — a
+# probe gutted to `int main(){return 0;}` would pass. Requiring the branch line
+# makes reaching a decision part of the test.
+#
+# The alternation is deliberate and must stay. Pinning one branch would make the
+# test machine-specific: DEGRADED on a CI runner, AVAILABLE on a machine with an
+# NVIDIA driver, and either pin turns the other machine red for being itself.
+#
+# WHAT THIS STILL DOES NOT GIVE YOU: ctest prints a passing test's output
+# nowhere, so a CI log shows that a branch was reached and not WHICH. On a
+# hosted runner the branch is inferable — no NVIDIA driver exists there, and the
+# probe returns in ~0.01 s against ~1.4 s on the dev box — but inferable is not
+# observed, and docs/18_GPU_VENDOR_APIS.md §L3 says so rather than claiming the
+# stronger thing.
+set_tests_properties(fl_nvapi_probe PROPERTIES
+    PASS_REGULAR_EXPRESSION "BRANCH: (AVAILABLE|DEGRADED)"
+)

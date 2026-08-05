@@ -33,13 +33,23 @@ GitHub release body, so a missing section means an empty release note.
     unverified.** Nothing else compiles against `fl_nvapi` yet, so a short include closure
     or a wrong-architecture `.lib` would sit there with every gate green. The probe's
     *compile* is half the test.
-    - **It is green on both kinds of machine and says which one it is on.** `nvapi64.lib`
-      is a **static** stub library reaching `nvapi64.dll` through `nvapi_QueryInterface` at
-      first call, so it is not a load-time dependency: a CI runner with no NVIDIA driver
-      loads the binary and `NvAPI_Initialize` returns an error. That branch prints
-      `BRANCH: DEGRADED` and exits 0 — which is exactly what §L3 requires of L3's absence.
-      The dev box prints `BRANCH: AVAILABLE`. A probe printing the same line either way
-      would exit 0 on a machine where NVAPI was completely broken.
+    - **It is green on both kinds of machine, and exiting 0 is not what makes it green.**
+      `nvapi64.lib` is a **static** stub library reaching `nvapi64.dll` through
+      `nvapi_QueryInterface` at first call, so it is not a load-time dependency: a CI runner
+      with no NVIDIA driver loads the binary and `NvAPI_Initialize` returns an error, which
+      is exactly the degradation §L3 requires. Both branches exit 0 — so ctest additionally
+      requires the string `BRANCH: (AVAILABLE|DEGRADED)`. **Canary: a probe gutted to
+      `int main(){return 0;}` compiles, exits 0, and is now RED** at
+      *"Required regular expression not found"*, with the native build and the other 15
+      ctests still green. The alternation has to stay: pinning one branch would turn the
+      other kind of machine red for being itself.
+    - **What that still does not give you, said rather than implied:** ctest prints a
+      passing test's output nowhere, so a CI log shows a branch was reached and **not
+      which**. On a hosted runner it is inferable — no NVIDIA driver exists there, and the
+      probe returns in ~0.01 s against ~1.4 s here — but inferable is not observed, and
+      `18_GPU_VENDOR_APIS` §L3 now separates the two rather than claiming the stronger
+      thing. What the run *does* prove is the load-time claim: a load-time dependency on an
+      absent `nvapi64.dll` would not have started at all.
     - It refuses a **zero** GPU count rather than letting the name loop run no iterations,
       because every assertion inside a loop that never runs is vacuous.
   - **Measured on this machine:** driver `610.88` (branch `r610_85`), 1 physical GPU,
