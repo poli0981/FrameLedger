@@ -3,6 +3,12 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <RootNamespace>FrameLedger.Infrastructure.Tests</RootNamespace>
+    <!--
+      ShmHandshakeValidatorTests builds FlShmHandshake fixtures, and buildId is a
+      fixed buffer because a marshalled string would not be blittable
+      (ShmLayoutMirrorTests asserts exactly that). Writing one needs unsafe.
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

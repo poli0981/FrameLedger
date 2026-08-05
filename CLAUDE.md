@@ -85,7 +85,7 @@ It also asserts **blittability** (`RuntimeHelpers.IsReferenceOrContainsReference
 
 `build.ps1`'s `struct-mirror` gate reads the run's `.trx` and fails when that test class did not execute, so **deleting the test is red too** — it used to `Test-Path` a source file and report on a test it never looked for.
 
-> **Still open:** the version handshake is only half wired. `FL_BUILD_ID` has a producer and the mirror can now read it out of the handshake, but the Agent has **no build id of its own** to compare against, so `07_IPC`'s refuse-to-attach-on-mismatch cannot yet run (`20_OPEN_QUESTIONS` §S23-1). The drain PR owns that.
+The version handshake is wired end to end as of 2026-08-05: `FlGuardBuildId` gives the Agent a build id of its own and `ShmHandshakeValidator` performs the refuse-to-attach comparison `07_IPC` specifies (§S23-1). **Its default is `NotEvaluated`, not `Ok`** — a result nobody produced has validated nothing, the same rule `AntiCheatVerdict` follows.
 
 **Dev mode —** `FL_MOCK=1` is **specified but not implemented** — `grep -rn FL_MOCK src tests tools build.ps1` returns nothing (recorded 2026-08-04). When it exists it runs the whole app with a synthetic frame source and no injection at all, and it is how the UI is meant to be developed; until then, do not plan work on the assumption that it is there. `tools/hook-harness` is a dummy **D3D11 + D3D12** app used to exercise hooks without a real game; Vulkan and OpenGL modes are unwritten (`docs/12_BUILD.md` §Targets is the accurate list).
 

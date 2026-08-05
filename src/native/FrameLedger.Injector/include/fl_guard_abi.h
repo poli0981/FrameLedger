@@ -90,6 +90,37 @@ FL_GUARD_ABI std::int32_t FlGuardReasonCount(void);
 // different file.
 FL_GUARD_ABI std::int32_t FlGuardRulesFilePath(wchar_t* out, std::int32_t cap);
 
+// The build id this install was compiled from — FL_BUILD_ID, `git describe` at
+// configure time. Observation only: no setter, and nothing here accepts one.
+//
+// WHY THE GUARD CARRIES IT AND NOT THE OVERLAY. 07_IPC makes a buildId mismatch
+// in the shm handshake a hard refuse-to-attach, and 04_CAPTURE says the Agent
+// compares it "against its own". The Agent had NO OWN VALUE: FL_BUILD_ID is a
+// CMake compile definition visible only to native targets, and `grep -rni
+// buildid` over src/**/*.cs returned zero (20_OPEN_QUESTIONS §S23-1). So the
+// comparison could not run in either direction — half a mechanism that reads as
+// a whole one.
+//
+// The Overlay exports FlGetBuildId(), but the Agent cannot call it: reaching that
+// export means LoadLibraryW on FrameLedger.Overlay.dll, which starts its init
+// thread and creates a ring under the AGENT's pid. The payload is not something
+// its own host may load.
+//
+// The guard is already loaded by the Agent, by absolute path from our install
+// directory (§S22). The comparison the Agent actually needs is "does the DLL
+// inside that game match the install I am running", which is exactly what this
+// answers.
+//
+// It rests on guard and Overlay carrying the SAME id, and that holds by
+// construction rather than by test: FL_BUILD_ID is one INTERFACE compile
+// definition on FrameLedger.Shm, set once per CMake configure, and both targets
+// link it. No test asserts it because fl_guard_abi.cpp is not compiled into
+// fl_guard_test — said here rather than left for a reader to assume measured.
+//
+// Writes a NUL-terminated ASCII string. Returns characters written, 0 on failure
+// — never a partial id, because a truncated id is a different build.
+FL_GUARD_ABI std::int32_t FlGuardBuildId(char* out, std::int32_t cap);
+
 // Would the GUARD accept this rules document? Returns fl::guard::ParseResult.
 //
 // §S20 needs it because the managed side structurally cannot answer the

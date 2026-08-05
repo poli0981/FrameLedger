@@ -84,6 +84,10 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
     [DllImport(_guardDll, CallingConvention = CallingConvention.Cdecl)]
     private static extern int FlGuardCheckRules(byte[] json, int length);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport(_guardDll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int FlGuardBuildId([Out] byte[] buffer, int cap);
+
     static NativeAntiCheatGuard()
     {
         NativeLibrary.SetDllImportResolver(typeof(NativeAntiCheatGuard).Assembly, Resolve);
@@ -188,6 +192,32 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
         char[] buffer = new char[1024];
         int written = FlGuardRulesFilePath(buffer, buffer.Length);
         return written <= 0 ? string.Empty : new string(buffer, 0, written);
+    }
+
+    /// <summary>
+    /// The build id this install was compiled from, for the shm handshake comparison
+    /// (<c>07_IPC</c> §Protocol rules: a mismatch is a hard refuse-to-attach).
+    /// <para>
+    /// This is the value <c>04_CAPTURE</c> calls "our own", and until 2026-08-05 the managed side had
+    /// none — <c>FL_BUILD_ID</c> is a CMake definition visible only to native targets, so the
+    /// comparison could not run in either direction (<c>20_OPEN_QUESTIONS</c> §S23-1).
+    /// </para>
+    /// <para>
+    /// It comes from the GUARD, not the Overlay. Reaching the Overlay's <c>FlGetBuildId</c> would mean
+    /// loading the payload into the Agent, which starts its init thread and creates a ring under the
+    /// Agent's own pid. Guard and Overlay are built by one CMake run, so the two ids agree by
+    /// construction — and a native test asserts it rather than trusting that sentence.
+    /// </para>
+    /// <para>Empty when the native side refuses to answer, which must never read as "matches".</para>
+    /// </summary>
+    public static string BuildId()
+    {
+        // 32 mirrors FlShmHandshake::buildId. The native side refuses rather than truncating, so a
+        // short buffer returns 0 and we surface empty — a truncated id is a DIFFERENT id, and
+        // comparing one would report drift that is really this call's fault.
+        byte[] buffer = new byte[32];
+        int written = FlGuardBuildId(buffer, buffer.Length);
+        return written <= 0 ? string.Empty : System.Text.Encoding.ASCII.GetString(buffer, 0, written);
     }
 
     private static async ValueTask<AntiCheatVerdict> RunAsync(Func<AntiCheatVerdict> work, CancellationToken ct)
