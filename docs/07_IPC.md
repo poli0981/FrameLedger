@@ -141,6 +141,49 @@ same class of bug as record drift.
   `if (writeIndex - readIndex > capacity) dropped += (writeIndex - readIndex) - capacity`,
   then resumes at `writeIndex - capacity`. This keeps the hot path free of an
   extra atomic and puts the accounting where the information actually exists.
+
+  > **The formula above needs a starting value, and this document did not give it
+  > one.** Added 2026-08-05, after #50 implemented it and changed no documentation
+  > at all — so for a day the decision existed only as a comment in
+  > `ShmRingReader.cs`.
+  >
+  > **The reader seeds `readIndex` from the writer's index at attach, not from 0.**
+  > `fl_ring.h` starts its reader at 0 because it is created alongside its writer;
+  > an Agent attaching to a ring already in flight is a different situation, and
+  > the formula above does not distinguish them. Measured: seeded at 0 against a
+  > ring at `writeIndex` 1,000,000, the first drain reports **999,992 drops** —
+  > and `04_CAPTURE` defines any non-zero drop count as *"the Agent stalled for
+  > over ~16 s"* and requires a session warning. The warning's verdict would have
+  > been set by how long the target had been presenting before anyone attached.
+  >
+  > It also **re-ingests up to `capacity` stale records as current frames**:
+  > stopping is one-way, so a ring left behind by a finished session still holds
+  > its records with `writeIndex` frozen.
+  >
+  > Records already published at the moment of attach are reported separately as
+  > `RecordsBeforeAttach`. **That is not a stall and must not be counted as one** —
+  > it is the ordinary consequence of attaching to a running game.
+
+- **The reader maps the whole section at offset 0, and the alternative is a silent
+  memory-safety bug rather than a style choice.** Measured on .NET 10 / Windows 11
+  26300: a view created at a non-zero offset is mapped from the 64 KiB
+  allocation-granularity boundary *below* it, and `AcquirePointer` returns **that**
+  base. So mapping region 3 at `0x80` and writing `*(uint*)(p + 12)` writes
+  `FlShmHandshake.pid` — the field a reader validates first — instead of
+  `FlControlBlock.guardTicks`. It does not fault, and `Read<T>` does not bounds-check
+  it either, because the handle legitimately spans from byte 0. Mapping at zero makes
+  the offsets in `fl_shm.h` usable as written, which is what the native
+  `RingWriter::Init` and `RingReader::Init` already do. A reader must **assert**
+  `PointerOffset == 0` rather than assume it.
+
+- **`capacity` must be bounded against the mapping, not merely checked for
+  power-of-two.** A reader that indexes by raw pointer arithmetic — which it must,
+  because the seqlock needs ordering `MemoryMappedViewAccessor.Read<T>` does not
+  provide — gives up that API's bounds check at the same time. So the handshake
+  gained two refusals beyond the three above: `CapacityInvalid` (not a power of two)
+  and **`CapacityExceedsMapping`**, taken from the mapped section's own byte length
+  and never from a compiled-in default, which would be checking the handshake
+  against an assumption instead of against the section it describes.
 - Version handshake: Agent compares `layoutVersion` + `recordSize` + `buildId` against its own. **Mismatch → refuse to attach**, tell the user to restart the game (this happens when the app updates while a game is running).
 
   > **Implemented 2026-08-05** as `FrameLedger.Shared.ShmHandshakeValidator`, a pure

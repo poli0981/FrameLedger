@@ -636,8 +636,17 @@ frame generation, no ray tracing" as *measured fact* ~118 times a second — `fg
 **Two fields have a producer and no consumer, and one has neither:**
 `FlWriterState::vramBudgetMb` is never written (no `QueryVideoMemoryInfo` hook);
 `FlControlBlock::overlayEnabled` is never read; and `FlControlBlock::pauseRequested` is
-never written by anything, while its only reader is unreachable on any frame where
-`guardTicks` changed.
+never written by anything, while its only reader ~~is unreachable on any frame where
+`guardTicks` changed~~.
+
+> **Half of that last clause was fixed five lines below it, in the same PR, and this
+> sentence was left in the present tense.** The reader is no longer unreachable — #46
+> moved the deadline onto the watchdog thread, which removed the early return that
+> jumped the pause check. What *is* still true is the first half: nothing writes
+> `pauseRequested`. `ShmRingReader.SetPaused` is the intended writer and it has **no
+> caller and no test at all** — three symbol sites in the whole tree, none of them a
+> test — so the round trip has never been driven end to end even though both halves
+> exist and the harness that would drive it is already staged.
 
 **Two gaps found the same day by tracing call paths, and one is still open.**
 
@@ -915,10 +924,38 @@ Two findings, both of which change what gets built:
   `services.exe` and `svchost.exe`. Three real titles (§8) were scanned with no
   fragment hit at all.
 
-The defensible claim: **the `protect` fragment matches a benign, widely-loaded
+~~The defensible claim: **the `protect` fragment matches a benign, widely-loaded
 Microsoft system DLL, and has not been shown to match inside any game's scan
 set.** A game process loading DPAPI/CNG for save encryption or a launcher token
-would trip it — plausible, unmeasured, and worth fixing; not a live incident.
+would trip it — plausible, unmeasured, and worth fixing; not a live incident.~~
+
+> #### 🔴 MEASURED IN A REAL SCAN SET BY CI, 2026-08-05 — and this file is where that belongs
+>
+> The sentence above is superseded. CI, running the drain integration test:
+>
+> ```
+> the guard refused our own harness: SuspiciousUnsigned unknown
+> System.Security.Cryptography.ProtectedData.dll
+> ```
+>
+> **The mechanism is the one the paragraph above ruled out.** §S16 puts the target's
+> *ancestors* in the scan set; the integration test spawns `hook-harness`, so the .NET
+> test host is its parent — which is the launch-mode arrangement, where the Agent is
+> the game's parent. A .NET host that loads that assembly poisons its own scan set and
+> the injection it is attempting is refused. **A gate that cannot pass.**
+>
+> Attach mode is unaffected: a normally-launched game's ancestor chain terminates at a
+> platform launcher one hop above it, so no .NET host of ours is in the set.
+>
+> **It passed on the dev box**, because the two hosts load different module sets — the
+> second time in one PR that this machine was not the configuration that mattered, the
+> first being the rules file. This entry is recorded here rather than only in
+> `20_OPEN_QUESTIONS` because §Purpose of this file makes measurements this file's job,
+> and #51 changed only that other document.
+>
+> **Live consequence:** the drain tests are `Category=Integration` and CI runs
+> `./build.ps1 check -SkipIntegration`, so the only end-to-end proof of the capture
+> path does not run on the machine that gates merges.
 
 §S19(b) is therefore **deferred with a written rationale** rather than scheduled
 next. Before any design is fixed, `fl-probe-signer` should answer three things on
@@ -1100,10 +1137,22 @@ into a real title and the process survives it (§7).
 > 2026-08-05). `Present` interception, the ring writer and the fault policy all
 > landed in #40–#44, ahead of the P1 label they were filed under. What blocks the
 > rows above is therefore no longer the *present* path — it is that **no upscaler,
-> FG or RT hook exists** (P0 items 4, 6 and 7), and that **nothing reads the ring**:
+> FG or RT hook exists** (P0 items 4, 6 and 7), and that ~~**nothing reads the ring**:
 > `src/FrameLedger.Shared` holds a `.csproj` and no `.cs` files, so the Overlay's
-> output is observable only from inside `guard_test.cpp`. Both are prerequisites of
+> output is observable only from inside `guard_test.cpp`~~. Both are prerequisites of
 > filling this table, and neither is "finding a game".
+>
+> > **The reader half is done, corrected later the same day.** `ShmLayout.cs` (#47),
+> > `ShmHandshakeValidator` (#49), `ShmRingReader` (#50) and a closed write-read
+> > integration test (#51) all exist, and the Overlay's output is readable from managed
+> > code. This passage was itself written to correct an earlier stale claim and went
+> > stale within hours, in the same file — which is why the strike is left visible.
+> >
+> > **What still blocks this table is one thing plus one caveat.** The one thing: no
+> > upscaler, FG or RT hook exists. The caveat: the reader has **no production caller**,
+> > so something must drive it against a real title — and §S27 forbids an injecting
+> > entry point on a shipped binary until a consent record exists, so that driver is its
+> > own piece of work rather than a command-line flag.
 
 ## 9 · Frame generation
 
@@ -1300,9 +1349,11 @@ unmeasured siblings marked as such.
 **Valve VAC remains absent, and CS2 measures `Allow`.** VAC is neither a
 machine-wide driver nor a service; it is modules loaded into the game process,
 which — per the previous section — is exactly what cannot be read. The route
-`19_SAFETY` reserves for it is `blockedStoreIds`, i.e. check 3, which is still
-unwired (§S14). Recorded rather than papered over: **a real VAC title is allowed
-by this guard today.**
+`19_SAFETY` reserves for it is `blockedStoreIds` — check 3's **store-id half**,
+which cannot be called (§S14). #52 wired the *executable* half; that changes
+nothing here, because a renamed executable defeats a name list and the store-id
+route is exactly why `19_SAFETY` reserves it. Recorded rather than papered over:
+**a real VAC title is allowed by this guard today.**
 
 ### 🔴 The data addition alone changed nothing, and that is the sharper finding
 

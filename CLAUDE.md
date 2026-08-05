@@ -31,7 +31,7 @@ A C++ DLL (`FrameLedger.Overlay.dll`) is injected into games the user explicitly
 | UI | WPF + WPF UI (`WPF-UI` pinned = 4.3.0) + CommunityToolkit.Mvvm — `docs/16_WPFUI_SYNTAX.md` |
 | App composition | .NET Generic Host + DI in `FrameLedger.App` |
 | Charts | ScottPlot 5 |
-| GPU telemetry | Layered: DXGI + PDH counters (all vendors) → LibreHardwareMonitorLib (MPL-2.0, all vendors) → NVAPI (**MIT, headers vendored**, NVIDIA extras + Reflex). **No AMD/Intel vendor SDK** — `docs/18_GPU_VENDOR_APIS.md` |
+| GPU telemetry | Layered: DXGI + PDH counters (all vendors) → LibreHardwareMonitorLib (MPL-2.0, all vendors) → NVAPI (MIT, NVIDIA extras + Reflex). **No AMD/Intel vendor SDK** — `docs/18_GPU_VENDOR_APIS.md`. **None of it exists in code, and NVAPI is NOT vendored** — this row said "headers vendored" in the present tense while `src/native/third_party/` held only `vulkan-headers`. `legal/THIRD_PARTY_NOTICES.md` had already caught and corrected the identical claim about itself, and gained a bidirectional gate for it; nobody updated this row. The licence question *is* settled (MIT, including `nvapi64.lib` — `spike-notes.md` §0); the material is absent |
 | CPU/board sensors | LibreHardwareMonitorLib ≥ 0.9.6 (PawnIO) — **optional**, elevated only |
 | Tier-2 fallback | Intel PresentMon console binary (ETW) |
 | Storage | SQLite via Microsoft.Data.Sqlite + Dapper (no EF) |
@@ -55,6 +55,10 @@ src/
     FrameLedger.VkLayer/       # C++20 Vulkan implicit layer DLL + manifest JSON
     FrameLedger.Shm/           # header-only: ring buffer + record layout, shared by native & C# (mirrored)
   FrameLedger.Domain/          # entities, metric calculators — zero dependencies
+                               #   (calculators UNWRITTEN: Domain holds AntiCheat/ and
+                               #    Detection/ only. Nothing computes a frame time, an
+                               #    FPS low, or fg_factor anywhere in the tree, and
+                               #    nothing maps measuredMask to rule 7's tri-state)
   FrameLedger.Application/     # use cases, ports
   FrameLedger.Infrastructure/  # SQLite, shm reader, vendor APIs, injector interop, ETW fallback, parsers
   FrameLedger.Shared/          # IPC contracts (System.Text.Json source-gen) + ShmRecord struct mirror

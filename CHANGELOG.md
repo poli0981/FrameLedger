@@ -20,6 +20,145 @@ GitHub release body, so a missing section means an empty release note.
 > deviated from a doc: they implemented specifications that were already written, and
 > the staleness landed in the *status* claims of other files. `legal/DISCLAIMER.md` §Accuracy
 > audit records the same drift from the user-facing side.
+>
+> > **And then it happened again, immediately, seven more times.** #45 — the PR that wrote
+> > the five entries above and complained about the gap — was followed by #46 through #52
+> > with **no changelog entry for any of them**, including the C# struct mirror, the ring
+> > reader, the handshake validator, the closed write-read loop and check 3's call site.
+> > The entries below were written retrospectively too, on 2026-08-05, from the diffs.
+> >
+> > **A retrospective note is not a mechanism, which is the actual finding.** #45 recorded
+> > the drift in prose and nothing about the repository changed, so the same failure ran a
+> > second time at greater length. `ci.yml` now carries a `changelog` job that fails a pull
+> > request touching `src/` without touching this file. Prose asking people to remember is
+> > what was already tried.
+> >
+> > **One of the seven is worse than missing.** `bd6d367` (#48) carries, verbatim, the
+> > commit body of `bff0f6a` (#47) — a squash whose `--body-file` came from the wrong
+> > branch. The subject line describes the occlusion-probe fix; every paragraph beneath it
+> > describes the struct mirror. Its entry below was reconstructed from the diff, because
+> > the commit message is evidence about a different PR.
+
+- **Check 3 gets a call site, and the half that cannot have one** (#52). `19_SAFETY` has
+  listed the per-title blocklist as check 3 from the beginning and it had **no call site**:
+  `MatchesBlockedExecutable` was implemented, tested, and asked by nobody, so "check 3
+  passed" read as "this title is not a known online title" while nothing had looked.
+  `CheckBlockedExecutable` now runs inside `EvaluateImpl`, between the module scan and the
+  pre-scan — one `OpenProcess` and a string compare, ahead of the only check that touches
+  the filesystem.
+  - **It needed a new seam.** `Sources::ImageDirectory` deliberately resolves the *install
+    root* — Unreal puts the exe three levels below it, measured on Lies of P — and the file
+    name is exactly what it discards. `ImageFileName` is a different fact, so it is a
+    different seam and a new row in the fail-closed matrix.
+  - **Unresolvable identity refuses** (`kProcessUnreadable`): `kFailed`, `kIncomplete`, an
+    empty name and a null seam all take one path. The narrow conversion uses
+    `WC_ERR_INVALID_CHARS` with **no** default character, so a name that cannot be
+    represented exactly fails rather than becoming a string containing `?` — §S21's ANSI
+    defect was exactly a silent lossy conversion.
+  - **The store-id half cannot be called**, for three independent reasons: nothing produces
+    a `store_id` (the platform metadata extractors were never built), `FlGuardEvaluate`
+    takes a pid and nothing else *by design* (§S3 forbids a caller asserting a safety
+    fact), and "unknown refuses" applied to it would refuse every title on every machine.
+    It stays implemented, tested and uncalled. **Do not "fix" the second by widening the ABI.**
+  - **The list ships empty**, so nothing is refused today; what changed is that populating
+    it would now do something. The acceptance criterion asserts `kBlockedExecutable`
+    *specifically*, because "it refuses" is indistinguishable from the four refusals the
+    guard already makes.
+
+- **The write-read loop closes, against our own harness and nothing else** (#51). Real
+  guard, real injection, real Overlay, real reader: `ShmDrainIntegrationTests` seeds the
+  rules with the product's own `RulesSeeder`, starts `hook-harness --real --hold-presenting`,
+  injects through `NativeAntiCheatGuard`, and drains records while driving
+  `GuardSupervisor.ScanOnceAsync` and `PublishGuardResult`. A second case proves the safety
+  stop: >10 records flowing, then `unhookRequested`, then `writeIndex` frozen 700 ms later.
+  - **CI found a hard-gate defect the dev box structurally could not.** Running the test,
+    the guard refused our own harness — `SuspiciousUnsigned unknown
+    System.Security.Cryptography.ProtectedData.dll`. §S16 puts the target's **ancestors**
+    in the scan set and the .NET test host is the harness's parent, which is the
+    launch-mode arrangement. A .NET host that loads that assembly poisons its own scan set.
+    **A gate that cannot pass**, and §S19(b)'s "plausible and unmeasured" is superseded.
+  - **So the drain tests are `Category=Integration` and CI runs `-SkipIntegration`.** The
+    skip is loud, names §S19(b) and says how to run them; a developer running
+    `./build.ps1 check` with no arguments still gets everything. Proven both directions —
+    76 Infrastructure tests by default, 73 with the switch.
+  - **What that costs, stated rather than left to be discovered:** the only end-to-end proof
+    of the capture path does not run in the merge gate. See §Known issues.
+
+- **The Agent can read the ring, and the pointer trap that would have hidden it** (#50).
+  `ShmRingReader` mirrors `fl_ring.h`'s `RingReader::Drain` rather than re-deriving it —
+  where the two disagree the header is right and the C# is the bug.
+  - **Map at offset 0, and this is measured** (.NET 10, Win 11 26300): a view created at a
+    non-zero offset is mapped from the 64 KiB allocation-granularity boundary *below* it,
+    and `AcquirePointer` returns **that** base. So the obvious way to reach the control
+    block — map region 3 at `0x80`, write `*(uint*)(p + 12)` — writes
+    `FlShmHandshake.pid` instead of `FlControlBlock.guardTicks`. It does not fault, and
+    `Read<T>` does not bounds-check it either, because the handle legitimately spans from
+    byte 0. The supervision counter would have landed silently on the field a reader
+    validates first. `Bind` now asserts `PointerOffset == 0` rather than assuming it.
+  - **Seed the read index from the writer.** `fl_ring.h` starts its reader at 0 because it
+    is created alongside its writer; an Agent attaching to a ring already in flight is a
+    different situation. Canary: seeded at 0 against a ring at `writeIndex` 1,000,000 the
+    first drain reports **999,992 drops** — and `04_CAPTURE` defines any non-zero drop count
+    as "the Agent stalled for over ~16 s". It also re-ingests up to `capacity` stale records
+    from a finished session as current frames. Records already published at attach are
+    reported separately as `RecordsBeforeAttach`, which is not a stall.
+  - **Bound the capacity against the mapping.** The validator accepted any power of two —
+    every value up to 2³¹ — and returned `Ok` having never related that claim to the section
+    it describes. The reader indexes by raw pointer arithmetic (the seqlock needs ordering
+    `Read<T>` does not provide) and so gives up that API's bounds check.
+    `CapacityExceedsMapping` is taken from `ByteLength`, never from `DefaultCapacity`.
+  - **Publish order is a safety property and it is the reverse of the natural one** — flag
+    first, tick second, because a fresh tick *resets* the Overlay's supervision clock.
+    **The suite does not verify that order**, and says so: it asserts both values land,
+    which a publisher writing them the wrong way round also satisfies. What holds the
+    property is `PublishGuardResult` being the only writer of either field.
+
+- **The Agent gets a build id of its own, so refuse-to-attach can run** (#49). `07_IPC`
+  makes a `buildId` mismatch a hard refuse-to-attach and `04_CAPTURE` says the Agent
+  compares it "against its own" — and the Agent had no own value. Two documents specified a
+  check that could not run in either direction (§S23-1).
+  - `FlGuardBuildId` is observation-only and **refuses rather than truncating**: a shortened
+    id is not a partial answer, it is a *different* id, and returning one would produce a
+    permanent mismatch caused by this function rather than by any real version skew.
+  - **Why the guard carries it and not the Overlay:** reaching `FlGetBuildId` means
+    `LoadLibraryW` on `FrameLedger.Overlay.dll`, which starts its init thread and creates a
+    ring under the *Agent's* own pid. The payload is not something its own host may load.
+  - `ShmHandshakeValidator` is the comparison, as a pure function, so every refusal is
+    drivable without a live target. `layoutVersion == 0` is **`Incomplete`, not a mismatch**
+    (it is published last behind a release fence, so zero means "retry", not "restart the
+    game"); the version is checked **before** the fields it vouches for; and the default is
+    `NotEvaluated`, never `Ok`.
+  - **The fail-open, measured.** The naive implementation compares two strings, and with
+    neither side carrying an id `string.Equals("", "")` is **true** — so the gate reported
+    `Ok` for every process on the machine. **The test for it was nearly missed:** the first
+    draft asserted the two halves as separate cases and never put both in one call, which
+    is the only arrangement that reaches the defect.
+
+- **The C# mirror exists, and the gate that guards it stops being a `Test-Path`** (#47).
+  CLAUDE.md calls the struct mirror the mechanism protecting the shared-memory ABI; nine
+  files described it in the present tense and none of it existed (§R10).
+  - `ShmLayout.cs` is driven by `tools/fl-layout-dump`'s JSON, never a transcribed table —
+    a hand-written offset table is a *second* statement of the layout, and two statements of
+    one fact drift, which would be the defect the mirror exists to catch, reintroduced
+    inside the catcher.
+  - **Blittability is asserted, and that is not decoration.** Measured: swapping the
+    `fixed byte BuildId[32]` for the `[MarshalAs(ByValTStr)] string` idiom this repository
+    already uses correctly elsewhere keeps `Marshal.SizeOf` at 64 with **every offset
+    assertion still passing**, while `Unsafe.SizeOf` collapses to **40**. That mirror looks
+    correct by every obvious check and cannot be read out of a memory-mapped view.
+  - **Both directions**, and the reverse walk caught something on its first run:
+    `fl-layout-dump` was not emitting the `reserved` tails, so the C# declared members the
+    dump could not confirm. Fixed in the dump rather than excluded from the check.
+  - **The gate was the bigger finding.** `build.ps1`'s struct-mirror step was
+    `Test-Path ShmLayout.cs`, then printed "covered by dotnet test" — it never looked for
+    the test. An *empty* `ShmLayout.cs` would have turned an honest loud skip into a silent
+    green, and deleting the test afterwards would have kept it green forever. It now reads
+    the run's `.trx` and requires the named class to have **executed**. `dotnet test` makes
+    a regression red; this makes *deleting the regression test* red.
+  - Three canaries proven red, and **the harness was broken twice before it proved
+    anything** — a renamed class tripped a file-name analyzer and the run died at *build*;
+    a `sed` rewrite gave the file LF endings and the run died at *`dotnet format`*. Both
+    printed a failure, and a failure upstream of the gate proves nothing about the gate.
 
 - **`api` is resolved per swapchain, and `GetDevice` does not return what the docs imply**
   (#44). `api` was hardcoded to `FL_API_D3D11` on every record — a guess written into a
@@ -154,6 +293,64 @@ GitHub release body, so a missing section means an empty release note.
     NGX-direct titles never wrap the swapchain.
 
 ### Fixed
+- **Occlusion probes were reaching the ring as frames** (#48). `DXGI_PRESENT_TEST` runs the
+  presentation test and **submits nothing**. The writer recorded them like any other present,
+  so a minimised or fully occluded game — which issues them continuously — produced records
+  `03_METRICS` would have turned into a frame rate it was not rendering, and into frame-time
+  intervals bounding no frame.
+  - **Responsibility for filtering was assigned to nobody.** `07_IPC` did not say, and
+    `03_METRICS` lists `presentFlags` among the consumed fields while being silent on this
+    value. The harness's own history is why that matters: every present in `hook-harness` was
+    once a probe, which made "N presents → N records" satisfiable **only** by a writer that
+    counts non-frames.
+  - **Decided: the writer drops them**, so the ring means one thing. The filter sits *after*
+    the safety checks, so a probe-only process still evaluates the stop rather than going
+    unsupervised because it stopped drawing.
+  - **Measured, both directions.** `hook-harness --hold-presenting 12` *without* `--real` — a
+    live, hooked, supervised target presenting nothing but probes — puts **142 records** in
+    the ring against the pre-fix writer and **0** after. The test asserts `status == READY`
+    and `faultCount == 0` alongside the count, so "empty because we unhooked" and "empty
+    because we faulted" cannot pass for the right answer.
+  - **Its commit message is the wrong PR's**, verbatim — see the note at the top of this
+    section. This entry was reconstructed from the diff and from §S26.
+
+- **The safety stop could not fire in a game that had stopped presenting** (#46). Every
+  runtime safety decision in the Overlay lived behind `MayObserve()`, whose only caller is
+  `RecordPresent` — so a game that had hung, been alt-tabbed, or was sitting in a menu never
+  read `unhookRequested` and never evaluated the `guardTicks` deadline. The hooks stayed
+  patched in for the life of the process.
+  - `fl_shm.h` says over `FL_GUARD_TICK_DEADLINE_MS`, in capitals, that this must **not** be
+    driven by the present hook — "the clock would stop when presents stop, which is the exact
+    scenario this exists for". A normative comment prescribing the opposite of the code
+    beneath it, which is §S21's `MoveFileEx`/`ReplaceFileW` shape again.
+  - **Measured:** `unhookRequested = 1` against a live injected `hook-harness --hold` left
+    `status` at `READY` through 10 s of polling. **The exposure stated precisely rather than
+    inflated:** a process that is not presenting is also not *recording*, so nothing false
+    was written; what failed is the clean unhook `19_SAFETY` requires and `DISCLAIMER` §2
+    promises.
+  - **`pauseRequested` was unreachable on any frame where `guardTicks` changed.** The
+    tick-freshness check sat between the safety stop and the pause check and returned true as
+    soon as the tick differed. Measured: **12 leaked records across 12 guard ticks**, exactly
+    one per tick. At the real 30 s cadence each leaked record carries a `qpc` ~30 s after its
+    predecessor — a **fabricated 30-second frame interval** in the series `03_METRICS`
+    computes 1% and 0.1% lows from. Latent only because nothing writes `pauseRequested` yet.
+  - **The fix is a watchdog thread, and why a thread is acceptable *here* is written down.**
+    §S2 rejected a worker thread for the Vulkan layer for three reasons, **all of which are
+    properties of the layer**: the loader owns its mapping, the re-scan allocates ~1.15 MB
+    transiently, and it would probe the SCM from inside a game — the behavioural signature of
+    anti-analysis code (rule 3). None applies to the Overlay. This thread enumerates nothing,
+    probes nothing and allocates nothing: two `uint32` reads from our own mapping, then
+    sleep. **A watchdog that starts scanning is a different object under rule 3.**
+  - Moving the deadline off the present path fixes the pause leak *by construction* — there
+    is no early return left to jump over the check. `StopObserving` became a
+    compare-exchange so the **first** reason wins; which reason was recorded would otherwise
+    have depended on thread scheduling.
+  - **Fixed without a test, and saying so:** `NoteFault` discarded `MH_DisableHook`'s return
+    value and stored `SELF_DISABLED` unconditionally while setting no `g_observing`. It now
+    routes through `StopObserving` — but **the three-fault path still has no test at all**,
+    and the blocker is the vehicle. Both rejected approaches are recorded in
+    `src/native/tests/CMakeLists.txt` so they are not rediscovered.
+
 - **The `trustedSigners` gate was polarity-inverted, and its own comment claimed
   the capability the code structurally could not have.** Added one commit earlier
   (`cea744e`), which is what makes it worth recording rather than quietly fixing.
@@ -293,6 +490,9 @@ GitHub release body, so a missing section means an empty release note.
 - **`build.ps1` declares the struct-mirror gate and skips it loudly.** Nine files
   describe that gate in the present tense, including `fl_shm.h`, which is
   normative. It does not exist. A named skip is honest; silence reads as coverage.
+  > **Superseded by #47** — the mirror, the test and a `.trx`-backed gate all exist.
+  > Left in place because it is the record of a past PR, with the pointer added
+  > because as written it reads as a live status claim.
 - Documentation corrected where it claimed capabilities that do not exist: the
   Overlay's `LoadLibrary` hook (§S6 and `19_SAFETY` both said "already installs" —
   the Overlay installs nothing), `GuardSupervisor` "publishes `guardTicks`"
@@ -300,6 +500,13 @@ GitHub release body, so a missing section means an empty release note.
   (specified in four places, implemented nowhere), `12_BUILD`'s native-copy bullet
   (wrong in four ways, including naming a binary the same document says does not
   exist), and `build.ps1`'s own "nine-gate" self-description.
+  > **Two of those are now half-true, and the halves matter.** #50 made
+  > `ShmRingReader.PublishGuardResult` map the shared memory and write `guardTicks`,
+  > so "nothing maps the shared memory" is false and only the *production caller* is
+  > still missing — a missing loop, not a missing subsystem. #40–#44 gave the Overlay
+  > three real `MH_CreateHook` calls, so "the Overlay installs nothing" is false too;
+  > the `LoadLibrary` hook specifically is still unwritten. `FL_MOCK` and the
+  > `12_BUILD` bullet are unchanged.
 - **`legal/` carries accuracy notes** where it promises behaviour the software
   does not have: the 30-second in-session re-scan and stop, the two-crash
   auto-disable, and a **weekly outbound safety-list request** in the privacy
@@ -343,7 +550,10 @@ GitHub release body, so a missing section means an empty release note.
   service, it is modules inside the game process — and that process denies module
   enumeration (`EnumProcessModulesEx` → `ERROR_ACCESS_DENIED`, even though
   `OpenProcess` succeeds). The route `19_SAFETY` reserves for VAC is
-  `blockedStoreIds`, i.e. check 3, which is still unwired (§S14).
+  `blockedStoreIds` — check 3's **store-id half**, which cannot be called (§S14). #52
+  wired check 3's *executable* half; the conclusion for VAC is unchanged, and the
+  reason is now narrower than "check 3 is unwired". A renamed exe would defeat the
+  executable half anyway, which is why `19_SAFETY` reserves the store-id route.
 - **While any Easy Anti-Cheat title is running, the guard refuses every target on
   the machine** — measured against a freshly spawned, completely unrelated
   process. Checks 2 and 2b do not depend on the target, so this is the intended
@@ -370,6 +580,18 @@ GitHub release body, so a missing section means an empty release note.
     were scanned with no fragment hit. The honest claim is that the fragment
     matches a benign, widely-loaded system DLL and **has not been shown to match
     inside any game's scan set**.
+    > **It has now been shown, and by CI rather than by argument** (#51). Running
+    > the drain integration test: `the guard refused our own harness:
+    > SuspiciousUnsigned unknown System.Security.Cryptography.ProtectedData.dll`.
+    > The mechanism is the one the paragraph above ruled out — §S16 puts the
+    > target's **ancestors** in the scan set, and a .NET test host is the
+    > harness's parent, which is the launch-mode arrangement. A .NET host that
+    > loads that assembly poisons its own scan set and the injection it is
+    > attempting is refused: **a gate that cannot pass.** Attach mode is
+    > unaffected. The consequence is live in the merge gate — the drain tests are
+    > `Category=Integration` and CI runs `-SkipIntegration`, so **the only
+    > end-to-end proof of the capture path never runs on the machine that gates
+    > merges.**
   - **The proposed fix would have addressed one case of three, and is deferred.**
     `mskeyprotect.dll` is **catalog**-signed, so a `WinVerifyTrust(WTD_CHOICE_FILE)`
     implementation — what "wire the signer half" has meant throughout — recovers
@@ -397,6 +619,24 @@ GitHub release body, so a missing section means an empty release note.
     restate the list by hand — and the schema comment restates the **four-fragment**
     version, the exact staleness §S19(e) was raised about. No gate cross-checks any
     of them.
+- **The honesty contract protecting the not-yet-measured fields is not in the merge
+  gate.** `measuredMask` and `rtFlags` are what stop a present-only writer asserting
+  "no upscaler, no frame generation, no ray tracing" as measured fact — CLAUDE.md
+  rules 6 and 7. The assertion that would catch a violation
+  (`MeasuredMask == OutputRes` exactly, on records from a real injection) lives only
+  in `ShmDrainIntegrationTests`, which is `Category=Integration`, which CI skips.
+  **So a feature-hook PR that sets `FL_MEASURED_UPSCALER` with no hook behind it —
+  or installs a hook and forgets the bit — merges green.** The only other
+  `MeasuredMask` reference in the suite is a synthetic writer asserting against its
+  own fixture. This is downstream of §S19(b) and is the reason to fix it before the
+  item-4/6/7 hooks land rather than after.
+- **`ctest fl_vtable_indices` does not pin the Overlay's vtable indices.**
+  `hook-harness` declares `kPresentIndex = 8` / `kResizeBuffersIndex = 13` /
+  `kPresent1Index = 22` as its own literals, textually duplicated from the inline
+  values in `dllmain.cpp` with no shared header. Change the Overlay's 8 to a 9 and
+  the ctest still passes: it proves a fact about `dxgi.dll`, not a fact about
+  `FrameLedger.Overlay`. The only test coupling the two is the integration class CI
+  skips, so in the merge gate the coupling is absent entirely.
 - **A rules edit reaches no installed machine until a release** (§S20, feed half).
   The Agent now installs `detection-rules.json` to the location the guard reads,
   so a machine that has never had one no longer refuses every title — that half is

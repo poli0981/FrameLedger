@@ -144,10 +144,15 @@ public enum AntiCheatRefusalReason
     /// </para>
     /// <para>
     /// All three used to return <see cref="BlockedExecutable"/> — check 3's
-    /// code, which the native guard cannot produce at all (§S14: the matchers
-    /// have no call site). The UI would have said "this title is on the
-    /// per-title blocklist" when the truth was "you have not accepted the
+    /// code, which at the time the native guard could not produce at all (§S14:
+    /// the matchers had no call site). The UI would have said "this title is on
+    /// the per-title blocklist" when the truth was "you have not accepted the
     /// consent dialog".
+    /// </para>
+    /// <para>
+    /// #52 wired check 3's executable half, so <see cref="BlockedExecutable"/>
+    /// now has a native producer and means one specific thing. The separation
+    /// above therefore matters more than when it was made, not less.
     /// </para>
     /// </remarks>
     HookNotEnabled = 21,

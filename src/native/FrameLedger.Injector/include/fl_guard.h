@@ -132,8 +132,12 @@ enum class Reason : std::uint8_t {
     // the UI maps to a string.
     //
     // Before these existed the managed gate returned kBlockedExecutable for all
-    // three — check 3's code, which the native guard cannot produce at all
-    // (§S14: the matchers have no call site). So the UI would have told a user
+    // three — check 3's code, which at the time the native guard could not
+    // produce at all (§S14: the matchers had no call site; #52 gave the
+    // executable half one, so the native guard DOES produce it now, which makes
+    // keeping these three distinct more important rather than less: a logged
+    // kBlockedExecutable is now a real check-3 hit and must not be ambiguous
+    // with a consent failure). So the UI would have told a user
     // "this title is on the per-title blocklist" when the truth was "you have
     // not accepted the consent dialog", and a logged kBlockedExecutable meant
     // one of four unrelated things.

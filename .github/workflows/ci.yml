@@ -22,6 +22,10 @@ on:
 # than this job needs either way (docs/13_CI_CD.md).
 permissions:
   contents: read
+  # For the Changelog step below only: listing a pull request's changed files is
+  # the Pull Requests API, and an explicit `permissions:` block grants nothing it
+  # does not name. Read-only, and the job writes nothing back.
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -109,6 +113,39 @@ jobs:
         run: ./build.ps1 check -SkipIntegration
         env:
           CI: 'true'
+
+      # The ledger gate. It lives HERE, as a step of `check`, and NOT as a job of
+      # its own — deliberately, and the reason is §S23-2.
+      #
+      # `main`'s required contexts are exactly `check`, `analyze (csharp, none)`
+      # and `analyze (cpp, manual)`. A new job named `changelog` would go red and
+      # the merge button would stay green, which is precisely what already makes
+      # `Rules / validate` advisory. Adding a second instance of that is not a
+      # gate, it is a notification.
+      #
+      # It is also the one thing in this file that CI checks and `build.ps1` does
+      # not, which this workflow's header otherwise argues against. The exception
+      # is narrow and stated rather than assumed: this asserts a property of the
+      # PULL REQUEST — what changed against the base — and `build.ps1 check` runs
+      # on a working tree, not on a diff. Nothing about the build or the tests
+      # differs between here and a dev box. The gate's LOGIC is not CI-only: its
+      # self-test runs in `build.ps1 check` on every build, in both directions.
+      #
+      # The file list comes from GitHub's own view of the pull request rather than
+      # from `git diff`, so a shallow checkout cannot silently produce a short
+      # list — and the script refuses an EMPTY list rather than reading it as
+      # "no src/ changes, therefore fine".
+      - name: Changelog
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = gh api "repos/$env:GITHUB_REPOSITORY/pulls/$env:PR_NUMBER/files" --paginate -q '.[].filename'
+          if ($LASTEXITCODE -ne 0) { throw "could not list the pull request's changed files" }
+          ./tools/changelog-check.ps1 -ChangedFiles @($files)
 
       - name: Upload coverage
         if: always()

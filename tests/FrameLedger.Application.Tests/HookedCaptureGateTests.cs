@@ -146,11 +146,15 @@ public sealed class HookedCaptureGateTests
     }
 
     // Each managed refusal must be DISTINGUISHABLE. All three used to return
-    // BlockedExecutable — check 3's code, which the native guard cannot produce
-    // at all (§S14: the matchers have no call site), so a user who had not
-    // accepted the consent dialog would have been told the title was on the
-    // per-title blocklist. Nothing asserted the reason, which is why nothing
-    // noticed.
+    // BlockedExecutable — check 3's code, which at the time the native guard
+    // could not produce at all (§S14), so a user who had not accepted the
+    // consent dialog would have been told the title was on the per-title
+    // blocklist. Nothing asserted the reason, which is why nothing noticed.
+    //
+    // #52 wired check 3's executable half, so the native guard produces
+    // BlockedExecutable now. That strengthens this test rather than dating it:
+    // the code is no longer available as a catch-all, because it now means one
+    // specific thing.
     [Fact]
     public async Task EachManagedRefusal_CarriesItsOwnReason()
     {

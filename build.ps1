@@ -341,6 +341,27 @@ function Invoke-ProjectGates {
         Skip-Gate 'license-check' 'tools/license-check.ps1 not implemented yet'
     }
 
+    # The changelog gate's LOGIC, exercised in both directions on every build.
+    #
+    # The gate itself needs a pull request's changed-file list, which only exists
+    # in CI, so ci.yml applies it there. What runs here is its self-test — nine
+    # cases, five of which must come back RED. That is the difference between a
+    # gate that is known to discriminate and one that has only ever been observed
+    # to say yes: the same reason tools/rules-validate.ps1 proves its schema
+    # canary before trusting the schema.
+    #
+    # It found a defect in its own filter on its first run: a whitespace-only path
+    # is truthy in PowerShell, so the empty-list refusal was unreachable for that
+    # input.
+    Write-Step 'changelog-check'
+    $changelogTool = Join-Path $repo 'tools/changelog-check.ps1'
+    if (Test-Path $changelogTool) {
+        Invoke-Checked 'changelog-check (self-test)' { & $changelogTool -SelfTest }
+    }
+    else {
+        Skip-Gate 'changelog-check' 'tools/changelog-check.ps1 not implemented yet'
+    }
+
     Write-Step 'resx-audit'
     $resxTool = Join-Path $repo 'tools/resx-audit'
     if (Test-Path $resxTool) {

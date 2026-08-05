@@ -19,7 +19,9 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > happened. Everything still open needs either **feature hooks that do not exist
 > yet** (4, 6, 7 — a throwaway build, per the exit criteria, not all of P1),
 > absent hardware (8, and the AMD/Intel half of the capability matrix), or is P1
-> by construction (the layer's presentation hooks). Item 0's residual is check 3.
+> by construction (the layer's presentation hooks). Item 0's residual is check 3's
+> **store-id half** — the executable half was wired in #52, and that half is blocked
+> by design rather than pending (§S14).
 >
 > **The Overlay stopped being a scaffold on 2026-08-05, and this file was the last
 > to hear about it.** Five PRs (#40–#44) landed the SPSC ring, the mapping and
@@ -31,15 +33,36 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > 2026-08-04 handoff audit found and the reason a stale ledger makes the next
 > session over-scope.
 >
+> > **Then #46–#52 landed the same day and this file was last to hear again** — the
+> > watchdog thread and both runtime stops (#46), the C# struct mirror and a
+> > `.trx`-backed gate (#47), the occlusion-probe filter (#48), `FlGuardBuildId` and
+> > the handshake validator (#49), `ShmRingReader` (#50), the closed write-read
+> > integration test and CI's `-SkipIntegration` (#51), and check 3's call site
+> > (#52). Seven more PRs, no `CHANGELOG.md` entry for any of them and no line here.
+> > Corrected 2026-08-05; `ci.yml` now fails a pull request that touches `src/`
+> > without touching the changelog, because the prose asking people to remember is
+> > what had already been tried and had already failed once.
+>
 > **What that does and does not move.** It does *not* advance items 4, 6 or 7: the
 > Overlay records `qpc`, `frameIndex`, `presentFlags`, `syncInterval`, `api`,
 > `swapchainId` and `outputW/H`, and sets `measuredMask = FL_MEASURED_OUTPUT_RES`
 > with `rtFlags = FL_RT_NOT_MEASURED` on every record — i.e. it says in the data
 > that it has measured no upscaler, no frame generation and no ray tracing. What it
 > moves is the *prerequisite*: there is now a writer for those fields to be written
-> by. **There is still no reader** — `src/FrameLedger.Shared` holds a `.csproj` and
+> by. ~~**There is still no reader** — `src/FrameLedger.Shared` holds a `.csproj` and
 > no `.cs` files, and no managed code maps the shared memory — so the present hook's
-> output is observable only from inside `guard_test.cpp`.
+> output is observable only from inside `guard_test.cpp`.~~
+>
+> > **False since #47/#49/#50/#51, struck rather than deleted.** `ShmLayout.cs`
+> > mirrors all four structs against `fl-layout-dump`'s JSON, `ShmHandshakeValidator`
+> > is the refuse-to-attach comparison, `ShmRingReader` maps the section and drains
+> > it with gap and drop accounting, and `ShmDrainIntegrationTests` closes the whole
+> > write-read loop against `hook-harness` — real guard, real injection, real
+> > Overlay, real reader. **Two qualifications that matter for planning:** that test
+> > is `Category=Integration` and CI runs `-SkipIntegration` (§S19(b)), so the loop is
+> > proven on a dev box and not in the merge gate; and the reader has **no production
+> > caller**, so nothing drives it outside the suite. The item-4/6/7 status in the
+> > paragraph above is, by contrast, still accurate.
 >
 > Work that P1 owns on paper and that landed here: the ring writer, the present
 > hook and the fault policy. The unhook path is partial (`MH_DisableHook`, not the
@@ -68,11 +91,16 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > observe nothing. Launch-mode *injection* additionally needs §S1 and §S13(c),
 > which are open owner decisions whose deciding input (a title that loads a
 > presentation runtime lazily) this machine does not have. §S19 is re-measured
-> and deferred: the heuristic tier matches benign system DLLs, but has **not**
-> been shown to match inside any game's scan set, which is a correction to what
-> this line previously claimed.
+> and deferred: the heuristic tier matches benign system DLLs, but has ~~**not**
+> been shown to match inside any game's scan set~~ **now been shown to, by CI**
+> (#51): `SuspiciousUnsigned unknown System.Security.Cryptography.ProtectedData.dll`,
+> the guard refusing our own harness because §S16 puts the target's ancestors in the
+> scan set and a .NET test host is one. **A gate that cannot pass**, in launch mode.
+> The deferral stands — the fix is a `CryptCATAdmin*` PR doing network I/O inside
+> the hard gate, against NFR-10 — but the evidence changed, and the consequence is
+> live: the drain tests are skipped in CI until it is fixed.
 
-0. **The guard.** Module + driver enumeration, blocklist matching, fail-closed behaviour on every error path. **Moved from item 8**: items 1 and 6 below inject into real games, and CLAUDE.md rule 2 plus P1's own "it ships before the first real injection, not after" both forbid that ordering. **◐ Three of four pre-injection checks.** The guard is built (`FrameLedger.Injector`, native per §S13(a)), owns the chokepoint, and its fail-closed matrix is Catch2-driven. The injection primitive landed after it, in that order. Reached from managed code through one P/Invoke facade — never a second matcher (§S15). Evidence: `spike-notes.md` §1; §S7, §S8, §S16 closed.
+0. **The guard.** Module + driver enumeration, blocklist matching, fail-closed behaviour on every error path. **Moved from item 8**: items 1 and 6 below inject into real games, and CLAUDE.md rule 2 plus P1's own "it ships before the first real injection, not after" both forbid that ordering. **◐ Every documented check now has a call site; one half of one check does not.** `EvaluateImpl` runs checks 1, 2, 2b, 3 (executable half) and 4 — five, not four, because 2b (`services`) is the only tier ever measured firing on real anti-cheat and every count that says "four" omits it. The guard is built (`FrameLedger.Injector`, native per §S13(a)), owns the chokepoint, and its fail-closed matrix is Catch2-driven. The injection primitive landed after it, in that order. Reached from managed code through one P/Invoke facade — never a second matcher (§S15). Evidence: `spike-notes.md` §1; §S7, §S8, §S16 closed.
 
    > **This line said ✅ DONE, and it was wrong in a way worth recording.**
    > `19_SAFETY` specifies four pre-injection checks. **Check 4** (the static
@@ -82,9 +110,31 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
    > (per-title lists) is worse than §S14 recorded: its matchers have no call
    > site, so it is *unwired*, not merely unpopulated.
    >
-   > Check 4 is now implemented and runs inside the chokepoint. **Check 3 is
+   > Check 4 is now implemented and runs inside the chokepoint. ~~**Check 3 is
    > still unwired**, so this item stays ◐ until it is, and the status will not
-   > read ✅ again on the strength of "most of it works".
+   > read ✅ again on the strength of "most of it works".~~
+   >
+   > > **Superseded by #52, 2026-08-05.** `CheckBlockedExecutable` runs inside
+   > > `EvaluateImpl`, between the module scan and the pre-scan, with its own
+   > > `Sources::ImageFileName` seam and its own fail-closed matrix row. Both
+   > > directions are proven and the test asserts `kBlockedExecutable`
+   > > *specifically*, because "it refuses" is indistinguishable from the four
+   > > refusals the guard already makes. The sentence above is struck rather than
+   > > deleted: it is the third place that had to be corrected for one PR, and the
+   > > count is the point.
+   > >
+   > > **This item stays ◐, on a different and narrower reason.** Check 3's
+   > > **store-id half** has no call site and cannot be given one: nothing produces
+   > > a `store_id` — the platform metadata extractors are unbuilt, which is the
+   > > *same* gap item 3 shipped with — `FlGuardEvaluate` takes a pid and nothing
+   > > else *by design*, and "unknown refuses" applied to it would refuse every
+   > > title on every machine. **One unbuilt component sits under two open P0 items
+   > > and is budgeted in neither**; cost it once, against both.
+   > >
+   > > Whether item 0 may read ✅ with a documented sub-check permanently
+   > > uncallable is an owner decision, not a coding one. And unchanged either way:
+   > > `blockedExecutables` **ships empty**, so check 3 refuses nothing today. What
+   > > #52 changed is that populating it would now do something.
 1. **Vulkan layer passthrough.** Minimal implicit layer registered under `HKCU`, with the opt-in checks that keep it passthrough for non-enabled processes. **Moved from item 7**: a passthrough bug loads FrameLedger into every Vulkan process on the machine, which is the highest blast radius in the spike. **◐ Gates done, interception not started.** `enable_environment` measured against loader 1.4.357, blast radius verified, in-layer blocklist self-scan built and proven both directions. `vkQueuePresentKHR` is **not** hooked — that is P1, and §S2's in-layer supervision check lands with it.
 2. **Hook viability.** `hook-harness` (D3D11 + D3D12) + MinHook: dummy-device vtable probe, verify present indices at runtime, install/uninstall cleanly, measure per-present cost. Confirm `/MT` DLL loads into a real (offline, non-AC) game without incident. **✅ DONE.** Vtable indices proved by behaviour (§H4), unhook proved not to clobber a later hooker (§H7), per-present cost measured at 8.4 ns against a 1,000 ns budget — and **the `/MT` DLL is now loaded into a real title**: Lies of P, attach mode, guard passing, module verified present by re-enumeration, game still rendering afterwards (`spike-notes.md` §7).
 
@@ -184,7 +234,7 @@ WPF UI shell (`16_WPFUI_SYNTAX`), library, per-game hooking consent flow, Dashbo
 Static rules engine + `detection-rules.json` (engines, platforms, capabilities, **anticheat blocklist**) + validator + fixtures; store auto-import; capability-vs-measured UI separation; i18n en/vi/ja; Legal Gate; Velopack + updater (with the hooked-session deferral); bug bundle incl. overlay logs; tray + toasts; Settings; DB maintenance; accessibility pass.
 
 ## P5 — Ship (3–4 days)
-CI/CD with the native build; CodeQL (C# + C++); Dependabot; CHANGELOG; README with the P0 accuracy comparison; overhead + tier cross-validation measurements; release smoke on clean VMs; `v0.1.0-beta.1`.
+CI/CD with the native build; CodeQL (C# + C++); Dependabot; CHANGELOG; README with the P0 accuracy comparison — **which is not a percentage, and this line used to send its author looking for one**. The decision is recorded under item 3 and in `spike-notes.md` §8: the baseline can answer **none** of item 4's four runtime questions, so the defensible claim is *"the baseline cannot answer four of these five questions at all"*, not *"N% more accurate"*. Overhead + tier cross-validation measurements; release smoke on clean VMs; `v0.1.0-beta.1`.
 
 **Total ≈ 5.5–6.5 weeks full-time** — roughly 1.5–2 weeks more than the ETW design, which is the honest price of the accuracy.
 
