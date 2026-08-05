@@ -115,16 +115,23 @@ public sealed class ShmLayoutMirrorTests
     /// <remarks>
     /// <para>
     /// <c>fl-layout-dump</c> has always emitted a <c>size</c> per field and this test read only
-    /// <c>name</c> and <c>offset</c>. For most fields a wrong width shifts the NEXT offset and the
-    /// walk catches it — but not for the last field, and not for a <c>reserved</c> array whose
-    /// length is wrong in a way that keeps the struct the same size. Both are exactly where the
-    /// next layout change lands.
+    /// <c>name</c> and <c>offset</c>. Asserted as adjacency: every field must start where the
+    /// previous one ends, and the last must end at the managed struct size. That proves the native
+    /// struct has no implicit padding — a property the C++ side states in prose ("64 bytes exactly,
+    /// no implicit padding") and nothing checked — and it binds the native total to the managed one.
     /// </para>
     /// <para>
-    /// Asserted as adjacency rather than per-field reflection: every field must start where the
-    /// previous one ends, and the last must end at the struct size. That also proves there is no
-    /// implicit padding anywhere — a property the C++ side states in prose ("64 bytes exactly, no
-    /// implicit padding") and nothing checked.
+    /// <b>What it does NOT catch, established by canary rather than assumed.</b> An earlier version
+    /// of this comment claimed it caught "a <c>reserved</c> array whose length is wrong in a way
+    /// that keeps the struct the same size". It does not, on the managed side: shrinking
+    /// <c>FlWriterState.Reserved</c> from <c>[6]</c> to <c>[5]</c> left all 8 assertions green,
+    /// because this walk reads the NATIVE field list and <c>[StructLayout(Size = 64)]</c> pads the
+    /// managed struct back to 64 regardless. No offset moves and no reflection can see it.
+    /// </para>
+    /// <para>
+    /// It does catch a wrong width on the native side, which is where a layout edit is made:
+    /// reporting <c>measuredMask</c> as one byte instead of two fails at
+    /// "must end exactly where upscalerSharpness begins", with the native build green.
     /// </para>
     /// </remarks>
     // `struct`, matching AssertMirror — not `unmanaged`. Unsafe.SizeOf<T> does not need it, and

@@ -636,8 +636,25 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     // sqrt((outW*outH)/(renW*renH)) from exactly these fields. The bit is now
     // conditional on there being a value behind it, which is what every other
     // bit in this mask already means.
-    rec.measuredMask = (rec.outputW != 0 && rec.outputH != 0) ? FL_MEASURED_OUTPUT_RES : 0u;
-    rec.rtFlags = FL_RT_NOT_MEASURED;
+    //
+    // FL_MEASURED_PRESENT_ARGS is claimed here and not further up because it is
+    // the one thing a DXGI present hook always has: syncInterval and presentFlags
+    // are the call's own arguments. wglSwapBuffers and vkQueuePresentKHR have
+    // neither, which is why the bit exists at all rather than being assumed.
+    const uint16_t haveOutputRes = (rec.outputW != 0 && rec.outputH != 0) ? FL_MEASURED_OUTPUT_RES : 0u;
+    rec.measuredMask = static_cast<uint16_t>(haveOutputRes | FL_MEASURED_PRESENT_ARGS);
+
+    // rtFlags = 0 is now the honest value, not a claim. Layout v3 flipped the
+    // polarity: every bit means "we OBSERVED this", so zero says "no RT evidence
+    // seen" and FL_MEASURED_RT -- which this writer does not set -- is what says
+    // whether anyone looked. v2 needed an explicit FL_RT_NOT_MEASURED here
+    // because zero meant a measured absence; that bit is retired.
+    rec.rtFlags = 0u;
+
+    // Likewise upscaler/fgMode/colorSpace: FL_*_NOT_REPORTED is 0 in v3, so the
+    // value-initialisation above already says "nobody looked" instead of
+    // "we looked and there was none". Nothing to assign, which is the point --
+    // a writer that FORGETS is now honest by construction.
 
     g_writer.Publish(rec);
 }

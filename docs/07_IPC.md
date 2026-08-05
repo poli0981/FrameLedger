@@ -30,7 +30,7 @@ the Agent writes line 3 every second, and neither invalidates the other's line.
 ```cpp
 struct alignas(64) FlShmHandshake {  // exactly 64 B, no padding holes
     uint32_t layoutVersion;      // @0  must equal FL_SHM_LAYOUT_VERSION on both sides
-    uint32_t recordSize;         // @4  64; belt-and-braces against struct drift
+    uint32_t recordSize;         // @4  sizeof(FlFrameRecord); belt-and-braces against struct drift
     uint32_t capacity;           // @8  power of two
     uint32_t pid;                // @12
     char     buildId[32];        // @16 native DLL build id
@@ -44,7 +44,11 @@ struct alignas(64) FlWriterState {   // Overlay-written
     uint32_t apiMask;            // @12 which graphics APIs got hooked
     uint32_t faultCount;         // @16 hook faults so far (17_HOOK_ENGINE §Fault policy)
     uint32_t vramBudgetMb;       // @20 IDXGIAdapter3 Budget, refreshed at 1 Hz
-    uint32_t reserved[10];       // @24..63 must be zero; reserved for additive fields
+    uint32_t rtTier;             // @24 D3D12_RAYTRACING_TIER x10; 0 = NOT QUERIED
+    uint32_t hooksInstalledMask; // @28 FlHookFamily bits; monotonic, set-only
+    uint32_t rtStateObjectsCreated; // @32 session count, published at 1 Hz
+    uint32_t rasterPsoCreated;   // @36 session count, published at 1 Hz
+    uint32_t reserved[6];        // @40..63 must be zero; reserved for additive fields
 };
 
 struct alignas(64) FlControlBlock {  // Agent-written

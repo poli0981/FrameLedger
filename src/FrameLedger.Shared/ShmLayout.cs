@@ -34,7 +34,7 @@ public static class ShmLayout
     /// user to restart the game — the DLL lives inside a running process, so the two sides cannot be
     /// assumed to update in lockstep.
     /// </summary>
-    public const uint LayoutVersion = 2u;
+    public const uint LayoutVersion = 3u;
 
     public const uint HandshakeOffset = 0x00u;
     public const uint WriterOffset = 0x40u;
@@ -90,16 +90,37 @@ public enum FlApi : byte
     // No D3D9: those titles are almost entirely 32-bit and the Overlay is x64-only.
 }
 
+/// <summary>
+/// The technology actually executing. <b>Zero is "nobody said", not a fact</b> — layout v3's central
+/// rule. A record is value-initialised, so whatever 0 means is what a writer publishes when it forgets;
+/// until v3 that was <c>None</c>, a measured negative about a title nobody examined.
+/// </summary>
+/// <remarks>
+/// Three distinct states, and all three are needed: <see cref="NotReported"/> (no hook was live — N/A),
+/// <see cref="Unknown"/> (a hook ran and could not identify what it saw — also N/A, but it means our
+/// coverage is short rather than that the question did not apply), and <see cref="None"/> (a hook ran
+/// and there genuinely was no upscaler — the only one that may be aggregated as a negative).
+/// </remarks>
 public enum FlUpscaler : byte
 {
-    None = 0,
+    NotReported = 0,
     Dlss = 1,
-    DlssRr = 2,
+
+    /// <summary>
+    /// Retired in v3 and reserved rather than reused. Ray Reconstruction was a value here, which made
+    /// it mutually exclusive with DLSS super-resolution — but they run together, and RR is an
+    /// independent tri-state axis. It is now <see cref="FlFeatureFlags.RayReconstruction"/>.
+    /// </summary>
+    RetiredRayReconstruction = 2,
+
     Fsr2 = 3,
     Fsr3 = 4,
     Fsr4 = 5,
     XeSS = 6,
     Nis = 7,
+
+    /// <summary>A hook ran and there was no upscaler. Moved from 0 in v3.</summary>
+    None = 8,
 
     /// <summary>A hook ran and could not identify what it saw. Different from "not measured".</summary>
     Unknown = 0xFF,
@@ -107,15 +128,81 @@ public enum FlUpscaler : byte
 
 public enum FlFgMode : byte
 {
-    None = 0,
+    NotReported = 0,
     DlssG = 1,
     FsrFg = 2,
     XeFg = 3,
+
+    /// <summary>A hook ran and there was no frame generation. Moved from 0 in v3.</summary>
+    None = 4,
 
     /// <summary>A hook ran and could not identify what it saw. Different from "not measured".</summary>
     Unknown = 0xFF,
 
     // No AFMF: driver-side frame generation happens after present and is invisible to an in-process hook.
+}
+
+/// <summary>
+/// <see cref="FlFrameRecord.ColorSpace"/>. Was <c>hdr</c>, a bool — which had no third state.
+/// </summary>
+/// <remarks>
+/// The only producer is a hook on <c>IDXGISwapChain3::SetColorSpace1</c>, and an SDR title never calls
+/// it. So the writer initialises this to <see cref="Sdr"/> at swapchain identification rather than
+/// leaving it at 0: DXGI documents G22/Rec.709 as the default for a swapchain nobody has called
+/// SetColorSpace1 on, which makes SDR a measured default and not an affirmative negative. Without that,
+/// HDR's definite "No" would be unreachable.
+/// </remarks>
+public enum FlColorSpace : byte
+{
+    NotReported = 0,
+    Sdr = 1,
+    Hdr10 = 2,
+    ScRgb = 3,
+}
+
+/// <summary>
+/// Bits in <see cref="FlFrameRecord.FeatureFlags"/> — per-frame boolean facts, each paired with an
+/// OBSERVED companion four bits up.
+/// </summary>
+/// <remarks>
+/// Self-describing on purpose. Per-frame bytes are persisted as their own blobs, so a byte whose "did
+/// we look" lived in a different series could not express "not measured" after persistence without a
+/// join. It also stops a specific over-claim: Ray Reconstruction is produced only by NGX/Streamline
+/// while <see cref="FlMeasured.Upscaler"/> also covers FFX, XeSS and NIS, so a writer with FFX hooks
+/// and no NGX hooks knows nothing about RR and must not publish "RR = No".
+/// </remarks>
+[Flags]
+public enum FlFeatureFlags : byte
+{
+    None = 0,
+    RayReconstruction = 1 << 0,
+    ReflexEnabled = 1 << 1,
+
+    RayReconstructionObserved = 1 << 4,
+    ReflexObserved = 1 << 5,
+}
+
+/// <summary>Which hook families a writer installed. Bits in <see cref="FlWriterState.HooksInstalledMask"/>.</summary>
+/// <remarks>
+/// Monotonic — bits are only ever set. Ray tracing's definite "No" requires the AS-build hook to have
+/// been <i>installed</i>, not merely for RT to have been "measured": a writer with only the DispatchRays
+/// hook sees nothing on an inline-RayQuery title, which is exactly the case AS-build exists to catch.
+/// </remarks>
+[Flags]
+public enum FlHookFamily : uint
+{
+    None = 0,
+    Present = 1u << 0,
+    UpscalerIdentity = 1u << 1,
+    UpscalerParams = 1u << 2,
+    FgEvaluations = 1u << 3,
+    RtDispatch = 1u << 4,
+    RtAsBuild = 1u << 5,
+    RtPso = 1u << 6,
+    Pso = 1u << 7,
+    ColorSpace = 1u << 8,
+    Reflex = 1u << 9,
+    Vram = 1u << 10,
 }
 
 /// <summary>Bits in <see cref="FlFrameRecord.RtFlags"/>.</summary>
@@ -125,16 +212,20 @@ public enum FlRtFlags : byte
     None = 0,
 
     /// <summary>Catches inline RayQuery, which DispatchRays alone misses.</summary>
-    AsBuild = 1 << 0,
-    DispatchRays = 1 << 1,
-    PsoAlive = 1 << 2,
+    AsBuildObserved = 1 << 0,
+    DispatchObserved = 1 << 1,
 
     /// <summary>
-    /// "We did not look." When this is set the other three carry no information and the Agent must map
-    /// the frame to N/A, never to No — zero would otherwise be a MEASURED negative, and a present-only
-    /// writer with no RT hooks would assert "this title does not ray-trace" ~118 times a second.
+    /// Renamed from <c>PsoAlive</c> in v3, because that claimed a present-tense fact the hook set
+    /// cannot retract: creation is observed at <c>CreateStateObject</c>, destruction is COM Release,
+    /// which is not in the hook inventory and must not be added. The bit latches on, so it says
+    /// "created ever" and nothing about what is alive now.
     /// </summary>
-    NotMeasured = 1 << 3,
+    PsoCreatedEver = 1 << 2,
+
+    // v3 flipped the polarity: every bit means "we OBSERVED this", so 0 says "no RT evidence seen" and
+    // FlMeasured.Rt is what says whether anyone looked. The old opt-in NotMeasured bit is retired —
+    // with the flip it would be a second statement of what the mask already says.
 }
 
 /// <summary>
@@ -143,10 +234,14 @@ public enum FlRtFlags : byte
 /// not installed the corresponding hook is not entitled to make them.
 /// </summary>
 [Flags]
-public enum FlMeasured : byte
+public enum FlMeasured : ushort
 {
     None = 0,
+
+    /// <summary>Upscaler IDENTITY only — the parameters are <see cref="UpscalerParams"/>.</summary>
     Upscaler = 1 << 0,
+
+    /// <summary>FG IDENTITY only — the per-present counts are <see cref="FgCounts"/>.</summary>
     Fg = 1 << 1,
     Rt = 1 << 2,
     Pso = 1 << 3,
@@ -156,6 +251,35 @@ public enum FlMeasured : byte
     /// <summary>From the swapchain description, not a feature hook.</summary>
     OutputRes = 1 << 6,
     Hdr = 1 << 7,
+
+    /// <summary>
+    /// <c>upscalerQuality</c> + <c>upscalerSharpness</c> + <c>renderW/H</c>. Split from
+    /// <see cref="Upscaler"/> in v3: a Streamline-shimmed title exposes the NGX parameter accessors as
+    /// exports and yields all four, while an NGX-direct title exports only the parameter-object
+    /// factories — so a writer hooking CreateFeature knows <i>which</i> upscaler ran and nothing about
+    /// quality, sharpness or render size. One bit for both published quality 0 ("DLSS Performance") as
+    /// a measurement.
+    /// </summary>
+    UpscalerParams = 1 << 8,
+
+    /// <summary>
+    /// <c>syncInterval</c> + <c>presentFlags</c>. Two of the four planned present writers have no such
+    /// arguments — <c>wglSwapBuffers</c> and <c>vkQueuePresentKHR</c> take neither — and would have
+    /// published "vsync off, no flags" as measurement. <c>syncInterval</c> is the worse of the two:
+    /// 0 is a real DXGI value, so no in-band sentinel exists and only a mask bit can carry it.
+    /// </summary>
+    PresentArgs = 1 << 9,
+
+    /// <summary>
+    /// <c>fgEvaluations</c>, split from <see cref="Fg"/> in v3. Identity and per-present counts are two
+    /// hook rows. With this clear the Agent must treat <c>F_app</c> as a data gap — never as equal to
+    /// <c>F_disp</c>, which would be <c>fg_factor 1.0</c> reached by a writer that counted nothing.
+    /// </summary>
+    FgCounts = 1 << 10,
+
+    // Bits 11-15 reserved. Writers leave them zero; readers IGNORE them rather than validating them as
+    // zero. That does NOT make a future field bump-free — recordSize and layoutVersion are compared
+    // first, so an old reader refuses a new writer outright.
 }
 
 /// <summary>Region 1 — write-once by the Overlay at init, except <see cref="AdapterLuid"/>.</summary>
@@ -219,8 +343,30 @@ public unsafe struct FlWriterState
     /// </summary>
     public uint VramBudgetMb;
 
+    /// <summary>
+    /// Device ray-tracing tier ×10 (<c>D3D12_RAYTRACING_TIER_1_0</c> → 10); <b>0 = not queried</b>.
+    /// Without it, 03_METRICS' definite RT "No" — "RT-capable device present, no AS builds and no
+    /// dispatches for the whole session" — has no producer, so RT could reach Yes or N/A and never No.
+    /// </summary>
+    public uint RtTier;
+
+    /// <summary><see cref="FlHookFamily"/> bits. Monotonic: set, never cleared.</summary>
+    public uint HooksInstalledMask;
+
+    /// <summary>03_METRICS' <c>rt_pso_count</c>, a session figure.</summary>
+    public uint RtStateObjectsCreated;
+
+    /// <summary>The raster denominator <c>pt_confidence</c> wanted.</summary>
+    public uint RasterPsoCreated;
+
     /// <summary>Must be zero; room for additive fields.</summary>
-    public fixed uint Reserved[10];
+    public fixed uint Reserved[6];
+
+    // WHY THE COUNTERS ARE PUBLISHED AT 1 Hz AND NOT ACCUMULATED HERE PER FRAME: this struct is
+    // region 2, which the Overlay writes on the present path, and the regions are separate cache lines
+    // precisely so a cross-process write does not bounce that line. The hook keeps process-local
+    // counters and the watchdog publishes them. NO CONSISTENCY GUARANTEE between these and any given
+    // record — a rule needing them to agree with one frame cannot be stated per frame.
 
     // There is deliberately NO droppedRecords here. The writer has no reader index and cannot know
     // whether the slot it overwrites was ever consumed; the Agent computes drops from its own read index.
@@ -277,7 +423,9 @@ public struct FlFrameRecord
 
     public byte FgMode;
     public byte RtFlags;
-    public byte Hdr;
+
+    /// <summary><see cref="FlColorSpace"/>. Was <c>Hdr</c>, a bool with no third state.</summary>
+    public byte ColorSpace;
 
     /// <summary>
     /// Sum of W×H×D this frame — a VOLUME, not a call count, and 32-bit for a reason: one 3840×2160
@@ -290,16 +438,38 @@ public struct FlFrameRecord
 
     public byte MaxTraceRecursionDepth;
 
-    /// <summary><see cref="FlMeasured"/> — which fields this frame actually measured.</summary>
-    public byte MeasuredMask;
+    /// <summary><see cref="FlFeatureFlags"/> — per-frame facts with their own OBSERVED bits.</summary>
+    public byte FeatureFlags;
 
-    public ulong VramUsedBytes;
+    /// <summary><see cref="FlMeasured"/> — which fields this frame actually measured. 16-bit since v3.</summary>
+    public ushort MeasuredMask;
+
+    /// <summary>
+    /// Percent, 0-100. <c>0xFF</c> means a hook ran and this upscaler's API reports no sharpness —
+    /// DLSS 3.x removed the parameter and XeSS exposes none — which is NOT the same as no hook running
+    /// (<see cref="FlMeasured.UpscalerParams"/> clear).
+    /// </summary>
+    public byte UpscalerSharpness;
+
+    /// <summary>
+    /// FG feature evaluations this frame. <c>F_app = presents − Σ fgEvaluations</c>. A byte: DLSS-G is
+    /// 1 and multi-frame generation is 3 at ×4, so saturating at 255 would mean 256× frame generation.
+    /// </summary>
+    public byte FgEvaluations;
+
+    /// <summary>
+    /// Per-process VRAM in MiB. Narrowed from <c>ulong</c> bytes in v3 — 03_METRICS exports
+    /// <c>vram_mb</c>, 06_DATA_MODEL stores MiB, the value is a 1 Hz held sample, and
+    /// <c>budget_exceeded_pct</c> compares it against <see cref="FlWriterState.VramBudgetMb"/>, which
+    /// was already MiB. Must use the same truncating divisor, or that comparison gains a bias.
+    /// </summary>
+    public uint VramUsedMb;
 
     /// <summary>0 = unavailable.</summary>
     public uint ReflexLatencyUs;
 
-    /// <summary>FG feature evaluations this frame. <c>F_app = presents − Σ fgEvaluations</c>.</summary>
-    public uint FgEvaluations;
+    /// <summary>Must be zero. Slack, so the next addition does not start from none.</summary>
+    public uint Reserved;
 
     /// <summary>
     /// Seqlock counter. Monotonic per slot and NEVER reset, so a full lap of the ring always changes it —

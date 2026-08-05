@@ -91,7 +91,8 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 >
 > Stated here because the distinction is invisible from the table and it is what the
 > record honestly reports: a present-only writer sets `measuredMask =
-> FL_MEASURED_OUTPUT_RES` and `rtFlags = FL_RT_NOT_MEASURED`, so the fields those
+> FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` and `rtFlags = 0`
+> (v3: the bits are *observed*, so zero is honest), so the fields those
 > unwritten rows would fill are marked *not measured* rather than defaulted to "none"
 > (`fl_shm.h` §FlMeasured, CLAUDE.md rules 6 and 7).
 >
@@ -103,7 +104,7 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 | ✅ `IDXGISwapChain::Present`, `Present1` | Frame boundary, QPC, sync interval, present flags. **`DXGI_PRESENT_TEST` calls are dropped without a record** — the occlusion probe submits nothing, and a minimised game emits a stream of them (`07_IPC` §Protocol rules) |
 | ✅ `IDXGISwapChain::ResizeBuffers` · ⏳ `ResizeTarget` | Output resolution changes mid-session. `ResizeBuffers` re-reads the swapchain description *after* the original returns; `ResizeTarget` is not hooked |
 | ⏳ `IDXGISwapChain::SetFullscreenState` | Fullscreen ↔ borderless transitions |
-| ⏳ `IDXGISwapChain3::SetColorSpace1` | HDR output detection. **`IDXGISwapChain3`, not 4** — 4 adds only `SetHDRMetaData` (`20_OPEN_QUESTIONS` §H9). Unbuilt, which is why `hdr` is reported via `FL_MEASURED_HDR` as *not measured* rather than as `0` |
+| ⏳ `IDXGISwapChain3::SetColorSpace1` | HDR output detection. **`IDXGISwapChain3`, not 4** — 4 adds only `SetHDRMetaData` (`20_OPEN_QUESTIONS` §H9). Unbuilt, which is why `colorSpace` reads `NOT_REPORTED` and `FL_MEASURED_HDR` stays clear. **When it is built, the writer must initialise `colorSpace = FL_COLOR_SPACE_SDR` at swapchain identification** — an SDR title never calls `SetColorSpace1`, so "hook live, no call" would otherwise sit at `NOT_REPORTED` forever and HDR's definite `No` would be unreachable. DXGI documents G22/Rec.709 as the default, which makes SDR a *measured* default rather than an affirmative negative |
 | ⏳ `IDXGIFactory::CreateSwapChain*` | Capture swapchain desc (format, buffer count, swap effect, flags) at creation. Unbuilt — the swapchain description is currently read on demand in the present hook via `GetDesc` |
 | ⏳ `wglSwapBuffers` | OpenGL titles. Unbuilt, and deliberately not attempted before `hook-harness` has an OpenGL mode: the hook is small (a flat export, no vtable) but shipping an unexercised hook into a game process is not something this project does. Measured 2026-08-05: `opengl32!wglSwapBuffers` is a `jmp` thunk (`E9 <rel32>`) into the vendor ICD, which is already mapped before the first call |
 | ⏳ Vulkan `vkQueuePresentKHR` | via layer, not hook (below). Unbuilt — P1, and §S2's in-layer supervision check lands with it. The layer today loads, gates and self-scans, and intercepts nothing |
@@ -275,23 +276,47 @@ struct alignas(64) FlFrameRecord {   // 64 bytes exactly, static_assert'd
     uint16_t renderW, renderH;       // @18 0 = unknown
     uint16_t outputW, outputH;       // @22
     uint8_t  api;                    // @26 d3d11|d3d12|vulkan|opengl
-    uint8_t  upscaler;               // @27 none|dlss|dlss_rr|fsr2|fsr3|fsr4|xess|nis|unknown
-    uint8_t  upscalerQuality;        // @28 vendor enum, 0xFF unknown
-    uint8_t  fgMode;                 // @29 none|dlss_g|fsr_fg|xefg|unknown
-    uint8_t  rtFlags;                // @30 bit0 asBuild, bit1 dispatchRays, bit2 rtPsoAlive
-    uint8_t  hdr;                    // @31
+    uint8_t  upscaler;               // @27 0 = NOT_REPORTED; dlss|fsr2..4|xess|nis|none(8)|unknown(0xFF)
+    uint8_t  upscalerQuality;        // @28 vendor enum; 0xFF = a hook ran and could not tell
+    uint8_t  fgMode;                 // @29 0 = NOT_REPORTED; dlss_g|fsr_fg|xefg|none(4)|unknown(0xFF)
+    uint8_t  rtFlags;                // @30 bit0 asBuildOBSERVED, bit1 dispatchOBSERVED, bit2 psoCreatedEver
+    uint8_t  colorSpace;             // @31 0 = NOT_REPORTED, 1 SDR, 2 HDR10, 3 scRGB
     uint32_t dispatchRaysVolume;     // @32 Σ (W×H×D) over DispatchRays calls this frame
     uint16_t psoCreatedThisFrame;    // @36
     uint8_t  maxTraceRecursionDepth; // @38 from the live RT PSO config, 0 = none
-    uint8_t  measuredMask;           // @39 FlMeasured: which fields this frame MEASURED
-    uint64_t vramUsedBytes;          // @40
+    uint8_t  featureFlags;           // @39 FlFeatureFlags: facts + their OBSERVED companions
+    uint16_t measuredMask;           // @40 FlMeasured, 16-bit since v3
+    uint8_t  upscalerSharpness;      // @42 percent; 0xFF = the API reports none
+    uint8_t  fgEvaluations;          // @43 FG feature evaluations observed this frame
+    uint32_t vramUsedMb;             // @44 MiB, matching vramBudgetMb
     uint32_t reflexLatencyUs;        // @48 0 = unavailable
-    uint32_t fgEvaluations;          // @52 FG feature evaluations observed this frame
+    uint32_t reserved;               // @52 must be zero
     uint32_t seq;                    // @56 seqlock counter (see 07_IPC §Protocol rules)
     uint32_t swapchainId;            // @60 which swapchain this present came through; 0 = unidentified
 };
 static_assert(sizeof(FlFrameRecord) == 64);
 ```
+
+> **Layout version 3, 2026-08-05 — and the reason for the whole revision is the
+> zero value.** `FlFrameRecord rec{}` zero-initialises, so whatever 0 means is
+> what a writer publishes when it FORGETS. In v2, 0 meant `FL_UPSCALER_NONE`,
+> `FL_FG_NONE` and an `rtFlags` with no evidence bits — three measured negatives
+> about a title nobody had examined. `measuredMask` made that safe by CONVENTION;
+> v3 makes it safe by CONSTRUCTION. Every enum's 0 is now `NOT_REPORTED`, and
+> `rtFlags`' polarity is flipped so its bits mean *observed*.
+>
+> Four answers items 4/6/7 owe had no home and now do: DLSS-SR **and** Ray
+> Reconstruction concurrently (`featureFlags`, since RR was a mutually exclusive
+> `upscaler` value), `upscalerSharpness`, and — in `FlWriterState`, because they
+> are session facts and not per-frame — the device **RT tier** without which
+> `03_METRICS`' definite RT `No` had no producer at all, plus `rtStateObjectsCreated`
+> and `rasterPsoCreated`.
+>
+> Paid for by narrowing `vramUsedBytes` (u64 bytes → u32 MiB, matching the
+> `vramBudgetMb` it is compared against and the `vram_mb` every consumer exports)
+> and `fgEvaluations` (u32 → u8; ×4 multi-frame generation is 3). `seq` @56 and
+> `swapchainId` @60 did not move, so `fl_ring.h`'s two pins and the seqlock's
+> payload spans are untouched.
 
 Field notes — each of these was a defect in an earlier revision:
 

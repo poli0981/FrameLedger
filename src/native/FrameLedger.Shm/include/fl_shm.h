@@ -51,7 +51,7 @@
 // Bump whenever ANY struct below changes. The Agent refuses to attach on
 // mismatch and tells the user to restart the game — the DLL lives inside a
 // running process, so the two sides cannot be assumed to update in lockstep.
-#define FL_SHM_LAYOUT_VERSION 2u
+#define FL_SHM_LAYOUT_VERSION 3u
 
 #define FL_SHM_HANDSHAKE_OFFSET 0x00u
 #define FL_SHM_WRITER_OFFSET 0x40u
@@ -102,46 +102,172 @@ enum FlApi : uint8_t {
     // x64-only, so they are Tier 2 in v1 (docs/20_OPEN_QUESTIONS.md §Scope).
 };
 
+// THE ZERO VALUE OF EVERY ENUM IN THE RECORD IS "NOBODY SAID", NOT A FACT.
+//
+// This is the layout-version-3 rule and it is the one idea the whole revision is
+// built on. `FlFrameRecord rec{}` zero-initialises, so whatever 0 means is what a
+// writer publishes when it FORGETS. Until v3, 0 meant FL_UPSCALER_NONE and
+// FL_FG_NONE -- "we looked and there was none" -- so a forgetful writer asserted
+// a measured negative about a title nobody had examined, and 03_METRICS turns a
+// session of that into `upscaler none` and `fg_factor 1.0`, the single inflated
+// number CLAUDE.md rule 6 exists to forbid.
+//
+// measuredMask made that safe by CONVENTION: the value was only to be read when
+// its bit was set. Convention is what this project keeps finding broken. v3 makes
+// it safe by CONSTRUCTION -- a writer that forgets everything publishes a record
+// that decodes to "nothing was measured", and the mask becomes corroboration
+// rather than the sole defence.
+//
+// FL_API_UNKNOWN = 0 was already this shape and is the worked example.
+//
+// THE THREE STATES ARE DISTINCT AND ALL THREE ARE NEEDED:
+//   NOT_REPORTED (0) -- no hook capable of answering was live. Agent: N/A.
+//   UNKNOWN (0xFF)   -- a hook ran and could not identify what it saw. Agent: N/A,
+//                       but it is a DIFFERENT N/A: it means our coverage is short,
+//                       not that the question did not apply.
+//   NONE             -- a hook ran and there was genuinely no upscaler. A real
+//                       measurement, and the only one of the three that may be
+//                       aggregated as a negative.
 enum FlUpscaler : uint8_t {
-    FL_UPSCALER_NONE = 0,
+    FL_UPSCALER_NOT_REPORTED = 0,
+
     FL_UPSCALER_DLSS = 1,
-    FL_UPSCALER_DLSS_RR = 2,
+
+    // RETIRED, and the slot is reserved rather than reused. DLSS Ray
+    // Reconstruction was a value here, which made it MUTUALLY EXCLUSIVE with
+    // DLSS super-resolution -- but they run together, and 03_METRICS §RT/PT/RR
+    // makes RR an independent tri-state axis ("Yes / No if DLSS is active
+    // without it"), which is also CLAUDE.md rule 7's trio. The record was the
+    // only place the two were conflated; 06_DATA_MODEL already stored them
+    // apart. RR is now FL_FEAT_RAY_RECONSTRUCTION in featureFlags.
+    //
+    // Reserved, not reused: a stale writer emitting 2 must not silently read as
+    // FSR2. The layout-version bump already refuses such a writer, so this is
+    // belt-and-braces -- and it costs one line.
+    FL_UPSCALER_RETIRED_RAY_RECONSTRUCTION = 2,
+
     FL_UPSCALER_FSR2 = 3,
     FL_UPSCALER_FSR3 = 4,
     FL_UPSCALER_FSR4 = 5,
     FL_UPSCALER_XESS = 6,
     FL_UPSCALER_NIS = 7,
+
+    // Moved from 0. The values above keep their v2 numbers deliberately: the
+    // widening is already a layout change, and renumbering seven live values
+    // across two languages is transcription risk for a cosmetic gain.
+    FL_UPSCALER_NONE = 8,
+
     FL_UPSCALER_UNKNOWN = 0xFF,
 };
 
 enum FlFgMode : uint8_t {
-    FL_FG_NONE = 0,
+    FL_FG_NOT_REPORTED = 0,
     FL_FG_DLSS_G = 1,
     FL_FG_FSR_FG = 2,
     FL_FG_XEFG = 3,
+    FL_FG_NONE = 4,    // moved from 0, same reason as FL_UPSCALER_NONE
     FL_FG_UNKNOWN = 0xFF,
     // No AFMF: driver-side frame generation happens after present and is
     // invisible to an in-process hook (docs/03_METRICS.md §Frame Generation).
 };
 
-// bits in FlFrameRecord::rtFlags
-enum FlRtFlags : uint8_t {
-    FL_RT_AS_BUILD = 1u << 0,    // catches inline RayQuery, which DispatchRays misses
-    FL_RT_DISPATCH_RAYS = 1u << 1,
-    FL_RT_PSO_ALIVE = 1u << 2,
+// FlFrameRecord::colorSpace @31. WAS `hdr`, a bool.
+//
+// Same byte, and the change is not decoration: 03_METRICS and 06_DATA_MODEL want
+// a tri-state, and a bool has no third state.
+//
+// THE DEFAULT IS THE SUBTLE PART. The only producer is a hook on
+// IDXGISwapChain3::SetColorSpace1, and an SDR title NEVER CALLS IT -- so
+// "hook live, no call observed" would sit at 0 forever and HDR's definite `No`
+// would be unreachable, which is the same defect as the missing RT tier being
+// fixed in the same revision. It is avoided by initialising the field to SDR at
+// swapchain identification rather than leaving it at 0: DXGI documents
+// DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709 as the default for a swapchain nobody
+// has called SetColorSpace1 on, so SDR is a MEASURED default and not an
+// affirmative negative. The writer must do that, and say why where it does it.
+enum FlColorSpace : uint8_t {
+    FL_COLOR_SPACE_NOT_REPORTED = 0,    // no SetColorSpace1 hook was live
+    FL_COLOR_SPACE_SDR = 1,             // G22 / Rec.709 -- DXGI's documented default
+    FL_COLOR_SPACE_HDR10 = 2,           // ST.2084 / Rec.2020
+    FL_COLOR_SPACE_SCRGB = 3,           // linear FP16
+};
 
-    // "We did not look", which rtFlags = 0 could not previously express.
-    //
-    // Zero means "no RT activity this frame" — a MEASURED negative — and
-    // 03_METRICS turns a whole session of that into a definite `No`. A present
-    // hook with no RT hooks installed writes zero every frame, so the first
-    // Overlay would have asserted "this title does not ray-trace" 118 times a
-    // second, about a title nobody asked. CLAUDE.md rule 7 forbids exactly that
-    // fabrication in the other direction and the same reasoning applies here.
-    //
-    // When this bit is set the other three carry no information and the Agent
-    // must map the frame to N/A, never to No.
-    FL_RT_NOT_MEASURED = 1u << 3,
+// bits in FlFrameRecord::featureFlags @39 — per-frame boolean facts.
+//
+// SELF-DESCRIBING, low nibble facts and high nibble their OBSERVED companions.
+// That costs four bits that were going to be reserved anyway and buys the
+// property rtFlags is being flipped for: 06_DATA_MODEL persists per-frame bytes
+// as their own blobs, so a byte whose "did we look" lives in a DIFFERENT series
+// cannot express "not measured" after persistence without a join.
+//
+// It also answers a specific over-claim. Ray Reconstruction is produced only by
+// NGX/Streamline, while FL_MEASURED_UPSCALER also covers FFX, XeSS and NIS -- so
+// a writer with FFX hooks and no NGX hooks has "upscaler measured" and knows
+// nothing whatever about RR. Sharing the mask bit would publish RR = No. The
+// design panel asked for a separate mask bit; an in-band OBSERVED bit is the
+// same guarantee, cheaper, and survives the blob.
+enum FlFeatureFlags : uint8_t {
+    FL_FEAT_RAY_RECONSTRUCTION = 1u << 0,
+    FL_FEAT_REFLEX_ENABLED = 1u << 1,
+    // bits 2-3 free for facts
+
+    FL_FEAT_RAY_RECONSTRUCTION_OBSERVED = 1u << 4,
+    FL_FEAT_REFLEX_OBSERVED = 1u << 5,
+    // bits 6-7 free, and must pair with the fact bit four places below
+};
+
+// bits in FlFrameRecord::rtFlags — POLARITY FLIPPED IN v3.
+//
+// Every bit now means "we OBSERVED this", so rtFlags == 0 says "no RT evidence
+// was seen" and says nothing about whether anyone looked. Whether anyone looked
+// is FL_MEASURED_RT in the mask, and WHICH RT hooks were live is
+// FlWriterState::hooksInstalledMask. v2 had it the other way round -- three
+// evidence bits plus an opt-in FL_RT_NOT_MEASURED -- which made a forgetful
+// writer publish a measured absence.
+enum FlRtFlags : uint8_t {
+    FL_RT_AS_BUILD_OBSERVED = 1u << 0,    // catches inline RayQuery, which DispatchRays misses
+    FL_RT_DISPATCH_OBSERVED = 1u << 1,
+
+    // RENAMED from FL_RT_PSO_ALIVE, because that claimed a present-tense fact
+    // the hook set cannot retract. Creation is observed at
+    // ID3D12Device5::CreateStateObject; destruction is COM Release, which is NOT
+    // in the hook inventory and must not be added (CLAUDE.md rule 4, and the hot
+    // path). So the bit latches on and would have asserted "an RT state object
+    // is currently alive" for the rest of a session after the game released the
+    // last one. The name now says the thing that is actually observable.
+    FL_RT_PSO_CREATED_EVER = 1u << 2,
+
+    // bits 3-7 free. FL_RT_NOT_MEASURED is RETIRED: with the polarity flipped it
+    // would be a second, redundant statement of what FL_MEASURED_RT already says,
+    // and two statements of one fact is what this file exists to complain about.
+};
+
+// bits in FlWriterState::hooksInstalledMask — which hook FAMILIES are live.
+//
+// Writer-level, not per-frame, and it exists because "we looked and saw nothing"
+// is not one question but several. 03_METRICS defines ray tracing's definite `No`
+// as "RT-capable device present, no AS builds and no dispatches for the WHOLE
+// session" -- and a writer that installed only the DispatchRays hook sees no
+// evidence on an inline-RayQuery title, which is precisely the case
+// BuildRaytracingAccelerationStructure exists to catch. Without knowing which
+// hooks were live, that writer's silence is indistinguishable from a real
+// negative and the Agent would publish `No` about a title that ray-traces every
+// frame.
+//
+// So `No` requires AS-build to have been INSTALLED, not merely RT to have been
+// "measured". docs/03_METRICS.md §RT/PT/RR states the conjuncts.
+enum FlHookFamily : uint32_t {
+    FL_HOOK_PRESENT = 1u << 0,
+    FL_HOOK_UPSCALER_IDENTITY = 1u << 1,    // NGX/SL/FFX/XeSS CreateFeature-class
+    FL_HOOK_UPSCALER_PARAMS = 1u << 2,      // the parameter accessors (Streamline-only today)
+    FL_HOOK_FG_EVALUATIONS = 1u << 3,
+    FL_HOOK_RT_DISPATCH = 1u << 4,
+    FL_HOOK_RT_AS_BUILD = 1u << 5,
+    FL_HOOK_RT_PSO = 1u << 6,
+    FL_HOOK_PSO = 1u << 7,
+    FL_HOOK_COLOR_SPACE = 1u << 8,
+    FL_HOOK_REFLEX = 1u << 9,
+    FL_HOOK_VRAM = 1u << 10,
 };
 
 // bits in FlFrameRecord::measuredMask — which fields were MEASURED this frame.
@@ -158,12 +284,12 @@ enum FlRtFlags : uint8_t {
 // stay as the in-band form for a hook that ran and could not identify what it
 // saw; this mask is for a hook that never ran at all. They are different states
 // and 03_METRICS treats them differently.
-enum FlMeasured : uint8_t {
-    FL_MEASURED_UPSCALER = 1u << 0,      // upscaler + upscalerQuality + renderW/H
-    FL_MEASURED_FG = 1u << 1,            // fgMode + fgEvaluations
+enum FlMeasured : uint16_t {
+    FL_MEASURED_UPSCALER = 1u << 0,      // upscaler IDENTITY only — see bit 8
+    FL_MEASURED_FG = 1u << 1,            // fgMode IDENTITY only — see bit 10
     FL_MEASURED_RT = 1u << 2,            // rtFlags + dispatchRaysVolume + maxTraceRecursionDepth
     FL_MEASURED_PSO = 1u << 3,           // psoCreatedThisFrame
-    FL_MEASURED_VRAM = 1u << 4,          // vramUsedBytes
+    FL_MEASURED_VRAM = 1u << 4,          // vramUsedMb
     FL_MEASURED_LATENCY = 1u << 5,       // reflexLatencyUs
     FL_MEASURED_OUTPUT_RES = 1u << 6,    // outputW/H — from the swapchain desc, not a feature hook
 
@@ -183,7 +309,58 @@ enum FlMeasured : uint8_t {
     // to attach and tells the user to restart the game -- and 11_UPDATER makes
     // FL_SHM_LAYOUT_VERSION a SemVer MAJOR. Same argument #36 made for the other
     // five decisions; this is the last field it left unclaimed.
-    FL_MEASURED_HDR = 1u << 7,    // hdr
+    FL_MEASURED_HDR = 1u << 7,    // colorSpace
+
+    // --- v3, and each of these three splits a bit that covered TWO HOOK CLASSES.
+    //
+    // The shape of the defect is the same every time: one bit governing values
+    // from producers that do not arrive together, so a writer with half the
+    // hooks publishes the other half's zero-default as measured fact.
+
+    // upscalerQuality + upscalerSharpness + renderW/H.
+    //
+    // 17_HOOK_ENGINE §The NGX parameter surface measured the split this corrects:
+    // a Streamline-shimmed title exposes the parameter accessors as ordinary
+    // exports on sl.common.dll and yields all four, while an NGX-DIRECT title
+    // exports only the parameter-object FACTORIES -- so a writer hooking
+    // CreateFeature/EvaluateFeature knows WHICH upscaler ran and nothing about
+    // quality, sharpness or render size. One bit for both published
+    // upscalerQuality = 0 -- NGX MaxPerf, "DLSS Performance" -- as a measurement.
+    FL_MEASURED_UPSCALER_PARAMS = 1u << 8,
+
+    // syncInterval + presentFlags.
+    //
+    // Two of the four planned present writers have no such arguments to report:
+    // wglSwapBuffers(HDC) takes neither (the interval is wglSwapIntervalEXT
+    // context state) and vkQueuePresentKHR takes neither (FIFO/MAILBOX/IMMEDIATE
+    // is a swapchain property). Both would have published "syncInterval 0,
+    // presentFlags 0" -- vsync off, no flags -- as measurement. syncInterval is
+    // the worse of the two: 0 is a REAL DXGI value, so there is no in-band
+    // sentinel available and only a mask bit can carry it.
+    FL_MEASURED_PRESENT_ARGS = 1u << 9,
+
+    // fgEvaluations, split from fgMode.
+    //
+    // 17_HOOK_ENGINE lists them as two inventory rows: CreateFeature-class tells
+    // you a FrameGeneration feature exists, and the per-present evaluation count
+    // is a different hook. A writer with identity and no counts would publish
+    // fgEvaluations = 0, and F_app = presents − Σ fgEvaluations then makes
+    // F_app == F_disp, i.e. fg_factor 1.0 -- CLAUDE.md rule 6's forbidden number,
+    // reached by a writer that never counted anything. With this bit clear the
+    // Agent must treat F_app as a data gap, never as equal to F_disp.
+    FL_MEASURED_FG_COUNTS = 1u << 10,
+
+    // bits 11-15 reserved. Writers leave them zero; readers must IGNORE them
+    // rather than validate them as zero.
+    //
+    // BE PRECISE ABOUT WHAT THAT BUYS, because the tempting claim is false: it
+    // does NOT mean a future field can be added without a layout bump. Any new
+    // field also needs a byte, and every byte of this record is allocated except
+    // `reserved` @52 -- and FlShmHandshake::recordSize plus the layout version are
+    // compared before a reader looks at anything, so an old reader refuses a new
+    // writer outright and never gets as far as an unknown bit. What the reserve
+    // actually buys is that existing offsets do not move, which keeps the diff,
+    // the fl-layout-dump edit and the C# mirror edit small and reviewable.
 };
 
 // ---------------------------------------------------------------------------
@@ -237,7 +414,44 @@ struct alignas(64) FlWriterState {
     uint32_t apiMask;         // @12  which graphics APIs got hooked
     uint32_t faultCount;      // @16  17_HOOK_ENGINE §Fault policy
     uint32_t vramBudgetMb;    // @20  IDXGIAdapter3 Budget, refreshed at 1 Hz
-    uint32_t reserved[10];    // @24..63  must be zero; room for additive fields
+
+    // --- v3. Four SESSION facts, deliberately here and not in the record.
+    //
+    // Paying 64 bytes a frame at 500 fps to restate a constant is the wrong
+    // trade, and 03_METRICS already treats two of these as session-scoped:
+    // rt_pso_count is listed under "Derived extras", not per frame.
+    //
+    // NO CONSISTENCY GUARANTEE BETWEEN THESE AND ANY RECORD. They are read by the
+    // Agent at drain time, not sampled with a frame. A rule that needs them to
+    // agree with a particular record cannot be stated per frame; state it over
+    // the session (see hooksInstalledMask).
+
+    // Device ray-tracing tier x10 (D3D12_RAYTRACING_TIER_1_0 -> 10), 0 = NOT
+    // QUERIED. Without this, 03_METRICS' definite RT `No` -- "RT-capable device
+    // present, no AS builds and no dispatches for the whole session" -- has no
+    // producer at all, so item 6 could reach Yes or N/A and never No. Queried
+    // once, at device identification.
+    uint32_t rtTier;    // @24
+
+    // FlHookFamily bits. Which hook families this writer actually installed.
+    // MONOTONIC: bits are only ever set, never cleared, because hooks install
+    // lazily as vendor modules appear and a bit that could clear would make a
+    // session-level check race the frame it read.
+    uint32_t hooksInstalledMask;    // @28
+
+    // Session counts, and the reason they live here rather than being derived
+    // from a per-frame field is a CACHE-LINE argument, not a space one.
+    //
+    // This struct is region 2, which the Overlay writes on the present path;
+    // fl_shm.h's own header explains that the regions are separate cache lines so
+    // a cross-process write does not bounce that line. Accumulating from the hook
+    // would put a bursty read-modify-write on it every frame. So the hook keeps
+    // process-local counters and the 1 Hz watchdog publishes them here -- the
+    // Agent drains at 10 Hz and these are session facts, so 1 Hz is ample.
+    uint32_t rtStateObjectsCreated;    // @32  03_METRICS' rt_pso_count
+    uint32_t rasterPsoCreated;         // @36  the denominator pt_confidence wanted
+
+    uint32_t reserved[6];    // @40..63  must be zero; room for additive fields
 
     // NOTE: there is deliberately no droppedRecords here. The writer has no
     // reader index and cannot know whether the slot it overwrites was ever
@@ -285,11 +499,11 @@ struct alignas(64) FlFrameRecord {
     uint16_t outputW;            // @22
     uint16_t outputH;            // @24
     uint8_t  api;                // @26  FlApi
-    uint8_t  upscaler;           // @27  FlUpscaler
-    uint8_t  upscalerQuality;    // @28  vendor enum, 0xFF unknown
-    uint8_t  fgMode;             // @29  FlFgMode
-    uint8_t  rtFlags;            // @30  FlRtFlags
-    uint8_t  hdr;                // @31
+    uint8_t  upscaler;           // @27  FlUpscaler — 0 = NOT_REPORTED in v3
+    uint8_t  upscalerQuality;    // @28  vendor enum; 0xFF = a hook ran and could not tell
+    uint8_t  fgMode;             // @29  FlFgMode — 0 = NOT_REPORTED in v3
+    uint8_t  rtFlags;            // @30  FlRtFlags — v3 bits are *_OBSERVED
+    uint8_t  colorSpace;         // @31  FlColorSpace — was `hdr`, a bool with no third state
 
     // Volume, not a call count, and 32-bit for a reason: one 3840x2160
     // primary-ray dispatch is 8,294,400 rays — 126x a uint16's range. A
@@ -300,15 +514,53 @@ struct alignas(64) FlFrameRecord {
     uint16_t psoCreatedThisFrame;       // @36  compile COUNT, not a flag
     uint8_t  maxTraceRecursionDepth;    // @38  from the live RT PSO config
 
-    // @39 — was _pad0, an explicit hole kept only so the next field stayed
-    // 8-aligned. It now carries FlMeasured. Spending it costs nothing: the byte
-    // was already inside the record and already written every frame, so this is
-    // not a layout change and needs no FL_SHM_LAYOUT_VERSION bump.
-    uint8_t measuredMask;    // @39  FlMeasured — which fields this frame MEASURED
+    // @39 — was _pad0, then measuredMask, now FlFeatureFlags. The mask outgrew a
+    // byte in v3 and moved to 40 where a uint16 is naturally aligned; this byte
+    // did not go back to being padding.
+    uint8_t featureFlags;    // @39  FlFeatureFlags — facts + their OBSERVED bits
 
-    uint64_t vramUsedBytes;      // @40
-    uint32_t reflexLatencyUs;    // @48  0 = unavailable
-    uint32_t fgEvaluations;      // @52  FG feature evaluations this frame
+    uint16_t measuredMask;    // @40  FlMeasured, WIDENED 8 -> 16 bits in v3
+
+    // @42 — NEW in v3. Percent, 0-100. 0xFF means a hook ran and this upscaler's
+    // API reports no sharpness: DLSS 3.x removed the parameter and XeSS exposes
+    // none, so "the hook ran and there is nothing to report" is a real state that
+    // is NOT the same as "no hook ran" (measuredMask bit 8 clear). Governed with
+    // quality and render size, because it comes from the same accessor.
+    uint8_t upscalerSharpness;    // @42
+
+    // @43 — NARROWED uint32 -> uint8 and moved from 52. FG evaluations in one
+    // present: DLSS-G is 1, and multi-frame generation is 3 at x4. A byte is 255.
+    // Narrowing a field that feeds F_app = presents − Σ fgEvaluations deserves the
+    // explicit note: saturation at 255 evaluations in a SINGLE present would mean
+    // 256x frame generation, which is not a configuration that exists.
+    uint8_t fgEvaluations;    // @43
+
+    // @44 — NARROWED uint64 bytes -> uint32 MiB, renamed, moved from 40. This is
+    // where v3's four spare bytes came from, and the narrowing is a correction
+    // rather than a sacrifice: 03_METRICS exports the value as `vram_mb`,
+    // 06_DATA_MODEL stores `vram_proc_avg_mb`, 17_HOOK_ENGINE refreshes it at 1 Hz
+    // so it is a held sample and not a per-frame measurement, and
+    // `budget_exceeded_pct` compares it against vramBudgetMb -- which was ALREADY
+    // uint32 MiB in FlWriterState. The record was carrying 64 bits of
+    // byte-precision that every consumer divided away, to feed a comparison that
+    // was unit-mismatched at the point of use.
+    //
+    // MUST use the same divisor as vramBudgetMb (1024*1024, truncating), or
+    // budget_exceeded_pct gains a systematic bias. Residual: a flip within 1 MiB
+    // of the budget, 0.004% of a 24 GiB card. uint32 MiB reaches 4 PiB.
+    uint32_t vramUsedMb;    // @44
+
+    uint32_t reflexLatencyUs;    // @48  0 = unavailable; NOT narrowed, see below
+
+    // @52 — NEW in v3, MUST BE ZERO. The record hit zero slack once and four
+    // answers had nowhere to go; shipping it at zero slack again would repeat
+    // that exactly.
+    //
+    // What it does NOT buy is a future field without a layout bump — recordSize
+    // and layoutVersion are compared before a reader looks at anything, so an old
+    // reader refuses a new writer and never reaches an unknown field. What it buys
+    // is that existing offsets do not move, which keeps the next diff small.
+    uint32_t reserved;    // @52
 
     // Seqlock counter. Monotonic per slot and NEVER reset, so a full lap of
     // the ring always changes it — otherwise a reader stalled exactly one lap
@@ -362,6 +614,11 @@ static_assert(offsetof(FlWriterState, status) == 8);
 static_assert(offsetof(FlWriterState, apiMask) == 12);
 static_assert(offsetof(FlWriterState, faultCount) == 16);
 static_assert(offsetof(FlWriterState, vramBudgetMb) == 20);
+static_assert(offsetof(FlWriterState, rtTier) == 24);
+static_assert(offsetof(FlWriterState, hooksInstalledMask) == 28);
+static_assert(offsetof(FlWriterState, rtStateObjectsCreated) == 32);
+static_assert(offsetof(FlWriterState, rasterPsoCreated) == 36);
+static_assert(offsetof(FlWriterState, reserved) == 40);
 
 static_assert(offsetof(FlControlBlock, pauseRequested) == 0);
 static_assert(offsetof(FlControlBlock, unhookRequested) == 4);
@@ -381,16 +638,34 @@ static_assert(offsetof(FlFrameRecord, upscaler) == 27);
 static_assert(offsetof(FlFrameRecord, upscalerQuality) == 28);
 static_assert(offsetof(FlFrameRecord, fgMode) == 29);
 static_assert(offsetof(FlFrameRecord, rtFlags) == 30);
-static_assert(offsetof(FlFrameRecord, hdr) == 31);
+static_assert(offsetof(FlFrameRecord, colorSpace) == 31);
 static_assert(offsetof(FlFrameRecord, dispatchRaysVolume) == 32);
 static_assert(offsetof(FlFrameRecord, psoCreatedThisFrame) == 36);
 static_assert(offsetof(FlFrameRecord, maxTraceRecursionDepth) == 38);
-static_assert(offsetof(FlFrameRecord, vramUsedBytes) == 40);
+static_assert(offsetof(FlFrameRecord, featureFlags) == 39);
+static_assert(offsetof(FlFrameRecord, measuredMask) == 40);
+static_assert(offsetof(FlFrameRecord, upscalerSharpness) == 42);
+static_assert(offsetof(FlFrameRecord, fgEvaluations) == 43);
+static_assert(offsetof(FlFrameRecord, vramUsedMb) == 44);
 static_assert(offsetof(FlFrameRecord, reflexLatencyUs) == 48);
-static_assert(offsetof(FlFrameRecord, fgEvaluations) == 52);
-static_assert(offsetof(FlFrameRecord, measuredMask) == 39);
+static_assert(offsetof(FlFrameRecord, reserved) == 52);
 static_assert(offsetof(FlFrameRecord, seq) == 56);
 static_assert(offsetof(FlFrameRecord, swapchainId) == 60);
+
+// The two fl_ring.h pins, restated here because v3 moved seven fields and these
+// are the two that must NOT have moved: the seqlock's payload spans are derived
+// from them, and 07_IPC states them in prose.
+static_assert(offsetof(FlFrameRecord, seq) == 56, "07_IPC pins seq at 56; the payload write steps over it");
+static_assert(offsetof(FlFrameRecord, swapchainId) == 60, "07_IPC pins the payload tail at [60,64)");
+
+// EVERY FIELD NATURALLY ALIGNED, asserted rather than eyeballed. std::atomic_ref
+// requires it for the shared fields, and a misaligned uint16 introduced by a
+// future edit would be a tearing bug nobody could see in a diff.
+static_assert(offsetof(FlFrameRecord, qpc) % 8 == 0);
+static_assert(offsetof(FlFrameRecord, measuredMask) % 2 == 0);
+static_assert(offsetof(FlFrameRecord, vramUsedMb) % 4 == 0);
+static_assert(offsetof(FlFrameRecord, reserved) % 4 == 0);
+static_assert(offsetof(FlFrameRecord, seq) % 4 == 0);
 
 // The regions must not overlap, and the ring must stay 64-aligned.
 static_assert(FL_SHM_HANDSHAKE_OFFSET + sizeof(FlShmHandshake) <= FL_SHM_WRITER_OFFSET);

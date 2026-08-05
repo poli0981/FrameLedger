@@ -79,8 +79,10 @@ FlFrameRecord MakeRecord(std::uint32_t index) {
     r.swapchainId = 0xABCD0000u | (index & 0xFFFFu);
     r.seq = kPoisonSeq;
     // What a present-only writer is entitled to claim, and nothing more.
-    r.measuredMask = FL_MEASURED_OUTPUT_RES;
-    r.rtFlags = FL_RT_NOT_MEASURED;
+    // rtFlags = 0 is the v3 honest value: the bits are *_OBSERVED, so zero says
+    // "no RT evidence seen" and FL_MEASURED_RT (unset) says nobody looked.
+    r.measuredMask = static_cast<uint16_t>(FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS);
+    r.rtFlags = 0u;
     return r;
 }
 
