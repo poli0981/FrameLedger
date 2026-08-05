@@ -11,6 +11,36 @@ GitHub release body, so a missing section means an empty release note.
 
 ## [Unreleased]
 
+### Added
+- **`fl-probe-interposer` — the vtable premise, proven, and the Streamline
+  question narrowed to a licence decision** (`20_OPEN_QUESTIONS` §H5 case 3,
+  `spike-notes.md` §5, previously an empty template). It runs in **our own
+  process**: no game, no injection, no guard, and it needs **no vendor headers**,
+  only `GetProcAddress` and DXGI types from the Windows SDK.
+  - **ctest `fl_vtable_identity_control`** asserts both directions of the property
+    the whole hook design rests on — two independently created composition
+    swapchains share one vtable, and a different interface does not. A comparison
+    never shown to detect a *difference* carries no information when it reports
+    "same", so the negative control is not optional.
+  - **The interposer half is INCONCLUSIVE, and that is the result.** Loaded from
+    Cyberpunk 2077 and Black Myth: Wukong, `sl.interposer.dll` forwards to
+    `dxgi.dll` and leaves the factory *and* swapchain vtables untouched until
+    `slInit()` has run. The probe enumerates its own modules, finds no `sl.*`
+    plugin mapped, and exits 2 rather than rendering a verdict.
+  - **Its first version got this wrong and the fix is the interesting part.** It
+    printed *"the vtable is THE SAME — a hook DOES catch Streamline presents"* for
+    both titles, which would have closed §H5 case 3 on a measurement of
+    passthrough. The tell was already in its own output: an interposing
+    Streamline cannot leave the **factory** vtable unwrapped, because wrapping the
+    factory is how it reaches the swapchain. "Could not look" must not read as
+    "looked and it was clean" — the guard's tri-state discipline, applied to a
+    probe.
+  - **The blocker is now named:** reaching the wrapped path needs `slInit`'s
+    `sl::Preferences`, i.e. vendor ABI — the question `THIRD_PARTY_NOTICES.md`
+    answers for Intel IGCL and nobody has asked for NVIDIA. That is a licence
+    decision, not absent hardware. And the exposure is narrower than §H5 implied:
+    NGX-direct titles never wrap the swapchain.
+
 ### Fixed
 - **The `trustedSigners` gate was polarity-inverted, and its own comment claimed
   the capability the code structurally could not have.** Added one commit earlier
