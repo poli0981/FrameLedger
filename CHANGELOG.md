@@ -13,6 +13,17 @@ GitHub release body, so a missing section means an empty release note.
 
 ### Added
 
+- **`docs/HANDOFF.md` — one file to pick the work up from, and it carries no status.**
+  Sequencing, the decisions that live in no other file, and the traps that cost a wrong
+  diagnosis rather than a build cycle. Status stays in `20_OPEN_QUESTIONS` §S24,
+  `spike-notes`, `15_ROADMAP` and this file, and the handoff points at them.
+  - **The rule is written into the file because the alternative is what keeps
+    happening.** A handoff that summarises status becomes the next stale copy within a
+    day — #45's note did, `15_ROADMAP`'s status block did, and `spike-notes` §8 went
+    stale *in the same file* that was correcting an earlier stale claim. It also would
+    have been a fifth statement of the gate's composition, which `rules-validate` now
+    refuses in the shipped data.
+
 - **Shared-memory layout v3: the zero value of every enum in the record is now "nobody
   said", not a fact.** `FL_SHM_LAYOUT_VERSION` 2 → 3, spent deliberately in the last window
   where it costs nothing — nothing has shipped and no user has a session, and after the
