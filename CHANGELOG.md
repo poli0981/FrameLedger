@@ -353,6 +353,30 @@ GitHub release body, so a missing section means an empty release note.
     NGX-direct titles never wrap the swapchain.
 
 ### Fixed
+- **The present-only writer claimed its one measurement unconditionally, including on
+  records that had none** (§S29(g)). `RecordPresent` set `FL_MEASURED_OUTPUT_RES` on every
+  record; two paths reach it with no output size — `FindOrAdd` returning `nullptr` once its
+  fixed 16 slots are taken, and `GetDesc` failing in `FindOrAdd` or after a resize. The
+  record therefore said **"output resolution MEASURED: 0 × 0"**, and `03_METRICS` computes
+  the upscale ratio as `sqrt((outW*outH)/(renW*renH))` from exactly those two fields.
+  - This is the defect #36 spent two bytes to fix, surviving *inside* the fix: the mask
+    distinguishes looked-from-did-not-look for six fields and for the seventh it was a
+    constant. Found by a design panel refuting a proposed layout — in the shipped writer,
+    not in the proposal.
+  - **Proving the second direction needed a new fixture.** Nothing in `hook-harness` could
+    reach the overflow branch: `--plus-ui` makes *one* extra swapchain, which is a second
+    stream and not an overflow. `--hold-presenting-overflow` round-robins 17 chains for the
+    whole hold. The existing end-to-end test asserts the mask is exactly `OUTPUT_RES` on a
+    normal target; the new one asserts it is exactly 0 on an overflowed one, so a writer
+    that always claimed — or never claimed — fails one of the two.
+  - **The fixture was wrong first, and the test's own vacuity guard is what said so.** Its
+    first version filled the table at startup and held on the 17th chain — but the Overlay
+    injects ~800 ms later and only sees presents made after it hooks, so it observed an
+    empty table and gave the "overflowed" chain slot 1. `overflowed > 30` reported **0**
+    rather than letting a loop full of `CHECK`s pass by never executing. The test also pins
+    the overflowed stream's ~1/17 *share*, because an absolute floor alone is satisfied by a
+    harness presenting on a single chain.
+
 - **`ctest fl_vtable_indices` proved a fact about `dxgi.dll`, not about the Overlay**
   (§S29(b)). `hook-harness` declared `kPresentIndex = 8` / `kResizeBuffersIndex = 13` /
   `kPresent1Index = 22` as its own constants, textually duplicated from the inline literals
@@ -756,17 +780,19 @@ GitHub release body, so a missing section means an empty release note.
     restate the list by hand — and the schema comment restates the **four-fragment**
     version, the exact staleness §S19(e) was raised about. No gate cross-checks any
     of them.
-- **The honesty contract protecting the not-yet-measured fields is not in the merge
-  gate.** `measuredMask` and `rtFlags` are what stop a present-only writer asserting
-  "no upscaler, no frame generation, no ray tracing" as measured fact — CLAUDE.md
-  rules 6 and 7. The assertion that would catch a violation
-  (`MeasuredMask == OutputRes` exactly, on records from a real injection) lives only
-  in `ShmDrainIntegrationTests`, which is `Category=Integration`, which CI skips.
-  **So a feature-hook PR that sets `FL_MEASURED_UPSCALER` with no hook behind it —
-  or installs a hook and forgets the bit — merges green.** The only other
-  `MeasuredMask` reference in the suite is a synthetic writer asserting against its
-  own fixture. This is downstream of §S19(b) and is the reason to fix it before the
-  item-4/6/7 hooks land rather than after.
+- ~~**The honesty contract protecting the not-yet-measured fields is not in the merge
+  gate.**~~ **Wrong, and corrected 2026-08-05 — see §S29(a).** The assertion is in the
+  **native** suite and CI runs it: `guard_test.cpp`'s *"the injected Overlay records
+  real presents into the ring"* injects into `hook-harness` and requires
+  `measuredMask == FL_MEASURED_OUTPUT_RES` on every drained record. It is ctest
+  `fl_guard`, 20.58 s on CI. `fl_guard_test.exe` is a native host, so it never loads
+  the `protect`-matching assembly a .NET host does — which is precisely why it runs
+  and `ShmDrainIntegrationTests` does not.
+  - **What is genuinely ungated, stated narrowly this time:** the *managed* drain —
+    `ShmRingReader`, the handshake validator against a live writer, and the
+    `PublishGuardResult` round trip. Fixing §S19(b) buys that. It is **not** a
+    prerequisite of the feature hooks, and the earlier wording was used to re-order
+    the work before it was checked.
 - **`ctest fl_vtable_indices` does not pin the Overlay's vtable indices.**
   `hook-harness` declares `kPresentIndex = 8` / `kResizeBuffersIndex = 13` /
   `kPresent1Index = 22` as its own literals, textually duplicated from the inline

@@ -105,6 +105,59 @@ public sealed class ShmLayoutMirrorTests
                 nativeOffset,
                 $"{typeof(T).Name}.{managedField} must sit at the same offset as {nativeName}.{nativeField}");
         }
+
+        AssertNoGapsOrOverlaps<T>(native, nativeName);
+    }
+
+    /// <summary>
+    /// Widths, which the offset walk cannot see on its own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>fl-layout-dump</c> has always emitted a <c>size</c> per field and this test read only
+    /// <c>name</c> and <c>offset</c>. For most fields a wrong width shifts the NEXT offset and the
+    /// walk catches it — but not for the last field, and not for a <c>reserved</c> array whose
+    /// length is wrong in a way that keeps the struct the same size. Both are exactly where the
+    /// next layout change lands.
+    /// </para>
+    /// <para>
+    /// Asserted as adjacency rather than per-field reflection: every field must start where the
+    /// previous one ends, and the last must end at the struct size. That also proves there is no
+    /// implicit padding anywhere — a property the C++ side states in prose ("64 bytes exactly, no
+    /// implicit padding") and nothing checked.
+    /// </para>
+    /// </remarks>
+    // `struct`, matching AssertMirror — not `unmanaged`. Unsafe.SizeOf<T> does not need it, and
+    // requiring it here would make this helper uncallable from the very method whose blittability
+    // assertion is what establishes the stronger property in the first place.
+    private static void AssertNoGapsOrOverlaps<T>(JsonElement native, string nativeName)
+        where T : struct
+    {
+        var ordered = native.GetProperty("fields").EnumerateArray()
+            .Select(f => (
+                Name: f.GetProperty("name").GetString()!,
+                Offset: f.GetProperty("offset").GetInt32(),
+                Size: f.GetProperty("size").GetInt32()))
+            .OrderBy(f => f.Offset)
+            .ToList();
+
+        ordered.Should().NotBeEmpty(
+            $"the dump reported no fields for {nativeName}, so this check walked an empty list "
+            + "and proved nothing");
+
+        for (int i = 0; i < ordered.Count - 1; i++)
+        {
+            (ordered[i].Offset + ordered[i].Size).Should().Be(
+                ordered[i + 1].Offset,
+                $"{nativeName}.{ordered[i].Name} must end exactly where {ordered[i + 1].Name} begins; "
+                + "a gap is implicit padding the C# mirror cannot reproduce, and an overlap is a "
+                + "wrong width");
+        }
+
+        (ordered[^1].Offset + ordered[^1].Size).Should().Be(
+            Unsafe.SizeOf<T>(),
+            $"{nativeName}.{ordered[^1].Name} must end at the end of the struct; a short trailing "
+            + "field (or a `reserved` array of the wrong length) leaves bytes no side describes");
     }
 
     [Fact]

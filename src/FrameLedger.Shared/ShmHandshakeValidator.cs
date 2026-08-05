@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace FrameLedger.Shared;
 
 /// <summary>
@@ -77,7 +79,9 @@ public static class ShmHandshakeValidator
             return ShmAttachRefusal.LayoutVersionMismatch;
         }
 
-        if (handshake.RecordSize != 64)
+        // Against the mirror, never a literal: a hardcoded 64 would agree with a stale writer
+        // and disagree with our own struct exactly when the layout changed.
+        if (handshake.RecordSize != (uint)Unsafe.SizeOf<FlFrameRecord>())
         {
             return ShmAttachRefusal.RecordSizeMismatch;
         }

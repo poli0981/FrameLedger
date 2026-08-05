@@ -74,7 +74,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S23-6** | ◐ **partly closed** | `license-check` now binds `THIRD_PARTY_NOTICES` bidirectionally — the first real gate over anything in `legal/`. The **accuracy blocks remain hand-maintained prose that nothing verifies**, and `DISCLAIMER.md`'s went stale a second time on 2026-08-05 |
 | **S23-2** | 🚫 **owner only — no PR can close it** | `Rules / validate` is **not** a required status check on `main`. **Re-verified against the live branch protection 2026-08-05**, not repeated from the entry: `required_status_checks.contexts` is exactly `["check", "analyze (csharp, none)", "analyze (cpp, manual)"]` (`strict: true`, `enforce_admins: true`, `required_linear_history: true`). The `validate` job is path-filtered and `pull_request`-only, so a red removal check does not block the merge button. **The gate that exists to make the anti-cheat blocklist un-removable is advisory.** This is a branch-protection setting |
 
-| **S29** | 🔴 **open, new 2026-08-05 — one of six closed** | (a) the items-4/6/7 honesty assertion is not in the merge gate — **a prerequisite of the feature-hook PRs**; (b) `fl_vtable_indices` pins the harness's own duplicated literals, not the Overlay's indices; (c) `HookedCaptureGate.ShouldUnhookAsync` is a second, tickless, non-latching supervision path; (d) ◐ `vklayer-blastradius` case 3 **is now an assertion**, but the script still runs only by hand; (e) no session-end signal — a dead target and a quiet one are byte-identical; (f) a **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery, plus no producer for RT tri-state `No` |
+| **S29** | 🔴 **open, new 2026-08-05 — three of seven closed** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) `HookedCaptureGate.ShouldUnhookAsync` is a second, tickless, non-latching supervision path; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) no session-end signal — a dead target and a quiet one are byte-identical; (f) a **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery, plus no producer for RT tri-state `No`; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
 
 ~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
 exit criterion 2, not seven, and the undercount came from reading only the ❓ rows.**
@@ -172,17 +172,34 @@ refuter told to default to *refuted*. The ledger drift it found is fixed in the 
 that records this. What follows is the residue: things that need code, recorded so
 the next session finds them by reading.
 
-**(a) 🔴 The honesty contract for items 4/6/7 is not in the merge gate.**
+**(a) ◐ The honesty contract is in the merge gate — natively. The MANAGED half is not.**
+
+> **This entry was WRONG when it was written on 2026-08-05, and the correction
+> matters because the wrong version was used to re-order the work.** It claimed the
+> assertion catching a violation *"lives only in `ShmDrainIntegrationTests`, which
+> CI skips"*, and concluded that §S19(b) was a prerequisite of the item-4/6/7 hooks.
+> Both halves are false. Found by a design panel refuting the claim rather than
+> repeating it.
+
 `measuredMask` and `rtFlags` are what stop a present-only writer asserting "no
 upscaler, no frame generation, no ray tracing" as measured fact (CLAUDE.md rules 6
-and 7). The assertion that would catch a violation — `MeasuredMask ==
-FlMeasured.OutputRes` exactly, on records from a real injection — lives only in
-`ShmDrainIntegrationTests`, which is `Category=Integration`, which CI skips for
-§S19(b). **So a feature-hook PR that sets `FL_MEASURED_UPSCALER` with no hook
-behind it, or installs a hook and forgets the bit, merges green.** The only other
-`MeasuredMask` reference in the suite is a synthetic writer asserting against its
-own fixture. This makes §S19(b) a *prerequisite* of the item-4/6/7 work rather
-than a parallel track.
+and 7). **The assertion exists in the NATIVE suite and CI runs it:**
+`guard_test.cpp`'s *"the injected Overlay records real presents into the ring"*
+injects into `hook-harness` and requires `measuredMask == FL_MEASURED_OUTPUT_RES`
+and `rtFlags & FL_RT_NOT_MEASURED` on every drained record. It is ctest `fl_guard`,
+and CI ran it in 20.58 s on 2026-08-05.
+
+**Why the native path works where the managed one does not, which is the whole
+shape of §S19(b):** `fl_guard_test.exe` is a *native* host. It never loads
+`System.Security.Cryptography.ProtectedData.dll`, so the `protect` fragment never
+fires and the guard does not refuse it. A .NET test host does, which is exactly why
+`ShmDrainIntegrationTests` is skipped and this is not.
+
+**What is genuinely not gated**, stated narrowly this time: the **managed** drain —
+`ShmRingReader`, `ShmHandshakeValidator` against a live writer, and the
+`PublishGuardResult` round trip. A regression there is caught by nothing automated.
+Fixing §S19(b) buys that, and it is worth doing; it is **not** a prerequisite of the
+feature hooks, and this entry should not be used to sequence them.
 
 **(b) ✅ `ctest fl_vtable_indices` did not pin the Overlay's vtable indices — closed 2026-08-05.**
 `hook-harness` declared `kPresentIndex = 8` / `kResizeBuffersIndex = 13` /
@@ -263,6 +280,45 @@ as *"RT-capable device present, no AS builds and no dispatches for the whole
 session"* — and nothing measures device RT tier, no record field carries it, and
 every byte of the 64-byte record is allocated. **As the record stands, item 6 can
 reach `Yes` or `N/A` and never `No`.**
+
+**(g) ✅ The present-only writer claimed the one thing it may claim — unconditionally — closed 2026-08-05.**
+
+`RecordPresent` set `FL_MEASURED_OUTPUT_RES` on every record, and two paths reach it
+with no output size to report:
+
+- `FindOrAdd` is a fixed 16-slot linear scan and returns `nullptr` once they are
+  taken, so `outputW/H` are never assigned and stay 0.
+- `GetDesc` failing, in `FindOrAdd` or in `ForgetChainSize` after a resize, leaves
+  them 0.
+
+So the record said **"output resolution MEASURED: 0 × 0"** — and `03_METRICS`
+computes the upscale ratio as `sqrt((outW*outH)/(renW*renH))` from exactly those two
+fields. This is the same defect #36 spent two bytes to fix, surviving inside the fix:
+the mask distinguishes *looked* from *did not look* for six other fields, and for the
+seventh it was a constant.
+
+**Found by a design panel refuting a proposed layout, in the shipped writer rather
+than in the proposal.**
+
+Closed: the bit is set only when `outputW != 0 && outputH != 0`, which is what every
+other bit in the mask already means.
+
+**Proven both directions, and the second direction needed a new fixture.** Nothing in
+`hook-harness` could reach the overflow branch — `--plus-ui` creates *one* extra
+swapchain, which is a second stream, not an overflow. `--hold-presenting-overflow`
+round-robins 17 chains for the whole hold so the Overlay meets more than it can hold.
+The existing end-to-end test asserts the mask is *exactly* `OUTPUT_RES` on a normal
+target; the new one asserts it is *exactly* 0 on an overflowed one. Canary: restoring
+the unconditional assignment turns the new test red with the build green.
+
+> **The fixture was wrong first, and the test's own vacuity guard is what said so.**
+> Its first version filled the table at startup and then held on the 17th chain — but
+> the Overlay is injected ~800 ms later and only sees presents made after it hooks, so
+> it observed an *empty* table and gave the "overflowed" chain slot 1. The assertion
+> `overflowed > 30` reported **0**, which is why the loop full of `CHECK`s inside it
+> did not silently pass by never executing. The test also pins the overflowed stream's
+> *share* (~1/17), because an absolute floor alone would be satisfied by a harness
+> presenting on one chain.
 
 ### S27 · The chokepoint is the ANTI-CHEAT gate, and it is not the consent gate
 
