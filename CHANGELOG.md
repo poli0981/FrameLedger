@@ -163,6 +163,23 @@ GitHub release body, so a missing section will mean an empty release note.
 - `NativeAntiCheatGuard`'s §S21 rationale was attached to `NativeCheckRules` by two stacked
   `<summary>` blocks while `NativeRulesFilePath`, which it describes, had none.
 
+### A fourth one, and the lesson is that I fixed three and did not sweep the class
+
+`APausedSessionStopsRecordingAndResumesWhereItLeftOff` waited a fixed 250 ms for
+"presents already in flight" before capturing the index it then asserts unchanged. Fine at the
+harness's ~120/s until four test assemblies run in parallel and the presenting thread is descheduled
+past it — a present that entered `MayObserve()` **before** the flag was set then lands after the
+capture, and "a paused writer records nothing" fails against a writer that had in fact stopped.
+
+It now waits for the writer to **settle** — two reads 100 ms apart with nothing between them — while
+still ticking throughout, because the pause path is only reachable on a frame where `guardTicks`
+changed, which is the defect #46 fixed and the reason this test exists. `EstablishRecordingAsync`'s
+budget goes 4 s → 10 s for the same reason.
+
+**The finding is the sequencing, not the fix.** Three of these were repaired in #61 and the fourth
+was sitting in the same file, with the same shape, unswept — found by the next post-merge run rather
+than by looking. Eight consecutive full runs clean afterwards.
+
 ### Three racy assertions that #60 merged, caught by the post-merge run
 
 `docs/HANDOFF.md` says to run `./build.ps1 check` with no switches **after** every PR. This is what

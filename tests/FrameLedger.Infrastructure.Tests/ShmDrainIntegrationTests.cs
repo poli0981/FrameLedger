@@ -329,8 +329,12 @@ public sealed class ShmDrainIntegrationTests
     private static async Task<int> EstablishRecordingAsync(ShmRingReader reader, FlFrameRecord[] buffer,
         Ref<uint> tick)
     {
+        // 100 iterations, not 40. The harness presents at ~120/s so ten records take under a second —
+        // but four test assemblies run in parallel, each spawning a harness and injecting an Overlay
+        // that creates a WARP device, and a budget sized on the measured rate is the thing that goes
+        // red under contention while nothing is wrong.
         int seen = 0;
-        for (int i = 0; i < 40 && seen < 10; i++)
+        for (int i = 0; i < 100 && seen < 10; i++)
         {
             reader.PublishGuardResult(++tick.Value, unhookRequested: false);
             await Task.Delay(100, TestContext.Current.CancellationToken).ConfigureAwait(false);
@@ -344,6 +348,45 @@ public sealed class ShmDrainIntegrationTests
     private sealed class Ref<T>
     {
         public T Value = default!;
+    }
+
+    /// <summary>
+    /// Waits for <c>writeIndex</c> to stop moving and returns where it stopped.
+    /// </summary>
+    /// <remarks>
+    /// <b>Wait for the writer to settle; do not assume how long an in-flight present
+    /// takes.</b> This was a fixed 250 ms delay commented "presents already in flight" —
+    /// fine at the harness's ~120/s until the suite runs four assemblies in parallel and
+    /// the presenting thread is descheduled past it. A present that entered
+    /// <c>MayObserve()</c> BEFORE the pause flag was set then lands after the index is
+    /// captured, and "a paused writer records nothing" fails against a writer that had
+    /// in fact stopped. Same class as the three assertions #61 fixed: a state read at a
+    /// moment chosen by a constant rather than by the state itself.
+    /// <para>
+    /// It keeps ticking throughout, because the pause path is only reachable on a frame
+    /// where <c>guardTicks</c> has changed — that is the defect #46 fixed and the reason
+    /// this test exists.
+    /// </para>
+    /// </remarks>
+    private static async Task<ulong> SettleAsync(ShmRingReader reader, FlFrameRecord[] buffer, Ref<uint> tick)
+    {
+        ulong last = reader.WriterState.WriteIndex;
+        for (int i = 0; i < 40; i++)
+        {
+            reader.PublishGuardResult(++tick.Value, unhookRequested: false);
+            await Task.Delay(100, TestContext.Current.CancellationToken).ConfigureAwait(false);
+            reader.Drain(buffer);
+
+            ulong now = reader.WriterState.WriteIndex;
+            if (now == last)
+            {
+                return now;    // two reads 100 ms apart with nothing between them
+            }
+
+            last = now;
+        }
+
+        return last;
     }
 
     /// <summary>
@@ -412,11 +455,7 @@ public sealed class ShmDrainIntegrationTests
             await EstablishRecordingAsync(reader, buffer, tick);
 
             reader.SetPaused(true);
-            await Task.Delay(250, TestContext.Current.CancellationToken);    // presents already in flight
-            reader.PublishGuardResult(++tick.Value, unhookRequested: false);
-            reader.Drain(buffer);
-
-            ulong atPause = reader.WriterState.WriteIndex;
+            ulong atPause = await SettleAsync(reader, buffer, tick);
             await Task.Delay(1200, TestContext.Current.CancellationToken);
             reader.PublishGuardResult(++tick.Value, unhookRequested: false);
 
