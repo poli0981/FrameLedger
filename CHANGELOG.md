@@ -68,6 +68,20 @@ GitHub release body, so a missing section will mean an empty release note.
   canary that runs before any verdict**, since every failure mode of such a lookup
   produces the same answer as "absent".
 
+- **The params half is designed and not built**, and the design is in `docs/HANDOFF.md` §2b
+  rather than here, because it is a sequencing decision and not a change. Recorded because the
+  panel **rejected the route the documents make obvious**: hooking `slGetFeatureFunction` and
+  MinHook-patching the returned `slDLSSSetOptions` would need an "indirect" inventory class that
+  is an unconditional escape hatch from `hookinventory-check` (its oracle would be "a `PFun_*`
+  exists in a vendored header", and `sl_core_api.h:63` declares one for a symbol **zero measured
+  modules export**); it would reopen the install-after-stop window; MinHook has no function-length
+  oracle for a runtime-returned address, so a short thunk gets patched into its neighbour inside
+  vendor code where `FL_HOOK_GUARD` cannot reach; `GetModuleHandleExW` in a detour takes the
+  loader lock on the game's thread; and it structurally misses the game's FIRST
+  `slDLSSSetOptions` call, which for a benchmark configured before launch is often the only one.
+  The chosen route extends the hook the Overlay already owns — a bounded walk of
+  `slEvaluateFeature`'s `inputs` chain, which it already receives and ignores.
+
 ### Fixed
 
 - **A failed `REQUIRE` terminated the whole native test binary, hiding every test after
