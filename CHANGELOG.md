@@ -163,6 +163,38 @@ GitHub release body, so a missing section will mean an empty release note.
 - `NativeAntiCheatGuard`'s §S21 rationale was attached to `NativeCheckRules` by two stacked
   `<summary>` blocks while `NativeRulesFilePath`, which it describes, had none.
 
+### Three racy assertions that #60 merged, caught by the post-merge run
+
+`docs/HANDOFF.md` says to run `./build.ps1 check` with no switches **after** every PR. This is what
+that found, and all three are the same shape: an assertion that reads a state once, at a moment when
+the state is legitimately still in transit.
+
+- **`Status == Ready` read immediately after the first guard tick.** `InitThread` publishes
+  `layoutVersion` at step 2 and sets `READY` at step 6 — after `InstallPresentHooks` creates a
+  throwaway WARP device, tens of milliseconds. `TryAttach` succeeds as soon as `layoutVersion` lands
+  and the host publishes its first tick immediately **by design**, because the Overlay's 65 s
+  supervision clock starts at mapping publish. A tick and `INIT` are therefore a legitimate
+  simultaneous state. Polled now, with `INIT` past the budget still failing — that is
+  `WriterNeverInstalledHooks` and must not read as a passing session.
+- **`ApiMask` asserted as soon as `Status` became `Ready`.** "Hooked and recording" is two events:
+  `apiMask` is set inside `FindOrAdd`, on the first present the hook actually *sees*, so `READY` with
+  `apiMask == 0` is another legitimate window. Failed once in five full-suite runs and never once in
+  six isolated ones — the signature of a window widened by contention.
+- **QPC ascending asserted across a deliberate lap, and it is unassertable in EITHER direction.**
+  Measured both ways: under the full suite the drop test's first drained record came back ~148 ms
+  *later* than the second; run alone the same batch was perfectly ascending. `Drain` resumes at
+  `writeIndex - capacity`, the oldest survivor, and whether the writer has overwritten that slot when
+  the copy arrives is a race decided in microseconds — the seqlock catches a tear *during* a copy, not
+  a slot cleanly overwritten *before* it. Ascending qpc is a property of a reader that **kept up**, so
+  it now lives only with the other attach-timing assertions. What matters downstream is enforced where
+  it belongs: `MeasuredFacts` skips non-positive deltas, and `04_CAPTURE` requires a non-zero drop
+  count to be surfaced as a session warning.
+
+Six consecutive full runs clean afterwards. **Two native cases stay red on this machine for an
+unrelated reason**, recorded in `HANDOFF` §Traps: `D3D12CreateDevice(WARP)` returns
+`DXGI_ERROR_DRIVER_INTERNAL_ERROR` (0x887A0020) while the same call on the real adapter succeeds. CI
+runs the same suite on WARP and passes, and nothing in #60 touches that path.
+
 ### What the adversarial review of this diff caught before it landed
 
 An adversarial pass over the working tree raised 23 candidates; 17 survived a second agent told

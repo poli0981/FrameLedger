@@ -35,6 +35,24 @@ namespace FrameLedger.Infrastructure.Tests;
 /// test asserts that constraint on itself below, so this cannot quietly grow into something that
 /// injects elsewhere.
 /// </para>
+/// <para>
+/// <b>QPC ORDER ACROSS A LAP IS UNASSERTABLE IN EITHER DIRECTION, and it cost three attempts to say
+/// so.</b> Measured both ways on 2026-08-06: under the full suite the drop test's first drained record
+/// came back ~148 ms LATER than the second; run alone, the same batch was perfectly ascending. Both are
+/// legal. <c>Drain</c> resumes at <c>writeIndex - capacity</c> — the oldest SURVIVOR — and whether the
+/// writer has already overwritten that slot when the copy reaches it is a race decided in microseconds.
+/// The seqlock catches a tear DURING a copy; a slot cleanly overwritten BEFORE the copy started is
+/// indistinguishable from a slot that was always that new.
+/// </para>
+/// <para>
+/// So ascending qpc is a property of a reader that KEPT UP, and it is asserted only in
+/// <c>AssertRecordsAreHonest</c> alongside the other attach-timing properties. Asserting it — or its
+/// negation — against a deliberately lapped reader is a coin flip wearing a property's name. What
+/// actually matters is downstream and is enforced where it belongs: <c>03_METRICS</c> derives frame
+/// times from consecutive qpc, so a consumer trusting order across a drop would manufacture a NEGATIVE
+/// interval. <c>MeasuredFacts</c> skips non-positive deltas for exactly this reason, and
+/// <c>04_CAPTURE</c> requires a non-zero drop count to be surfaced as a session warning.
+/// </para>
 /// </remarks>
 [Trait("Category", "Integration")]
 public sealed class ShmDrainIntegrationTests
@@ -142,7 +160,20 @@ public sealed class ShmDrainIntegrationTests
     /// </remarks>
     private static void AssertWriterClaimsOnlyWhatItMeasured(List<FlFrameRecord> records)
     {
-        records.Select(r => r.Qpc).Should().BeInAscendingOrder("QPC is read at hook entry");
+        // QPC ORDER IS NOT HERE, and finding out why is worth the paragraph.
+        //
+        // It lived here until 2026-08-06, when the drop test failed with the FIRST drained record's qpc
+        // ~148 ms LATER than the second. That is not a writer defect and not a reader defect: it is what
+        // overwrite-oldest means. When the writer laps the reader, `Drain` resumes at
+        // `writeIndex - capacity` — the oldest SURVIVING slot — and the writer is still running, so it
+        // can overwrite that slot in the microseconds before the copy reaches it. The seqlock catches a
+        // tear DURING a copy; a slot cleanly overwritten BEFORE the copy started is indistinguishable
+        // from a slot that was always that new.
+        //
+        // So ascending qpc is a property of a reader that KEPT UP, which is the attach-timing family
+        // that already lives in AssertRecordsAreHonest — not one of the writer-honesty invariants that
+        // hold for every fixture. Asserting it against a deliberately-lapped reader is asserting that
+        // the fixture failed to do the thing the test exists to make it do.
 
         // A present-only writer measured the output resolution and its own call arguments, and nothing
         // else. In layout v3 the zero-defaults are honest by construction — FlUpscaler.NotReported and
@@ -195,6 +226,10 @@ public sealed class ShmDrainIntegrationTests
         }
 
         AssertWriterClaimsOnlyWhatItMeasured(records);
+
+        // Ascending qpc belongs HERE, with the other properties of a reader that kept up — see the note
+        // in the helper above for why it is false across a lap.
+        records.Select(r => r.Qpc).Should().BeInAscendingOrder("QPC is read at hook entry");
 
         records.Should().OnlyContain(r => (r.MeasuredMask & (ushort)FlMeasured.OutputRes) != 0);
         records.Should().OnlyContain(r => r.SwapchainId != 0, "0 means the writer could not identify it");
@@ -432,6 +467,14 @@ public sealed class ShmDrainIntegrationTests
     /// 171,636 presents in 3 s, so the ring laps in well under a second.
     /// </para>
     /// <para>
+    /// <b>The lap budget is sized for a LOADED machine, not for that measured rate.</b> The suite runs
+    /// four test assemblies in parallel, each spawning its own harness and injecting an Overlay that
+    /// creates a WARP device, and under that contention the writer's own present loop is starved. A
+    /// 4 s budget failed once in three runs on 2026-08-06 — the vacuity guard reported the FIXTURE not
+    /// reaching its state, which is honest and still a flake. 15 s keeps the guard meaningful (it still
+    /// fails if the writer never laps) and fits inside the harness's 20 s hold.
+    /// </para>
+    /// <para>
     /// <b>Its canary is SHARED with the synthetic case, and that is worth saying rather than leaving
     /// to be discovered.</b> Deleting the <c>dropped = …</c> assignment turns this red and
     /// <c>ShmRingReaderTests.OverwrittenRecordsAreCountedAndTheReaderResumesAtTheOldestSurvivor</c> red
@@ -470,7 +513,7 @@ public sealed class ShmDrainIntegrationTests
             // supervision loss — the Overlay stops observing 65 s after guardTicks last moved.
             ulong start = reader.WriterState.WriteIndex;
             uint tick = 0;
-            for (int i = 0; i < 40 && reader.WriterState.WriteIndex - start < ShmLayout.DefaultCapacity + 500; i++)
+            for (int i = 0; i < 150 && reader.WriterState.WriteIndex - start < ShmLayout.DefaultCapacity + 500; i++)
             {
                 reader.PublishGuardResult(++tick, unhookRequested: false);
                 await Task.Delay(100, TestContext.Current.CancellationToken);
@@ -490,6 +533,8 @@ public sealed class ShmDrainIntegrationTests
 
             records.Should().NotBeEmpty("everything still in the ring is still readable");
             AssertWriterClaimsOnlyWhatItMeasured(records);
+
+            // QPC order is deliberately NOT asserted here, in either direction. See the class remarks.
             reader.WriterState.Status.Should().Be((uint)FlStatus.Ready, "dropping records is the READER falling behind");
             reader.WriterState.FaultCount.Should().Be(0u);
         }

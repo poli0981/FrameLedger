@@ -226,15 +226,16 @@ public sealed class CaptureHostEndToEndTests : IDisposable
                 "the host publishes its first tick immediately on attach, because the Overlay's 65 s "
                 + "supervision clock starts when the mapping is published and not when we adopt it");
 
-            using (MemoryMappedFile mmf = MemoryMappedFile.OpenExisting(
-                       $@"Local\FrameLedger.Ring.{harness.Id}", MemoryMappedFileRights.Read))
-            using (MemoryMappedViewAccessor view = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read))
-            {
-                FlWriterState state = ReadWriterState(view);
-                state.Status.Should().Be((uint)FlStatus.Ready, "the Overlay hooked and is recording");
-                state.FaultCount.Should().Be(0u);
-                (state.ApiMask & (1u << (int)FlApi.D3D11)).Should().NotBe(0u);
-            }
+            FlWriterState state = await PollWriterPastInitAsync(harness.Id, TimeSpan.FromSeconds(15));
+
+            // INIT after the budget is not a slow start — it is MinHook or the dummy-device probe having
+            // failed, which means the ring will never move. That is CaptureLoop's
+            // WriterNeverInstalledHooks, and it must not read as a passing session here either.
+            state.Status.Should().Be((uint)FlStatus.Ready,
+                "the Overlay hooked and is recording; INIT past the budget means InstallPresentHooks "
+                + "failed and no frame will ever be written");
+            state.FaultCount.Should().Be(0u);
+            (state.ApiMask & (1u << (int)FlApi.D3D11)).Should().NotBe(0u);
         }
         finally
         {
@@ -282,6 +283,63 @@ public sealed class CaptureHostEndToEndTests : IDisposable
 
             Kill(harness);
         }
+    }
+
+    /// <summary>
+    /// Waits for the writer to leave <see cref="FlStatus.Init"/>, because a tick and
+    /// <c>INIT</c> are a legitimate simultaneous state.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A real ordering in <c>InitThread</c>, not flakiness.</b> <c>PublishHandshake</c>
+    /// writes <c>layoutVersion</c> at step 2; <c>InstallPresentHooks</c> — which creates a
+    /// throwaway WARP D3D11 device and swapchain to read the vtable, tens of milliseconds
+    /// — runs at step 5; <c>status</c> becomes <c>READY</c> only at step 6.
+    /// <c>TryAttach</c> succeeds as soon as <c>layoutVersion</c> lands, and the host
+    /// publishes its first tick immediately on attach BY DESIGN, because the Overlay's
+    /// 65 s supervision clock starts at mapping publish. So reading status once after the
+    /// first tick asserts a race rather than the property.
+    /// </para>
+    /// <para>
+    /// Found by the post-merge run on a machine whose WARP had degraded — D3D12 WARP
+    /// returning <c>DXGI_ERROR_DRIVER_INTERNAL_ERROR</c>, measured — which widened step 5
+    /// enough to lose a race that had been won every previous time. The machine state was
+    /// the trigger; this was the defect, and it was mine.
+    /// </para>
+    /// </remarks>
+    private static async Task<FlWriterState> PollWriterPastInitAsync(int pid, TimeSpan budget)
+    {
+        FlWriterState state = default;
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + budget;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            using (MemoryMappedFile mmf = MemoryMappedFile.OpenExisting(
+                       $@"Local\FrameLedger.Ring.{pid}", MemoryMappedFileRights.Read))
+            using (MemoryMappedViewAccessor view = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read))
+            {
+                state = ReadWriterState(view);
+            }
+
+            // "HOOKED AND RECORDING" IS TWO EVENTS, AND apiMask IS THE SECOND ONE. status becomes READY
+            // at InitThread step 6, immediately after the hooks are installed and BEFORE any present has
+            // gone through them; apiMask is set inside FindOrAdd, on the first present the hook actually
+            // sees. So READY with apiMask 0 is a legitimate window, and waiting only for READY left the
+            // apiMask assertion racing — it failed once in five full-suite runs on 2026-08-06 and never
+            // once in six isolated ones, which is the signature of a window widened by contention.
+            //
+            // A status that is neither INIT nor READY (SELF_DISABLED, UNHOOKED) is terminal: return it
+            // and let the assertions report what it is, rather than spinning to the budget.
+            bool stillStarting = state.Status == (uint)FlStatus.Init
+                || (state.Status == (uint)FlStatus.Ready && state.ApiMask == 0);
+            if (!stillStarting)
+            {
+                return state;
+            }
+
+            await Task.Delay(100, TestContext.Current.CancellationToken).ConfigureAwait(false);
+        }
+
+        return state;
     }
 
     private static async Task<uint> PollGuardTicksAsync(int pid, uint atLeast, TimeSpan budget)
