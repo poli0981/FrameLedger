@@ -55,19 +55,34 @@ src/
     FrameLedger.VkLayer/       # C++20 Vulkan implicit layer DLL + manifest JSON
     FrameLedger.Shm/           # header-only: ring buffer + record layout, shared by native & C# (mirrored)
   FrameLedger.Domain/          # entities, metric calculators — zero dependencies
-                               #   (calculators UNWRITTEN: Domain holds AntiCheat/ and
-                               #    Detection/ only. Nothing computes a frame time, an
-                               #    FPS low, or fg_factor anywhere in the tree, and
-                               #    nothing maps measuredMask to rule 7's tri-state)
+                               #   (calculators UNWRITTEN: Domain holds AntiCheat/,
+                               #    Consent/ and Detection/ only. Nothing in Domain
+                               #    computes a frame time or an FPS low. measuredMask ->
+                               #    rule 7's tri-state and Displayed FPS now exist, in the
+                               #    UNSHIPPED FrameLedger.CaptureHost as a throwaway that
+                               #    P2's recorder replaces — deliberately not in
+                               #    Domain.Metrics.*, which carries a 95% coverage floor)
   FrameLedger.Application/     # use cases, ports
   FrameLedger.Infrastructure/  # SQLite, shm reader, vendor APIs, injector interop, ETW fallback, parsers
   FrameLedger.Shared/          # IPC contracts (System.Text.Json source-gen) + ShmRecord struct mirror
   FrameLedger.Agent/           # capture orchestrator: watcher, injector control, shm drain, recorder
   FrameLedger.App/             # WPF UI
+  FrameLedger.CaptureHost/     # UNSHIPPED. The first production driver of the guard loop:
+                               #   HookedCaptureGate -> FlGuardedInject -> ShmRingReader ->
+                               #   10 Hz drain + GuardSupervisor + PublishGuardResult, plus the
+                               #   file-backed consent store and a throwaway consumer.
+                               #   12_BUILD publishes App and Agent ONLY, and neither references
+                               #   this — tools/package-closure-check.ps1 is what keeps that true.
+                               #   §S27 is closed on exactly that basis.
 tests/
   FrameLedger.Domain.Tests/  FrameLedger.Application.Tests/  FrameLedger.Infrastructure.Tests/
+  FrameLedger.CaptureHost.Tests/      # incl. the Category=Integration end-to-end case
   native/FrameLedger.Overlay.Tests/   # Catch2: ring buffer, record encode, fault policy
-tools/                         # rules-validate, license-check, resx-audit (PowerShell)
+tools/                         # changelog-check, chokepoint-check, coverage-gate, gen-ac-floor,
+                               # license-check, package-closure-check, rules-validate,
+                               # vendor-exports, versioninfo-check, vklayer-blastradius
+                               # (PowerShell). This line used to name three, one of which
+                               # — resx-audit — does not exist.
                                # native tooling lives under src/native/tools:
                                #   fl-layout-dump  -> struct offsets for the C# mirror test
                                #   hook-harness    -> dummy D3D11 + D3D12 app (Vulkan/OpenGL unwritten)

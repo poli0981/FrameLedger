@@ -43,7 +43,9 @@ Compiler/linker flags (enforced in CMake, not per-target ad hoc): `/std:c++20 /M
 - **`global.json` pins the SDK band** (`10.0.x`, `rollForward: latestFeature`). Without it `dotnet build` picks the newest installed SDK — on a machine with a .NET 11 preview installed that silently changes analyzer behaviour under `TreatWarningsAsErrors`, and makes local and CI disagree for reasons nobody can see in a diff.
 - `Directory.Build.props`:
   - **`TargetFramework` = `net10.0-windows10.0.22621.0`** and **`SupportedOSPlatformVersion` = `10.0.19045.0`**. These are two different knobs and must not be conflated: the TFM platform version selects which Windows API projections are available to compile against, while the supported version is the floor CA1416 enforces. NFR-8 requires Windows 10 **22H2** = build **19045**; letting the supported version default to the TFM's would silently accept installs below the stated floor. Two constraints pin the target to 22621 rather than something closer to the floor: the SDK rejects `SupportedOSPlatformVersion` above `TargetPlatformVersion` (NETSDK1135), and 19045 is not a targeting-pack version in any case — the packs are cut at 19041, 20348, 22000, 22621, 26100. The Windows 11 SDK ≥ 10.0.22621 is already a prerequisite above, so this costs nothing. A bare `net10.0-windows` is wrong for a different reason: it resolves to `net10.0-windows7.0`, and CA1416 would then error on Mica, `MiniDumpWriteDump` and `QueryVideoMemoryInfo` — every Windows-10-era API this app is built on.
-  - `Platforms`/`PlatformTarget` = `x64` and `RuntimeIdentifier` = `win-x64`. "x64 only" is asserted in CLAUDE.md and NFR-8 but was previously enforced nowhere except an ad-hoc `-r win-x64` on the publish command.
+  - `Platforms`/`PlatformTarget` = `x64`. "x64 only" is asserted in CLAUDE.md and NFR-8 but was previously enforced nowhere except an ad-hoc `-r win-x64` on the publish command.
+
+    > **`RuntimeIdentifier` is NOT set here, and this bullet claimed it was until 2026-08-06.** The props file's own comment explains why: forcing a RID onto class libraries pulls RID-specific assets into their restore for no benefit, so each executable sets it — `FrameLedger.App`, `FrameLedger.Agent` and now `FrameLedger.CaptureHost`, plus its test project, which needs the same RID to reference a RID'd exe. A new project copying this document rather than the props file would have inherited nothing.
   - Nullable enable, ImplicitUsings enable, `TreatWarningsAsErrors=true`, `AnalysisLevel=latest-all`, deterministic, `ContinuousIntegrationBuild` on CI.
 - `Directory.Packages.props`: central package management, all versions pinned (including `WPF-UI` = 4.3.0 exactly — `16_WPFUI_SYNTAX` §Version hygiene).
 - **Native output reaches the managed side through `.targets` files imported by `FrameLedger.Agent`**, not through `FrameLedger.Infrastructure`: `/FrameLedger.Guard.targets` (the guard DLL), `/FrameLedger.Overlay.targets` (the payload, §S22) and `/FrameLedger.Rules.targets` (the blocklist seed). Ordering comes from `build.ps1`, which runs the native build first — **not** from the solution: `FrameLedger.slnx` contains no native project.
@@ -114,6 +116,29 @@ dotnet publish src/FrameLedger.Agent -c Release -r win-x64 --self-contained -p:P
 vpk pack --packId FrameLedger --packVersion {ver} --packDir out/app --mainExe FrameLedger.exe --icon assets/icon.ico
 ```
 
+> **Exactly two roots, and a gate now says so.** `src/FrameLedger.CaptureHost` — the unshipped
+> capture host — is outside the package because neither root references it, and
+> `tools/package-closure-check.ps1` is what keeps that true rather than remembered. It matters
+> more than an ordinary layering rule: §S27 was closed on the grounds that no shipped binary
+> carries an injecting entry point, and the host **is** one. A `ProjectReference` from either root
+> would reopen §S27 silently, so the gate names the edge. Proven both directions — a reference
+> from the Agent leaves the build green and turns the gate red.
+>
+> Solution membership is NOT the mechanism and must not be confused with it: `FrameLedger.slnx`
+> is never passed to `dotnet publish`, and leaving the host out of it would exclude it from
+> `dotnet build`, `dotnet format`, the analyzers and `dotnet test` — a far larger hole than the one
+> it would appear to close.
+>
+> **What the gate does not see, said here rather than left to be discovered.** It resolves
+> `<ProjectReference>` and nothing else — not `<Import Project="…targets">`, not
+> `Directory.Build.props`. This repository's idiom for putting a foreign binary beside a project's
+> output is exactly an imported `.targets` with a `<None … CopyToOutputDirectory>` item, so a
+> `.targets` that staged `FrameLedger.CaptureHost.exe` into a publish root would be invisible to it.
+> Narrower than it sounds — staging a binary is not referencing a project, the shipped assemblies
+> would still hold no code path to it, and the copy would be a visible new `<Import>` in a root
+> csproj — but it is a hole, and a gate that overstates its reach is the thing this one exists to
+> prevent.
+
 - No trimming (WPF + reflection), no NativeAOT (WPF unsupported), **no obfuscation** (GPLv3 policy, and `19_SAFETY` forbids making our binaries harder to identify).
 - `SatelliteResourceLanguages=en;vi;ja`. Expected package ≈ 95–130 MB self-contained.
 - Velopack hooks: installed → offer Agent setup + Vulkan layer registration; uninstalled → unregister the layer, remove the scheduled task, ask about the data folder.
@@ -122,7 +147,8 @@ vpk pack --packId FrameLedger --packVersion {ver} --packDir out/app --mainExe Fr
 
 `{{RELEASE_DATE}}` in `legal/*.md` is the **only** placeholder that survives into
 the repository, and it is deliberate: the effective date of a legal document is
-the date it ships, which is not knowable at authoring time. `release.yml`
+the date it ships, which is not knowable at authoring time. `release.yml` — **which
+does not exist yet; `13_CI_CD` §release.yml records that** —
 substitutes it with the tag date when packaging, and `ci.yml` fails the build if
 **any other** `{{` token appears in `README.md` or `legal/*.md` (`13_CI_CD.md`
 §ci.yml). Everything else — repository URL, slug, developer identity, contact
@@ -137,13 +163,31 @@ document the app displays for acceptance (FR-11) is a defect, not a template.
 3. `clang-format --dry-run -Werror` over `src/native`
 4. `dotnet restore` + build (warnings as errors)
 5. `dotnet format --verify-no-changes`
-6. `dotnet test` — **not** including the struct-mirror check, which does not exist; `build.ps1` declares and skips it loudly (§R10)
-7. `tools/rules-validate.ps1` (schema + `anticheat` block sanity — a malformed or empty blocklist is a safety bug)
-8. `tools/license-check.ps1` — asserts every vendored third-party has a licence copy in `legal/licenses/`, and that no Intel IGCL / AMD ADLX material has appeared in the tree
-9. `tools/resx-audit`
-10. Placeholder guard — fails if any `{{` token other than `{{RELEASE_DATE}}` survives in `README.md` or `legal/*.md`
+6. `dotnet test --logger trx` — including `ShmLayoutMirrorTests`; with no switches it also runs the
+   `Category=Integration` classes, which CI excludes
+7. `tools/coverage-gate.ps1` — reads this run's cobertura reports; self-arming, and armed today for
+   `FrameLedger.Domain` and `FrameLedger.Application`
+8. `tools/rules-validate.ps1` (schema + `anticheat` block sanity — a malformed or empty blocklist is a safety bug)
+9. `tools/versioninfo-check.ps1` — reads the built binary, because what ships is what an anti-cheat vendor sees
+10. `tools/chokepoint-check.ps1` — injection and evasion primitives confined to one file, native **and** managed, plus the `FL_GUARD_TESTABLE` symbol check against the shipped artifacts
+11. **`tools/package-closure-check.ps1`** — both halves: the self-test (5 cases, 4 of which must go RED) **and** a live pass over this repository. It walks the transitive `ProjectReference` closure of the two publish roots below and fails on anything outside the allowlist, naming the reference edge. `FrameLedger.CaptureHost` is an injecting entry point kept out of the package by construction, and `20_OPEN_QUESTIONS` §S27 is closed on exactly that basis
+12. `tools/license-check.ps1` — asserts every vendored third-party has a licence copy in `legal/licenses/`, and that no Intel IGCL / AMD ADLX material has appeared in the tree
+13. `tools/changelog-check.ps1 -SelfTest` — nine cases, five expected RED. The live half needs a pull request's changed-file list and is supplied by `ci.yml`
+14. `tools/resx-audit` — **skipped loudly; it does not exist, and no `.resx` file does either**
+15. **struct-mirror** — reads this run's `.trx` and fails when `ShmLayoutMirrorTests` did not execute, so deleting the mirror test is red as well as breaking it
+16. Placeholder guard — fails if any `{{` token other than `{{RELEASE_DATE}}` survives in `README.md` or `legal/*.md`
 
-CI runs the identical script (`13_CI_CD`), so local and CI can never disagree.
+> **This list was wrong in two ways until 2026-08-06 and both were the same kind of wrong.** Step 6
+> said the struct-mirror check *"does not exist; `build.ps1` declares and skips it loudly"* — while
+> line 52 of this same document, and `build.ps1` itself, had it as a hard throwing gate since
+> 2026-08-05. And the list omitted four gates the script actually runs: `coverage-gate`,
+> `versioninfo-check`, `chokepoint-check` and `changelog-check`. A document whose job is to be the
+> list of what `check` does was missing 40% of it, which is worse than having no list: a reader
+> plans against it. `13_CI_CD.md` repeats the struct-mirror claim and is corrected with it.
+
+CI runs the identical script (`13_CI_CD`), **with `-SkipIntegration`** — so a green CI is not
+evidence for anything touching the managed drain, and `./build.ps1 check` with no switches is what a
+developer runs before pushing.
 
 **Gates skip loudly.** A gate whose tool is not installed (no `cl.exe`) or not
 yet written prints `SKIPPED`, is listed again in the summary, and the run ends

@@ -7,18 +7,40 @@ FrameLedger uses the **`poli0981/.github` ops repo** where its templates fit, an
 ## Workflows (`.github/workflows/`)
 
 ### `ci.yml` — push to `main` + all PRs · **repo-local**
-- `runs-on: windows-latest`, .NET SDK pinned by `global.json` via `actions/setup-dotnet`, MSVC via `ilammy/msvc-dev-cmd`, CMake + Vulkan SDK cached.
-- Single step of substance: **`./build.ps1 check`** — the same script a developer runs before pushing, so local and CI cannot disagree. It covers the native build (`/W4 /WX`), Catch2 tests, `clang-format --dry-run -Werror`, managed restore/build with warnings as errors, `dotnet format --verify-no-changes`, `dotnet test` (which does **not** include the struct-mirror check — that gate does not exist and `build.ps1` skips it loudly, §R10), `rules-validate`, `license-check`, and `resx-audit`.
-- Uploads coverage + resx-audit artifacts.
+- `runs-on: windows-latest`, .NET SDK pinned by `global.json` via `actions/setup-dotnet`, MSVC via `ilammy/msvc-dev-cmd`, NuGet cached.
+- Single step of substance: **`./build.ps1 check -SkipIntegration`** — the same script a developer runs before pushing. The gate list lives in `12_BUILD` §Local quality gate, **once**, rather than being restated here where it goes stale.
+- **`-SkipIntegration` is the one place local and CI deliberately differ**, and the reason is a measured property of the hard gate rather than flakiness: §S16 puts the injecting process's ancestors in the scan set, a .NET test host can load `System.Security.Cryptography.ProtectedData.dll`, and the guard's `protect` fragment then refuses our own harness (§S19(b)). So a green CI is **not** evidence for anything touching the managed drain or the capture host's end-to-end behaviour.
+- Uploads coverage artifacts.
+- **Changelog gate**, on pull requests only: the changed-file list comes from GitHub's own view of the PR — not `git diff`, so a shallow checkout cannot silently produce a short one — and an empty list is refused rather than read as "no `src/` changes". It is a **step of the required `check` job** and deliberately not a job of its own: `main`'s required contexts are exactly `check` and the two `analyze` jobs, so a new job would go red while the merge button stayed green, which is what already makes `Rules / validate` advisory (§S23-2).
+
+> **Three claims in this section were false and are corrected 2026-08-06.** There is no Vulkan SDK
+> step and there will not be one — the Khronos headers are vendored. `resx-audit` does not exist and
+> is skipped loudly, so no artifact of it is uploaded. And the struct-mirror parenthesis — *"that
+> gate does not exist and `build.ps1` skips it loudly"* — has been false since 2026-08-05:
+> `build.ps1` implements it as a hard throwing gate that reads the run's `.trx` and fails when
+> `ShmLayoutMirrorTests` did not execute. `12_BUILD` carried the identical stale sentence and is
+> corrected with it; restating the gate list in two documents is what let one of them rot.
 - **Licence guard:** `tools/license-check` fails the build if a vendored dependency is missing its licence copy, or if Intel IGCL / AMD ADLX headers appear anywhere in the tree (`docs/18_GPU_VENDOR_APIS.md` §Vendor SDKs we deliberately do not use). Licensing regressions are silent and hard to unwind later — catch them at PR time.
 - **Placeholder guard:** fails if any `{{` token survives in `README.md` or `legal/*.md`. Those are shipped, legally operative documents (FR-11 displays them in the first-run Legal Gate); an unsubstituted `{{DEVELOPER_NAME}}` in an EULA is not a cosmetic defect.
 - `permissions: contents: read`.
 
-### `codeql.yml` — push, PR, weekly cron · caller stub → `poli0981/.github` `codeql-mixed.yml`
+### `codeql.yml` — push, PR, weekly cron · **repo-local**
+
+> **Not a caller stub, which this heading said until 2026-08-06.** `codeql.yml`'s own header says
+> the opposite: the ops repo has `codeql-mixed.yml`, but C++ needs manual build mode driven by the
+> CMake preset and that input surface has not been verified. The paragraph below already anticipated
+> exactly this outcome; the heading was never updated when it happened.
 - Languages: `csharp` **and `cpp`** (manual build mode for C++, driven by the CMake preset). The native layer is where memory-safety bugs would live; excluding it would defeat the purpose. Verify the mixed template exposes a C++ build-command input; if it does not, this one goes repo-local too.
 - `permissions: security-events: write, contents: read`.
 
-### `release.yml` — on tag `v*`
+### `release.yml` — on tag `v*` · **PLANNED, NOT PRESENT**
+
+> `.github/workflows/` contains `ci.yml`, `codeql.yml` and `rules-publish.yml`. There is no release
+> automation at all: the publish commands exist only as a fenced block in `12_BUILD` §Publish &
+> package, and **nothing in this repository has ever run `dotnet publish`** — which is why
+> `out/app`'s real contents had never been asserted by anything until
+> `tools/package-closure-check.ps1` started walking the reference closure statically. Recorded
+> 2026-08-06 rather than left describing a workflow that does not exist.
 - Build + test (same script, native first) → publish App+Agent self-contained → verify PresentMon SHA-256 → **verify VERSIONINFO present on `FrameLedger.Overlay.dll` and `FrameLedger.VkLayer.dll`** (identifiability is a safety requirement, `19_SAFETY`) → `vpk pack` → generate `SHA256SUMS.txt` → create GitHub Release with Velopack assets + checksums, release notes from `CHANGELOG.md` section.
 - Optional final step: submit installer hash to VirusTotal and append the report link to release notes (helps unsigned-binary trust).
 - `permissions: contents: write`.

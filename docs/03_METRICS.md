@@ -67,6 +67,19 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 3. **`cadence`** (last resort, both tiers). Sustained `Displayed/Native ≥ 1.5` → `Detected (unknown)`.
 4. Otherwise `fg_mode = none`, factor `—`.
 
+> **Rung 0, added 2026-08-06, and it has to come before rung 4 or rung 4 is a lie.** If
+> `FL_MEASURED_FG` is clear the answer is **`N/A`**, not `none`: no hook capable of answering
+> was live, and `none` means *"a hook ran and there was genuinely no frame generation"* —
+> the only one of the three states that may be aggregated as a negative (`fl_shm.h`,
+> layout v3). Applied to today's present-only writer, rung 4 as written turns "nobody
+> looked" into a measured absence about every title, which is the affirmative negative
+> the whole of layout v3 exists to make impossible.
+>
+> Likewise **`fg_factor` is `N/A` unless `FL_MEASURED_FG_COUNTS` is set**, and never `1.0`.
+> `F_app = presents − Σ fgEvaluations` with the counts unmeasured makes `F_app == F_disp`
+> by construction — CLAUDE.md rule 6's forbidden number, reached by a consumer that
+> counted nothing.
+
 ### Counting native vs displayed frames at Tier 1
 
 Application-generated and FG-generated frames both go out through the swapchain
@@ -106,10 +119,37 @@ rung identified the mode — only the *identification* comes from the ladder.
 
 From the upscaler hooks we get, per frame:
 
-- `upscaler`: the technology **actually executing** (`dlss`, `dlss_rr`, `fsr2`, `fsr3`, `fsr4`, `xess`, `nis`, `none`) — from the API that was called, not from a DLL sitting on disk.
+- `upscaler`: the technology **actually executing** (`dlss`, `fsr2`, `fsr3`, `fsr4`, `xess`, `nis`, `none`) — from the API that was called, not from a DLL sitting on disk.
+
+  > **`dlss_rr` is NOT a value of this field, and this line listed it until 2026-08-06.** Layout
+  > v3 retired it and **reserved** the slot rather than reusing it, because it made Ray
+  > Reconstruction mutually exclusive with DLSS super-resolution — and the two run together.
+  > RR is an independent tri-state axis (§RT/PT/RR below, and CLAUDE.md rule 7's trio), carried
+  > as `FL_FEAT_RAY_RECONSTRUCTION` in `featureFlags` with its own OBSERVED bit. A consumer
+  > written from this line would have decoded the reserved value 2 as `dlss_rr` and resurrected
+  > the conflation the record had already removed.
 - `renderW × renderH` vs `outputW × outputH` → **exact upscale ratio**: `sqrt((outW×outH)/(renW×renH))`, reported both as a ratio (`1.50×`) and a percentage (`67% render scale`).
 - `upscalerQuality`: the vendor's own quality enum (DLSS Performance/Balanced/Quality/DLAA, XeSS quality setting, FSR preset), mapped to a display name per vendor in `Domain.UpscalerNames`.
 - Resolution changes mid-session (user changed settings, or dynamic resolution scaling) produce **segments**: the session stores a segment list `(startFrame, renderW/H, outputW/H, upscaler, quality)`. Aggregates report the dominant segment plus a "settings changed during session" flag — averaging across a settings change is the classic way benchmark numbers become meaningless.
+
+  > **Two segmentation axes exist, they compose in ONE order, and neither document said so until
+  > 2026-08-06.** This one splits on a settings change; `fl_shm.h` §`swapchainId` says the Agent
+  > "segments by this value and reports the dominant stream". **Stream first, settings second.**
+  > Patching a vtable slot patches the shared `dxgi.dll` class vtable, so one hook sees every
+  > swapchain in the process — a title with a separate UI or video swapchain interleaves two
+  > streams in one ring, and splitting on resolution first cuts a new segment every time the two
+  > alternate, i.e. one segment per present.
+  >
+  > **`swapchainId == 0` is "one undifferentiated stream", never a valid id**, and must not be
+  > reported as the dominant stream while a real one exists — it is what the writer publishes when
+  > it could not identify the swapchain.
+  >
+  > **A gap within a stream cannot be detected from `frameIndex`.** `dllmain.cpp` assigns
+  > `g_frameIndex++` once per accepted present for the WHOLE PROCESS, four lines before it assigns
+  > `swapchainId`, so within one stream of an interleaved pair consecutive records' indices differ
+  > by however many streams are running. An interval rule keyed on "index advanced by exactly one"
+  > excludes *every* interval in any multi-swapchain title. Gaps come from the drain's own
+  > accounting (`07_IPC` §Protocol rules), which is where they are known.
 
 Tier 2 has none of this: `upscaler = unknown`, ratio `N/A`.
 
@@ -177,7 +217,7 @@ Per-column sources, and what a *Tier-2* export does instead:
 | `native_or_generated` | `frame_flags` generated bit, set from `fgEvaluations` | `FrameType` (2.x) |
 | `render_w/h`, `output_w/h` | `render_res` blob — **two `uint16` pairs per frame**, not one; `ResizeBuffers` is hooked precisely because output resolution changes mid-session | `N/A` |
 | `upscaler`, `upscaler_quality`, `fg_mode` | segment table, joined by frame index | `N/A` |
-| `rt_flags` | `rt_flags` blob, **one byte per frame** preserving all three bits (`asBuild`, `dispatchRays`, `rtPsoAlive`) — collapsing them to a single "rt-active" bit loses the inline-RayQuery distinction this project exists to measure | `N/A` |
+| `rt_flags` | `rt_flags` blob, **one byte per frame** preserving all three bits (`asBuildObserved`, `dispatchObserved`, `psoCreatedEver`) — collapsing them to a single "rt-active" bit loses the inline-RayQuery distinction this project exists to measure. The third was `rtPsoAlive` until layout v3 renamed it: creation is observed at `CreateStateObject` and destruction is COM `Release`, which is not in the hook inventory and must not be added, so the bit latches and could only ever mean "created ever" | `N/A` |
 | `dispatch_rays` | `dispatch_rays` blob (`uint32[]`, the volume) | `N/A` |
 | `pso_created` | `pso_created` blob (`uint16[]`, the **count**, not a flag) | `N/A` |
 | `vram_mb` | `vram_proc` per-frame blob. Note the value is refreshed at 1 Hz (`17_HOOK_ENGINE` §Memory) so it is a held sample, not a per-frame measurement — the header block says so | `N/A` |

@@ -13,6 +13,15 @@ The hook rewrite front-loads risk: almost everything uncertain is in P0/P1. That
 
 Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit criteria pass.
 
+> **Status as of 2026-08-06.** Items **2, 3 and 5 done**; 0 and 1 partly. **The
+> capture path that P2 owns on paper now exists, unshipped**, and is what makes the
+> remaining P0 work purely about hooks: `FrameLedger.CaptureHost` drives
+> `HookedCaptureGate` → `FlGuardedInject` → `ShmRingReader` → drain with
+> `GuardSupervisor` beside it, so `guardTicks` advances from a non-test binary for
+> the first time. It moves **no roadmap item** — items 4, 6 and 7 still need feature
+> hooks, and the writer still measures nothing but output resolution and its own
+> present arguments — which is why this line still reads the same below.
+>
 > **Status as of 2026-08-05.** Items **2, 3 and 5 done**; 0 and 1 partly. The
 > safety work that had to precede the first injection — the guard, its matrix,
 > the chokepoint, the layer's gates — is in, and the first real injection has
@@ -60,9 +69,31 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > > write-read loop against `hook-harness` — real guard, real injection, real
 > > Overlay, real reader. **Two qualifications that matter for planning:** that test
 > > is `Category=Integration` and CI runs `-SkipIntegration` (§S19(b)), so the loop is
-> > proven on a dev box and not in the merge gate; and the reader has **no production
-> > caller**, so nothing drives it outside the suite. The item-4/6/7 status in the
+> > proven on a dev box and not in the merge gate; and ~~the reader has **no production
+> > caller**, so nothing drives it outside the suite~~. The item-4/6/7 status in the
 > > paragraph above is, by contrast, still accurate.
+>
+> > **The reader has a production caller as of 2026-08-06**, and it is deliberately not
+> > in a shipped binary. `FrameLedger.CaptureHost` drives `HookedCaptureGate` →
+> > `FlGuardedInject` → `ShmRingReader.TryAttach` → a 10 Hz drain with
+> > `GuardSupervisor.ScanOnceAsync` and `PublishGuardResult` beside it — **the first
+> > production advance of `FlControlBlock.guardTicks`**, which is the sending half of the
+> > 30 s re-scan `19_SAFETY` calls the most important runtime behaviour in the capture
+> > layer and `README` already promises users. Both ends of that field had existed and
+> > been tested since #46/#50; only the loop was missing, and a missing loop reads as a
+> > missing subsystem.
+> >
+> > It changes nothing about items 4, 6 or 7: the writer still records
+> > `measuredMask = FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` and nothing else,
+> > and the consumer built on top of it reports `N/A` for upscaler, frame generation and
+> > ray tracing because that is what the data says. What it moves is the **exit
+> > criterion's other half**: there is now a path from a consent record to a drained
+> > session, so the throwaway build criterion 1 asks for needs feature hooks and nothing
+> > else.
+> >
+> > `12_BUILD` publishes `FrameLedger.App` and `FrameLedger.Agent` and neither references
+> > it, which `tools/package-closure-check.ps1` now enforces rather than assumes — §S27
+> > is closed on exactly that basis.
 >
 > Work that P1 owns on paper and that landed here: the ring writer, the present
 > hook and the fault policy. The unhook path is partial (`MH_DisableHook`, not the

@@ -152,17 +152,6 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
     public static int NativeReasonCount() => FlGuardReasonCount();
 
     /// <summary>
-    /// The path the native guard reads its rules from, for asserting that this
-    /// assembly's independent resolution agrees with it (§S21).
-    /// </summary>
-    /// <remarks>
-    /// Read-only by construction: the ABI has no setter and accepts no path, so
-    /// this widens what can be OBSERVED and not what can be chosen. It exists
-    /// because two different Win32 resolutions of "the same directory" is exactly
-    /// the shape §S21 was — a seeder that writes where the gate does not read
-    /// reports success and leaves the guard refusing every title.
-    /// </remarks>
-    /// <summary>
     /// Would the native guard accept this rules document? Returns
     /// <c>fl::guard::ParseResult</c>; <c>0</c> is <c>kOk</c>.
     /// </summary>
@@ -197,6 +186,25 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
         }
     }
 
+    /// <summary>
+    /// The path the native guard reads its rules from, for asserting that this
+    /// assembly's independent resolution agrees with it (§S21).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read-only by construction: the ABI has no setter and accepts no path, so
+    /// this widens what can be OBSERVED and not what can be chosen. It exists
+    /// because two different Win32 resolutions of "the same directory" is exactly
+    /// the shape §S21 was — a seeder that writes where the gate does not read
+    /// reports success and leaves the guard refusing every title.
+    /// </para>
+    /// <para>
+    /// This block used to sit on <see cref="NativeCheckRules"/> as the first of two
+    /// stacked <c>&lt;summary&gt;</c> elements, while the member it describes had
+    /// none — so <c>GenerateDocumentationFile</c> emitted §S21's reasoning against
+    /// the wrong method.
+    /// </para>
+    /// </remarks>
     public static string NativeRulesFilePath()
     {
         // 1024 mirrors fl::guard::kMaxRulesPathLen. A short buffer would come

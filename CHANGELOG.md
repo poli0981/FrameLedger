@@ -6,12 +6,206 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — `MAJOR`
 bumps for a database schema or IPC protocol break (`docs/11_UPDATER.md`).
 
-`release.yml` reads the section for the tag being released and uses it as the
-GitHub release body, so a missing section means an empty release note.
+`release.yml` **will** read the section for the tag being released and use it as the
+GitHub release body, so a missing section will mean an empty release note.
+
+> **It does not exist yet** — `.github/workflows/` holds `ci.yml`, `codeql.yml` and
+> `rules-publish.yml` only, and `docs/13_CI_CD.md` records that. Written in the future
+> tense here from 2026-08-06 rather than describing a workflow nobody has. Note also
+> that this file has no `## [x.y.z]` heading yet, so the first release needs one
+> created before a tag has anything to find.
 
 ## [Unreleased]
 
 ### Added
+
+- **The consent store, and the first production driver of the guard loop** — `docs/HANDOFF.md`
+  queue item 1. `HookedCaptureGate`'s three inputs (`hook_enabled`, `hook_consent_at`,
+  `hook_blocked_reason`) have a real source for the first time, and
+  `FlControlBlock.guardTicks` is now advanced by a **non-test binary**. Both ends of that
+  field existed and were tested since #46/#50; only the loop was missing, and a missing loop
+  reads as a missing subsystem.
+  - **`FrameLedger.CaptureHost` is a separate project that nothing publishes**, and
+    `tools/package-closure-check.ps1` is what keeps that true rather than remembered. §S27 was
+    closed on the strength of there being no injecting entry point on any shipped binary; the
+    host **is** one, so what keeps §S27 closed is its absence from the package. The gate walks
+    the transitive `ProjectReference` closure of the two roots `12_BUILD` publishes and names
+    the edge that reached anything else. **Proven:** a reference from `FrameLedger.Agent` leaves
+    the build green and turns the gate red with `FrameLedger.Agent → FrameLedger.CaptureHost`.
+    Both halves are wired — the self-test (5 cases, 4 RED) **and** the live pass, because a gate
+    wired self-test-only never reads the repository, which is the defect it exists to prevent.
+  - **`HookRequest` can no longer be synthesised, and that is what actually closed the hole.**
+    It was a `record` with `required`/`init` members, so
+    `new HookRequest { HookEnabled = true, ConsentedAt = DateTimeOffset.UtcNow }` passed every
+    check in the gate and reached `GuardedInjectAsync` — **verbatim the expression §S27 named and
+    rejected**. A store, a record and a provenance flag do not close that; they add an honest path
+    beside it. It is now get-only with a private constructor and one factory, so the dishonest
+    path is a compile error rather than a discouraged idiom. Found by a safety refuter over the
+    design, before any of it was built.
+  - **`GameConsentRecord.Stored` is `internal`**, because `FrameLedger.Domain` is inside both
+    publish closures: a public minting factory there would be a blessed, *shipped* API for
+    producing consent nobody gave, and the closure gate cannot see it — it walks project
+    references, and Domain legitimately belongs to both. The `InternalsVisibleTo` list is the
+    reviewable artifact; a test asserts the public factory does not exist.
+  - **An acknowledgement cannot clear a block.** `RecordOperatorAcknowledgementAsync` takes an
+    `OperatorAcknowledgement`, which carries neither `BlockedReason` nor `PreScanUnverified`, so
+    the store's merge is their only source. Taking a whole record — the first shape — meant
+    `consent grant` on a title the pre-scan had blocked would write `BlockedReason = null` and
+    the gate's `PreviouslyBlocked` branch would stop firing: the "I understand, continue anyway"
+    button CLAUDE.md rule 2 forbids, arrived at by omission.
+  - **The pre-scan's third state gets its own field.** `05_DETECTION` makes "could not verify"
+    neither a hit nor a pass, while `hook_blocked_reason` is two-state by definition. It is
+    refused in the loop, never mapped to `PreviouslyBlocked` and never cleared — routing it
+    through the gate would force one of the two collapses that document forbids.
+  - **A consent record carries a disclosure provenance and a wording version**, neither of which
+    `06_DATA_MODEL` has. A bare timestamp cannot say whether anything was disclosed, and
+    `ConsentProvenance.NotRecorded = 0` means a record nobody filled in refuses. **FR-2.1's value
+    is deliberately not declared**: no `.resx` exists anywhere in this tree, `09_I18N` reviews
+    `Safety_*` keys as legal text, and a declared-but-producerless value is the "reads as
+    sanctioned" shape §S29(c) was raised for. The version is carried from the *first* record
+    because it cannot be added later — retrofitting one means treating unversioned consent as
+    either current or stale, and both are wrong about some record.
+  - **The command surface has no `--pid`, `--payload`, `--force`, `--yes` or `--diag`**, and a
+    test pins it. §S27's gap was a user-named pid on a binary with no consent record; resolving
+    the target from the same normalised path the record is keyed on makes "consent for A,
+    injection at B" inexpressible rather than discouraged. Two processes of one image refuse as
+    ambiguous rather than picking one.
+  - **`consent grant` refuses redirected stdin**, so no script can acknowledge on a human's
+    behalf, and the disclosure states in its first line that it is *not* FR-2.1 consent.
+
+- **Session end has a signal (§S29(e) closed).** A held process handle, opened before the
+  injection and never re-resolved — pids recycle and the ring is named after one.
+  - **It was first closed on a handle that was never held, and the correction is the
+    interesting part.** The first version used `Process.GetProcessById` and read
+    `HasExited`. **Measured** on .NET 10.0.10 by a probe over the live object:
+    `_haveProcessHandle == false` and `_processHandle == null` both after construction and
+    after reading `HasExited` — `GetProcessById` opens nothing and `HasExited` opens a
+    transient handle and releases it in its own `finally`. Three source comments, a ledger
+    entry and a changelog line all asserted the pid was pinned; nothing checked it, and it
+    was not. `Infrastructure.Io.HeldProcessHandle` now opens `SYNCHRONIZE |
+    PROCESS_QUERY_LIMITED_INFORMATION` and keeps the `SafeProcessHandle`, a pid that
+    cannot be opened is a refusal (`TargetCannotBePinned`) rather than a session, and the
+    test asserts the *property* — it answers about a fully exited process at a pid
+    `Process.GetProcessById` will not resolve, which nothing holding a handle-less object
+    can do. The ninth entry for "measure Windows APIs, don't trust them", and the first
+    where the API misled by doing **less** than its name implies.
+  `SessionEndClassifier` takes no elapsed-time parameter, so **a frozen `writeIndex` can never
+  end a session**, which is the whole of the defect: `ShmRingReader` holds the section open, so
+  an exited game leaves `status` `READY` and `writeIndex` frozen, byte-for-byte a loading screen.
+  §S26 made it strictly worse by dropping `DXGI_PRESENT_TEST`, removing the accidental heartbeat
+  an occluded title used to emit. It also separates the two stops the mapping cannot: `StopObserving`
+  stores `FL_STATUS_UNHOOKED` for the safety stop **and** for supervision loss, so only the side
+  that caused one knows which — and `legal/DISCLAIMER.md` §2 discloses them differently.
+
+- **A throwaway consumer**: `measuredMask` → rule 7 tri-state, segmentation, and the one number a
+  present-only writer may publish. In the unshipped host, deliberately not in
+  `FrameLedger.Domain.Metrics.*` — P2 owns the real calculators and `coverage-gate` carries a
+  separate 95% floor for that namespace.
+  - **Segmentation is stream-first, settings-second**, and reversing it manufactures a segment per
+    present. Two axes exist and neither document mentions the other: `03_METRICS` §Upscaling
+    splits on a settings change, `fl_shm.h` says the Agent "segments by [`swapchainId`] and reports
+    the dominant stream". One vtable patch sees every swapchain in the process, so a title with a
+    UI or video swapchain interleaves two streams in one ring.
+  - **`frameIndex` is process-global, so it cannot detect a gap within a stream.** The first design
+    excluded any interval whose index did not advance by one — which would have excluded *every*
+    interval in any multi-swapchain title and reported no duration at all, including for Displayed
+    FPS. `dllmain.cpp` assigns `g_frameIndex++` four lines before `swapchainId`; the overflow
+    harness interleaves 17, so the dominant stream's indices step by ~17. Found by a feasibility
+    refuter over the design.
+  - Everything unmeasurable is `null` or `N/A` with **no fallback**: `fg_factor` is never `1.0`,
+    `fgMode` is never `"none"`, the upscale ratio is not computed at all (`renderW/H` are 0), and
+    the retired `FlUpscaler` value 2 is never decoded as `dlss_rr` — `03_METRICS` §Upscaling
+    listed it as an upscaler value until this PR, which removes it and records why. The
+    renderer is asserted too: rule 6 is a rule about
+    *showing* a single inflated number, and a test matches the rendered text against `×N`.
+
+- **`--present-interval-ms` on `hook-harness`**, because one test could not be written without it.
+  The Agent's drop accounting fires when the writer laps the reader — 8192 records — and at the
+  default ~120/s that is **68 seconds** of a reader deliberately not draining, so the branch
+  `04_CAPTURE` calls "the Agent stalled for over ~16 s" had never run against the real Overlay in
+  either language. Measured: uncapped, the harness does **171,636 presents in 3 s**, so the ring
+  laps in well under a second.
+
+### Changed
+
+- **`HookedCaptureGate.ShouldUnhookAsync` is deleted (§S29(c) closed).** It was a second in-session
+  re-scan that published no tick and did not latch — the two properties `GuardSupervisor` exists to
+  guarantee — and it was the *more discoverable* of the two, because a drain loop already holds the
+  gate. Its polarity was inverted from the survivor's, too: `true` meant STOP where
+  `ScanOnceAsync`'s `true` means MAY CONTINUE. Deleted rather than routed: it had **zero production
+  callers**, its body was strictly weaker than `ScanOnceAsync`, and routing would have given the
+  gate per-session state on a class whose contract is that it "adds no judgement of its own".
+  - **The two Facts that covered it are replaced by one that is stronger.** They asserted the
+    boolean and never the tick or the latch, so they certified the API as sanctioned while saying
+    nothing about what was wrong with it. `TheGateExposesNoSecondInSessionRescanPath` pins the
+    gate's public instance surface to exactly `{StartAsync}` and is red on unmodified `main`.
+
+- **`ShmDrainIntegrationTests`' honesty helper is split.** `AssertRecordsAreHonest` mixed
+  fixture-independent invariants with assertions about attach *timing* and a single swapchain, and
+  a fixture that deliberately stalls the reader satisfies neither — reusing it produced a red test
+  whose failure message was about frame indices, indistinguishable from a real regression.
+
+### Fixed
+
+- **`ShmRingReader.SetPaused` had no test at all.** Both halves of `pauseRequested` existed —
+  `MayObserve()` has read the flag since #46 — and the managed writer had never been driven in
+  either direction. Now both: a merge-gated round trip proving the byte lands at
+  `ControlOffset + 0` and that `unhookRequested` four bytes away is untouched, plus an integration
+  case proving the Overlay acts on it, **ticking throughout**, because the defect #46 fixed only
+  appeared on frames where `guardTicks` had changed. A pause is invisible in the record stream —
+  `MayObserve()` returns false before `frameIndex` is assigned — which the consumer must not read
+  as one enormous frame time.
+
+- **`ShmHandshakeValidator` never compared `handshake.Pid`**, so a ring left behind by a finished
+  session, or one under a recycled pid, validated `Ok` on build id, layout and capacity alone.
+  Not an ABI change: `ShmAttachRefusal` is managed-only with no native mirror.
+
+- `NativeAntiCheatGuard`'s §S21 rationale was attached to `NativeCheckRules` by two stacked
+  `<summary>` blocks while `NativeRulesFilePath`, which it describes, had none.
+
+### What the adversarial review of this diff caught before it landed
+
+An adversarial pass over the working tree raised 23 candidates; 17 survived a second agent told
+to refute them. Beyond the process handle above, the ones that were real defects rather than
+documentation drift:
+
+- **"Could not read the executable" passed the fingerprint check instead of refusing.**
+  `observed ?? record.Fingerprint` made `FromConsent`'s mismatch comparison compare the record
+  against **itself**, so an unreadable binary decided as "this is the consented one" — the one
+  polarity everything else here is built to avoid. Now `ExecutableUnreadable`.
+- **`Enum.TryParse` accepts numeric strings**, so `"provenance": "1"` in the consent file yielded
+  `UnshippedHostOperator` and `"42"` an undeclared value cast to the enum — an end-run around the
+  two-member count a test pins. The comment claimed the opposite in as many words. Now
+  `Enum.IsDefined` plus an ordinal name comparison, with the numeric cases tested.
+- **An unreadable consent file silently cleared a persisted guard block.** "There is no file" and
+  "I could not read the file" both produced an empty store, and every write is a
+  read-modify-write over that — so the merge that carries `BlockedReason` forward carried nulls,
+  and the write republished a file containing only the new entry, dropping every other game's
+  record. The two outcomes are now distinct and an unreadable store refuses every write.
+- **A guard exception mid-session discarded every record already drained.** Not advancing the tick
+  is correct and required; losing the session's data with the stack was neither. Now
+  `SupervisionFaulted`, with the final drain still running — and the *first* scan still throws,
+  because there is no session to preserve yet.
+- **`StreamSegmenter` cut a spurious 0×0 segment** when a stream's first records had no measured
+  size: `w`/`h` were both the "no baseline yet" sentinel and a real resolution, so the split fired
+  on the first measured record — cutting a segment on the writer's silence, which the surrounding
+  comment forbids.
+- **`TargetResolver` narrowed to a false single match.** Its comment claimed skipping an unreadable
+  process avoided that; skipping is what caused it, because `matches.Count == 1` could not tell
+  "one candidate" from "one readable candidate and others invisible". Skips are counted now.
+- **`ConsentWriteOutcome.StaleFingerprint` had no producer** — a declared-but-producerless value,
+  the shape this same PR invokes two files away to justify `ConsentProvenance` having no FR-2.1
+  member. It is produced now, and only where it matters: a re-grant against a different binary
+  cannot inherit an existing block, while an ordinary re-consent after a patch still works.
+- **Three of the new tests could not fail for the property they named.**
+  `ATerminalAttachRefusalIsNotRetriedIntoATimeout` asserted only the final reason, which is
+  identical whether the refusal returns immediately or is retried to the budget — it counts
+  attempts now, and gained the green half. `TheFirstTickIsPublishedBeforeAnyDrain` recorded
+  publishes and drains in two independent lists, so no ordering was observable — one ordered event
+  list now. And the end-to-end refusal case called `File.Delete` on a path whose parent directory
+  only exists once some test has written a record, so on a clean build output it threw and its
+  verdict depended on which sibling ran first — in the very test whose comment says a test whose
+  verdict depends on what ran before it is one this repository does not accept.
 
 - **`docs/HANDOFF.md` — one file to pick the work up from, and it carries no status.**
   Sequencing, the decisions that live in no other file, and the traps that cost a wrong

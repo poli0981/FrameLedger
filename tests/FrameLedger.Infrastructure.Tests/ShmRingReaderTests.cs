@@ -252,6 +252,42 @@ public sealed class ShmRingReaderTests
     }
 
     [Fact]
+    public unsafe void PauseAndResumeBothLandInTheControlBlock()
+    {
+        // SetPaused had NO TEST AT ALL: a tree-wide grep returned exactly one code hit, its own
+        // definition. Both halves of the mechanism have existed since #46 — MayObserve() reads
+        // pauseRequested on the present path — and the managed writer had never been driven in either
+        // direction, so nothing said the byte lands where fl_shm.h puts it.
+        //
+        // BOTH DIRECTIONS, because pause is the ONE control-block signal that is not one-way: a
+        // publisher that stored 1 unconditionally would satisfy the true half on its own, and the
+        // resume half is what the Agent needs to end a pause it started.
+        //
+        // AND unhookRequested is asserted untouched throughout. The two fields are four bytes apart
+        // (@0 and @4) and a publisher that wrote the wrong one would set the SAFETY STOP instead of a
+        // pause — the failure this assertion exists to name, rather than leaving it to be inferred
+        // from a pause that "did not work".
+        //
+        // This needs no native fixture and carries no Integration trait, so it runs in the MERGE GATE.
+        // That is not a weaker proof than a cross-process test: this Fact proves the byte lands at
+        // ShmLayout.ControlOffset + 0, ShmLayoutMirrorTests proves that offset equals fl_shm.h's, and
+        // ctest fl_guard proves the Overlay reads fl_shm.h's field. Every link is gated.
+        int pid = FakePid();
+        using var ring = new FakeRing(pid);
+        using ShmRingReader? reader = ShmRingReader.TryAttach(pid, _buildId, out _);
+
+        ring.Control->PauseRequested.Should().Be(0u, "nothing has asked for a pause yet");
+
+        reader!.SetPaused(true);
+        ring.Control->PauseRequested.Should().Be(1u);
+        ring.Control->UnhookRequested.Should().Be(0u, "pausing is not stopping");
+
+        reader.SetPaused(false);
+        ring.Control->PauseRequested.Should().Be(0u, "a pause the Agent started is a pause it can end");
+        ring.Control->UnhookRequested.Should().Be(0u);
+    }
+
+    [Fact]
     public unsafe void TheWriterStateIsReadableSoTheOverlaysOwnStopsAreVisible()
     {
         // status and faultCount are the ONLY fields carrying the three-fault self-disable, a failed hook
