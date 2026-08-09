@@ -163,6 +163,27 @@ GitHub release body, so a missing section will mean an empty release note.
 - `NativeAntiCheatGuard`'s §S21 rationale was attached to `NativeCheckRules` by two stacked
   `<summary>` blocks while `NativeRulesFilePath`, which it describes, had none.
 
+### A fifth rate-sized budget, and a correction to what I said about WARP
+
+`TheGuardInjectsTheOverlayAndTheReaderDrainsRealFrames` — pre-existing, from #51 — drained for a
+fixed twelve iterations and then asserted a floor sized on "the harness presents at ~120/s". It waits
+for the record count now, bounded by a wall clock, and gained an assertion that the loop supervised
+more than once so the shortened path cannot pass vacuously. **This is explicitly not presented as the
+fix for the one failure observed**: it failed once in twelve runs with its message uncaptured, and
+after #62 — two rounds of the wrong remedy — the rule is that a defect class is a hypothesis about
+the next failure, not a diagnosis of it. The budget was removed because that is defensible on its own
+terms. Ten consecutive full runs clean.
+
+**And the WARP note in `HANDOFF` §Traps said "a reboot clears it", which is false.** That sentence was
+written on plausibility and never tested. The machine rebooted at 13:58 and the identical failure
+reproduced at 14:17. Measured properly this time: `D3D12CreateDevice` on the WARP adapter returns
+`DXGI_ERROR_DRIVER_INTERNAL_ERROR` at **every** valid feature level, while `D3D11CreateDevice` on the
+**same adapter object** succeeds at FL 11_0 and D3D12 on the RTX 5080 succeeds; `d3d10warp.dll`,
+`d3d12.dll` and `D3D12Core.dll` all match the OS build (Windows 11 Insider 26300/29639), so nothing is
+corrupt. It reads as an Insider-build regression in WARP's D3D12 path and it is persistent. CI is not
+an Insider build and passes the same suite, so `main` is unaffected — but the native suite has a hard
+dependency on WARP D3D12 that a dev box can lose on its own, which is now written down.
+
 ### A fourth failure that was not a race at all — an off-by-one wearing a flake's costume
 
 `APausedSessionStopsRecordingAndResumesWhereItLeftOff` failed roughly one run in five, which is

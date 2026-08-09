@@ -156,9 +156,14 @@ public sealed partial class MeasuredFactsTests
     [Fact]
     public void TheRetiredUpscalerValueIsNeverDecodedAsRayReconstruction()
     {
-        // 03_METRICS §Upscaling still lists `dlss_rr` as an upscaler value and is stale against layout
-        // v3, which RETIRED and RESERVED slot 2 precisely because it made Ray Reconstruction mutually
-        // exclusive with DLSS super-resolution. Decoding 2 as anything resurrects the conflation.
+        // 03_METRICS §Upscaling listed `dlss_rr` as an upscaler value until the PR that added this
+        // file removed it — layout v3 RETIRED and RESERVED slot 2 precisely because it made Ray
+        // Reconstruction mutually exclusive with DLSS super-resolution, and the two run together.
+        // Decoding 2 as anything resurrects the conflation the record had already dropped.
+        //
+        // The present tense here outlived the edit it described by one PR, which is the same
+        // doc-truth defect this project keeps recording — in a comment, this time, where nothing
+        // gates it.
         List<FlFrameRecord> stream = [.. Stream(5, 1000).Select(r =>
         {
             r.MeasuredMask |= (ushort)FlMeasured.Upscaler;
