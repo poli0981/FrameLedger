@@ -13,6 +13,15 @@ The hook rewrite front-loads risk: almost everything uncertain is in P0/P1. That
 
 Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit criteria pass.
 
+> **Status as of 2026-08-06.** Items **2, 3 and 5 done**; 0 and 1 partly. **The
+> capture path that P2 owns on paper now exists, unshipped**, and is what makes the
+> remaining P0 work purely about hooks: `FrameLedger.CaptureHost` drives
+> `HookedCaptureGate` → `FlGuardedInject` → `ShmRingReader` → drain with
+> `GuardSupervisor` beside it, so `guardTicks` advances from a non-test binary for
+> the first time. It moves **no roadmap item** — items 4, 6 and 7 still need feature
+> hooks, and the writer still measures nothing but output resolution and its own
+> present arguments — which is why this line still reads the same below.
+>
 > **Status as of 2026-08-05.** Items **2, 3 and 5 done**; 0 and 1 partly. The
 > safety work that had to precede the first injection — the guard, its matrix,
 > the chokepoint, the layer's gates — is in, and the first real injection has
