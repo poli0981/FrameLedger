@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>FrameLedger.CaptureHost.Tests</RootNamespace>
+
+    <!--
+      The end-to-end case reads FlControlBlock.guardTicks through its OWN mapped
+      view, to prove the host published a tick from outside the host. ShmRingReader
+      exposes WriterState and Handshake but no way to read the control block, and
+      adding a getter to shipped code purely so a test can look is the wrong trade.
+      Reading a mapped struct needs unsafe; Directory.Build.props does not set it.
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!--
+      The host is an Exe with RuntimeIdentifier win-x64. A referencing project with
+      no RID makes restore resolve two different graphs, so the RID is set here too.
+    -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FrameLedger.CaptureHost\FrameLedger.CaptureHost.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    hook-harness is the ONLY thing this suite ever injects into: our own dummy D3D
+    app, built from this tree, carrying no anti-cheat and belonging to no publisher.
+    A test in this class asserts that constraint ON ITSELF, exactly as
+    ShmDrainIntegrationTests does, so it cannot grow into something that injects
+    elsewhere by increments (§S9, §S27).
+
+    The Overlay and the guard come with it, because §S22 compares the payload's
+    directory against the guard's own by file id.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.DrainFixtures.targets" />
+
+</Project>

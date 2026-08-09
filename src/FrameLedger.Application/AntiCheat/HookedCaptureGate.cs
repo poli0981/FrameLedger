@@ -7,10 +7,25 @@ namespace FrameLedger.Application.AntiCheat;
 /// into something the UI can explain.
 /// </summary>
 /// <remarks>
+/// <para>
 /// This is the ONLY managed logic between the user's intent and the guard, and
 /// it deliberately adds no judgement of its own about anti-cheat: it checks the
 /// things the native guard structurally cannot see — per-game consent, which is
 /// a record of something a human did — and then defers entirely.
+/// </para>
+/// <para>
+/// <b>It exposes exactly one instance method, and that is a property a test
+/// pins.</b> <see cref="StartAsync"/> is the only way in. There was a second —
+/// <c>ShouldUnhookAsync</c>, an in-session re-scan that published no
+/// <c>guardTicks</c> and did not latch — and it was deleted rather than repaired
+/// (<c>20_OPEN_QUESTIONS</c> §S29(c)). Those two properties are the entire point
+/// of <see cref="GuardSupervisor"/>, so a second route that had neither was a way
+/// for the supervision counter to quietly stop meaning what it says: a drain loop
+/// already holds this object, which made the weaker API the more discoverable one.
+/// The polarity differed too — <c>ShouldUnhookAsync</c> returning <c>true</c> meant
+/// STOP, while <see cref="GuardSupervisor.ScanOnceAsync"/> returning <c>true</c>
+/// means MAY CONTINUE.
+/// </para>
 /// </remarks>
 public sealed class HookedCaptureGate(IAntiCheatGuard guard)
 {
@@ -18,9 +33,18 @@ public sealed class HookedCaptureGate(IAntiCheatGuard guard)
 
     /// <summary>
     /// CLAUDE.md rule 1: injection is opt-in per game and never automatic. The
-    /// native guard cannot enforce this — consent lives in the Agent's database
-    /// — so it is enforced here, before the guard is even asked.
+    /// native guard cannot enforce this — consent is a record of something a
+    /// human did, which no process scan can see — so it is enforced here, before
+    /// the guard is even asked.
     /// </summary>
+    /// <remarks>
+    /// The three inputs come from <c>IGameConsentStore</c>. This comment said
+    /// "consent lives in the Agent's database" in the present tense while no
+    /// database, no <c>games</c> table and no consent writer existed in any
+    /// <c>.cs</c> file (§S27) — the same present-tense-claim-about-an-absent-thing
+    /// shape CLAUDE.md's pinned-stack table records against itself. SQLite is P2's
+    /// adapter for that port, and it is still unwritten.
+    /// </remarks>
     public async ValueTask<AntiCheatVerdict> StartAsync(
         HookRequest request,
         CancellationToken ct = default)
@@ -53,16 +77,5 @@ public sealed class HookedCaptureGate(IAntiCheatGuard guard)
         }
 
         return await _guard.GuardedInjectAsync(request.TargetPid, request.PayloadPath, ct).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// The in-session re-scan. A refusal here means unhook, not merely
-    /// "do not start" — <c>19_SAFETY</c> calls this the single most important
-    /// runtime behaviour in the whole capture layer.
-    /// </summary>
-    public async ValueTask<bool> ShouldUnhookAsync(int targetPid, CancellationToken ct = default)
-    {
-        AntiCheatVerdict verdict = await _guard.EvaluateAsync(targetPid, ct).ConfigureAwait(false);
-        return !verdict.IsAllowed;
     }
 }

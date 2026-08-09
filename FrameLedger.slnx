@@ -3,12 +3,14 @@
     <Project Path="src/FrameLedger.Agent/FrameLedger.Agent.csproj" />
     <Project Path="src/FrameLedger.App/FrameLedger.App.csproj" />
     <Project Path="src/FrameLedger.Application/FrameLedger.Application.csproj" />
+    <Project Path="src/FrameLedger.CaptureHost/FrameLedger.CaptureHost.csproj" />
     <Project Path="src/FrameLedger.Domain/FrameLedger.Domain.csproj" />
     <Project Path="src/FrameLedger.Infrastructure/FrameLedger.Infrastructure.csproj" />
     <Project Path="src/FrameLedger.Shared/FrameLedger.Shared.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FrameLedger.Application.Tests/FrameLedger.Application.Tests.csproj" />
+    <Project Path="tests/FrameLedger.CaptureHost.Tests/FrameLedger.CaptureHost.Tests.csproj" />
     <Project Path="tests/FrameLedger.Domain.Tests/FrameLedger.Domain.Tests.csproj" />
     <Project Path="tests/FrameLedger.Infrastructure.Tests/FrameLedger.Infrastructure.Tests.csproj" />
   </Folder>

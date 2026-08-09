@@ -719,17 +719,39 @@ int main(int argc, char** argv) {
     // --real applies to --present and --hold, wherever it appears on the line.
     bool real = false;
     int  plusUi = 0;
+
+    // MILLISECONDS BETWEEN PRESENTS in the --hold-presenting modes. 8 is ~120/s and is the default for
+    // the reason the mode's own comment gives: an uncapped WARP loop pegs a core and starves the very
+    // injector under test on a shared runner.
+    //
+    // IT IS A KNOB BECAUSE ONE TEST CANNOT BE WRITTEN WITHOUT IT. The Agent's drop accounting fires
+    // when the writer laps the reader -- writeIndex - readIndex > FL_SHM_DEFAULT_CAPACITY, i.e. 8192
+    // records -- and at 120/s that is 68 SECONDS of a reader deliberately not draining. So the branch
+    // 04_CAPTURE calls "the Agent stalled for over ~16 s" had never been driven against the real
+    // Overlay in either language; the only tests that touch it build their own writer.
+    //
+    // MEASURED, not assumed: `hook-harness --real --present 20000` completes in 0.62 s INCLUDING
+    // device creation, so an uncapped hold laps the ring in well under a second and the stall the test
+    // has to sit through is seconds rather than minutes.
+    int presentIntervalMs = 8;
+
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0) {
             real = true;
         } else if (std::strcmp(argv[i], "--plus-ui") == 0 && i + 1 < argc) {
             plusUi = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--present-interval-ms") == 0 && i + 1 < argc) {
+            presentIntervalMs = std::atoi(argv[++i]);
+            if (presentIntervalMs < 0) {
+                presentIntervalMs = 0;
+            }
         }
     }
 
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--plus-ui") == 0) {
-            if (std::strcmp(argv[i], "--plus-ui") == 0) {
+        if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--plus-ui") == 0 ||
+            std::strcmp(argv[i], "--present-interval-ms") == 0) {
+            if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0) {
                 ++i;
             }
             continue;    // consumed above
@@ -843,18 +865,30 @@ int main(int argc, char** argv) {
             // already.
             //
             // This mode presents for the WHOLE hold, at a deliberately modest
-            // cadence: an uncapped WARP loop pegs a core and starves the very
-            // injector under test on a shared runner.
+            // cadence by default: an uncapped WARP loop pegs a core and starves the
+            // very injector under test on a shared runner.
+            //
+            // --present-interval-ms 0 removes the cap, and exists for exactly one
+            // test: the Agent's drop accounting needs the writer to LAP the reader,
+            // which at ~120/s means 68 s of not draining. See the flag's own note.
             const int  seconds = std::atoi(argv[++i]);
             const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
-            std::printf("  presenting for %d second(s) [%s]\n", seconds, real ? "REAL" : "DXGI_PRESENT_TEST");
+            std::printf("  presenting for %d second(s) [%s] every %d ms\n", seconds,
+                        real ? "REAL" : "DXGI_PRESENT_TEST", presentIntervalMs);
             std::fflush(stdout);
             const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
             long long       presented = 0;
             while (GetTickCount64() < until) {
                 g.swapChain->Present(0, flags);
                 ++presented;
-                Sleep(8);    // ~120/s, enough to be measurable without pegging a core
+                if (presentIntervalMs > 0) {
+                    Sleep(static_cast<DWORD>(presentIntervalMs));
+                } else {
+                    // Yield rather than spin: an uncapped loop that never gives up its
+                    // quantum starves the reader we are trying to make fall behind, which
+                    // would make the test slower rather than faster.
+                    Sleep(0);
+                }
             }
             // The count goes to stdout so a test can compare it against records
             // drained from the ring rather than asserting "more than zero".

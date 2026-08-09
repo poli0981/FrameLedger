@@ -54,7 +54,7 @@ or it becomes the next stale status claim this file exists to record.
 | S3, S5, S7, S8, S9, S10, S11, S15, S16, S17, S18, S21, S22 | ✅ **resolved** | Thirteen. Reasoning kept in place rather than deleted |
 | **S25, S26** | ✅ **resolved 2026-08-05** | The two runtime stops unreachable in a non-presenting process; occlusion probes recorded as frames |
 | **S28** | ✅ **resolved 2026-08-05** | The guard's entry points share process-wide statics; a concurrent call cleared the blocklist mid-match and every check fell through to `Allow`. Reproduced by CI, not argued |
-| **S27** | ✅ **resolved by NOT building it** | The chokepoint is the anti-cheat gate, not the consent gate. No injecting entry point ships until the `games` table exists; the drain is exercised by an integration test against our own harness |
+| **S27** | ✅ **resolved, and restated 2026-08-06** | The chokepoint is the anti-cheat gate, not the consent gate. It was closed by *not building* a capture host; item 1 built one, and the ✅ survives on the clause that was always load-bearing — **no injecting entry point on any SHIPPED binary**. `FrameLedger.CaptureHost` is unpublished, and `tools/package-closure-check.ps1` makes that a gate rather than a fact about today's csproj. `HookRequest` is get-only behind one factory, so this entry's own rejected synthesis no longer compiles |
 | S12 | ✅ **deferred, rationale written** | Cautious mode → v1.1; it disabled nothing in v1 |
 | **S1** | 🅓 **deferred, rationale written** | Owner decision 2026-08-05. Deciding input — a title loading a presentation runtime lazily — is not on this machine |
 | **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
@@ -74,7 +74,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S23-6** | ◐ **partly closed** | `license-check` now binds `THIRD_PARTY_NOTICES` bidirectionally — the first real gate over anything in `legal/`. The **accuracy blocks remain hand-maintained prose that nothing verifies**, and `DISCLAIMER.md`'s went stale a second time on 2026-08-05 |
 | **S23-2** | 🚫 **owner only — no PR can close it** | `Rules / validate` is **not** a required status check on `main`. **Re-verified against the live branch protection 2026-08-05**, not repeated from the entry: `required_status_checks.contexts` is exactly `["check", "analyze (csharp, none)", "analyze (cpp, manual)"]` (`strict: true`, `enforce_admins: true`, `required_linear_history: true`). The `validate` job is path-filtered and `pull_request`-only, so a red removal check does not block the merge button. **The gate that exists to make the anti-cheat blocklist un-removable is advisory.** This is a branch-protection setting |
 
-| **S29** | 🔴 **open, new 2026-08-05 — three of seven closed** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) `HookedCaptureGate.ShouldUnhookAsync` is a second, tickless, non-latching supervision path; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) no session-end signal — a dead target and a quiet one are byte-identical; (f) a **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery, plus no producer for RT tri-state `No`; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
+| **S29** | 🔴 **open, new 2026-08-05 — five of seven closed** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work. **Sharpened 2026-08-06:** fixing §S19(b) alone would still gate nothing, because `build.ps1`'s `-SkipIntegration` applies `--filter 'Category!=Integration'` and excludes the class *before* the guard is ever asked. Two independent mechanisms produce one absence, and `ci.yml` must drop the switch too; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ❓ the **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is untouched and is item 6's to settle — but its second half's PREMISE was stale and is corrected in place: layout v3 put `rtTier` and `hooksInstalledMask` in `FlWriterState`, and neither has a producer, so **`Yes` is unreachable as well as `No`**; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
 
 ~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
 exit criterion 2, not seven, and the undercount came from reading only the ❓ rows.**
@@ -87,13 +87,34 @@ either work or a rationale written down:
   correction.)*
 - **three ⏳** — S2 part three, S4 signing, S23-3
 - **two ◐** — S14, S23-6
-- **one 🔴** — S29, added by the audit that produced this recount; one of its six
-  findings closed
+- **one 🔴** — S29, added by the audit that produced this recount; **five of its
+  seven findings are now closed**, and the residue is (a) the ungated managed drain,
+  (d) the hand-run blast-radius script, and (f) the RayQuery contradiction
 - **plus 🚫 S23-2**, which no amount of code will do — the owner has to change a
   branch-protection setting.
 
 **Nine, down from twelve.** Keep this list in the same PR that changes a row, or
 the recount becomes the next thing that needs recounting.
+
+> **Still nine on 2026-08-06.** Item 1 closed §S29(c) and §S29(e) and corrected
+> §S29(f)'s premise, but §S29 is one row and stays 🔴 while (a), (d) and (f) are open,
+> so the count does not move. Recording that explicitly, because "we closed two things
+> and the number is the same" is exactly the kind of thing a later reader assumes is a
+> mistake in the table.
+>
+> **Six owner decisions surfaced by item 1 and answered by nobody yet** — they are not
+> S-series items and are not counted above, but they block nothing today and each is
+> recorded where it belongs rather than only here: who may clear `hook_blocked_reason`
+> (`06_DATA_MODEL` §games); whether per-game consent carries a wording version (decided
+> **yes** and implemented, because it cannot be retrofitted — reversing it is still the
+> owner's); what an operator must be shown before an `UnshippedHostOperator` record may
+> be written, and whether that text is reviewed like a `Safety_*` string (`09_I18N`);
+> whether FR-2.4's global kill switch is an input to `HookedCaptureGate` or is enforced
+> upstream of it — the gate's own remark calls itself "the ONLY managed logic between
+> the user's intent and the guard" and has three inputs and no kill-switch input;
+> whether accepting the Legal Gate (FR-11) is a precondition of stamping consent; and
+> whether §S18 blocker 3's "the Agent is the sole host of the guard" is re-ratified now
+> that a third project imports `FrameLedger.Guard.targets`.
 
 **The markers themselves are part of the problem and should be unified.** One
 disposition — *deferred, with a rationale written* — currently wears three glyphs:
@@ -164,6 +185,23 @@ rather than of an instance.
 > parses its own copy at init, which is a different process and therefore fine
 > today, and `fl_guard_test` drives the guard directly. If a second managed host
 > ever loads the DLL, this lock does not span processes.
+>
+> > **A second managed host now exists, and it needs no lock — recorded 2026-08-06.**
+> > `FrameLedger.CaptureHost` loads `FrameLedger.Guard.dll` alongside the Agent, and a
+> > design panel over that PR proposed a machine-wide `GuardProcessLock` on the strength
+> > of the sentence above. **It was wrong, and the refutation is this entry's own text.**
+> > The fail-open is a race on PROCESS-LOCAL statics — `ParseRules`' `static jsmntok_t
+> > toks[]` and `EvaluateImpl`'s function-scope `static Rules` — and a second process
+> > gets its own image of the DLL and its own copies, which is exactly what this entry
+> > already concedes for the Vulkan layer: *"a different process and therefore fine
+> > today"*. The trailing sentence scopes what the `SemaphoreSlim` covers; it does not
+> > assert a cross-process hazard. Wrapping a hard safety gate in a named mutex would
+> > have added abandonment and deadlock failure modes to the gate for a hazard that does
+> > not exist.
+> >
+> > The one genuine cross-process interaction is the rules FILE, and `FileSystemRulesStore`
+> > already handles it: `ReplaceFileW` with a named backup, `FileShare.ReadWrite |
+> > FileShare.Delete` on the read, both measured.
 
 ### S29 · What the 2026-08-05 P0 completion audit found — five gates and one contradiction
 
@@ -226,7 +264,31 @@ hooking working). Restored: 16/16.
 > P0 item 2's ✅ rests partly on "vtable indices proved by behaviour", and until now
 > that proof did not reach the shipped values. It does now.
 
-**(c) 🔴 `HookedCaptureGate.ShouldUnhookAsync` is a second in-session re-scan path**
+**(c) ✅ `HookedCaptureGate.ShouldUnhookAsync` — closed 2026-08-06 by DELETING it.**
+
+Grep decided it: the only occurrences were the declaration and two tests. **Zero production
+callers**, so removing it touched no shipping path. Its whole body was
+`!(await _guard.EvaluateAsync(pid, ct)).IsAllowed` — strictly weaker than
+`GuardSupervisor.ScanOnceAsync`, which additionally short-circuits on the latch, increments
+`CompletedEvaluations` at one site on the far side of a returned verdict, latches
+`UnhookRequested` and records `LastVerdict`. Routing it through the supervisor would have given
+the gate per-session state on a class whose contract is that it "deliberately adds no judgement
+of its own", for no new capability.
+
+**The polarity trap was real and is worth recording**: `ShouldUnhookAsync` returning `true` meant
+STOP, while `ScanOnceAsync` returning `true` means MAY CONTINUE. Two supervision APIs on adjacent
+objects with inverted senses is a defect waiting for a hurried caller.
+
+**Its two tests are replaced by one that is stronger.** They asserted the boolean and never the
+tick or the latch — so they certified the API as sanctioned while saying nothing about what was
+wrong with it, which is exactly how it came to read as sanctioned.
+`TheGateExposesNoSecondInSessionRescanPath` pins the gate's public instance surface to exactly
+`{StartAsync}`. Proven: re-adding the method leaves the build green and turns that Fact red.
+
+> **The original entry follows, struck rather than deleted**, because "it is unit-tested, so it
+> reads as sanctioned" is the observation that decided the disposition.
+
+~~**(c) 🔴 `HookedCaptureGate.ShouldUnhookAsync` is a second in-session re-scan path**~~
 that publishes no tick and does not latch — the two properties `GuardSupervisor`
 and `fl_shm.h` §`guardTicks` spend paragraphs establishing as the point of the
 design. It is unit-tested, so it reads as sanctioned, and it is the **more
@@ -258,10 +320,64 @@ layers) and needs `vulkaninfo` on `PATH`. So the assertion only fires when someo
 runs it by hand. Nothing reminds them, and a loader upgrade is exactly when it
 would matter.
 
-**(e) ❓ The reader cannot tell a dead target from a quiet one.** `ShmRingReader`
-holds the section open, so a game that exits leaves `writeIndex` frozen and
-`status` `READY` — byte-for-byte identical to a loading screen or an alt-tabbed
-window. Whatever drives the drain needs a session-end signal, and there is none.
+**(e) ✅ The reader cannot tell a dead target from a quiet one — closed 2026-08-06,
+host-side, with no ABI change.**
+
+The diagnosis stands and got worse on inspection. `ShmRingReader` holds the section
+open, so a game that exits leaves `writeIndex` frozen and `status` `READY` —
+byte-for-byte identical to a loading screen or an alt-tabbed window. `DllMain` handles
+only `DLL_PROCESS_ATTACH` and deliberately has no `DLL_PROCESS_DETACH` teardown
+(`17_HOOK_ENGINE` §Unhooking), so **nothing is written on the way out**. And §S26
+removed the accidental heartbeat: an occluded title used to emit a steady stream of
+`DXGI_PRESENT_TEST` probes, and the writer now drops them, so an occluded game writes
+*nothing at all*.
+
+**The signal comes from the OS, not from the mapping.** `CaptureLoop` opens a process
+handle **before** `FlGuardedInject` and holds it for the session. Held rather than
+re-resolved, because pids recycle and the ring is named after one; the kernel will not
+reuse a pid while a handle to it is open. `Infrastructure.Io.HeldProcessHandle` opens it
+with `SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION` — the narrowest rights that
+answer the question, named explicitly as `05_DETECTION` asks, with no `VM_READ` and no
+`VM_WRITE`, so CLAUDE.md rule 4 is untouched. Putting liveness on `ShmRingReader` was
+rejected: it would make the *reader* open the target, which is new surface for nothing.
+
+> **THIS ENTRY WAS CLOSED ON A MECHANISM THAT DID NOT EXIST, and the correction is the
+> part worth keeping.** The first version used `System.Diagnostics.Process.GetProcessById(pid)`
+> and read `HasExited`, with a comment asserting that the handle kept the pid pinned.
+> **Measured**, on .NET 10.0.10, by a probe over the live object: `_haveProcessHandle`
+> is `false` and `_processHandle` is `null` both after construction and after reading
+> `HasExited` — `GetProcessById` opens nothing, and `HasExited` opens a transient handle
+> and releases it in its own `finally`. **No handle was held at any point and the pid was
+> never reserved.** Three source comments, this entry and a CHANGELOG line all asserted
+> it; nothing checked it.
+>
+> It cost two things. Between resolving the pid and injecting there is an awaited file
+> read — long enough for an exit-and-recycle, after which `FlGuardedInject` would load
+> the Overlay into a stranger on the strength of a consent record for a different binary.
+> Not a rule-2 bypass, because the guard still scans the real pid; a rule-1 one, which is
+> the class §S27 exists for. And mid-session, `HasExited` against a recycled pid answers
+> about the *new* process, so the session would never end.
+>
+> Found by an adversarial review of the diff whose verifier wrote the probe rather than
+> arguing from the docs — the ninth entry for `measure-windows-apis-dont-trust-them`, and
+> the first where the API misled by doing *less* than its name implies. `TryOpen`
+> returning null is now a refusal (`TargetCannotBePinned`), because a pid we could not
+> pin must not be injected into, and `HeldProcessHandleTests` asserts the property rather
+> than the outcome: it answers about a process that has fully exited, at a pid
+> `Process.GetProcessById` refuses to resolve at all — which an implementation holding
+> nothing cannot do.
+
+**`SessionEndClassifier` takes no elapsed-time parameter, and that absence IS the fix.**
+A frozen `writeIndex` never ends a session, however long it has been frozen; a
+"how long since the last record" parameter is precisely how this defect would come back.
+Its test drives five simulated minutes of silence with `status` `READY` and asserts
+`Running`.
+
+**It also separates two stops the mapping cannot.** `StopObserving` stores
+`FL_STATUS_UNHOOKED` for the safety stop *and* for supervision loss, so only the side
+that caused one knows which — and `legal/DISCLAIMER.md` §2 discloses them differently
+("the guard fired" against "contact was lost"). The classifier takes
+`weLatchedTheUnhook` for exactly that reason.
 
 **(f) ❓ CLAUDE.md rule 7 and `03_METRICS` §RT disagree about inline RayQuery, and
 one of them is normative.** Rule 7 names *"inline RayQuery without DXIL scan"* as a
@@ -277,9 +393,27 @@ answers for the same title. **Whoever builds P0 item 6 has to settle this before
 writing the hook**, because it decides whether a RayQuery-only title reports `Yes`
 or `N/A`. Related, and worse: `03_METRICS` defines the tri-state's **`No`** branch
 as *"RT-capable device present, no AS builds and no dispatches for the whole
-session"* — and nothing measures device RT tier, no record field carries it, and
+session"* — and nothing measures device RT tier, ~~no record field carries it, and
 every byte of the 64-byte record is allocated. **As the record stands, item 6 can
-reach `Yes` or `N/A` and never `No`.**
+reach `Yes` or `N/A` and never `No`.**~~
+
+> **The PREMISE is stale and the CONCLUSION is understated — corrected in place
+> 2026-08-06.** Layout v3 (#58) put `rtTier` at `FlWriterState` @24 and
+> `hooksInstalledMask` at @28, and `03_METRICS` §RT/PT/RR now states the `No` branch
+> against both as three conjuncts. The record's byte budget was never the constraint:
+> these are session facts and went in region 2, not in the 64-byte record.
+>
+> **What survives is stronger.** A tree-wide grep finds no producer for either field —
+> the only hits outside `fl_shm.h`, `ShmLayout.cs` and the consumer are
+> `tools/fl-layout-dump/main.cpp`, which prints their offsets. So RT is `N/A` on every
+> session today, and **both `Yes` and `No` are unreachable**, not just `No`. The
+> throwaway consumer implements all three branches and a test drives each, so the day
+> the RT hooks land the tri-state is already correct rather than being written under
+> deadline beside them.
+>
+> The RayQuery half of this entry is **untouched and still open**: it is a normative
+> contradiction between CLAUDE.md rule 7 and `03_METRICS`, and it is item 6's to settle
+> before the hook is written.
 
 **(g) ✅ The present-only writer claimed the one thing it may claim — unconditionally — closed 2026-08-05.**
 
@@ -357,9 +491,48 @@ question: no game, no account, no terms of service. The test asserts that
 constraint **on itself**, so it cannot grow into something that injects elsewhere
 by increments.
 
-**The real gate arrives with the `games` table, not before.** Until then there is
+~~**The real gate arrives with the `games` table, not before.** Until then there is
 no injecting entry point on any shipped binary, and that is the correct state
-rather than a missing feature.
+rather than a missing feature.~~
+
+> **Restated 2026-08-06, because item 1 built the thing this entry was closed by NOT
+> building — and the ✅ survives on a different sentence.**
+>
+> The load-bearing clause was never "the `games` table"; it was **"no injecting entry
+> point on any SHIPPED binary"**. `FrameLedger.CaptureHost` is an injecting entry point,
+> and it is not shipped: `12_BUILD` publishes exactly `FrameLedger.App` and
+> `FrameLedger.Agent`, and neither references it.
+>
+> **That is now a gate rather than a fact about today's reference graph.**
+> `tools/package-closure-check.ps1` walks the transitive `ProjectReference` closure of
+> both publish roots and fails on anything outside the allowlist, naming the edge —
+> proven by planting a reference from the Agent, which leaves the build green and turns
+> the gate red. Without it, §S27's ✅ would have depended on nobody adding a line to a
+> csproj.
+>
+> **Two more things hold it, and both came from a refuter over the design rather than
+> from the build:**
+>
+> - **The consent inputs are no longer synthesisable.** This entry rejected
+>   `HookEnabled = true, ConsentedAt = UtcNow` as *"a gate whose verdict is decided
+>   before it looks"* — and `HookRequest` was a `record` with `init` members, so that
+>   expression compiled from anywhere and reached `GuardedInjectAsync`. A store and a
+>   provenance flag only add an honest path beside it. It is now get-only behind a
+>   private constructor with `FromConsent` as the sole entry, so the rejected expression
+>   is a compile error.
+> - **`GameConsentRecord.Stored` is `internal`.** `FrameLedger.Domain` is inside both
+>   publish closures, so a public minting factory there would be a blessed *shipped* API
+>   for producing consent nobody gave — and the closure gate structurally cannot see it,
+>   because Domain legitimately belongs to both. The `InternalsVisibleTo` list is the
+>   reviewable artifact.
+>
+> **What the record does NOT claim.** `19_SAFETY` requires the timestamp *"stamped by the
+> Agent, never supplied by a client"*, and a file on disk is by construction supplied by
+> whoever can write it. That property is **not** upheld and `04_CAPTURE` now says so
+> rather than implying otherwise; what stands in for it is a build-tree file belonging to
+> an unshipped binary, a provenance whose default means no disclosure was shown, and an
+> `en`-only operator acknowledgement that states in its first line that it is not FR-2.1
+> consent. The real gate still arrives with the `games` table.
 
 > Also settled by the same review, and worth keeping where the next reader will
 > look: **`--diag` is already taken.** `10_LOGGING_AND_BUG_REPORTS` assigns it to
@@ -2411,7 +2584,7 @@ no drain) stays in P0. Items 5–9 below are still open.
     | `12_BUILD:139`, `13_CI_CD:11`, `09_I18N:28`, `CLAUDE.md:66` | `tools/resx-audit` | Absent. **Honestly handled** — `build.ps1:309` skips it loudly with a reason, and no `.resx` files exist yet |
     | `12_BUILD:136`, `13_CI_CD:11` | the managed **struct-mirror** test | ~~Absent. Nothing under `tests/` references `FlFrameRecord`.~~ **✅ Built in #47** — `ShmLayout.cs` + `ShmLayoutMirrorTests`, driven by `fl-layout-dump`'s JSON rather than a transcribed table, asserting blittability as well as offsets, and walking the field list in both directions. `build.ps1`'s gate now reads the run's `.trx` and fails when the class did not execute, so **deleting the test is red too** — it used to `Test-Path` a source file |
     | `13_CI_CD:21`, `12_BUILD:121`, `CHANGELOG:9` | `.github/workflows/release.yml` | Absent. `CHANGELOG`'s header instructs an author to write for a consumer that does not exist |
-    | `12_BUILD` §Local quality gate | gates omitted from the list | **Three documents give three different counts, which is the finding.** `build.ps1` has **15** `Write-Step` calls as of 2026-08-05 (14 before this PR's `changelog-check`); `12_BUILD` lists 10; this row said 13. Nothing derives the list from the script, so all three drift independently |
+    | `12_BUILD` §Local quality gate | gates omitted from the list | ~~**Three documents give three different counts, which is the finding.** `build.ps1` has **15** `Write-Step` calls as of 2026-08-05 (14 before this PR's `changelog-check`); `12_BUILD` lists 10; this row said 13.~~ **Corrected 2026-08-06: `build.ps1` has 17 `Write-Step` calls** (`package-closure` added two), and `12_BUILD`'s list is rewritten to 16 numbered entries — the difference is that `Invoke-Native`'s three steps run under one heading there. `13_CI_CD` no longer restates the list at all; it points at `12_BUILD`, because restating it in two places is what let one of them rot. **Nothing still derives the list from the script**, so the drift is slowed rather than stopped, and this row remains open for that reason |
 
     The struct-mirror row is the one that matters. `CLAUDE.md` §Struct mirroring
     makes that test the mechanism protecting the shared-memory ABI, and a doc that

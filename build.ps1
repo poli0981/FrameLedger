@@ -332,6 +332,28 @@ function Invoke-ProjectGates {
         Skip-Gate 'chokepoint-check' 'tools/chokepoint-check.ps1 not implemented yet'
     }
 
+    # FrameLedger.CaptureHost is an INJECTING entry point that must never reach
+    # out/app. 20_OPEN_QUESTIONS §S27 was closed on the strength of there being no
+    # injecting entry point on any shipped binary, and what keeps that true now is
+    # the absence of a ProjectReference — which nothing checked, because build.ps1
+    # never runs `dotnet publish` and there is no release workflow.
+    #
+    # BOTH HALVES RUN, and that is deliberate. The self-test proves the logic
+    # discriminates; the live pass is the one that looks at this repository. Wiring
+    # only the self-test would be a gate that never reads the tree — the exact
+    # defect it exists to prevent. tools/changelog-check.ps1 is self-test-only here
+    # for a reason that does not apply: it needs a pull request's changed-file list,
+    # so ci.yml supplies its live half. Nothing would ever supply this one.
+    Write-Step 'package-closure'
+    $closureTool = Join-Path $repo 'tools/package-closure-check.ps1'
+    if (Test-Path $closureTool) {
+        Invoke-Checked 'package-closure (self-test)' { & $closureTool -SelfTest }
+        Invoke-Checked 'package-closure' { & $closureTool }
+    }
+    else {
+        Skip-Gate 'package-closure' 'tools/package-closure-check.ps1 not implemented yet'
+    }
+
     Write-Step 'license-check'
     $licenseTool = Join-Path $repo 'tools/license-check.ps1'
     if (Test-Path $licenseTool) {

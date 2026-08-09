@@ -1,0 +1,199 @@
+// FrameLedger.CaptureHost — the unshipped driver of the guard loop.
+//
+// docs/12_BUILD.md publishes FrameLedger.App and FrameLedger.Agent and nothing
+// else, and neither references this project. tools/package-closure-check.ps1 is
+// what keeps that true rather than remembered.
+//
+// It exists because docs/HANDOFF.md's queue item 1 needs a NON-TEST binary to
+// drive HookedCaptureGate -> FlGuardedInject -> ShmRingReader.TryAttach -> drain,
+// and 20_OPEN_QUESTIONS §S27 explains at length why that binary must not be a
+// flag on a shipped one.
+
+using System.Diagnostics;
+using FrameLedger.Application.AntiCheat;
+using FrameLedger.Application.Consent;
+using FrameLedger.Application.Rules;
+using FrameLedger.CaptureHost.Capture;
+using FrameLedger.CaptureHost.Consent;
+using FrameLedger.CaptureHost.Consume;
+using FrameLedger.Domain.Consent;
+using FrameLedger.Infrastructure.AntiCheat;
+using FrameLedger.Infrastructure.Io;
+using FrameLedger.Infrastructure.Ipc;
+using FrameLedger.Infrastructure.Rules;
+using FrameLedger.Shared;
+
+namespace FrameLedger.CaptureHost;
+
+internal static class Program
+{
+    // Distinguishable from the outside, because the end-to-end test is a separate process and a
+    // substring match on stdout is a weaker assertion than an exit code.
+    private const int _exitOk = 0;
+    private const int _exitUsage = 1;
+    private const int _exitRefused = 2;
+    private const int _exitRulesFailed = 3;
+    private const int _exitAttachRefused = 4;
+    private const int _exitStoppedForSafety = 5;
+    private const int _exitTargetNotResolved = 6;
+
+    private static async Task<int> Main(string[] args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+
+        CommandLine cmd = CommandLine.Parse(args);
+        if (cmd.Error is not null)
+        {
+            HostConsole.Problem(cmd.Error);
+            return _exitUsage;
+        }
+
+        // BEFORE ANYTHING ELSE. The guard reads its blocklist from one location and fail-closes when it
+        // is absent, so a capture started before the seed lands refuses for a reason that has nothing to
+        // do with the game (§S20). ShmDrainIntegrationTests records CI hitting exactly this.
+        RulesSeedOutcome seeded = await new RulesSeeder(new FileSystemRulesStore())
+            .EnsureSeededAsync()
+            .ConfigureAwait(false);
+        if (seeded is RulesSeedOutcome.WriteFailed or RulesSeedOutcome.PackagedSeedUnusable)
+        {
+            HostConsole.Problem($"rules: FAILED ({seeded})");
+            return _exitRulesFailed;
+        }
+
+        var store = new FileGameConsentStore();
+        return cmd.Verb switch
+        {
+            Verb.ConsentList => await ListAsync(store).ConfigureAwait(false),
+            Verb.ConsentGrant => await GrantAsync(store, cmd.ExePath!).ConfigureAwait(false),
+            Verb.ConsentRevoke => await RevokeAsync(store, cmd.ExePath!).ConfigureAwait(false),
+            Verb.Capture => await CaptureAsync(store, cmd.ExePath!).ConfigureAwait(false),
+            _ => _exitUsage,
+        };
+    }
+
+    private static async Task<int> ListAsync(FileGameConsentStore store)
+    {
+        HostConsole.Line($"consent store: {store.Destination}");
+        IReadOnlyList<GameConsentRecord> enabled = await store.ListEnabledAsync().ConfigureAwait(false);
+        if (enabled.Count == 0)
+        {
+            HostConsole.Line("  (nothing is enabled — hooking is off for every game by default)");
+            return _exitOk;
+        }
+
+        foreach (GameConsentRecord r in enabled)
+        {
+            HostConsole.Line(
+                $"  {r.Fingerprint.ExePath}  consent={r.ConsentedAt:u}  provenance={r.Provenance}  " +
+                $"disclosure={r.DisclosureVersion}  blocked={r.BlockedReason ?? "-"}  unverified={r.PreScanUnverified}");
+        }
+
+        return _exitOk;
+    }
+
+    private static async Task<int> GrantAsync(FileGameConsentStore store, string exePath)
+    {
+        ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
+        if (observed is null)
+        {
+            HostConsole.Problem($"no such executable: {exePath}");
+            return _exitUsage;
+        }
+
+        // Console.IsInputRedirected is the check, and passing null is how the disclosure sees it. A
+        // script that pipes the phrase in is not the explicit human action HANDOFF licenses.
+        if (!OperatorDisclosure.Confirm(Console.Out, Console.IsInputRedirected ? null : Console.In))
+        {
+            HostConsole.Problem("nothing was written; hooking stays off for this game");
+            return _exitRefused;
+        }
+
+        ConsentWriteOutcome outcome = await store.RecordOperatorAcknowledgementAsync(new OperatorAcknowledgement
+        {
+            Fingerprint = observed.Value,
+            DisclosureVersion = OperatorDisclosure.Version,
+            AcknowledgedAt = DateTimeOffset.UtcNow,
+        }).ConfigureAwait(false);
+
+        HostConsole.Line($"consent: {outcome}");
+        return outcome == ConsentWriteOutcome.Written ? _exitOk : _exitRefused;
+    }
+
+    private static async Task<int> RevokeAsync(FileGameConsentStore store, string exePath)
+    {
+        ConsentWriteOutcome outcome = await store
+            .RevokeAsync(ExecutableIdentity.Normalise(exePath))
+            .ConfigureAwait(false);
+        HostConsole.Line($"revoke: {outcome}");
+        return outcome is ConsentWriteOutcome.Written or ConsentWriteOutcome.NotFound ? _exitOk : _exitRefused;
+    }
+
+    private static async Task<int> CaptureAsync(FileGameConsentStore store, string exePath)
+    {
+        string normalised = ExecutableIdentity.Normalise(exePath);
+        ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
+
+        // §S22: the payload must resolve into the directory the GUARD's own code was loaded from,
+        // compared by file id. There is no way to name a different one, which is the point.
+        string payload = Path.Combine(AppContext.BaseDirectory, "FrameLedger.Overlay.dll");
+
+        var guard = new NativeAntiCheatGuard();
+        var loop = new CaptureLoop(
+            store,
+            new HookedCaptureGate(guard),
+            guard,
+            new TargetResolver(),
+            pid =>
+            {
+                // Null means the pid could not be PINNED — already gone, protected, or another user's.
+                // The loop refuses rather than proceeding to inject into an identity it cannot hold.
+                HeldProcessHandle? handle = HeldProcessHandle.TryOpen(pid);
+                return handle is null ? null : new ProcessTargetLiveness(handle);
+            },
+            pid =>
+            {
+                ShmRingReader? reader = ShmRingReader.TryAttach(pid, NativeAntiCheatGuard.BuildId(),
+                    out ShmAttachRefusal refusal);
+                return (reader is null ? null : new ShmCaptureSink(reader), refusal);
+            },
+            new CaptureOptions());
+
+        CaptureResult result = await loop.RunAsync(normalised, observed, payload).ConfigureAwait(false);
+
+        HostConsole.Line($"session: {result.Reason}");
+        if (result.Verdict.Reason != Domain.AntiCheat.AntiCheatRefusalReason.Allow)
+        {
+            HostConsole.Line($"  verdict: {result.Verdict.Reason} {result.Verdict.Family} {result.Verdict.Signal}");
+        }
+
+        if (result.Records.Count > 0)
+        {
+            Report(result);
+        }
+
+        return result.Reason switch
+        {
+            SessionEndReason.TargetExited => _exitOk,
+            SessionEndReason.Running => _exitOk,
+            SessionEndReason.TargetNotRunning or SessionEndReason.TargetAmbiguous
+                or SessionEndReason.TargetCannotBePinned => _exitTargetNotResolved,
+            SessionEndReason.AttachRefused => _exitAttachRefused,
+            SessionEndReason.SafetyUnhook or SessionEndReason.SupervisionLost
+                or SessionEndReason.SupervisionFaulted => _exitStoppedForSafety,
+            _ => _exitRefused,
+        };
+    }
+
+    private static void Report(CaptureResult result)
+    {
+        IReadOnlyList<FlFrameRecord> dominant = StreamSegmenter.DominantStream(result.Records);
+        IReadOnlyList<Segment> segments = StreamSegmenter.Segment(result.Records);
+        MeasuredFacts facts = MeasuredFacts.From(
+            dominant, result.WriterState, Stopwatch.Frequency, result.TotalGaps, result.TotalDropped);
+
+        HostConsole.Line($"  guard ticks published: {result.GuardTicksPublished}");
+        HostConsole.Line($"  records: {result.Records.Count} ({dominant.Count} on the dominant stream), " +
+                          $"{segments.Count} segment(s), gaps {result.TotalGaps}, dropped {result.TotalDropped}");
+        HostConsole.Line(SessionReport.Render(facts));
+    }
+}

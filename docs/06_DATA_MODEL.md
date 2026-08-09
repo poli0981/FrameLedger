@@ -59,6 +59,40 @@ CREATE TABLE games (
 > before its consumers exist maximises the chance of baking in a wrong guess that
 > can only be appended to.
 
+> **The three hook-state columns have a consumer before they have a table, and two
+> fields it needs are not here.** Added 2026-08-06 with `IGameConsentStore`, whose
+> only adapter today is a file inside the unshipped `FrameLedger.CaptureHost`.
+>
+> - **A disclosure provenance.** `hook_consent_at` is a bare timestamp and cannot
+>   distinguish a stamp made after FR-2.1's reviewed dialog from one made after
+>   anything else — so a record could carry a consent time that nothing had ever
+>   disclosed anything for. `ConsentProvenance`'s zero value means *no disclosure was
+>   shown*, and it deliberately has **no FR-2.1 member**: that dialog needs reviewed
+>   `Safety_*` wording in en/vi/ja and no `.resx` exists anywhere in this tree.
+> - **A disclosure/wording version.** `legal_acceptance` carries `(doc, version,
+>   accepted_at)` while this column carries a timestamp alone, so nothing could mark
+>   existing per-game consent stale when the reviewed wording changes. It is carried
+>   from the *first* record because retrofitting one means treating unversioned
+>   consent as either current or stale, and both are wrong about some record.
+> - **A third pre-scan state.** `hook_blocked_reason` is two-state by definition here
+>   — non-null disables the toggle — while `05_DETECTION` makes the pre-scan
+>   tri-state, and says explicitly that *"could not verify"* must neither disable the
+>   toggle (a false refusal with no appeal) nor be cleared (a fail-open). One nullable
+>   TEXT column cannot carry three states.
+>
+> **The file-backed record is NOT a migration source.** It lives in a build output,
+> `git clean` removes it, and this section's own argument against guessing a schema
+> applies just as well to inheriting one from a throwaway. When the `games` table is
+> written it is written from this document.
+>
+> **Still unanswered, and it is an owner decision rather than a coding one:** who
+> clears `hook_blocked_reason` when a re-scan comes back clean. `19_SAFETY` §A game
+> already enabled can become blocked later makes a non-null value mean "toggle
+> disabled" and makes re-enabling "a user action" — but if nothing clears the column
+> the toggle is permanently disabled and that user action is impossible, while a
+> managed component that clears it is deciding an anti-cheat fact. Nothing in this
+> tree clears it today, which leaves the state unreachable rather than wrong.
+
 ```sql
 
 CREATE TABLE hardware_snapshots (

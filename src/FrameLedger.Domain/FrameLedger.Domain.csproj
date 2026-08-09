@@ -11,4 +11,35 @@
     Do not add a PackageReference here without changing CLAUDE.md first.
   -->
 
+  <!--
+    WHO MAY MINT A CONSENT RECORD, and why the list is short.
+
+    GameConsentRecord.Stored is internal. FrameLedger.App and FrameLedger.Agent
+    both reference FrameLedger.Application, which references this assembly, and
+    docs/12_BUILD.md publishes both roots into one out/app. A public minting
+    factory here would therefore be a blessed, SHIPPED API for producing consent
+    nobody gave — and tools/package-closure-check.ps1 could not see it, because
+    it walks project references and Domain is legitimately in both closures.
+
+    20_OPEN_QUESTIONS §S27 rejected "HookEnabled = true, ConsentedAt = UtcNow"
+    synthesised at a call site as "a gate whose verdict is decided before it
+    looks". The point of this list is that the same act stays as visible as that
+    string was, instead of reading as a call to a sanctioned API.
+
+    FrameLedger.CaptureHost is the unshipped host that owns the file-backed
+    store. When P2 adds a SQLite adapter in FrameLedger.Infrastructure, adding it
+    here is the deliberate, reviewable act — not a discovery.
+
+    Test assemblies are on the list because they are not published — no publish
+    root references them — and the alternative is a suite that can only exercise
+    the refusing default. They are still scanned by tools/chokepoint-check.ps1,
+    whose managed pass covers tests/ as well as src/.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="FrameLedger.CaptureHost" />
+    <InternalsVisibleTo Include="FrameLedger.Domain.Tests" />
+    <InternalsVisibleTo Include="FrameLedger.Application.Tests" />
+    <InternalsVisibleTo Include="FrameLedger.CaptureHost.Tests" />
+  </ItemGroup>
+
 </Project>

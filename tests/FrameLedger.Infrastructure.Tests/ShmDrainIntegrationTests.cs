@@ -130,6 +130,43 @@ public sealed class ShmDrainIntegrationTests
         throw new InvalidOperationException("the injected Overlay never published a usable handshake");
     }
 
+    /// <summary>
+    /// The honesty invariants that hold for EVERY fixture, whatever the reader did.
+    /// </summary>
+    /// <remarks>
+    /// Split out from <see cref="AssertRecordsAreHonest"/> because the rest of that helper is about the
+    /// attach TIMING and about a single-swapchain target, and a fixture that deliberately stalls the
+    /// reader or overflows the writer's swapchain table satisfies neither. Reusing the whole helper
+    /// there produced a red test whose failure message was about frame indices — indistinguishable from
+    /// a genuine regression in the thing under test.
+    /// </remarks>
+    private static void AssertWriterClaimsOnlyWhatItMeasured(List<FlFrameRecord> records)
+    {
+        records.Select(r => r.Qpc).Should().BeInAscendingOrder("QPC is read at hook entry");
+
+        // A present-only writer measured the output resolution and its own call arguments, and nothing
+        // else. In layout v3 the zero-defaults are honest by construction — FlUpscaler.NotReported and
+        // FlFgMode.NotReported are 0 — and the mask corroborates rather than being the sole defence.
+        //
+        // OutputRes is asserted as "no bit outside these two" rather than as an exact value, because the
+        // overflow fixture legitimately produces records with PresentArgs alone: past 16 swapchains the
+        // writer has no size to report and #57 made the bit conditional on there being one.
+        records.Should().OnlyContain(
+            r => (r.MeasuredMask & ~(ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs)) == 0,
+            "the writer must claim exactly what it measured — no more");
+        records.Should().OnlyContain(r => (r.MeasuredMask & (ushort)FlMeasured.PresentArgs) != 0,
+            "syncInterval and presentFlags are the call's own arguments; a DXGI present hook always has them");
+        records.Should().OnlyContain(r => r.RtFlags == 0,
+            "v3 rtFlags bits are *_OBSERVED, so a present-only writer sets none of them");
+        records.Should().OnlyContain(r => (r.MeasuredMask & (ushort)FlMeasured.Rt) == 0,
+            "and FlMeasured.Rt clear is what makes that zero read as N/A rather than a measured absence");
+        records.Should().OnlyContain(r => r.Upscaler == (byte)FlUpscaler.NotReported,
+            "the v3 zero-default must not say 'we looked and there was no upscaler'");
+        records.Should().OnlyContain(r => r.FgMode == (byte)FlFgMode.NotReported);
+        records.Should().OnlyContain(r => r.FeatureFlags == 0);
+        records.Should().OnlyContain(r => r.Api == (byte)FlApi.D3D11);
+    }
+
     private static void AssertRecordsAreHonest(List<FlFrameRecord> records)
     {
         // CONTIGUOUS, BUT NOT NECESSARILY FROM ZERO — and the difference is the reader working, not a
@@ -144,6 +181,9 @@ public sealed class ShmDrainIntegrationTests
         // A test can be wrong in a way that looks exactly like the code being wrong. What "every present
         // we saw became exactly one record" actually means here is that the indices we DID see form an
         // unbroken run — no hole, no repeat — starting wherever we came in.
+        //
+        // BOTH THIS AND THE SINGLE-CHAIN ASSERTIONS BELOW ARE FIXTURE-DEPENDENT, which is why the
+        // invariants that are not live in their own helper.
         records[0].FrameIndex.Should().BeLessThan(50u,
             "we attach within a few frames of injecting; a large first index means the attach seed drifted");
 
@@ -154,23 +194,9 @@ public sealed class ShmDrainIntegrationTests
                 "frameIndex is assigned once per observed present, so the drained run must be unbroken");
         }
 
-        records.Select(r => r.Qpc).Should().BeInAscendingOrder("QPC is read at hook entry");
+        AssertWriterClaimsOnlyWhatItMeasured(records);
 
-        // A present-only writer measured the output resolution and its own call arguments, and nothing
-        // else. In layout v3 the zero-defaults are honest by construction — FlUpscaler.NotReported and
-        // FlFgMode.NotReported are 0 — and the mask corroborates rather than being the sole defence.
-        records.Should().OnlyContain(
-            r => r.MeasuredMask == (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs),
-            "the writer must claim exactly what it measured — no more, and no less");
-        records.Should().OnlyContain(r => r.RtFlags == 0,
-            "v3 rtFlags bits are *_OBSERVED, so a present-only writer sets none of them");
-        records.Should().OnlyContain(r => (r.MeasuredMask & (ushort)FlMeasured.Rt) == 0,
-            "and FlMeasured.Rt clear is what makes that zero read as N/A rather than a measured absence");
-        records.Should().OnlyContain(r => r.Upscaler == (byte)FlUpscaler.NotReported,
-            "the v3 zero-default must not say 'we looked and there was no upscaler'");
-        records.Should().OnlyContain(r => r.FgMode == (byte)FlFgMode.NotReported);
-        records.Should().OnlyContain(r => r.FeatureFlags == 0);
-        records.Should().OnlyContain(r => r.Api == (byte)FlApi.D3D11);
+        records.Should().OnlyContain(r => (r.MeasuredMask & (ushort)FlMeasured.OutputRes) != 0);
         records.Should().OnlyContain(r => r.SwapchainId != 0, "0 means the writer could not identify it");
         records.Should().OnlyContain(r => r.OutputW > 0 && r.OutputH > 0);
     }
@@ -250,6 +276,222 @@ public sealed class ShmDrainIntegrationTests
 
                 AssertWriterHealthy(reader, ownBuildId);
             }
+        }
+        finally
+        {
+            Kill(harness);
+        }
+    }
+
+    /// <summary>
+    /// Ticks and drains until the Overlay is demonstrably recording, and returns how much it produced.
+    /// </summary>
+    /// <remarks>
+    /// A stop, a pause or a drop asserted against a capture side that was never writing proves nothing.
+    /// This file has hit that trap before, which is why establishing it first is a shared step rather
+    /// than something each case remembers.
+    /// </remarks>
+    private static async Task<int> EstablishRecordingAsync(ShmRingReader reader, FlFrameRecord[] buffer,
+        Ref<uint> tick)
+    {
+        int seen = 0;
+        for (int i = 0; i < 40 && seen < 10; i++)
+        {
+            reader.PublishGuardResult(++tick.Value, unhookRequested: false);
+            await Task.Delay(100, TestContext.Current.CancellationToken).ConfigureAwait(false);
+            seen += reader.Drain(buffer).Copied;
+        }
+
+        seen.Should().BeGreaterThan(10, "the harness must be presenting before anything asserted below means anything");
+        return seen;
+    }
+
+    private sealed class Ref<T>
+    {
+        public T Value = default!;
+    }
+
+    /// <summary>
+    /// Drains until caught up, because <c>Drain</c> copies at most <c>into.Length</c> and returns.
+    /// </summary>
+    /// <remarks>
+    /// One call is not "the ring", and a test that made that mistake would under-count exactly when the
+    /// reader had fallen behind — which is the state two of these cases are about.
+    /// </remarks>
+    private static List<FlFrameRecord> DrainAll(ShmRingReader reader)
+    {
+        var buffer = new FlFrameRecord[1024];
+        var records = new List<FlFrameRecord>();
+        var gaps = new List<ulong>();
+        DrainResult r;
+        do
+        {
+            r = reader.Drain(buffer, gaps);
+            records.AddRange(buffer.AsSpan(0, r.Copied).ToArray());
+        }
+        while (r.Copied == buffer.Length);
+
+        return records;
+    }
+
+    /// <summary>
+    /// <c>pauseRequested</c>, driven across the process boundary for the first time.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both halves existed and neither had ever been driven together:
+    /// <c>ShmRingReader.SetPaused</c> had no test at all, and <c>MayObserve()</c> has read the flag
+    /// since #46. The unit test beside this one proves the byte lands at the right offset; this proves
+    /// the Overlay acts on it.
+    /// </para>
+    /// <para>
+    /// <b>It keeps ticking through the pause, deliberately.</b> The defect #46 fixed only appeared on
+    /// frames where <c>guardTicks</c> had CHANGED — the freshness check sat between the safety stop and
+    /// the pause check and returned early, so the first present after every evaluation was recorded
+    /// regardless of pause. A pause test that stopped ticking would not reach it.
+    /// </para>
+    /// <para>
+    /// <b>A pause is invisible in the record stream</b>, and that is pinned here rather than discovered
+    /// later: <c>MayObserve()</c> returns false BEFORE <c>rec.frameIndex = g_frameIndex++</c>, so the
+    /// frame-index run stays perfectly contiguous while the qpc gap spans the whole pause. A consumer
+    /// inferring gaps from <c>frameIndex</c> would read a pause as one enormous frame time — the
+    /// fabricated interval <c>07_IPC</c> forbids for torn records.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task APausedSessionStopsRecordingAndResumesWhereItLeftOff()
+    {
+        await SeedRulesAsync();
+
+        Process harness = StartHarness("--real --hold-presenting 25");
+        try
+        {
+            var guard = new NativeAntiCheatGuard();
+            (await guard.GuardedInjectAsync(harness.Id, Payload, TestContext.Current.CancellationToken))
+                .IsAllowed.Should().BeTrue();
+
+            using ShmRingReader reader = await AttachAsync(harness.Id, NativeAntiCheatGuard.BuildId());
+
+            var buffer = new FlFrameRecord[512];
+            var tick = new Ref<uint>();
+            await EstablishRecordingAsync(reader, buffer, tick);
+
+            reader.SetPaused(true);
+            await Task.Delay(250, TestContext.Current.CancellationToken);    // presents already in flight
+            reader.PublishGuardResult(++tick.Value, unhookRequested: false);
+            reader.Drain(buffer);
+
+            ulong atPause = reader.WriterState.WriteIndex;
+            await Task.Delay(1200, TestContext.Current.CancellationToken);
+            reader.PublishGuardResult(++tick.Value, unhookRequested: false);
+
+            reader.WriterState.WriteIndex.Should().Be(atPause, "a paused writer records nothing");
+            reader.WriterState.Status.Should().Be((uint)FlStatus.Ready, "pausing is not stopping");
+            reader.WriterState.FaultCount.Should().Be(0u, "and it is not a fault either");
+
+            // AND IT RESUMES. One-way would be a stop, and the Agent needs to end a pause it started.
+            reader.SetPaused(false);
+            for (int i = 0; i < 40 && reader.WriterState.WriteIndex == atPause; i++)
+            {
+                await Task.Delay(50, TestContext.Current.CancellationToken);
+            }
+
+            reader.WriterState.WriteIndex.Should().BeGreaterThan(atPause);
+
+            var after = new List<FlFrameRecord>();
+            for (int i = 0; i < 20 && after.Count < 5; i++)
+            {
+                DrainResult r = reader.Drain(buffer);
+                after.AddRange(buffer.AsSpan(0, r.Copied).ToArray());
+                await Task.Delay(50, TestContext.Current.CancellationToken);
+            }
+
+            after.Should().NotBeEmpty("the writer resumed, so the reader must see it");
+            AssertWriterClaimsOnlyWhatItMeasured(after);
+        }
+        finally
+        {
+            Kill(harness);
+        }
+    }
+
+    /// <summary>
+    /// The drop branch, against the real writer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every existing assertion about it is <c>== 0</c>: <c>guard_test</c>'s native drain and this
+    /// file's own end-to-end case. Both are honest — a 150 ms cadence cannot fall 16 s behind — and
+    /// both are structurally incapable of exercising the branch. The only other coverage is
+    /// <c>ShmRingReaderTests</c>' synthetic writer, which the test itself drives.
+    /// </para>
+    /// <para>
+    /// <c>04_CAPTURE</c> defines a non-zero drop count as "the Agent stalled for over ~16 s" and
+    /// requires a session warning. Lapping an 8192-slot ring at the harness's default ~120/s takes
+    /// 68 s, which is what <c>--present-interval-ms</c> exists for: uncapped, the harness measured
+    /// 171,636 presents in 3 s, so the ring laps in well under a second.
+    /// </para>
+    /// <para>
+    /// <b>Its canary is SHARED with the synthetic case, and that is worth saying rather than leaving
+    /// to be discovered.</b> Deleting the <c>dropped = …</c> assignment turns this red and
+    /// <c>ShmRingReaderTests.OverwrittenRecordsAreCountedAndTheReaderResumesAtTheOldestSurvivor</c> red
+    /// too — verified — so observing red does not isolate this case. What this adds is not a branch the
+    /// synthetic test misses; it is that the branch has now run against the REAL Overlay as the writer,
+    /// with a real seqlock, a real lap and a real 64-byte copy racing it. The same argument does NOT
+    /// justify a native twin: <c>ring_test</c> already drives the branch in-process in the merge gate,
+    /// so a cross-process native case would add a shared canary and nothing else.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task TheReaderReportsRecordsItLostWhileItWasNotDraining()
+    {
+        await SeedRulesAsync();
+
+        Process harness = StartHarness("--real --hold-presenting 20 --present-interval-ms 0");
+        try
+        {
+            var guard = new NativeAntiCheatGuard();
+            (await guard.GuardedInjectAsync(harness.Id, Payload, TestContext.Current.CancellationToken))
+                .IsAllowed.Should().BeTrue();
+
+            using ShmRingReader reader = await AttachAsync(harness.Id, NativeAntiCheatGuard.BuildId());
+
+            // TryAttach seeds the read index from writeIndex, so we start caught up and everything the
+            // drop counter reports below is ours to have lost.
+            //
+            // RecordsBeforeAttach is NOT asserted to be non-zero: the attach poll can win the race with
+            // the Overlay's first present, and it did on the first run of this test. That is the reader
+            // working, not a fixture problem — and pinning attach timing here would be the same
+            // fixture-dependent assertion that made reusing AssertRecordsAreHonest wrong.
+            ulong publishedBeforeWeLooked = reader.RecordsBeforeAttach;
+            reader.TotalDropped.Should().Be(0, "attaching to a ring in flight is not a stall");
+
+            // DO NOT DRAIN. Keep ticking, so this is a test about drops and not accidentally one about
+            // supervision loss — the Overlay stops observing 65 s after guardTicks last moved.
+            ulong start = reader.WriterState.WriteIndex;
+            uint tick = 0;
+            for (int i = 0; i < 40 && reader.WriterState.WriteIndex - start < ShmLayout.DefaultCapacity + 500; i++)
+            {
+                reader.PublishGuardResult(++tick, unhookRequested: false);
+                await Task.Delay(100, TestContext.Current.CancellationToken);
+            }
+
+            (reader.WriterState.WriteIndex - start).Should().BeGreaterThan(ShmLayout.DefaultCapacity,
+                "the writer has to LAP the ring or there is nothing for the reader to have lost");
+
+            List<FlFrameRecord> records = DrainAll(reader);
+
+            reader.TotalDropped.Should().BeGreaterThan(0,
+                "the writer overwrote slots this reader never consumed, and only the reader can know it");
+            reader.RecordsBeforeAttach.Should().Be(publishedBeforeWeLooked,
+                "the pre-attach history is a separate figure and a stall must not be added to it — "
+                + "07_IPC keeps the two apart precisely so the drop warning's magnitude is not set by "
+                + "how long the game had been running before anyone attached");
+
+            records.Should().NotBeEmpty("everything still in the ring is still readable");
+            AssertWriterClaimsOnlyWhatItMeasured(records);
+            reader.WriterState.Status.Should().Be((uint)FlStatus.Ready, "dropping records is the READER falling behind");
+            reader.WriterState.FaultCount.Should().Be(0u);
         }
         finally
         {

@@ -18,11 +18,37 @@
     carve-out, which §S18 itself called "the only candidate that shrinks the
     problem".
 
-    Imported by exactly two projects, and both for a reason:
+    Imported by exactly three projects, and each for a reason:
       - FrameLedger.Agent            — the host. It runs the guard.
       - FrameLedger.Infrastructure.Tests — GuardMirrorTests and
         RulesPathAgreementTests P/Invoke into the real DLL, so it has to be
         beside the test binary.
+      - FrameLedger.CaptureHost      — added 2026-08-06. The unshipped driver of
+        the guard loop (docs/HANDOFF.md item 1). NativeAntiCheatGuard loads the DLL
+        by absolute path from AppContext.BaseDirectory and never falls back to a
+        search, so it has to actually be there.
+
+    THE THIRD IMPORT NEEDS §S18 BLOCKER 3 RE-READ, and this is that reading rather
+    than a quiet exception.
+
+    What blocker 3 was FOR was the WPF UI acquiring the guard as a SIDE EFFECT of
+    wanting SQLite and detection — a `None` item in Infrastructure.csproj flowing to
+    every referencing project. FrameLedger.CaptureHost is the opposite case: a
+    deliberate host that exists to run the guard, in the same class as the test
+    project that has imported this since it was written.
+
+    And the fix blocker 3 produced is a property of the DIRECTORY, not of the
+    process: `GetCurrentProcessId()` was rejected as an identity precisely because
+    more than one binary carries the guard. A third one does not weaken it.
+
+    WHAT IS NOT RE-DECIDED HERE: reversing a ratified decision is the owner's, not a
+    PR's, and 20_OPEN_QUESTIONS §S24 records it as an open owner decision. What this
+    comment does is stop the file asserting a count that stopped being true.
+
+    NOT a cross-process hazard either, which a design panel proposed a named mutex
+    for: §S28's fail-open is a race on PROCESS-LOCAL statics inside ParseRules and
+    EvaluateImpl, and a second process gets its own image of the DLL with its own
+    copies — which §S28 already concedes for the Vulkan layer in as many words.
 
     NOT imported by FrameLedger.App. FR-2.2's advisory pre-scan reaches the guard
     through the Agent over IPC when that exists (07_IPC); until then the App has

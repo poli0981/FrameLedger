@@ -1,0 +1,86 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    THE UNSHIPPED CAPTURE HOST.
+
+    It drives the loop docs/04_CAPTURE.md specifies and nothing else does yet:
+    HookedCaptureGate to FlGuardedInject to ShmRingReader.TryAttach to a ~10 Hz
+    drain, with GuardSupervisor.ScanOnceAsync and PublishGuardResult beside it.
+    It is the FIRST PRODUCTION DRIVER of FlControlBlock.guardTicks, the sending
+    half of the 30 s re-scan that docs/19_SAFETY_AND_ANTICHEAT.md calls the most
+    important runtime behaviour in the capture layer. Both ends of that field
+    existed and were tested; only the loop was missing.
+
+    WHY IT IS A PROJECT OF ITS OWN AND NOT A FLAG ON FrameLedger.Agent.
+
+    docs/12_BUILD.md publishes exactly two roots, FrameLedger.App and
+    FrameLedger.Agent, into one out/app. A project that neither references is
+    outside the package BY CONSTRUCTION rather than by a flag someone could
+    flip. 20_OPEN_QUESTIONS §S27 is why that matters: a capture flag on a shipped,
+    self-contained binary would have loaded the Overlay into any x64 process a
+    user named, with no game record, no consent stamp and the 19_SAFETY
+    disclosure never shown. Every anti-cheat check would still have run, so it
+    was not an anti-cheat bypass; it was a consent and disclosure gap in a
+    shipped binary, which is its own class.
+
+    tools/package-closure-check.ps1 is what keeps that true. Referencing this
+    project from either publish root turns the gate red and names the edge.
+
+    EVERY TYPE HERE IS internal. .editorconfig relaxes CA1515 only under
+    src/FrameLedger.App, and FrameLedger.Agent's own Program is internal for the
+    same reason. InternalsVisibleTo below is what lets the test project see them.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>FrameLedger.CaptureHost</AssemblyName>
+    <RootNamespace>FrameLedger.CaptureHost</RootNamespace>
+
+    <!--
+      Directory.Build.props deliberately does NOT set RuntimeIdentifier: forcing a
+      RID onto class libraries pulls RID-specific assets into their restore for no
+      benefit, so the two executables set it themselves. docs/12_BUILD.md claimed
+      the props file sets it, which is corrected in this PR.
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FrameLedger.CaptureHost.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FrameLedger.Application\FrameLedger.Application.csproj" />
+    <ProjectReference Include="..\FrameLedger.Infrastructure\FrameLedger.Infrastructure.csproj" />
+    <ProjectReference Include="..\FrameLedger.Shared\FrameLedger.Shared.csproj" />
+  </ItemGroup>
+
+  <!--
+    All three native staging targets, and each is load-bearing rather than
+    defensive:
+
+      Guard   - NativeAntiCheatGuard loads FrameLedger.Guard.dll BY ABSOLUTE PATH
+                from AppContext.BaseDirectory and never falls back to a search, so
+                the file has to actually be there.
+      Overlay - §S22 makes the guard refuse a payload that does not resolve into
+                the directory the guard's own code was loaded from, compared by
+                file id. Without this every injection answers PayloadNotOurs.
+      Rules   - without a seeded blocklist the guard answers RulesUnreadable for
+                EVERY target (§S20). That was the first real injection's opening
+                refusal, and CI hit it again in the drain test.
+
+    FrameLedger.Guard.targets records "imported by exactly two projects" and
+    §S18 blocker 3's ratification that the Agent is the sole host of the guard.
+    This makes it three; that comment and the re-ratification are updated in the
+    same PR. What §S18 blocker 3 was FOR - the WPF UI acquiring the guard as a
+    side effect of wanting SQLite - does not apply to a deliberate host, and the
+    fix it produced is a property of the DIRECTORY rather than of the process.
+
+    NOT FrameLedger.DrainFixtures.targets: hook-harness is a test fixture, and
+    staging it beside a host binary is how a host acquires a target of its own.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Guard.targets" />
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Rules.targets" />
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Overlay.targets" />
+
+</Project>

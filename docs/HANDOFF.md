@@ -42,6 +42,12 @@ from memory:
 Criterion 2's count is in §S24's summary and is kept current there. Criterion 1 needs
 the feature hooks below.
 
+> **What changed on 2026-08-06, in one sentence, because it changes the shape of
+> criterion 1 rather than its content:** there is now a path from a consent record to a
+> drained session, driven by a real binary, so "a throwaway build records a real
+> session" needs feature hooks **and nothing else**. The queue's item 1 is struck
+> below for that reason.
+
 ---
 
 ## The queue, in dependency order
@@ -50,7 +56,43 @@ Each entry names the acceptance criterion and **what makes it fail on unmodified
 `main`** — because a criterion already true on `main` is decoration, and this project
 has shipped three of those.
 
-### 1. Consent store + the first production driver of the guard loop
+### ~~1. Consent store + the first production driver of the guard loop~~ — LANDED 2026-08-06
+
+**Do not start here.** The whole of this entry is built: `IGameConsentStore` with a
+file-backed adapter, `FrameLedger.CaptureHost` driving `HookedCaptureGate` →
+`FlGuardedInject` → `ShmRingReader.TryAttach` → a 10 Hz drain with
+`GuardSupervisor.ScanOnceAsync` and `PublishGuardResult`, §S29(c) closed by deleting
+`ShouldUnhookAsync`, §S29(e) closed with a held process handle, the throwaway consumer,
+and all three test gaps. **The head of the queue is item 2.**
+
+What it does *not* move: items 4, 6 and 7 still need feature hooks. The writer still
+records `measuredMask = FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` and nothing
+else, and the consumer reports `N/A` for upscaler, FG and RT because that is what the
+data says. What it moves is the *path*: there is now a route from a consent record to a
+drained session, so exit criterion 1's throwaway build needs hooks and nothing else.
+
+Status lives where it lives — `CHANGELOG.md` and §S24 — and this entry is struck rather
+than deleted because **the sequencing claim is what this file is allowed to carry, and
+the sequencing changed.** Leaving it queued would tell the next session to build what
+already exists, which is the failure this file's own rule exists to prevent, one level
+up: it went stale by *not* being touched.
+
+Two things from it are still open and are the owner's:
+
+- **Six decisions surfaced by building it**, listed in §S24 — who may clear
+  `hook_blocked_reason`; whether the operator acknowledgement's wording is reviewed like
+  a `Safety_*` string; whether FR-2.4's kill switch is an input to `HookedCaptureGate`;
+  whether FR-11 gates consent; whether §S18 blocker 3 is re-ratified now that a third
+  project imports the guard; and the disclosure/wording version, which was **decided and
+  implemented** because it cannot be retrofitted — reversing it is still the owner's.
+- **`tools/package-closure-check.ps1` reads `ProjectReference` only.** It is what keeps
+  §S27 closed, and it does not follow `<Import>` or `Directory.Build.props`, so a
+  `.targets` file that stages a foreign binary into a publish root's output is outside
+  what it sees. Stated here because the next person to widen the packaging story needs
+  to know the shape of the hole rather than discovering it.
+
+<details>
+<summary>The original entry, kept for the reasoning it carries</summary>
 
 The layer under everything else, and the answer to §S27.
 
@@ -91,7 +133,9 @@ The layer under everything else, and the answer to §S27.
 `HookedCaptureGate` to a drain. Assert `ConsentMissing` with `FlGuardedInject` **never
 reached**, and `guardTicks` advancing from a non-test binary.
 
-### 2. Upscaler hooks + a harness that speaks the vendors' symbol names
+</details>
+
+### 2. Upscaler hooks + a harness that speaks the vendors' symbol names — **START HERE**
 
 Item 4's primary hook class. **Streamline first** (owner decision); NGX-direct is its
 own PR with its own rule-4 justification.
@@ -167,6 +211,18 @@ table whose only purpose is being auditable by counting them.
 feature hooks — §S29(a) said it was and was wrong; see below. What it buys is the
 *managed* drain being in the merge gate.
 
+> **The price went up on 2026-08-06 and is worth stating before someone budgets it.**
+> `Category=Integration` was three cases; it is **nine** — the drain loop, the pause
+> round trip, the drop path against the real writer, and the capture host's four
+> end-to-end cases including the only assertion anywhere that `guardTicks` advances
+> from a non-test binary. All nine run on a dev box and none in the merge gate.
+>
+> **And §S19(b) alone does not buy them back.** `build.ps1 -SkipIntegration` applies
+> `--filter 'Category!=Integration'`, which excludes the class *before* the guard is
+> ever asked — two independent mechanisms produce one absence, and `ci.yml` has to
+> drop the switch as well. Anyone costing this as "fix the signer half" is costing
+> half of it.
+
 P0 item 8 telemetry: `BaselineTelemetrySource` (L1), `LhmTelemetrySource` + the M5
 question (do GPU sensors work unelevated without PawnIO — it decides whether the
 default Agent has temperatures at all), `NvapiTelemetrySource` (L3 — the material is
@@ -235,6 +291,21 @@ diagnosis*.
   the mutated text before validating.
 - **`./build.ps1 check` with no switches** after every PR. CI runs `-SkipIntegration`,
   so a green CI is not evidence for anything touching the managed drain.
+- **A canary that does not compile is not a canary, and this repo's analyzers make that
+  easy to hit.** Removing a call to prove a gate goes red can leave a constructor
+  parameter unread — `CS9113` under `TreatWarningsAsErrors` — so the build fails, the
+  test run prints "All tests passed" from the **previous binary**, and the canary looks
+  like it worked. Measured this way on 2026-08-06 while proving the consent gate.
+  Add `_ = param;` to keep it compiling, and read the build's exit code first.
+- **A document can go stale by NOT being touched.** This file's queue item 1 described
+  work that had just landed, in a PR that changed 69 other files — the failure was the
+  edit that was never made. `CHANGELOG.md` and §S24 are gated; this file is not, so it
+  is the one that needs a deliberate pass at the end of every item.
+- **Files written with LF fail `dotnet format --verify-no-changes`** even though the diff
+  looks identical: `.editorconfig` mandates CRLF and `.gitattributes` normalises on
+  checkout, so the working tree disagrees with both. Run `dotnet format` (no switch)
+  before `check`, and normalise `.csproj`/`.ps1` by hand — the formatter does not touch
+  those.
 - **GPG can stall.** `git commit` fails with `signing failed: Timeout`, and `git push`
   then reports success while pushing only the old HEAD. Never pass `--no-gpg-sign`; just
   retry the commit and read *its* exit code.

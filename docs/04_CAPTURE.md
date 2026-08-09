@@ -70,7 +70,30 @@ The facade exposes exactly two operations, and neither hands out a clearance:
 
 Its result is authoritative: no code path may inject without a passing check, and there is no override. Failures produce a structured `CaptureRefused { reason, signal }` surfaced to the UI with plain-language text; the reason codes mirror `fl::guard::Reason` and a test proves the two have not drifted.
 
-What the Agent checks **before** asking the guard is the thing the native side structurally cannot see: **per-game consent** (CLAUDE.md rule 1). Consent is a record of something a human did and lives in SQLite, so `HookedCaptureGate` refuses an unconsented or un-enabled game without the guard ever being called.
+What the Agent checks **before** asking the guard is the thing the native side structurally cannot see: **per-game consent** (CLAUDE.md rule 1). Consent is a record of something a human did, so `HookedCaptureGate` refuses an unconsented or un-enabled game without the guard ever being called.
+
+> **Where it lives, corrected 2026-08-06.** This sentence said "lives in SQLite", and was the
+> only line in the tree that said where consent lives — while no database, no `games` table
+> and no consent writer existed in any `.cs` file (§S27). The port is
+> `Application.Consent.IGameConsentStore`; **SQLite is P2's adapter for it** and is still
+> unwritten, and `06_DATA_MODEL` declines to guess `0001_init.sql` before its consumers exist.
+> The only adapter today is a file-backed store inside the unshipped `FrameLedger.CaptureHost`,
+> whose record dies with the build tree and is **not** a migration source.
+>
+> **A file cannot uphold the Agent-stamp property, and saying so is the honest position.**
+> `19_SAFETY` §User-facing consent requires the timestamp to be *"stamped by the Agent, never
+> supplied by a client"*, and `07_IPC` §The pipe is not a trust boundary makes the Agent's own
+> clock the attestation. A file on disk is by construction supplied by whoever can write it.
+> What stands in for the property until SQLite exists is narrower and is stated rather than
+> implied: the store belongs to a binary `12_BUILD` does not publish, its record carries a
+> **disclosure provenance whose default means no disclosure was shown**, and every anti-cheat
+> check still runs afterwards — this is the opt-in half, never the anti-cheat half.
+>
+> **The request the gate evaluates has exactly one producer**, `HookRequest.FromConsent`.
+> That is not organisation: the type was a `record` with `init` members, so
+> `new HookRequest { HookEnabled = true, ConsentedAt = DateTimeOffset.UtcNow }` satisfied the
+> gate from any call site — the synthesis §S27 named and rejected. It is now get-only behind a
+> private constructor, so the expression does not compile.
 
 ## Ring draining
 
