@@ -36,6 +36,22 @@ namespace FrameLedger.Infrastructure.Tests;
 /// injects elsewhere.
 /// </para>
 /// <para>
+/// <b>NO BUDGET IN THIS FILE IS SIZED ON THE HARNESS'S MEASURED RATE.</b> Four assertions were, and
+/// all four went red under load while nothing was wrong — the suite runs four test assemblies in
+/// parallel, each spawning a harness and injecting an Overlay that creates a WARP device, so the
+/// presenting thread is descheduled for far longer than a rate-derived constant allows. Every loop
+/// here waits for the STATE it needs, bounded by a wall clock generous enough to be about the state
+/// rather than about the machine.
+/// </para>
+/// <para>
+/// <b>And when one of them fails, capture the MESSAGE before changing anything.</b> #62 spent two
+/// rounds applying the remedy for a race to what turned out to be a loop bound and its assertion
+/// disagreeing by one — a defect class is a hypothesis about the next failure, never a diagnosis of
+/// it. <c>TheGuardInjectsTheOverlayAndTheReaderDrainsRealFrames</c> failed once in twelve runs on
+/// 2026-08-06 with its message uncaptured; its rate-sized budget was removed because that is
+/// defensible on its own terms, and that is explicitly NOT presented as the fix for that occurrence.
+/// </para>
+/// <para>
 /// <b>QPC ORDER ACROSS A LAP IS UNASSERTABLE IN EITHER DIRECTION, and it cost three attempts to say
 /// so.</b> Measured both ways on 2026-08-06: under the full suite the drop test's first drained record
 /// came back ~148 ms LATER than the second; run alone, the same batch was perfectly ascending. Both are
@@ -287,22 +303,20 @@ public sealed class ShmDrainIntegrationTests
                 var buffer = new FlFrameRecord[512];
                 var gaps = new List<ulong>();
 
-                for (int tick = 0; tick < 12; tick++)
-                {
-                    bool mayContinue = await supervisor.ScanOnceAsync(harness.Id, TestContext.Current.CancellationToken);
-                    reader.PublishGuardResult(supervisor.CompletedEvaluations, supervisor.UnhookRequested);
-                    mayContinue.Should().BeTrue("our own harness must not start matching the blocklist mid-run");
+                // Drain until the floor is met or the hold runs out — see the class remarks for what
+                // this does and does not claim.
+                const int floor = 50;
+                await DrainUnderSupervisionAsync(reader, supervisor, harness.Id, buffer, gaps, records, floor);
 
-                    DrainResult r = reader.Drain(buffer, gaps);
-                    records.AddRange(buffer.AsSpan(0, r.Copied).ToArray());
-                    await Task.Delay(150, TestContext.Current.CancellationToken);
-                }
+                supervisor.CompletedEvaluations.Should().BeGreaterThan(1u,
+                    "the loop must have supervised more than once, or it is not the drain-under-supervision "
+                    + "case it is named for");
 
                 // A FLOOR, NOT AN EXACT COUNT. Injection lands ~800 ms after spawn, so every present
                 // before the hook installs is structurally lost — "N presents → N records" is
                 // unsatisfiable here, and an acceptance criterion that cannot pass carries as little
                 // information as one that cannot fail.
-                records.Should().HaveCountGreaterThan(50, "the harness presents at ~120/s for 12 s");
+                records.Should().HaveCountGreaterThan(floor, "the harness presents at ~120/s for 12 s");
 
                 AssertRecordsAreHonest(records);
 
@@ -402,6 +416,33 @@ public sealed class ShmDrainIntegrationTests
     /// One call is not "the ring", and a test that made that mistake would under-count exactly when the
     /// reader had fallen behind — which is the state two of these cases are about.
     /// </remarks>
+    /// <summary>
+    /// Drains under a live guard loop until <paramref name="floor"/> records are in hand
+    /// or the wall clock runs out.
+    /// </summary>
+    /// <remarks>
+    /// The tick is published from <c>GuardSupervisor.CompletedEvaluations</c> at exactly
+    /// one site, on the far side of a returned verdict — a timer-shaped tick is what
+    /// <c>fl_shm.h</c> spends sixteen lines forbidding, and a loop-owned counter here
+    /// would be one.
+    /// </remarks>
+    private static async Task DrainUnderSupervisionAsync(ShmRingReader reader, GuardSupervisor supervisor,
+        int pid, FlFrameRecord[] buffer, IList<ulong> gaps, List<FlFrameRecord> records, int floor)
+    {
+        DateTimeOffset until = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+        while (records.Count <= floor && DateTimeOffset.UtcNow < until)
+        {
+            bool mayContinue = await supervisor.ScanOnceAsync(pid, TestContext.Current.CancellationToken)
+                .ConfigureAwait(false);
+            reader.PublishGuardResult(supervisor.CompletedEvaluations, supervisor.UnhookRequested);
+            mayContinue.Should().BeTrue("our own harness must not start matching the blocklist mid-run");
+
+            DrainResult r = reader.Drain(buffer, gaps);
+            records.AddRange(buffer.AsSpan(0, r.Copied).ToArray());
+            await Task.Delay(150, TestContext.Current.CancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private static List<FlFrameRecord> DrainAll(ShmRingReader reader)
     {
         var buffer = new FlFrameRecord[1024];

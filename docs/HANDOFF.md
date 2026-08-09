@@ -56,6 +56,19 @@ Each entry names the acceptance criterion and **what makes it fail on unmodified
 `main`** — because a criterion already true on `main` is decoration, and this project
 has shipped three of those.
 
+> ### Before you start: two things about this machine, neither of them the code
+>
+> 1. **`./build.ps1 check` cannot go fully green here.** `fl_d3d12_acquisition` and
+>    `fl_guard`'s D3D12 case fail because WARP's D3D12 path is broken on this Windows
+>    Insider build — measured, persistent across a reboot, and detailed in §Traps. CI runs
+>    the same suite on WARP and passes. Use `./build.ps1 managed` for the managed half and
+>    read the native failures against that list before treating one as a finding.
+> 2. **The managed suite is green and was stabilised the hard way.** Ten consecutive full
+>    runs at the time of writing. Five assertions in `ShmDrainIntegrationTests` /
+>    `CaptureHostEndToEndTests` had budgets sized on the harness's measured rate or read a
+>    state once; #61 and #62 fixed them, and §Traps records the shape so the next one is
+>    recognised rather than re-derived.
+
 ### ~~1. Consent store + the first production driver of the guard loop~~ — LANDED 2026-08-06
 
 **Do not start here.** The whole of this entry is built: `IGameConsentStore` with a
@@ -302,13 +315,41 @@ diagnosis*.
   edit that was never made. `CHANGELOG.md` and §S24 are gated; this file is not, so it
   is the one that needs a deliberate pass at the end of every item.
 - **`D3D12CreateDevice(WARP)` can fail on a dev box while the real GPU's D3D12 works, and it takes
-  two ctests down with it.** Measured 2026-08-06: `EnumWarpAdapter` succeeds,
-  `D3D12CreateDevice(warp, FL 11_0)` returns **`DXGI_ERROR_DRIVER_INTERNAL_ERROR` (0x887A0020)**, and
-  `D3D12CreateDevice(nullptr, …)` on the RTX 5080 returns `S_OK`. `fl_d3d12_acquisition` and
-  `fl_guard`'s D3D12 case both go red and the harness prints only `[FAIL] D3D12CreateDevice(WARP)`,
-  which reads like a code regression. **It is machine state and a reboot clears it** — CI runs the
-  same suite on WARP with no GPU at all and passes. Before diagnosing, probe the two adapters
-  separately; the whole test is four P/Invokes.
+  two ctests down with it — `fl_d3d12_acquisition` and `fl_guard`'s D3D12 case.** The harness prints
+  only `[FAIL] D3D12CreateDevice(WARP)`, which reads like a code regression.
+
+  **Measured on this machine 2026-08-06, and the second measurement contradicted the first
+  write-up.** `EnumWarpAdapter` succeeds and returns *Microsoft Basic Render Driver*;
+  `D3D12CreateDevice` on it returns **`DXGI_ERROR_DRIVER_INTERNAL_ERROR` (0x887A0020)** at **every**
+  valid feature level (12_2 through 11_0; 10_1 and below return `E_INVALIDARG`, which is correct
+  because D3D12 has an 11_0 floor). On the **same adapter object**, `D3D11CreateDevice` succeeds at
+  FL 11_0, and `D3D12CreateDevice(nullptr, …)` on the RTX 5080 returns `S_OK`.
+
+  > **"A reboot clears it" was written here and is FALSE.** I asserted a remedy I had not tested.
+  > The machine rebooted at 13:58 and the identical failure reproduced at 14:17, 19 minutes into the
+  > new boot. `d3d10warp.dll`, `d3d12.dll` and `D3D12Core.dll` are all `10.0.29639.1000` and match the
+  > OS — **Windows 11 Insider Preview build 26300/29639** — so nothing is mismatched or corrupt, and
+  > the system log has no display errors since boot. It reads as an Insider-build regression in
+  > WARP's **D3D12** path, and it is persistent.
+
+  **What that does and does not mean for the project.** CI (`windows-latest`, not an Insider build,
+  no GPU) runs the same suite on WARP and passes, so `main` is not broken and no code change is
+  indicated. What it does mean is that **the native suite has a hard dependency on WARP D3D12 that a
+  dev box can lose on its own**, and that a red `fl_d3d12_acquisition` is not evidence about the
+  code until the two adapters have been probed separately. That probe is ~40 lines of P/Invoke and
+  settles it in one run; do that before reading the harness's output as a finding.
+- **No budget in the integration tests may be sized on the harness's measured rate.** Five were, and
+  every one went red under load while nothing was wrong: the suite runs four test assemblies in
+  parallel, each spawning a harness and injecting an Overlay that creates a WARP device, so the
+  presenting thread is descheduled far longer than a rate-derived constant allows. Wait for the
+  **state**, bounded by a wall clock generous enough to be about the state rather than about the
+  machine.
+- **When one of those fails, capture the MESSAGE before changing anything.** #62 spent two rounds
+  applying the remedy for a race to what turned out to be a loop bound and its assertion disagreeing
+  by one — the loop exited at exactly 10 and the assertion demanded more than 10, so timing decided
+  whether the off-by-one was visible. **A defect class is a hypothesis about the next failure, never
+  a diagnosis of it.** One run with the message printed settles what four runs of pattern-matching
+  cannot.
 - **A test that reads a writer state ONCE is racing `InitThread`.** `layoutVersion` is published at
   step 2 and `status` becomes `READY` at step 6, with a WARP device creation in between; `apiMask` is
   set later still, on the first present the hook sees. So `TryAttach` succeeding, `guardTicks`
