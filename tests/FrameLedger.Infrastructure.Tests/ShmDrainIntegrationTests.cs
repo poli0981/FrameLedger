@@ -333,15 +333,21 @@ public sealed class ShmDrainIntegrationTests
         // but four test assemblies run in parallel, each spawning a harness and injecting an Overlay
         // that creates a WARP device, and a budget sized on the measured rate is the thing that goes
         // red under contention while nothing is wrong.
+        const int enough = 10;
         int seen = 0;
-        for (int i = 0; i < 100 && seen < 10; i++)
+        for (int i = 0; i < 100 && seen < enough; i++)
         {
             reader.PublishGuardResult(++tick.Value, unhookRequested: false);
             await Task.Delay(100, TestContext.Current.CancellationToken).ConfigureAwait(false);
             seen += reader.Drain(buffer).Copied;
         }
 
-        seen.Should().BeGreaterThan(10, "the harness must be presenting before anything asserted below means anything");
+        // THE LOOP BOUND AND THE ASSERTION MUST BE THE SAME NUMBER, and they were not: the loop exited
+        // at `seen >= 10` — usually exactly 10 — and the assertion demanded `> 10`, so it passed only
+        // when one drain happened to bring in eleven or more at once. It read as a contention flake for
+        // two rounds because the timing decided whether the off-by-one was visible. One constant now.
+        seen.Should().BeGreaterThanOrEqualTo(
+            enough, "the harness must be presenting before anything asserted below means anything");
         return seen;
     }
 
@@ -472,8 +478,12 @@ public sealed class ShmDrainIntegrationTests
 
             reader.WriterState.WriteIndex.Should().BeGreaterThan(atPause);
 
+            // 60 iterations (3 s), not 20 (1 s). Swept with the settle loop above rather than left for
+            // the next post-merge run: five records at the harness's ~120/s take ~42 ms, and a budget
+            // sized on the measured rate is exactly what goes red under four parallel assemblies while
+            // nothing is wrong.
             var after = new List<FlFrameRecord>();
-            for (int i = 0; i < 20 && after.Count < 5; i++)
+            for (int i = 0; i < 60 && after.Count < 5; i++)
             {
                 DrainResult r = reader.Drain(buffer);
                 after.AddRange(buffer.AsSpan(0, r.Copied).ToArray());
