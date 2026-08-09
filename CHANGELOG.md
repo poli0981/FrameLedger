@@ -19,6 +19,83 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **The upscaler identity hook, and a fixture that can prove a wrong symbol name wrong** —
+  `docs/HANDOFF.md` queue item 2. `FrameLedger.Overlay` gains **module-scoped symbol
+  resolution** (it had none: `GetProcAddress`/`GetModuleHandle` appeared nowhere in the
+  target) and one MinHook detour on `sl.interposer.dll!slEvaluateFeature`, installed
+  lazily by the existing 1 Hz watchdog so a title that loads Streamline at device
+  creation is still caught without a `LoadLibrary` hook — which keeps §S6 separable.
+  - **`FlWriterState.hooksInstalledMask` gets its first producer anywhere in the tree.**
+    It had none — not even `FL_HOOK_PRESENT`, which the present hook was always entitled
+    to — and `MeasuredFacts.RayTracingOf` already said so in its own comment while
+    reaching `N/A` on every session because of it.
+  - **Never `FL_UPSCALER_NONE`.** A Streamline-only writer cannot see FFX, XeSS or
+    NGX-direct, and `NONE` is the only one of the three states `fl_shm.h` allows to be
+    aggregated as a negative. An unrecognised feature id reports `UNKNOWN` — "a hook ran
+    and could not identify what it saw" — which is a state this codebase could not
+    previously produce. A ctest drives a target evaluating `0xF00D` to prove it.
+  - **Ray Reconstruction's OBSERVED bit is gated on having seen an SL evaluation *this
+    frame*, not on the hook being installed.** Found by an adversarial refuter over the
+    design: the consumer returns `Tri.No` when OBSERVED is set on every record and no
+    record carries the fact bit, so a writer setting OBSERVED whenever the hook was live
+    would publish **"Ray Reconstruction: No" on an NGX-direct DLSS-RR title**, which
+    never calls `slEvaluateFeature` at all. The honest-looking choice was the wrong one.
+  - **`FL_MEASURED_UPSCALER_PARAMS` is deliberately unset, and the reason is a licence.**
+    `17_HOOK_ENGINE` recommended hooking `NVSDK_NGX_Parameter_SetUI` for quality and
+    render size; that needs NGX declarations, and the NGX/DLSS SDK is the proprietary
+    **NVIDIA RTX SDKs License** — verified upstream, hitting three of
+    `18_GPU_VENDOR_APIS` §Checklist step 2's four needles — so step 3 forbids vendoring
+    it **and** re-declaring it. The document recommended a path its own rule forbids and
+    nothing had noticed, because no code had gone near it. Corrected in place.
+- **NVIDIA Streamline MIT headers vendored** at `src/native/third_party/streamline/` —
+  the nine-file include closure of `sl.h`, one atomic commit with the licence copy, the
+  notices row and both of `license-check.ps1`'s arrays. It buys the vendor's own
+  `PFun_slEvaluateFeature`: five parameters, every one integer-class, so **nothing
+  travels in XMM** — the exact residual hazard nobody could rule out while the signature
+  was a guess, and a guess wrong by one argument corrupts the stack *inside the original
+  function*, where `FL_HOOK_GUARD`'s `__try` cannot reach. `sl_nvperf.h` is excluded (the
+  same `license.txt` carries a second, proprietary NSight Perf block naming it) and all
+  of `external/` is excluded (upstream's `external/ngx-sdk` is the RTX licence, so a
+  recursive copy does the forbidden thing by default). `license-check` asserts all three,
+  proven red in four directions. This also answers the question `spike-notes` §5 recorded
+  as open: §H5 case 3 was *"blocked on a licence decision, not on hardware"*, and the
+  decision is taken.
+- **`tools/hookinventory-check.ps1`** — every vendor symbol the Overlay resolves by name
+  must exist, **in the module it takes it from**, in `docs/vendor-exports.json`. Wired
+  into `build.ps1` in both halves. **Prevention: it fixed nothing**, and its own docstring
+  says so, because a gate whose write-up implies it caught something cannot be audited
+  later. Five red cases proven; the load-bearing one is an **oracle-discrimination
+  canary that runs before any verdict**, since every failure mode of such a lookup
+  produces the same answer as "absent".
+
+### Fixed
+
+- **A failed `REQUIRE` terminated the whole native test binary, hiding every test after
+  it.** Catch2 compiled itself with `CATCH_CONFIG_DISABLE_EXCEPTIONS`: the top-level
+  CMakeLists strips `/EHsc` from `CMAKE_CXX_FLAGS` deliberately, and `tests/CMakeLists.txt`
+  re-added it **only to the test binaries**, never to the Catch2 library that decides the
+  mode — a comment whose premise was right and whose effect was not. On a box where WARP's
+  D3D12 path is broken this silently removed the end-to-end injection cases from `ctest`,
+  **including the honesty assertion §S29(a) names as the merge gate's coverage**, which
+  passes when run alone. `ctest` reported "1 test failed" where the truth was "and 2 never
+  ran". Recovered **70 test cases and 1051 assertions**.
+- **`MeasuredFacts.IsHonest` compared `measuredMask` against a hardcoded constant**, which
+  was correct for a present-only writer and became wrong the moment a feature hook landed:
+  an honest record claiming `FL_MEASURED_UPSCALER` counted as a violation. Widening the
+  constant would have made the check a statement about one build rather than about
+  honesty, so entitlement is now **derived from `hooksInstalledMask`** — a writer may
+  claim a measurement only where it installed a hook capable of taking it — plus the
+  reverse direction that was missing, a *value* set while its mask bit is clear.
+- **`docs/12_BUILD.md` said the NVAPI SDK "is not vendored yet"** and that
+  `src/native/third_party/` held only `CMakeLists.txt` and `vulkan-headers`. Both false
+  since #55. That sentence was itself a correction of the opposite error, so this file has
+  now been wrong in both directions about one fact — `legal/` is gated bidirectionally and
+  caught its own version, `docs/` is not.
+- **`docs/HANDOFF.md` item 2 named `NVSDK_NGX_EvaluateFeature`, which no measured module
+  exports**, and said four modules where `NVSDK_NGX_D3D12_EvaluateFeature` has **seven**.
+  The argument survived both errors; the data was wrong in the bullet whose subject is
+  that a wrong symbol name degrades silently.
+
 - **The consent store, and the first production driver of the guard loop** — `docs/HANDOFF.md`
   queue item 1. `HookedCaptureGate`'s three inputs (`hook_enabled`, `hook_consent_at`,
   `hook_blocked_reason`) have a real source for the first time, and

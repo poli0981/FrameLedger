@@ -71,6 +71,42 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(catch2)
 if(TARGET Catch2)
     set_target_properties(Catch2 Catch2WithMain PROPERTIES FOLDER "third_party")
+
+    # /EHsc ON CATCH2 ITSELF, and this is a FIX, not tidying.
+    #
+    # tests/CMakeLists.txt adds /EHsc to each test BINARY, with a comment whose
+    # premise is right — "Catch2 reports failures by throwing" — and whose effect
+    # was not: the flag reached guard_test.cpp and never reached the Catch2
+    # LIBRARY, which is what decides the mode. The top-level CMakeLists strips
+    # /EHsc from CMAKE_CXX_FLAGS (deliberately, so every target states its own
+    # exception model), FetchContent builds Catch2 with whatever is left, and
+    # Catch2 auto-detects the absence and compiles itself with
+    # CATCH_CONFIG_DISABLE_EXCEPTIONS.
+    #
+    # MEASURED, not inferred, 2026-08-09. The generated command line for
+    # _deps/catch2-build/.../Catch2.dir/*.obj was
+    #   /DWIN32 /D_WINDOWS /O2 /Ob1 /DNDEBUG -std:c++20 -MT -Zi
+    # with no /EH flag at all. In that mode a failed REQUIRE does not fail a test
+    # case, it TERMINATES THE PROCESS:
+    #   "Catch will terminate because it needed to throw an exception."
+    #
+    # WHAT THAT COST, on a dev box where WARP's D3D12 path is broken (HANDOFF
+    # §Traps). fl_guard_test's D3D12 case fails at guard_test.cpp:1298 and takes
+    # every test case DECLARED AFTER IT down with it -- including "the injected
+    # Overlay records real presents into the ring", which 20_OPEN_QUESTIONS
+    # §S29(a) names as the merge gate's honesty coverage. Run on its own that
+    # case PASSES here, 250 assertions. So the coverage was not broken, it was
+    # ABSENT, and ctest reported "1 test failed" rather than "and 2 never ran" --
+    # a green-looking count over missing coverage, which is the defect this
+    # repository keeps finding in other clothes.
+    #
+    # It also removes a real ABI hazard: the library and its consumers disagreed
+    # about CATCH_CONFIG_DISABLE_EXCEPTIONS, so Catch2's macros expanded one way
+    # in guard_test.cpp and the other way inside the archive it linked against.
+    #
+    # PRIVATE, and appended after CMAKE_CXX_FLAGS, so it wins over the strip.
+    target_compile_options(Catch2 PRIVATE /EHsc)
+    target_compile_options(Catch2WithMain PRIVATE /EHsc)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -96,6 +132,8 @@ target_include_directories(fl_vulkan_headers SYSTEM INTERFACE
 # SYSTEM: these are consumed unmodified, so /W4 /WX must not fail our build on
 # somebody else's warnings. Patching a vendored header would drag it out of
 # "consumed unmodified" and into modification territory for no benefit.
+#
+# (The same reasoning applies to fl_streamline_headers below.)
 
 # ---------------------------------------------------------------------------
 # NVAPI (MIT) — VENDORED, same reasoning as the Vulkan headers and one more.
@@ -128,3 +166,40 @@ target_link_libraries(fl_nvapi INTERFACE
 # asserted by ctest fl_nvapi_probe rather than assumed — a vendored dependency
 # nothing compiles against is a dependency whose header closure could be
 # incomplete with nobody the wiser.
+
+# ---------------------------------------------------------------------------
+# NVIDIA Streamline headers (MIT) — VENDORED, not fetched, like the Vulkan
+# headers and for the same two reasons: CI must not need a vendor SDK install,
+# and we must compile against the exact revision the hook was written for.
+#
+# WHAT THIS BUYS, stated because the alternative was seriously proposed and
+# nearly built. The Overlay hooks sl.interposer.dll!slEvaluateFeature. Without a
+# header, its signature has to be guessed, and a guess that is wrong by one
+# argument corrupts the stack INSIDE THE ORIGINAL FUNCTION — outside
+# FL_HOOK_GUARD's __try, which cannot help there, in somebody's game. With the
+# header it is not a guess: sl_core_api.h publishes
+#
+#   using PFun_slEvaluateFeature = sl::Result(sl::Feature, const sl::FrameToken&,
+#                                             const sl::BaseStructure**, uint32_t,
+#                                             sl::CommandBuffer*);
+#
+# Five parameters, every one integer-class (Feature is uint32_t, CommandBuffer is
+# void, a reference is a pointer), and an enum return. No float, no double, so
+# nothing travels in XMM — which was the exact residual hazard nobody could rule
+# out while the signature was unknown.
+#
+# LICENCE: MIT, verified against upstream on 2026-08-09 — none of
+# docs/18_GPU_VENDOR_APIS.md §Checklist step 2's needles, so step 1 terminates on
+# a pass. NGX/DLSS is a DIFFERENT licence (proprietary RTX SDKs Licence) and is
+# neither vendored nor re-declarable; see third_party/streamline/README.md, which
+# also records what is excluded and why.
+add_library(fl_streamline_headers INTERFACE)
+target_include_directories(fl_streamline_headers SYSTEM INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/streamline/include"
+)
+# NEVER target_link_libraries anything here. These are declarations; SL_API
+# entry points are extern "C" imports, and linking one would make
+# sl.interposer.dll a LOAD-TIME dependency of FrameLedger.Overlay.dll — which
+# would stop the Overlay loading in every game that ships no Streamline, in the
+# loader, before any of our code runs and with no message anywhere. The Overlay
+# resolves the symbol at runtime, module-scoped, on a module the game loaded.

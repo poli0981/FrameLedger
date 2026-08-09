@@ -42,10 +42,20 @@
 #include <cstdio>
 #include <cstring>
 #include <fl_dxgi_vtable.h>
+#include <fl_hook_inventory.h>
 #include <fl_ring.h>
 #include <fl_shm.h>
 #include <MinHook.h>
 #include <sddl.h>
+
+// Vendored MIT headers, for TYPES ONLY -- never linked, and no vendor function's
+// address is ever taken in evaluated code. See
+// third_party/streamline/README.md: linking one would make sl.interposer.dll a
+// LOAD-TIME dependency of this DLL, and the Overlay would then fail to load in
+// every game that ships no Streamline, inside the loader, before any of our code
+// runs. We use exactly one thing from here -- the PFun_slEvaluateFeature
+// typedef and the kFeature* ids -- and resolve the symbol at runtime.
+#include <sl.h>
 
 using namespace fl;
 
@@ -520,6 +530,129 @@ bool MayObserve() noexcept {
     return paused.load(std::memory_order_relaxed) == 0;
 }
 
+// ---------------------------------------------------------------------------
+// Upscaler identity, via Streamline (17_HOOK_ENGINE §Upscaling / frame
+// generation; docs/HANDOFF.md queue item 2).
+//
+// ONE HOOK, ONE MODULE. sl.interposer.dll!slEvaluateFeature is the single point
+// a Streamline-shimmed title routes every feature evaluation through, and it is
+// exported by exactly ONE measured module -- unlike the NGX names, which seven
+// modules export (fl_hook_inventory.h has the numbers). Hooking one tier is also
+// a correctness requirement and not only a simplification: a Streamline title
+// runs slEvaluateFeature -> sl.common's NGX shim -> an nvngx_* snippet, so
+// hooking two tiers counts one logical evaluation twice.
+//
+// RULE 4. We read ONE argument of an API we hooked -- `feature`, a uint32 the
+// caller passed us -- and forward all five unchanged. No game memory is read, no
+// structure is dereferenced, nothing is written. `inputs`, `frame` and
+// `cmdBuffer` are passed straight through and never touched.
+//
+// THE SIGNATURE IS THE VENDOR'S, NOT A GUESS, and that is what the vendored MIT
+// header bought. sl_core_api.h publishes PFun_slEvaluateFeature; every parameter
+// is integer-class (Feature is uint32_t, CommandBuffer is void, a reference is a
+// pointer) and the return is an enum, so nothing travels in XMM. A hand-written
+// declaration that was wrong by one argument would corrupt the stack INSIDE THE
+// ORIGINAL FUNCTION, where FL_HOOK_GUARD's __try cannot reach, in somebody's
+// game.
+// ---------------------------------------------------------------------------
+
+// Which Streamline features were evaluated since the last present. Bits, not a
+// last-writer-wins value: DLSS super-resolution and Ray Reconstruction run in
+// the SAME frame (fl_shm.h retired FL_UPSCALER_RETIRED_RAY_RECONSTRUCTION for
+// exactly that reason), so a single slot would drop one of them.
+enum FlSlSeen : uint32_t {
+    FL_SL_SEEN_DLSS = 1u << 0,
+    FL_SL_SEEN_NIS = 1u << 1,
+    FL_SL_SEEN_DLSS_RR = 1u << 2,
+    FL_SL_SEEN_DLSS_G = 1u << 3,
+    FL_SL_SEEN_OTHER = 1u << 4,    // an id we do not decode -- coverage is short, and we say so
+};
+
+std::atomic<uint32_t> g_slSeen{0};
+
+// Set once the identity hook is live. Read on the present path to decide whether
+// this writer may claim FL_MEASURED_UPSCALER at all.
+std::atomic<uint32_t> g_upscalerIdentityLive{0};
+
+using PFN_SlEvaluateFeature = ::PFun_slEvaluateFeature*;
+PFN_SlEvaluateFeature g_origSlEvaluateFeature = nullptr;
+
+sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const sl::FrameToken& frame,
+                                                    const sl::BaseStructure** inputs, uint32_t numInputs,
+                                                    sl::CommandBuffer* cmdBuffer) {
+    FL_HOOK_GUARD({
+        if (MayObserve()) {
+            // kFeatureDLSS IS ZERO, which is worth the line it costs. Every enum
+            // in the record uses 0 for "nobody said"; Streamline uses it for a
+            // real feature. Mapping to our own bit here keeps that collision out
+            // of the record entirely -- a `feature` of 0 must never reach a field
+            // whose 0 means NOT_REPORTED.
+            uint32_t bit = FL_SL_SEEN_OTHER;
+            if (feature == sl::kFeatureDLSS) {
+                bit = FL_SL_SEEN_DLSS;
+            } else if (feature == sl::kFeatureNIS) {
+                bit = FL_SL_SEEN_NIS;
+            } else if (feature == sl::kFeatureDLSS_RR) {
+                bit = FL_SL_SEEN_DLSS_RR;
+            } else if (feature == sl::kFeatureDLSS_G) {
+                bit = FL_SL_SEEN_DLSS_G;
+            }
+            g_slSeen.fetch_or(bit, std::memory_order_relaxed);
+        }
+    })
+    // ALWAYS exactly once, on every path including the fault path, with every
+    // argument forwarded untouched.
+    return g_origSlEvaluateFeature(feature, frame, inputs, numInputs, cmdBuffer);
+}
+
+// Installed from the watchdog the first time the module appears, so a title that
+// loads Streamline lazily is still caught without a LoadLibrary hook (§S6 stays
+// separable, exactly as docs/HANDOFF.md item 2 requires).
+//
+// Returns true once the hook is live, so the caller can stop trying.
+bool InstallUpscalerHooks() noexcept {
+    if (g_upscalerIdentityLive.load(std::memory_order_acquire) != 0) {
+        return true;
+    }
+
+    void* target = nullptr;
+#define FL_TRY_RESOLVE(mod, sym, family)                                                                               \
+    if (target == nullptr) {                                                                                           \
+        target = fl::inventory::ResolveScoped(mod, sym);                                                               \
+    }
+    FL_HOOK_INVENTORY(FL_TRY_RESOLVE)
+#undef FL_TRY_RESOLVE
+
+    if (target == nullptr) {
+        return false;    // the game has not loaded Streamline. An answer, not a failure.
+    }
+
+    if (MH_CreateHook(target, reinterpret_cast<void*>(&Hook_SlEvaluateFeature),
+                      reinterpret_cast<void**>(&g_origSlEvaluateFeature)) != MH_OK ||
+        MH_EnableHook(target) != MH_OK) {
+        return false;
+    }
+
+    // STOPPING IS ONE-WAY, and this closes the window that would have broken it.
+    // StopObserving can run between the caller's g_observing check and here, and
+    // MH_DisableHook(MH_ALL_HOOKS) would then have run BEFORE this hook existed
+    // -- leaving a hook patched in after we promised the Agent there were none.
+    // Nothing false would be recorded (the body consults MayObserve), but
+    // legal/DISCLAIMER.md §2 promises the part inside the game stops, and a hook
+    // installed after the stop is not that.
+    if (g_observing.load(std::memory_order_acquire) == 0) {
+        MH_DisableHook(target);
+        return false;
+    }
+
+    if (g_state != nullptr) {
+        std::atomic_ref<uint32_t> hooks{g_state->hooksInstalledMask};
+        hooks.fetch_or(static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY), std::memory_order_relaxed);
+    }
+    g_upscalerIdentityLive.store(1, std::memory_order_release);
+    return true;
+}
+
 // The watchdog. Runs whether or not the game presents, which is the reason it
 // exists; see the block comment above for why a thread is acceptable in the
 // Overlay and was not in the Vulkan layer.
@@ -539,6 +672,24 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
             StopObserving(FL_STATUS_UNHOOKED);
             return 0;
         }
+
+        // Lazy feature-hook installation. AFTER the two stops, never before: a
+        // tick that is going to unhook must not install anything first.
+        //
+        // THIS IS THE VEHICLE, AND IT IS WHY NO LoadLibrary HOOK IS NEEDED FOR
+        // P0. 17_HOOK_ENGINE §DLL entry step 5 installs feature hooks "the first
+        // time their module appears", and a game that loads Streamline lazily --
+        // most of them, since sl.interposer is pulled in at device creation --
+        // would be missed by a one-shot check at init. A LoadLibrary hook would
+        // catch it too, but it runs under the loader lock while MinHook suspends
+        // every thread to patch (§H2), so it must defer the work to a thread
+        // anyway. This thread already exists and already wakes once a second, so
+        // §S6 stays genuinely separable rather than becoming a prerequisite.
+        //
+        // It RETRIES until it succeeds and latches only on SUCCESS. An
+        // install-attempted flag would give the module exactly one chance, at a
+        // moment chosen by our sleep rather than by the game.
+        InstallUpscalerHooks();
 
         // Supervision loss. guardTicks counts COMPLETED guard evaluations, not
         // seconds, so a stalled guard loop stops it advancing even while the
@@ -643,6 +794,85 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     // neither, which is why the bit exists at all rather than being assumed.
     const uint16_t haveOutputRes = (rec.outputW != 0 && rec.outputH != 0) ? FL_MEASURED_OUTPUT_RES : 0u;
     rec.measuredMask = static_cast<uint16_t>(haveOutputRes | FL_MEASURED_PRESENT_ARGS);
+
+    // --- Upscaler identity, and the three states it must keep apart ----------
+    //
+    // The counter is CONSUMED here, once per present, so the record describes
+    // THIS frame and the next frame starts from nothing. A read-without-clear
+    // would latch: one DLSS evaluation would report DLSS forever, including
+    // after the user turned it off mid-session, which is precisely the
+    // mid-session settings change 03_METRICS §Upscaling segments on.
+    const uint32_t seen = g_slSeen.exchange(0, std::memory_order_acq_rel);
+
+    if (g_upscalerIdentityLive.load(std::memory_order_relaxed) != 0) {
+        // A hook CAPABLE of answering was live for this frame, so the field may
+        // be read. What it says is a separate question, below.
+        rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_UPSCALER);
+
+        if ((seen & FL_SL_SEEN_DLSS) != 0u) {
+            rec.upscaler = FL_UPSCALER_DLSS;
+        } else if ((seen & FL_SL_SEEN_NIS) != 0u) {
+            rec.upscaler = FL_UPSCALER_NIS;
+        } else {
+            // UNKNOWN, AND NEVER `NONE`. FL_UPSCALER_NONE means "a hook ran and
+            // there was genuinely no upscaler" -- the one state fl_shm.h allows
+            // to be aggregated as a negative. This writer hooks STREAMLINE and
+            // nothing else, so an FSR, XeSS or NGX-direct title evaluates its
+            // upscaler somewhere we are not looking. Reporting NONE would turn
+            // "we do not cover that vendor" into a measured fact about the
+            // title. UNKNOWN says the true thing: our coverage is short.
+            //
+            // It is also what an unrecognised feature id lands on
+            // (FL_SL_SEEN_OTHER) -- a NEW Streamline feature we do not decode is
+            // the same admission, from the other direction.
+            rec.upscaler = FL_UPSCALER_UNKNOWN;
+        }
+    }
+
+    // --- Ray Reconstruction, and the fabricated `No` this avoids -------------
+    //
+    // FL_FEAT_RAY_RECONSTRUCTION_OBSERVED is gated on HAVING SEEN AT LEAST ONE
+    // Streamline evaluation this frame, NOT merely on the hook being installed,
+    // and the difference is a wrong answer shipped to a user.
+    //
+    // The consumer (MeasuredFacts.RayReconstructionOf) requires OBSERVED on
+    // EVERY record and then returns `No` when no record carries the fact bit. So
+    // a writer that sets OBSERVED whenever the hook is live would publish
+    // "Ray Reconstruction: No" for an NGX-DIRECT title running DLSS-RR every
+    // frame -- our hook sees nothing there, because that title never calls
+    // slEvaluateFeature at all. That is a fabricated negative under CLAUDE.md
+    // rule 7, produced by the honest-looking choice.
+    //
+    // Seeing any SL evaluation proves the title routes through Streamline, which
+    // is the conjunct that makes our silence about RR meaningful: if RR had run,
+    // we would have seen it on the same path.
+    if (seen != 0u) {
+        uint8_t feat = FL_FEAT_RAY_RECONSTRUCTION_OBSERVED;
+        if ((seen & FL_SL_SEEN_DLSS_RR) != 0u) {
+            feat = static_cast<uint8_t>(feat | FL_FEAT_RAY_RECONSTRUCTION);
+        }
+        rec.featureFlags = feat;
+    }
+
+    // NOT SET, deliberately, and each absence is a producer that does not exist
+    // yet rather than an oversight:
+    //
+    //   FL_MEASURED_UPSCALER_PARAMS -- upscalerQuality, upscalerSharpness and
+    //     renderW/H have no source in this writer. 17_HOOK_ENGINE recommends
+    //     hooking NVSDK_NGX_Parameter_SetUI for them, and that route is CLOSED:
+    //     the NGX SDK is the proprietary RTX SDKs Licence, which
+    //     18_GPU_VENDOR_APIS §Checklist step 3 forbids vendoring AND forbids
+    //     working around by re-declaring. The in-policy route is Streamline's own
+    //     slSetTag extents, and it lands with the PR that consumes sl_dlss.h.
+    //     upscalerQuality has no in-band "not measured" sentinel -- 0 is NGX
+    //     MaxPerf, a real preset -- so this bit is the ONLY thing standing
+    //     between an unhooked writer and "DLSS Performance" as a measurement.
+    //
+    //   FL_MEASURED_FG / FL_MEASURED_FG_COUNTS -- kFeatureDLSS_G is decoded above
+    //     into FL_SL_SEEN_DLSS_G and deliberately goes no further. Frame
+    //     generation is item 3, it needs the swapchain question answered
+    //     (§H5 case 3), and fgMode/fgEvaluations published from a half-built
+    //     counter is how fg_factor becomes 1.0.
 
     // rtFlags = 0 is now the honest value, not a claim. Layout v3 flipped the
     // polarity: every bit means "we OBSERVED this", so zero says "no RT evidence
@@ -790,6 +1020,17 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
         status.store(FL_STATUS_INIT, std::memory_order_release);
         return 1;
     }
+
+    // hooksInstalledMask GETS ITS FIRST PRODUCER HERE, and it had none anywhere
+    // in the tree -- not even this bit, which the present hook has always been
+    // entitled to. MeasuredFacts.RayTracingOf already says so in its own comment
+    // and reaches N/A on every session because of it.
+    //
+    // MONOTONIC, via fetch_or and never a store (fl_shm.h §FlHookFamily): hooks
+    // install lazily as vendor modules appear, so a bit that could clear would
+    // make a session-level check race the frame that read it.
+    std::atomic_ref<uint32_t> hooks{g_state->hooksInstalledMask};
+    hooks.fetch_or(static_cast<uint32_t>(FL_HOOK_PRESENT), std::memory_order_relaxed);
 
     status.store(FL_STATUS_READY, std::memory_order_release);
 

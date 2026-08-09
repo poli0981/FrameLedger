@@ -148,7 +148,34 @@ reached**, and `guardTicks` advancing from a non-test binary.
 
 </details>
 
-### 2. Upscaler hooks + a harness that speaks the vendors' symbol names — **START HERE**
+### ~~2. Upscaler hooks + a harness that speaks the vendors' symbol names~~ — IDENTITY LANDED 2026-08-09
+
+**Do not start here for identity.** `sl.interposer.dll!slEvaluateFeature` is hooked,
+module-scoped, installed lazily by the watchdog, and proven firing inside an injected
+target. The stub DLLs, the decoy, `tools/hookinventory-check.ps1` and the Streamline
+MIT vendoring all landed with it. Status is in `CHANGELOG.md` and §S24.
+
+**What is still open from this item, and it is one thing:**
+`FL_MEASURED_UPSCALER_PARAMS` has **no producer**, so quality, sharpness and
+render → output resolution are still absent — which is exactly what P0 exit criterion 1
+needs. The route this repo documented for years is **licence-blocked**: hooking
+`NVSDK_NGX_Parameter_SetUI` requires NGX declarations, and the NGX/DLSS SDK is the
+proprietary RTX SDKs Licence, so `18_GPU_VENDOR_APIS` §Checklist step 3 forbids both
+vendoring it and re-declaring it. The in-policy route is Streamline's own MIT surface —
+`slSetTag` extents and `slGetFeatureFunction` → DLSS options — and it needs `sl_dlss.h`
+added to the vendored closure. **That is the next PR**, and `17_HOOK_ENGINE` §The NGX
+parameter surface now carries the reasoning.
+
+**Two corrections to what this entry used to say**, kept because the entry was the
+trap it was warning about: it named `NVSDK_NGX_EvaluateFeature`, which **no measured
+module exports** — the real symbol is `NVSDK_NGX_D3D12_EvaluateFeature` — and it said
+four modules where the measured answer is **seven** (`nvngx_dlss`, `nvngx_dlssd`,
+`nvngx_dlssg`, `nvngx_deepdvc`, `sl.common`, `_nvngx`, `nvngx`). The argument was
+untouched by both errors; the data was wrong in the bullet whose whole subject is that
+a wrong symbol name degrades silently.
+
+<details>
+<summary>The original entry, kept for the reasoning it carries</summary>
 
 Item 4's primary hook class. **Streamline first** (owner decision); NGX-direct is its
 own PR with its own rule-4 justification.
@@ -172,6 +199,8 @@ own PR with its own rule-4 justification.
   not claim it fixed anything.
 - Set `FL_MEASURED_UPSCALER` and `FL_MEASURED_UPSCALER_PARAMS` **separately**; that
   split exists because an NGX-direct title yields identity and nothing else.
+
+</details>
 
 ### 3. Frame generation, and the present it may not own
 
@@ -338,6 +367,23 @@ diagnosis*.
   dev box can lose on its own**, and that a red `fl_d3d12_acquisition` is not evidence about the
   code until the two adapters have been probed separately. That probe is ~40 lines of P/Invoke and
   settles it in one run; do that before reading the harness's output as a finding.
+- **A failing `REQUIRE` used to END THE WHOLE BINARY, so one red test hid every test
+  after it.** Fixed 2026-08-09, and recorded because the symptom was invisible: `ctest`
+  reported *"1 test failed"* when the truth was *"and 2 never ran"*.
+
+  Catch2 compiled itself with `CATCH_CONFIG_DISABLE_EXCEPTIONS` — the top-level
+  `src/native/CMakeLists.txt` strips `/EHsc` from `CMAKE_CXX_FLAGS` deliberately, and
+  `tests/CMakeLists.txt` added it back **only to the test binaries**, never to the
+  Catch2 library that decides the mode. Measured off the generated command line:
+  `... -std:c++20 -MT -Zi` with no `/EH` flag at all. In that mode a failed `REQUIRE`
+  calls `std::terminate`.
+
+  On this box, where WARP's D3D12 path is broken, that meant `fl_guard`'s D3D12 case
+  killed the run and took the end-to-end injection cases with it — **including the
+  honesty assertion §S29(a) names as the merge gate's coverage**, which passes fine
+  when run on its own. `target_compile_options(Catch2 PRIVATE /EHsc)` recovered
+  **70 test cases and 1051 assertions**. If you see a suspiciously small assertion
+  count next to a failure, this is the shape to look for.
 - **No budget in the integration tests may be sized on the harness's measured rate.** Five were, and
   every one went red under load while nothing was wrong: the suite runs four test assemblies in
   parallel, each spawning a harness and injecting an Overlay that creates a WARP device, so the

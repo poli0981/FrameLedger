@@ -332,6 +332,26 @@ function Invoke-ProjectGates {
         Skip-Gate 'chokepoint-check' 'tools/chokepoint-check.ps1 not implemented yet'
     }
 
+    # Every vendor symbol the Overlay resolves by name must exist, IN THE MODULE
+    # IT TAKES IT FROM, in measured data. 17_HOOK_ENGINE calls a wrong symbol
+    # name degrading silently to `unknown` the highest false-confidence risk in
+    # the spike, and the failure has no symptom: the record a misspelt hook
+    # writes is byte-identical to an honest writer's on a title with no upscaler.
+    #
+    # NOT gated on -SkipNative: it reads a header and a JSON file, not build
+    # output. BOTH halves run, following changelog-check — a gate wired
+    # self-test-only never reads the repository, which is the defect it exists to
+    # prevent.
+    Write-Step 'hookinventory-check'
+    $inventoryTool = Join-Path $repo 'tools/hookinventory-check.ps1'
+    if (Test-Path $inventoryTool) {
+        Invoke-Checked 'hookinventory-check (self-test)' { & $inventoryTool -SelfTest }
+        Invoke-Checked 'hookinventory-check' { & $inventoryTool -RepoRoot $repo }
+    }
+    else {
+        Skip-Gate 'hookinventory-check' 'tools/hookinventory-check.ps1 not implemented yet'
+    }
+
     # FrameLedger.CaptureHost is an INJECTING entry point that must never reach
     # out/app. 20_OPEN_QUESTIONS §S27 was closed on the strength of there being no
     # injecting entry point on any shipped binary, and what keeps that true now is

@@ -2568,3 +2568,257 @@ TEST_CASE("every Reason has a distinct name, and the count is derived", "[guard]
     }
     CHECK(seen.size() == static_cast<std::size_t>(count));
 }
+
+// ---------------------------------------------------------------------------
+// The upscaler identity hook, end to end: injected Overlay, live target, real
+// presents, a real evaluation before each one.
+//
+// WHAT THIS ADDS OVER ctest fl_upscaler_resolve. That probe proves the Overlay
+// CAN FIND sl.interposer.dll!slEvaluateFeature, module-scoped, with a decoy
+// present. It runs entirely in the harness process and never injects. Only this
+// case proves the detour is INSTALLED and RUNS inside a target the Overlay was
+// injected into, which is the difference between a resolver and a hook.
+//
+// THE LAZY-INSTALL VEHICLE IS UNDER TEST HERE TOO, deliberately. The Overlay
+// resolves Streamline from its 1 Hz watchdog rather than at init, because a game
+// loads the interposer when it creates its device, long after DllMain. The
+// harness loads the stub at startup and injection happens ~800 ms later, so a
+// watchdog that never re-tried, or that latched on ATTEMPT rather than on
+// SUCCESS, would leave the hook uninstalled and every assertion below red.
+// ---------------------------------------------------------------------------
+namespace {
+
+// Drain a live target until `want` records are seen or the budget expires.
+//
+// WAITS FOR THE STATE, bounded by a generous wall clock, never for a duration
+// derived from the harness measured rate: the suite runs several assemblies in
+// parallel, each spawning a harness and a WARP device, so the presenting thread
+// is descheduled far longer than a rate-derived constant allows (HANDOFF
+// §Traps).
+std::vector<fl::FlFrameRecord> DrainAtLeast(fl::RingReader& rd, std::size_t want, int budgetMs) {
+    std::vector<fl::FlFrameRecord> all;
+    const ULONGLONG                until = GetTickCount64() + static_cast<ULONGLONG>(budgetMs);
+    while (all.size() < want && GetTickCount64() < until) {
+        fl::FlFrameRecord buf[256]{};
+        const auto        r = rd.Drain(buf, 256);
+        for (std::uint32_t k = 0; k < r.copied; ++k) {
+            all.push_back(buf[k]);
+        }
+        if (r.copied == 0) {
+            Sleep(50);
+        }
+    }
+    return all;
+}
+
+// Throw away everything already in the ring, so a later drain judges only
+// records written AFTER a state change the caller just waited for.
+//
+// NEEDED, and the first version of these tests did not do it: RingReader starts
+// at the beginning of the ring, so a drain taken after the identity hook goes
+// live still returns the ~70 records written BEFORE it. Those legitimately carry
+// no upscaler -- the hook did not exist yet -- and judging them reported
+// "identified 4 of 75", which reads like a broken hook and is really a reader
+// looking at the wrong frames.
+void DiscardBacklog(fl::RingReader& rd) {
+    for (;;) {
+        fl::FlFrameRecord buf[256]{};
+        if (rd.Drain(buf, 256).copied == 0) {
+            return;
+        }
+    }
+}
+
+// Wait for the watchdog to install the identity hook. POLLED, never read once:
+// FL_STATUS_READY does not imply this hook exists, because the watchdog installs
+// it on a later tick. A single read would race the very mechanism under test
+// (HANDOFF §Traps: a test that reads a writer state ONCE is racing InitThread).
+bool WaitForIdentityHook(const fl::FlWriterState* st) {
+    for (int i = 0; i < 200; ++i) {
+        std::atomic_ref<const uint32_t> hooks{st->hooksInstalledMask};
+        if ((hooks.load(std::memory_order_acquire) & fl::FL_HOOK_UPSCALER_IDENTITY) != 0) {
+            return true;
+        }
+        Sleep(50);
+    }
+    return false;
+}
+
+}    // namespace
+
+TEST_CASE("the injected Overlay measures an upscaler it can identify", "[guard][inject][shm][upscaler]") {
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --hold-presenting-upscaled 12";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources());
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+    REQUIRE(v.Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    const auto* st =
+        reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    REQUIRE(st->status == fl::FL_STATUS_READY);
+
+    INFO("hooksInstalledMask=" << st->hooksInstalledMask);
+    REQUIRE(WaitForIdentityHook(st));
+
+    // hooksInstalledMask had NO PRODUCER anywhere in the tree before this PR,
+    // not even the present bit, which the present hook was always entitled to.
+    CHECK((st->hooksInstalledMask & fl::FL_HOOK_PRESENT) != 0u);
+    // The split HANDOFF item 2 requires, demonstrated by one of the pair being
+    // genuinely OFF: identity has a producer, params does not.
+    CHECK((st->hooksInstalledMask & fl::FL_HOOK_UPSCALER_PARAMS) == 0u);
+
+    fl::RingReader rd;
+    REQUIRE(rd.Init(base, FL_SHM_DEFAULT_CAPACITY));
+    // Records written BEFORE the hook went live legitimately carry no upscaler,
+    // so judge a batch drained AFTER it rather than the whole session.
+    DiscardBacklog(rd);
+    const std::vector<fl::FlFrameRecord> all = DrainAtLeast(rd, 40, 8000);
+    INFO("drained " << all.size() << " record(s) after the identity hook went live");
+    REQUIRE(all.size() > 20);
+
+    int identified = 0;
+    int measured = 0;
+    int claimedParams = 0;
+    int claimedNone = 0;
+    for (const auto& r : all) {
+        if ((r.measuredMask & fl::FL_MEASURED_UPSCALER) != 0u) {
+            ++measured;
+        }
+        if (r.upscaler == fl::FL_UPSCALER_DLSS) {
+            ++identified;
+        }
+        if ((r.measuredMask & fl::FL_MEASURED_UPSCALER_PARAMS) != 0u) {
+            ++claimedParams;
+        }
+        if (r.upscaler == fl::FL_UPSCALER_NONE) {
+            ++claimedNone;
+        }
+    }
+
+    // The hook is live, so every record drained after it may say so.
+    CHECK(measured == static_cast<int>(all.size()));
+
+    // One evaluation per present, so essentially every record should name DLSS.
+    // A floor rather than equality: the drain can begin mid-frame and the first
+    // record after installation may precede the first evaluation the detour saw.
+    INFO("identified " << identified << " of " << all.size());
+    CHECK(identified > static_cast<int>(all.size()) - 3);
+
+    // NEVER `NONE`. A Streamline-only writer cannot see FSR, XeSS or NGX-direct,
+    // so "we looked and there was none" is a claim it is not entitled to make,
+    // and NONE is the only one of the three states fl_shm.h allows to be
+    // aggregated as a negative.
+    CHECK(claimedNone == 0);
+
+    // The params bit has no producer, and saying so is the point: upscalerQuality
+    // has no in-band "not measured" sentinel, because 0 is NGX MaxPerf, a real
+    // preset. This bit is the only thing between an unhooked writer and
+    // "DLSS Performance" published as a measurement.
+    CHECK(claimedParams == 0);
+
+    CHECK(st->faultCount == 0);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}
+
+TEST_CASE("an upscaler the Overlay cannot identify is UNKNOWN, never NONE", "[guard][inject][shm][upscaler]") {
+    // THE OTHER DIRECTION, and the one that makes the case above mean anything.
+    // A writer that simply hardcoded FL_UPSCALER_DLSS would pass every assertion
+    // there. Here the target evaluates feature id 0xF00D, which is not a
+    // Streamline feature and which the Overlay must not pretend to recognise.
+    //
+    // fl_shm.h keeps three states apart and this is the middle one: UNKNOWN
+    // (0xFF) means "a hook RAN and could not identify what it saw" -- N/A to the
+    // user, but a DIFFERENT N/A from NOT_REPORTED, because it says our coverage
+    // is short rather than that nobody looked.
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --hold-presenting-upscaled-unknown 12";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    REQUIRE(base != nullptr);
+
+    const auto* st =
+        reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    REQUIRE(WaitForIdentityHook(st));
+
+    fl::RingReader rd;
+    REQUIRE(rd.Init(base, FL_SHM_DEFAULT_CAPACITY));
+    DiscardBacklog(rd);
+    const std::vector<fl::FlFrameRecord> all = DrainAtLeast(rd, 40, 8000);
+    REQUIRE(all.size() > 20);
+
+    int unknown = 0;
+    int dlss = 0;
+    int none = 0;
+    int measured = 0;
+    for (const auto& r : all) {
+        if ((r.measuredMask & fl::FL_MEASURED_UPSCALER) != 0u) {
+            ++measured;
+        }
+        if (r.upscaler == fl::FL_UPSCALER_UNKNOWN) {
+            ++unknown;
+        }
+        if (r.upscaler == fl::FL_UPSCALER_DLSS) {
+            ++dlss;
+        }
+        if (r.upscaler == fl::FL_UPSCALER_NONE) {
+            ++none;
+        }
+    }
+    CHECK(measured == static_cast<int>(all.size()));    // a hook ran, so the field may be read
+    CHECK(unknown == static_cast<int>(all.size()));     // and what it says is "I could not tell"
+    CHECK(dlss == 0);                                   // never invented
+    CHECK(none == 0);                                   // and never a measured negative
+    CHECK(st->faultCount == 0);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}

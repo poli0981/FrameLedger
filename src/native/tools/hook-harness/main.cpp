@@ -49,7 +49,13 @@
 #include <vector>
 
 #include "fl_dxgi_vtable.h"
+#include "fl_hook_inventory.h"
 #include "proxy_swapchain.h"
+
+// Vendored MIT Streamline headers, for the feature ids and the ABI of the call
+// the upscaled-hold mode makes. Types only, never linked -- the same rule the
+// Overlay follows (third_party/streamline/README.md).
+#include <sl.h>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3d12.lib")
@@ -661,6 +667,169 @@ bool ProbeD3D12Acquisition() {
     return counted && loaded;
 }
 
+// ---------------------------------------------------------------------------
+// Module-scoped resolution, against two modules exporting the SAME name.
+//
+// It calls fl::inventory::ResolveScoped -- the OVERLAY'S OWN RESOLVER, out of
+// the Overlay's own header -- rather than a copy. That is the §S29(b) rule:
+// `ctest fl_vtable_indices` once proved a fact about dxgi.dll instead of a fact
+// about FrameLedger.Overlay because the harness kept its own constants, and a
+// probe with its own resolver would prove a fact about GetProcAddress.
+// ---------------------------------------------------------------------------
+
+// Load a stub by ABSOLUTE PATH, never by name.
+//
+// Loading "sl.interposer.dll" by name would search the loader's paths, and on a
+// developer machine with a game installed that can find A REAL STREAMLINE
+// INTERPOSER. The fixture would then load vendor code into this process, and
+// whatever it proved would be about NVIDIA's build rather than about ours.
+// An absolute path performs no search at all.
+HMODULE LoadStubExactly(const wchar_t* absolutePath) {
+    const HMODULE h = LoadLibraryExW(absolutePath, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (h == nullptr) {
+        return nullptr;
+    }
+    // Belt and braces: confirm the module we got is the file we named. If a real
+    // interposer were already resident under that name, this is what says so.
+    //
+    // Separators are normalised before comparing, because the two sides spell
+    // the same path differently: CMake's $<TARGET_FILE:...> yields forward
+    // slashes and GetModuleFileNameW returns backslashes. Comparing raw made
+    // this check fail on a correct load, which is a check that cries wolf --
+    // nearly as bad as one that cannot fire.
+    wchar_t got[MAX_PATH]{};
+    if (GetModuleFileNameW(h, got, MAX_PATH) == 0) {
+        std::printf("  [FAIL] GetModuleFileNameW failed on the module we just loaded\n");
+        ++g_failures;
+        return nullptr;
+    }
+    wchar_t want[MAX_PATH]{};
+    wcsncpy_s(want, absolutePath, _TRUNCATE);
+    for (wchar_t* p = want; *p != L'\0'; ++p) {
+        if (*p == L'/') {
+            *p = L'\\';
+        }
+    }
+    for (wchar_t* p = got; *p != L'\0'; ++p) {
+        if (*p == L'/') {
+            *p = L'\\';
+        }
+    }
+    if (_wcsicmp(got, want) != 0) {
+        // PRINT BOTH. A bare "did not match" sent the last diagnosis of this
+        // exact check down the wrong path.
+        std::printf("  [FAIL] loaded module is not the file we named\n         wanted %ls\n         got    %ls\n", want,
+                    got);
+        ++g_failures;
+        return nullptr;
+    }
+    return h;
+}
+
+bool ProbeUpscalerResolve() {
+    std::printf("\n[upscaler] module-scoped symbol resolution, with a decoy exporting the same name\n");
+
+    const HMODULE interposer = LoadStubExactly(FL_STUB_SL_INTERPOSER);
+    const HMODULE common = LoadStubExactly(FL_STUB_SL_COMMON);
+    Check(interposer != nullptr, "the sl.interposer.dll stub loaded from its absolute path");
+    Check(common != nullptr, "the sl.common.dll decoy loaded from its absolute path");
+    if (interposer == nullptr || common == nullptr) {
+        return false;
+    }
+
+    // Both modules really do export the same name -- otherwise the discrimination
+    // below is vacuous and would pass against a resolver that ignores the module
+    // entirely.
+    void* fromInterposer = fl::inventory::ResolveScoped(L"sl.interposer.dll", "slEvaluateFeature");
+    void* fromCommon = fl::inventory::ResolveScoped(L"sl.common.dll", "slEvaluateFeature");
+    Check(fromInterposer != nullptr, "sl.interposer.dll exports slEvaluateFeature");
+    Check(fromCommon != nullptr, "sl.common.dll ALSO exports it - so the decoy is real and scoping is falsifiable");
+    // BOTH non-null before comparing, or this passes on a decoy that exports
+    // nothing: nullptr differs from a real address, and that is how the first
+    // version of this fixture reported success while the decoy was empty.
+    Check(fromInterposer != nullptr && fromCommon != nullptr && fromInterposer != fromCommon,
+          "the two are DIFFERENT addresses - a name-only resolver could not tell them apart");
+
+    // And the addresses are the ones the loader reports for each module, not
+    // merely 'some address'.
+    Check(fromInterposer == reinterpret_cast<void*>(GetProcAddress(interposer, "slEvaluateFeature")),
+          "ResolveScoped returned sl.interposer.dll's own export");
+    Check(fromCommon == reinterpret_cast<void*>(GetProcAddress(common, "slEvaluateFeature")),
+          "ResolveScoped returned sl.common.dll's own export");
+
+    // A module that is not loaded resolves to nothing, and that is an ANSWER.
+    // ResolveScoped must never LoadLibrary a module the process does not have --
+    // mapping a module the game did not load changes the host to suit us.
+    Check(fl::inventory::ResolveScoped(L"fl_not_a_real_module.dll", "slEvaluateFeature") == nullptr,
+          "an absent module resolves to nullptr rather than being loaded");
+    Check(GetModuleHandleW(L"fl_not_a_real_module.dll") == nullptr, "and it really was not loaded");
+
+    // A symbol that does not exist resolves to nothing. This is the wrong-name
+    // case 17_HOOK_ENGINE calls the highest false-confidence risk in the spike:
+    // it must produce NOTHING, so the Overlay installs nothing and claims
+    // nothing, rather than silently resolving something else.
+    Check(fl::inventory::ResolveScoped(L"sl.interposer.dll", "slEvaluateFeatureX") == nullptr,
+          "a misspelt symbol resolves to nullptr - it cannot silently find a neighbour");
+    return g_failures == 0;
+}
+
+// ---------------------------------------------------------------------------
+// A target that EVALUATES AN UPSCALER while it presents.
+//
+// This is what turns the hook from "installs" into "fires". --probe-upscaler-resolve
+// proves the Overlay can FIND sl.interposer.dll!slEvaluateFeature; only a live
+// target calling it, with the Overlay injected, proves the detour runs and the
+// record carries the answer.
+//
+// THE CALL SHAPE. sl::FrameToken is abstract with a protected constructor
+// (sl_core_types.h uses SL_STRUCT_PROTECTED_BEGIN and a pure virtual
+// `operator uint32_t`), so this process cannot instantiate one -- and does not
+// need to. Every parameter of PFun_slEvaluateFeature is integer-class, so a
+// pointer in that slot is ABI-identical to the reference, and NOTHING
+// dereferences it: the stub ignores it and the Overlay's detour reads only
+// `feature` before forwarding all five arguments untouched. A dummy buffer is
+// passed rather than a null so the argument is a valid address either way.
+// ---------------------------------------------------------------------------
+using StubEvaluateFn = sl::Result(STDMETHODCALLTYPE*)(sl::Feature, const void*, const void*, uint32_t, void*);
+
+alignas(16) unsigned char g_dummyFrameToken[64]{};
+
+int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature) {
+    const HMODULE stub = LoadStubExactly(FL_STUB_SL_INTERPOSER);
+    if (stub == nullptr) {
+        Check(false, "the sl.interposer.dll stub loaded for the upscaled hold");
+        return 1;
+    }
+    auto eval = reinterpret_cast<StubEvaluateFn>(reinterpret_cast<void*>(GetProcAddress(stub, "slEvaluateFeature")));
+    if (eval == nullptr) {
+        Check(false, "the stub exports slEvaluateFeature");
+        return 1;
+    }
+
+    const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
+    std::printf("  presenting for %d second(s) [%s], evaluating feature %u before each present\n", seconds,
+                real ? "REAL" : "DXGI_PRESENT_TEST", static_cast<unsigned>(feature));
+    std::fflush(stdout);
+
+    const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
+    long long       presented = 0;
+    long long       evaluated = 0;
+    while (GetTickCount64() < until) {
+        // ONE EVALUATION PER PRESENT, which is what a real upscaled title does
+        // and what makes the drained record's identity checkable frame by frame.
+        eval(feature, g_dummyFrameToken, nullptr, 0, nullptr);
+        ++evaluated;
+        g.swapChain->Present(0, flags);
+        ++presented;
+        Sleep(8);
+    }
+    // Both counts to stdout so a test can compare them against records drained
+    // from the ring rather than asserting "more than zero".
+    std::printf("  presented=%lld evaluated=%lld\n", presented, evaluated);
+    std::fflush(stdout);
+    return 0;
+}
+
 // What a frame IS, asserted against DXGI's own counter.
 //
 // GetLastPresentCount is the one oracle in this area that does not share the
@@ -757,6 +926,20 @@ int main(int argc, char** argv) {
             continue;    // consumed above
         } else if (std::strcmp(argv[i], "--probe-frames") == 0) {
             ok = ProbeFrameIdentity(g) && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting-upscaled") == 0 && i + 1 < argc) {
+            ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, sl::kFeatureDLSS) == 0 && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting-upscaled-unknown") == 0 && i + 1 < argc) {
+            // The SAME target, evaluating a feature id the Overlay does not
+            // decode. It must report FL_UPSCALER_UNKNOWN with FL_MEASURED_UPSCALER
+            // SET -- "a hook ran and could not identify what it saw" -- and must
+            // never report FL_UPSCALER_NONE, which is the only state that may be
+            // aggregated as a negative. 0xF00D is not a Streamline feature.
+            ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, static_cast<sl::Feature>(0xF00Du)) == 0 && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-upscaler-resolve") == 0) {
+            ok = ProbeUpscalerResolve() && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-d3d12") == 0) {
             ok = ProbeD3D12Acquisition() && ok;

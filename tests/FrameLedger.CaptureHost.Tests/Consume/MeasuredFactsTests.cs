@@ -29,6 +29,17 @@ public sealed partial class MeasuredFactsTests
         MeasuredMask = (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs),
     };
 
+    // A writer that installed the PRESENT hook and nothing else.
+    //
+    // `default` used to stand in for this, and stopped being honest when
+    // hooksInstalledMask gained a producer: a writer publishing 0 now means "I
+    // installed nothing", so claiming FL_MEASURED_OUTPUT_RES from it is exactly
+    // the over-claim MeasuredFacts.EntitledBy exists to catch. The Overlay sets
+    // FL_HOOK_PRESENT in InitThread, so this is what a real present-only writer
+    // publishes.
+    private static readonly FlWriterState _presentOnly =
+        new() { HooksInstalledMask = (uint)FlHookFamily.Present };
+
     private static List<FlFrameRecord> Stream(int n, long tickStep)
     {
         var list = new List<FlFrameRecord>(n);
@@ -48,7 +59,7 @@ public sealed partial class MeasuredFactsTests
     [Fact]
     public void APresentOnlyStreamReportsNAForEverythingItDidNotMeasure()
     {
-        MeasuredFacts facts = MeasuredFacts.From(Stream(120, Stopwatch.Frequency / 120), default, Stopwatch.Frequency, 0, 0);
+        MeasuredFacts facts = MeasuredFacts.From(Stream(120, Stopwatch.Frequency / 120), _presentOnly, Stopwatch.Frequency, 0, 0);
 
         facts.Upscaler.Should().BeNull("no upscaler hook ran, and `none` would be a measured negative");
         facts.FgMode.Should().BeNull("03_METRICS' ladder rung 4 says `none`, which here would be a lie");
@@ -66,7 +77,7 @@ public sealed partial class MeasuredFactsTests
     public void TheOneNumberItMayPublishIsDisplayedFpsAndItIsRight()
     {
         // 120 presents one 120th of a second apart. 119 intervals over 119/120 s.
-        MeasuredFacts facts = MeasuredFacts.From(Stream(120, Stopwatch.Frequency / 120), default, Stopwatch.Frequency, 0, 0);
+        MeasuredFacts facts = MeasuredFacts.From(Stream(120, Stopwatch.Frequency / 120), _presentOnly, Stopwatch.Frequency, 0, 0);
 
         facts.DisplayedFps.Should().BeApproximately(120, 1,
             "the QPC-to-seconds conversion uses Stopwatch.Frequency, measured equal to "
@@ -80,7 +91,7 @@ public sealed partial class MeasuredFactsTests
         // together or the number is not an FPS claim at all. "We never format it" is exactly the kind
         // of property that survives a refactor by accident, so it is asserted.
         string text = SessionReport.Render(
-            MeasuredFacts.From(Stream(60, Stopwatch.Frequency / 60), default, Stopwatch.Frequency, 0, 0));
+            MeasuredFacts.From(Stream(60, Stopwatch.Frequency / 60), _presentOnly, Stopwatch.Frequency, 0, 0));
 
         text.Should().Contain("FG state not measured");
         FgFactorShape().IsMatch(text).Should().BeFalse("an ×N beside a single number reads as a measured factor");
@@ -99,7 +110,7 @@ public sealed partial class MeasuredFactsTests
         bad.FgMode = (byte)FlFgMode.None;
         stream[3] = bad;
 
-        MeasuredFacts.From(stream, default, Stopwatch.Frequency, 0, 0).HonestyViolations.Should().Be(1);
+        MeasuredFacts.From(stream, _presentOnly, Stopwatch.Frequency, 0, 0).HonestyViolations.Should().Be(1);
     }
 
     [Fact]
@@ -141,7 +152,7 @@ public sealed partial class MeasuredFactsTests
             return r;
         })];
 
-        MeasuredFacts.From(stream, default, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(Tri.Yes);
+        MeasuredFacts.From(stream, _presentOnly, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(Tri.Yes);
 
         // Evidence with the mask bit CLEAR is a writer contradicting itself, and the honest reading of
         // "nobody looked" wins over a flag that could only have been set by someone who did.
@@ -150,7 +161,7 @@ public sealed partial class MeasuredFactsTests
             r.MeasuredMask &= unchecked((ushort)~(ushort)FlMeasured.Rt);
             return r;
         })];
-        MeasuredFacts.From(unmasked, default, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(Tri.NotApplicable);
+        MeasuredFacts.From(unmasked, _presentOnly, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(Tri.NotApplicable);
     }
 
     [Fact]
@@ -171,7 +182,7 @@ public sealed partial class MeasuredFactsTests
             return r;
         })];
 
-        MeasuredFacts.From(stream, default, Stopwatch.Frequency, 0, 0).Upscaler.Should().BeNull();
+        MeasuredFacts.From(stream, _presentOnly, Stopwatch.Frequency, 0, 0).Upscaler.Should().BeNull();
     }
 
     [Fact]
@@ -184,14 +195,14 @@ public sealed partial class MeasuredFactsTests
             return r;
         })];
 
-        MeasuredFacts.From(stream, default, Stopwatch.Frequency, 0, 0).Upscaler.Should().BeNull(
+        MeasuredFacts.From(stream, _presentOnly, Stopwatch.Frequency, 0, 0).Upscaler.Should().BeNull(
             "a hook that ran and could not tell is still N/A — a different N/A, but not a name");
     }
 
     [Fact]
     public void GapsAndDropsAreReportedRatherThanAbsorbed()
     {
-        MeasuredFacts facts = MeasuredFacts.From(Stream(10, 1000), default, Stopwatch.Frequency, totalGaps: 0, totalDropped: 4);
+        MeasuredFacts facts = MeasuredFacts.From(Stream(10, 1000), _presentOnly, Stopwatch.Frequency, totalGaps: 0, totalDropped: 4);
 
         facts.HasDataGaps.Should().BeTrue();
         SessionReport.Render(facts).Should().Contain("torn or overwritten");
