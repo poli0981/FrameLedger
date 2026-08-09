@@ -301,6 +301,20 @@ diagnosis*.
   work that had just landed, in a PR that changed 69 other files — the failure was the
   edit that was never made. `CHANGELOG.md` and §S24 are gated; this file is not, so it
   is the one that needs a deliberate pass at the end of every item.
+- **`D3D12CreateDevice(WARP)` can fail on a dev box while the real GPU's D3D12 works, and it takes
+  two ctests down with it.** Measured 2026-08-06: `EnumWarpAdapter` succeeds,
+  `D3D12CreateDevice(warp, FL 11_0)` returns **`DXGI_ERROR_DRIVER_INTERNAL_ERROR` (0x887A0020)**, and
+  `D3D12CreateDevice(nullptr, …)` on the RTX 5080 returns `S_OK`. `fl_d3d12_acquisition` and
+  `fl_guard`'s D3D12 case both go red and the harness prints only `[FAIL] D3D12CreateDevice(WARP)`,
+  which reads like a code regression. **It is machine state and a reboot clears it** — CI runs the
+  same suite on WARP with no GPU at all and passes. Before diagnosing, probe the two adapters
+  separately; the whole test is four P/Invokes.
+- **A test that reads a writer state ONCE is racing `InitThread`.** `layoutVersion` is published at
+  step 2 and `status` becomes `READY` at step 6, with a WARP device creation in between; `apiMask` is
+  set later still, on the first present the hook sees. So `TryAttach` succeeding, `guardTicks`
+  advancing, `status == INIT` and `apiMask == 0` are all legitimate simultaneous states. Poll for the
+  state you mean, and keep the timeout failing — `INIT` past the budget is
+  `WriterNeverInstalledHooks`, not slowness.
 - **Files written with LF fail `dotnet format --verify-no-changes`** even though the diff
   looks identical: `.editorconfig` mandates CRLF and `.gitattributes` normalises on
   checkout, so the working tree disagrees with both. Run `dotnet format` (no switch)
