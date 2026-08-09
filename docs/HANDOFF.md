@@ -155,16 +155,15 @@ module-scoped, installed lazily by the watchdog, and proven firing inside an inj
 target. The stub DLLs, the decoy, `tools/hookinventory-check.ps1` and the Streamline
 MIT vendoring all landed with it. Status is in `CHANGELOG.md` and §S24.
 
-**What is still open from this item, and it is one thing:**
-`FL_MEASURED_UPSCALER_PARAMS` has **no producer**, so quality, sharpness and
-render → output resolution are still absent — which is exactly what P0 exit criterion 1
-needs. The route this repo documented for years is **licence-blocked**: hooking
-`NVSDK_NGX_Parameter_SetUI` requires NGX declarations, and the NGX/DLSS SDK is the
+**What is still open from this item is the params half, and it is now item 2b below —
+designed, refuted, and not built.** `FL_MEASURED_UPSCALER_PARAMS` has no producer, so
+quality and render → output resolution are absent, which is exactly what P0 exit
+criterion 1 needs. The route this repo documented for years is **licence-blocked**:
+`NVSDK_NGX_Parameter_SetUI` needs NGX declarations, and the NGX/DLSS SDK is the
 proprietary RTX SDKs Licence, so `18_GPU_VENDOR_APIS` §Checklist step 3 forbids both
-vendoring it and re-declaring it. The in-policy route is Streamline's own MIT surface —
-`slSetTag` extents and `slGetFeatureFunction` → DLSS options — and it needs `sl_dlss.h`
-added to the vendored closure. **That is the next PR**, and `17_HOOK_ENGINE` §The NGX
-parameter surface now carries the reasoning.
+vendoring it and re-declaring it. `17_HOOK_ENGINE` §The NGX parameter surface carries
+that reasoning; **§2b carries which in-policy route to take and, more importantly, which
+one to refuse.**
 
 **Two corrections to what this entry used to say**, kept because the entry was the
 trap it was warning about: it named `NVSDK_NGX_EvaluateFeature`, which **no measured
@@ -201,6 +200,79 @@ own PR with its own rule-4 justification.
   split exists because an NGX-direct title yields identity and nothing else.
 
 </details>
+
+### 2b. The params half — **START HERE**, and the route is already decided
+
+`FL_MEASURED_UPSCALER_PARAMS` has no producer, which is what P0 exit criterion 1
+actually needs. Designed 2026-08-09 by a panel plus three refuters; **the obvious route
+was killed on fatal grounds and the reasoning is the part that lives in no other file.**
+
+**DO NOT hook `slGetFeatureFunction` and MinHook the returned `slDLSSSetOptions`.**
+It is the route `17_HOOK_ENGINE` reads as natural, and it fails five ways:
+
+1. It needs an "indirect" inventory class, which becomes an **unconditional escape hatch
+   from `hookinventory-check` Pass A** — its oracle would be "a `PFun_*` exists in a
+   vendored header", and `sl_core_api.h:63` declares `PFun_slSetTagForFrame` for a symbol
+   **zero measured modules export**. Any name the headers declare could be laundered past
+   the gate.
+2. A second MinHook install site **reopens the install-after-stop window**
+   `dllmain.cpp:643-646` exists to close.
+3. MinHook v1.3.4 has **no function-length oracle for a runtime-returned address**, so a
+   short thunk gets patched into its neighbour — a crash inside vendor code where
+   `FL_HOOK_GUARD` cannot reach.
+4. `GetModuleHandleExW` with a reference is `LdrAddRefDll`, i.e. **the loader lock, on the
+   game's thread, inside NVIDIA's own call.**
+5. It structurally **misses the game's first `slDLSSSetOptions` call**, which for a
+   benchmark configured before launch is often the only one.
+
+**DO extend the hook we already own.** `Hook_SlEvaluateFeature` is handed
+`const sl::BaseStructure** inputs, uint32_t numInputs` and today ignores both;
+`sl_core_api.h:251` documents `inputs` as carrying *"viewport, tags, constants etc"*. A
+bounded walk (cap 32 elements, 8 `next` links, match `s_structType` **and**
+`structVersion >= kStructVersion1`) reaches `sl::ResourceTag`
+(`kBufferTypeScalingInputColor` extent → `renderW/H`) and `sl::DLSSOptions`
+(`mode` → `upscalerQuality`). **Zero new inventory rows, zero new MinHook patch sites, no
+module-lifetime story, no gate changes.** The design sweep compiled and ran the walk in
+the shipped configuration: tagged extents yield 1280×720, a chained `DLSSOptions` yields
+`mode=3`, and the whole-resource case yields the honest all-zero.
+
+**Three fields, three honest answers — and one of them is permanent:**
+
+| Field | Answer |
+|---|---|
+| `renderW/H` | produced from local tags; **0** when the title tags whole resources, which is the in-band unknown `fl_shm.h` already defines |
+| `upscalerQuality` | from `sl::DLSSMode`, mapped so `eOff`, out-of-range and conflict all become **`0xFF`** and the byte is **never 0** — which retires `fl_shm.h:328`'s "DLSS Performance published as a measurement" worry *at the writer* |
+| `upscalerSharpness` | **cannot be measured in policy, ever, on this route.** `DLSSOptions::sharpness` is `[[deprecated("Sharpness is not supported")]]`, and `DLSSOptimalSettings::optimalSharpness` is Streamline's *recommendation*, not what the title applied. Ship `0xFF` permanently — that is the true value, not a placeholder |
+
+**The sample must not latch.** Pack it in one `std::atomic<uint64_t>` consumed with
+`exchange(0)` in `RecordPresent` beside the existing `g_slSeen.exchange(0)`, so a params
+sample cannot outlive its frame. Replace the unfalsifiable "the writer must write all
+four fields" invariant with one a fixture can kill: **bit 8 set implies
+`upscalerQuality != 0` and `upscalerSharpness == 0xFF`**, asserted natively and in
+`MeasuredFacts.IsHonest`.
+
+**Two things to state in the PR body rather than discover:**
+
+- **The hit rate is unmeasured and it is the largest unknown.** Whether shipping titles
+  chain these structures into `inputs` was not measured — the `ResourceTag` half has a
+  vendor-documented mechanism, the `DLSSOptions` half does not and is likely rarer. The
+  design is built so the unmeasured case is free: nothing chained ⇒ bit 8 clear ⇒ the
+  record is byte-identical to today's and the consumer says N/A. **Alan Wake 2 is the
+  title that settles it** (§Owner-only item 2).
+- **No gate verifies this walk.** `hookinventory-check`, `license-check` and
+  `struct-mirror` all stay still — which is the route's advantage and simultaneously
+  means the fixtures are the only thing standing between this producer and a silent
+  wrong answer. Weight the harness modes accordingly.
+
+Vendor `sl_dlss.h` **with its consumer in the same commit** (`18_GPU_VENDOR_APIS`
+records that an unconsumed vendored dependency can have an incomplete header closure with
+every gate green), and correct `THIRD_PARTY_NOTICES`' nine→ten headers and the README's
+"excluded deliberately" line in that same commit.
+
+Deferred with reasons: `slSetTag` global tags (a globally-tagging title yields nothing
+from this PR — not a regression, not a fabrication), and the segmenter tuple
+`03_METRICS:133` wants, so a mid-session settings change currently degrades to N/A rather
+than cutting a segment.
 
 ### 3. Frame generation, and the present it may not own
 
