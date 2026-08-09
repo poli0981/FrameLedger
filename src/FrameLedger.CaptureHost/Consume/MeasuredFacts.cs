@@ -113,7 +113,8 @@ internal sealed record MeasuredFacts
             }
         }
 
-        int violations = stream.Count(r => !IsHonest(r));
+        var entitled = EntitledBy((FlHookFamily)writer.HooksInstalledMask);
+        int violations = stream.Count(r => !IsHonest(r, entitled));
 
         return new MeasuredFacts
         {
@@ -142,15 +143,107 @@ internal sealed record MeasuredFacts
     /// here too means that the day a feature hook lands, an over-claiming record is
     /// surfaced by the consumer rather than silently averaged into a number.
     /// </remarks>
-    private static bool IsHonest(FlFrameRecord r)
+    /// <summary>
+    /// What a writer carrying <paramref name="hooks"/> is entitled to claim.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Derived from <see cref="FlWriterState.HooksInstalledMask"/>, not a constant.</b>
+    /// This used to be <c>OutputRes | PresentArgs</c> hardcoded, which was exactly
+    /// right while the Overlay hooked only presents — and became wrong the moment
+    /// the first feature hook landed, because an honest record claiming
+    /// <see cref="FlMeasured.Upscaler"/> was then counted as a violation. A
+    /// constant here says "the writer may claim what a present-only writer may
+    /// claim", which is a statement about one particular build rather than about
+    /// honesty.
+    /// </para>
+    /// <para>
+    /// The property that actually matters, and that this keeps: a writer may
+    /// claim a measurement <i>only</i> where it installed a hook capable of
+    /// taking it. Both halves stay falsifiable — a writer that sets a mask bit
+    /// with no hook family behind it is a violation, and so is one that sets a
+    /// value field while the corresponding bit is clear.
+    /// </para>
+    /// </remarks>
+    private static FlMeasured EntitledBy(FlHookFamily hooks)
+    {
+        // The present hook is what produced the record at all, so its two claims
+        // ride along with it.
+        var allowed = FlMeasured.None;
+        if (hooks.HasFlag(FlHookFamily.Present))
+        {
+            allowed |= FlMeasured.OutputRes | FlMeasured.PresentArgs;
+        }
+
+        if (hooks.HasFlag(FlHookFamily.UpscalerIdentity))
+        {
+            // Identity only. FL_MEASURED_UPSCALER_PARAMS is a separate bit behind
+            // a separate family precisely because an NGX-direct title yields
+            // identity and nothing else (17_HOOK_ENGINE §The NGX parameter surface).
+            allowed |= FlMeasured.Upscaler | FlMeasured.Fg;
+        }
+
+        if (hooks.HasFlag(FlHookFamily.UpscalerParams))
+        {
+            allowed |= FlMeasured.UpscalerParams;
+        }
+
+        if (hooks.HasFlag(FlHookFamily.FgEvaluations))
+        {
+            allowed |= FlMeasured.FgCounts;
+        }
+
+        if ((hooks & (FlHookFamily.RtDispatch | FlHookFamily.RtAsBuild | FlHookFamily.RtPso)) != FlHookFamily.None)
+        {
+            allowed |= FlMeasured.Rt;
+        }
+
+        if (hooks.HasFlag(FlHookFamily.Pso))
+        {
+            allowed |= FlMeasured.Pso;
+        }
+
+        if (hooks.HasFlag(FlHookFamily.ColorSpace))
+        {
+            allowed |= FlMeasured.Hdr;
+        }
+
+        if (hooks.HasFlag(FlHookFamily.Vram))
+        {
+            allowed |= FlMeasured.Vram;
+        }
+
+        if (hooks.HasFlag(FlHookFamily.Reflex))
+        {
+            allowed |= FlMeasured.Latency;
+        }
+
+        return allowed;
+    }
+
+    private static bool IsHonest(FlFrameRecord r, FlMeasured entitled)
     {
         var mask = (FlMeasured)r.MeasuredMask;
-        const FlMeasured allowed = FlMeasured.OutputRes | FlMeasured.PresentArgs;
-        return (mask & ~allowed) == FlMeasured.None
-            && (FlRtFlags)r.RtFlags == FlRtFlags.None
-            && r.Upscaler == (byte)FlUpscaler.NotReported
-            && r.FgMode == (byte)FlFgMode.NotReported
-            && (FlFeatureFlags)r.FeatureFlags == FlFeatureFlags.None;
+        if ((mask & ~entitled) != FlMeasured.None)
+        {
+            return false;    // claimed a measurement with no hook family behind it
+        }
+
+        // And the other direction: a VALUE set while its bit is clear is the same
+        // defect seen from the record rather than from the mask. Layout v3 makes
+        // the zero of every enum "nobody said", so these are the states a writer
+        // publishes when it forgets.
+        if (!mask.HasFlag(FlMeasured.Upscaler) && r.Upscaler != (byte)FlUpscaler.NotReported)
+        {
+            return false;
+        }
+
+        if (!mask.HasFlag(FlMeasured.Fg) && r.FgMode != (byte)FlFgMode.NotReported)
+        {
+            return false;
+        }
+
+        return mask.HasFlag(FlMeasured.Rt) || (FlRtFlags)r.RtFlags == FlRtFlags.None;
     }
 
     private static string? UpscalerOf(IReadOnlyList<FlFrameRecord> stream)

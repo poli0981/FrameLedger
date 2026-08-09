@@ -46,9 +46,19 @@ set(FL_COMPANY_NAME  "FrameLedger")
 set(FL_PRODUCT_NAME  "FrameLedger")
 set(FL_COPYRIGHT     "GPL-3.0-or-later")
 
+# Optional third argument: the REAL output filename, when it differs from the
+# CMake target name. The vendor-name stubs need it — a target called
+# fl_stub_sl_interposer produces sl.interposer.dll, and a version block claiming
+# the target name would describe a file that does not exist. 19_SAFETY's posture
+# is that our binaries say plainly what they are, and that has to survive a
+# fixture whose FILENAME is deliberately somebody else's.
 function(fl_add_version_resource target description)
     set(FL_TARGET_NAME "${target}")
-    set(FL_TARGET_FILENAME "${target}.dll")
+    if(ARGC GREATER 2)
+        set(FL_TARGET_FILENAME "${ARGV2}")
+    else()
+        set(FL_TARGET_FILENAME "${target}.dll")
+    endif()
     set(FL_FILE_DESCRIPTION "${description}")
     set(FL_COMMENTS "Performance measurement tool. Identifies itself deliberately; see https://github.com/poli0981/frameledger")
     set(_out "${CMAKE_CURRENT_BINARY_DIR}/${target}.version.rc")

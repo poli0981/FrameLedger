@@ -114,7 +114,7 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 |---|---|
 | NGX: `NVSDK_NGX_D3D11/D3D12/VULKAN_CreateFeature`, `EvaluateFeature`, `ReleaseFeature` | Which NGX feature is *actually created and evaluated per frame*: SuperSampling (DLSS), RayReconstruction (DLSS-D), FrameGeneration (DLSS-G) |
 | NGX parameter accessors (`NVSDK_NGX_Parameter_SetI/GetI/SetUI`) — **exported by `sl.common.dll` only; see below** | `Width`/`Height` (render) vs `OutWidth`/`OutHeight` (output), `PerfQualityValue` (quality preset), sharpness |
-| Streamline: `slInit`, `slSetFeatureLoaded`, `slEvaluateFeature`, `slSetConstants`, `slGetFeatureRequirements` | Feature set actually active when the game goes through SL rather than NGX directly (`kFeatureDLSS`, `DLSS_G`, `DLSS_RR`, `Reflex`, `NIS`) |
+| ✅ Streamline: `slEvaluateFeature` · ⏳ `slInit`, `slSetFeatureLoaded`, `slSetConstants`, `slGetFeatureRequirements` | Feature set actually active when the game goes through SL rather than NGX directly (`kFeatureDLSS`, `DLSS_G`, `DLSS_RR`, `Reflex`, `NIS`). **Built 2026-08-09**, identity only: one MinHook detour on `sl.interposer.dll!slEvaluateFeature`, resolved **module-scoped** and installed lazily by the watchdog. Sets `FL_MEASURED_UPSCALER` + `FL_HOOK_UPSCALER_IDENTITY`; decodes `kFeatureDLSS`/`kFeatureNIS` and reports `FL_UPSCALER_UNKNOWN` for anything else. **Never `FL_UPSCALER_NONE`** — a Streamline-only writer cannot see FFX, XeSS or NGX-direct, and `NONE` is the only one of the three states that may be aggregated as a negative |
 | FidelityFX: `ffxFsr2ContextCreate` / `ffxFsr3*` / unified `ffxCreateContext` (`ffx_api`) | `maxRenderSize` vs `displaySize`/`maxUpscaleSize`, FSR version, frame-interpolation context presence |
 | XeSS: `xessD3D12CreateContext`, `xessD3D12Init`, `xessD3D12Execute` | `outputResolution`, `qualitySetting`, XeSS version; `xess_fg` variants for XeFG |
 | NGX/SL/FFX/XeSS **FG feature evaluations per present** (`fgEvaluations`) | Native vs Displayed frame counts at Tier 1 — see `03_METRICS` §Frame Generation. This is what separates the two counts: generated frames go out through the same swapchain we hooked, so the present count alone is Displayed, not Native |
@@ -141,13 +141,56 @@ This is the finding P0 item 5 existed to produce, and it changes what the featur
 So:
 
 - **Streamline-shimmed titles** (9 of the installed titles here) expose the accessors as ordinary exported functions on `sl.common.dll`. An inline hook on `NVSDK_NGX_Parameter_SetUI` yields `PerfQualityValue` and the render/output pair directly. This is the case §Hook inventory already describes.
+
+  > ⛔ **AND IT IS BLOCKED ON LICENCE GROUNDS — measured 2026-08-09, and this
+  > document recommended it for months without noticing.** Hooking
+  > `NVSDK_NGX_Parameter_SetUI` needs NGX declarations: the `NVSDK_NGX_Parameter`
+  > handle, the parameter name strings, the `PerfQuality` enum. The NGX/DLSS SDK
+  > ships under the **NVIDIA RTX SDKs License**, which hits three of
+  > `18_GPU_VENDOR_APIS` §Checklist step 2's four needles verbatim — *"defend,
+  > **indemnify** and hold harmless"*, *"may not **reverse engineer**, decompile or
+  > disassemble"*, *"will **terminate** automatically without notice"*. Step 3
+  > therefore binds: **do not vendor it, and do not work around it by re-declaring
+  > the API.**
+  >
+  > **The trap is that the symbol lives in a Streamline module.** `sl.common.dll`
+  > is Streamline's, Streamline is MIT, and neither fact relicenses the NGX API
+  > those exports implement — upstream keeps it in `external/ngx-sdk/` under the
+  > RTX licence.
+  >
+  > So `FL_MEASURED_UPSCALER_PARAMS` has **no in-policy producer on this route**.
+  > The licence-clean alternative is Streamline's own MIT surface — `slSetTag`'s
+  > resource extents (`kBufferTypeScalingInputColor` / `…OutputColor` give
+  > render → output directly) and the DLSS options struct reached through
+  > `slGetFeatureFunction`. That is the params PR's job, and it needs `sl_dlss.h`
+  > vendored alongside the nine headers already taken.
+  >
+  > Reversing this is an owner decision about the checklist, not a coding task.
 - **NGX-direct titles** call the core, which exports only the **factories**. The accessors are function pointers *inside* the `NVSDK_NGX_Parameter` object those factories return — so there is no symbol to hook. Reaching them means hooking `NVSDK_NGX_D3D12_AllocateParameters` / `GetCapabilityParameters` and reading or wrapping the returned object's function-pointer table.
 
 **The second path needs its own justification against CLAUDE.md rule 4 before it is built, and it survives one.** Rule 4 permits "arguments passed to APIs we hooked and COM/handle objects we legitimately own". The parameter object is a handle returned by an API we hooked, in the same sense as an `IDXGISwapChain` — reading its function-pointer table is the same operation as reading a COM vtable, which §Getting vtable addresses already does. What it is **not** is pattern-scanning for game internals, and the distinction must stay in writing.
 
 > `nvngx_dlss.dll` itself is a dead end for this purpose and should not be hooked for it: 59 exports, none of them parameter-related. It is the feature payload, not the API surface.
 
-> **Not built, and not gated.** This section records a measurement and a decision. There is no `hookinventory-check` cross-checking the table above against `vendor-exports.json` — so the two can drift, exactly as the blocklist and `19_SAFETY` could before `rules-validate` cross-checked them. That gate belongs with the PR that adds the feature hooks, where a row failing it would mean something.
+> ~~**Not built, and not gated.**~~ **Gated 2026-08-09.** `tools/hookinventory-check.ps1`
+> checks every symbol the Overlay resolves by name against `vendor-exports.json`,
+> **module-scoped** — "does *this* module export *this* symbol", never "does
+> anything export it" — and runs in `build.ps1` in both halves (`-SelfTest` and a
+> live pass). It is **prevention and it fixed nothing**: no drift existed when it
+> was written, and saying so matters, because a gate whose write-up implies it
+> caught something cannot be audited later.
+>
+> Five red cases are proven and restored: a misspelt symbol, the right symbol from
+> the wrong module, an emptied inventory, a stray vendor literal in an Overlay
+> source (a second resolver written outside the table), and a broken oracle
+> lookup. The last is the important one — every failure mode of a lookup like this
+> produces the same answer as "absent", so it proves the oracle discriminates
+> *before* forming any verdict.
+>
+> A misspelt symbol is caught **earlier still**, by the compile-time binding
+> between the inventory and the stub fixtures: `static_assert(InventoryHas(...))`
+> makes it a build error, so the typo never reaches the gate. Stronger, and not
+> the script's credit to take.
 
 ### Ray tracing
 | Hook | Yields |

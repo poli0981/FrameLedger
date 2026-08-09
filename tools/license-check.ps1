@@ -70,6 +70,14 @@ if ($scanRoots) {
 $vendored = @(
     @{ Path = 'src/native/third_party/nvapi'; Licence = 'nvapi-MIT.txt'; Name = 'NVIDIA NVAPI SDK' },
 
+    # NVIDIA Streamline headers. MIT, verified against upstream license.txt on
+    # 2026-08-09 — none of docs/18_GPU_VENDOR_APIS.md §Checklist step 2's needles,
+    # so step 1 terminates on a pass. NOT to be confused with NVIDIA NGX/DLSS,
+    # which is the proprietary RTX SDKs Licence and may be neither vendored nor
+    # re-declared; sl.common.dll exporting NGX-named symbols is what makes that
+    # confusion easy.
+    @{ Path = 'src/native/third_party/streamline'; Licence = 'streamline-MIT.txt'; Name = 'NVIDIA Streamline headers' },
+
     # Khronos Vulkan headers, copied from SDK 1.4.357.0 rather than fetched, so
     # CI needs no ~1 GB SDK install and we compile against the same revision the
     # blast-radius test runs against. Apache-2.0 OR MIT; we ship the Apache text.
@@ -151,6 +159,45 @@ if (Test-Path $nvapiDir) {
     }
 }
 
+# --- 2b. Streamline: the grant, and the two things its own licence file excludes
+#
+# NOT an SPDX check. Streamline carries no SPDX line anywhere — the grant lives
+# as comment text in license.txt, and two of the vendored headers
+# (sl_appidentity.h, sl_device_wrappers.h) carry no licence header at all. A
+# per-file SPDX grep copied from the NVAPI rule above would fire on those two
+# forever, and a check that is always red gets deleted.
+#
+# THE RISK HERE IS A DIFFERENT ONE, and it is the one worth gating. Streamline's
+# include/ and source/ are MIT, but the SAME license.txt carries a second,
+# proprietary block — "NSight Perf SDK License, Version 2023.3" — naming
+# sl_nvperf.h and sl_nvperf.dll, and upstream's external/ngx-sdk/ is the NVIDIA
+# RTX SDKs Licence, which docs/18_GPU_VENDOR_APIS.md §Checklist step 3 forbids
+# vendoring outright. Neither is here today. Both arrive the moment somebody
+# re-syncs by copying the tree instead of the closure, which is the obvious way
+# to do it and the wrong one.
+$slDir = Join-Path $RepoRoot 'src/native/third_party/streamline'
+if (Test-Path $slDir) {
+    $slLicence = Join-Path $slDir 'license.txt'
+    if (-not (Test-Path $slLicence)) {
+        $violations.Add('Streamline is vendored but src/native/third_party/streamline/license.txt is missing — MIT requires the notice to travel with the copy')
+    }
+    elseif (-not (Select-String -Path $slLicence -Pattern 'Permission is hereby granted, free of charge' -Quiet)) {
+        $violations.Add('src/native/third_party/streamline/license.txt no longer contains the MIT permission grant')
+    }
+
+    # Named files, not a glob on the licence text: the licence names them, so we
+    # assert against the names it names.
+    $nvperf = Get-ChildItem $slDir -Recurse -Filter 'sl_nvperf.*' -ErrorAction SilentlyContinue
+    foreach ($f in $nvperf) {
+        $violations.Add("Streamline's NSight Perf SDK Licence covers $($f.Name) and it is NOT MIT — it must not be vendored: $($f.Name)")
+    }
+
+    $ext = Join-Path $slDir 'external'
+    if (Test-Path $ext) {
+        $violations.Add("src/native/third_party/streamline/external/ exists — upstream's external/ngx-sdk is the NVIDIA RTX SDKs Licence, which §Checklist step 3 forbids vendoring")
+    }
+}
+
 # --- 2c. The notices file's BUNDLING claim must match the filesystem ---------
 #
 # Every other check here is keyed on the directory a component WOULD occupy, so
@@ -180,7 +227,8 @@ else {
     $claims = @(
         @{ Marker = 'NVIDIA NVAPI SDK'; Path = 'src/native/third_party/nvapi' },
         @{ Marker = 'Intel PresentMon'; Path = 'assets/native/PresentMon.exe' },
-        @{ Marker = 'Vulkan headers'; Path = 'src/native/third_party/vulkan-headers' }
+        @{ Marker = 'Vulkan headers'; Path = 'src/native/third_party/vulkan-headers' },
+        @{ Marker = 'NVIDIA Streamline'; Path = 'src/native/third_party/streamline' }
     )
     foreach ($c in $claims) {
         $matched = @($rows | Where-Object { $_ -match [regex]::Escape($c.Marker) })

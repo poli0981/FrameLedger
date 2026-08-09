@@ -116,6 +116,33 @@ the recount becomes the next thing that needs recounting.
 > whether §S18 blocker 3's "the Agent is the sole host of the guard" is re-ratified now
 > that a third project imports `FrameLedger.Guard.targets`.
 
+> **2026-08-09, and the count does not move: still nine.** The upscaler identity hook
+> landed (`HANDOFF` item 2) and closed nothing in this table, which is worth stating so
+> nobody looks for a decrement. What it *did* do belongs here anyway:
+>
+> - **§S6's premise weakened again, in the direction of deferral.** The lazy feature-hook
+>   install now runs on the watchdog and is under test, so "the first time their module
+>   appears" is handled **without** a `LoadLibrary` hook. §S6 is about shrinking the 30 s
+>   blocklist-detection window, which is a different job — but the mechanism it assumed it
+>   would have to build is now built and unnecessary for P0. Its disposition is still an
+>   open owner decision; the cost estimate attached to it is now too high.
+> - **A licence question this file never asked has been answered, and it blocks a
+>   documented plan.** `17_HOOK_ENGINE` §The NGX parameter surface recommends hooking
+>   `NVSDK_NGX_Parameter_SetUI`; the NGX/DLSS SDK is the proprietary RTX SDKs Licence, so
+>   `18_GPU_VENDOR_APIS` §Checklist step 3 forbids vendoring it **and** re-declaring it.
+>   `FL_MEASURED_UPSCALER_PARAMS` therefore has no producer on the route the docs
+>   specified, and P0 exit criterion 1 needs it. Corrected in `17_HOOK_ENGINE`; the
+>   in-policy route is Streamline's own MIT surface. **Whether to revisit the checklist
+>   for NGX is an owner decision no PR may take.**
+> - **`spike-notes` §5's "blocked on a licence decision, not on hardware" is unblocked.**
+>   Streamline is MIT, so §H5 case 3 — the risk that would make `fg_factor` structurally
+>   1.0 on every Streamline title — is now reachable with `slInit`, and it belongs to
+>   item 3.
+> - **A gate that could not fail was removed from the native suite**, though it was not on
+>   this list: a failed `REQUIRE` terminated the whole binary, so on this dev box one
+>   environmental failure silently deleted the end-to-end honesty coverage §S29(a) rests
+>   on. See `HANDOFF` §Traps.
+
 **The markers themselves are part of the problem and should be unified.** One
 disposition — *deferred, with a rationale written* — currently wears three glyphs:
 S12 is `✅ deferred`, S1 and S13(c) are `🅓 deferred`, S19(b) is `🔴 deferred, but

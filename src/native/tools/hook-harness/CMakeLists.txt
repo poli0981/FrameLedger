@@ -6,9 +6,24 @@
 # proxy_swapchain.h is ordinary C++ that benefits from them.
 add_executable(hook-harness main.cpp proxy_swapchain.h)
 # fl_dxgi_vtable, not a local copy of the slot numbers: this harness proves the
-# indices by behaviour, and it must prove the SHIPPED ones (§S29(b)).
-target_link_libraries(hook-harness PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags)
+# indices by behaviour, and it must prove the SHIPPED ones (§S29(b)). The same
+# reasoning brings in fl_hook_inventory.h from the Overlay's include directory:
+# --probe-upscaler-resolve calls the OVERLAY'S resolver, not a copy of it, or it
+# would prove a fact about GetProcAddress.
+target_link_libraries(hook-harness PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags fl_streamline_headers)
+target_include_directories(hook-harness PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Overlay/include")
 target_compile_definitions(hook-harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+
+# ABSOLUTE PATHS to the stubs, resolved at build time. The harness loads them by
+# full path and never by name: loading "sl.interposer.dll" by name would search
+# the loader's paths and, on a developer machine with a game installed, could
+# find a REAL Streamline interposer -- after which the fixture would be proving
+# something about NVIDIA's build.
+target_compile_definitions(hook-harness PRIVATE
+    FL_STUB_SL_INTERPOSER=L"$<TARGET_FILE:fl_stub_sl_interposer>"
+    FL_STUB_SL_COMMON=L"$<TARGET_FILE:fl_stub_sl_common>"
+)
+add_dependencies(hook-harness fl_stub_sl_interposer fl_stub_sl_common)
 
 # WARP + CreateSwapChainForComposition means no GPU and no HWND are needed, so
 # these run on a hosted CI runner — which is what 20_OPEN_QUESTIONS §H4 said
@@ -30,6 +45,17 @@ add_test(NAME fl_frame_identity COMMAND hook-harness --probe-frames)
 # QUEUE, which is the whole asymmetry a D3D11-only fixture cannot exercise.
 add_test(NAME fl_d3d12_acquisition COMMAND hook-harness --probe-d3d12)
 add_test(NAME fl_proxy_swapchain COMMAND hook-harness --probe-proxy)
+
+# MODULE-SCOPED RESOLUTION, with a decoy module exporting the same symbol name.
+#
+# docs/HANDOFF.md item 2's whole argument for scoping is arithmetic — a
+# name-resolved hook counts one logical evaluation more than once, and
+# 03_METRICS derives F_app by SUBTRACTING that count, so it lands on fg_factor,
+# the number CLAUDE.md rule 6 exists to protect. Without a second exporter in the
+# process that property is unfalsifiable: a name-only resolver and a
+# module-scoped one behave identically and every test passes. The decoy is what
+# makes them distinguishable.
+add_test(NAME fl_upscaler_resolve COMMAND hook-harness --probe-upscaler-resolve)
 
 # §H7 — our unhook must not silently remove an overlay that hooked the same
 # slot after us. Simulated rather than depending on RTSS being installed, so it
