@@ -329,21 +329,70 @@ public sealed class ShmDrainIntegrationTests
     private static async Task<int> EstablishRecordingAsync(ShmRingReader reader, FlFrameRecord[] buffer,
         Ref<uint> tick)
     {
+        // 100 iterations, not 40. The harness presents at ~120/s so ten records take under a second —
+        // but four test assemblies run in parallel, each spawning a harness and injecting an Overlay
+        // that creates a WARP device, and a budget sized on the measured rate is the thing that goes
+        // red under contention while nothing is wrong.
+        const int enough = 10;
         int seen = 0;
-        for (int i = 0; i < 40 && seen < 10; i++)
+        for (int i = 0; i < 100 && seen < enough; i++)
         {
             reader.PublishGuardResult(++tick.Value, unhookRequested: false);
             await Task.Delay(100, TestContext.Current.CancellationToken).ConfigureAwait(false);
             seen += reader.Drain(buffer).Copied;
         }
 
-        seen.Should().BeGreaterThan(10, "the harness must be presenting before anything asserted below means anything");
+        // THE LOOP BOUND AND THE ASSERTION MUST BE THE SAME NUMBER, and they were not: the loop exited
+        // at `seen >= 10` — usually exactly 10 — and the assertion demanded `> 10`, so it passed only
+        // when one drain happened to bring in eleven or more at once. It read as a contention flake for
+        // two rounds because the timing decided whether the off-by-one was visible. One constant now.
+        seen.Should().BeGreaterThanOrEqualTo(
+            enough, "the harness must be presenting before anything asserted below means anything");
         return seen;
     }
 
     private sealed class Ref<T>
     {
         public T Value = default!;
+    }
+
+    /// <summary>
+    /// Waits for <c>writeIndex</c> to stop moving and returns where it stopped.
+    /// </summary>
+    /// <remarks>
+    /// <b>Wait for the writer to settle; do not assume how long an in-flight present
+    /// takes.</b> This was a fixed 250 ms delay commented "presents already in flight" —
+    /// fine at the harness's ~120/s until the suite runs four assemblies in parallel and
+    /// the presenting thread is descheduled past it. A present that entered
+    /// <c>MayObserve()</c> BEFORE the pause flag was set then lands after the index is
+    /// captured, and "a paused writer records nothing" fails against a writer that had
+    /// in fact stopped. Same class as the three assertions #61 fixed: a state read at a
+    /// moment chosen by a constant rather than by the state itself.
+    /// <para>
+    /// It keeps ticking throughout, because the pause path is only reachable on a frame
+    /// where <c>guardTicks</c> has changed — that is the defect #46 fixed and the reason
+    /// this test exists.
+    /// </para>
+    /// </remarks>
+    private static async Task<ulong> SettleAsync(ShmRingReader reader, FlFrameRecord[] buffer, Ref<uint> tick)
+    {
+        ulong last = reader.WriterState.WriteIndex;
+        for (int i = 0; i < 40; i++)
+        {
+            reader.PublishGuardResult(++tick.Value, unhookRequested: false);
+            await Task.Delay(100, TestContext.Current.CancellationToken).ConfigureAwait(false);
+            reader.Drain(buffer);
+
+            ulong now = reader.WriterState.WriteIndex;
+            if (now == last)
+            {
+                return now;    // two reads 100 ms apart with nothing between them
+            }
+
+            last = now;
+        }
+
+        return last;
     }
 
     /// <summary>
@@ -412,11 +461,7 @@ public sealed class ShmDrainIntegrationTests
             await EstablishRecordingAsync(reader, buffer, tick);
 
             reader.SetPaused(true);
-            await Task.Delay(250, TestContext.Current.CancellationToken);    // presents already in flight
-            reader.PublishGuardResult(++tick.Value, unhookRequested: false);
-            reader.Drain(buffer);
-
-            ulong atPause = reader.WriterState.WriteIndex;
+            ulong atPause = await SettleAsync(reader, buffer, tick);
             await Task.Delay(1200, TestContext.Current.CancellationToken);
             reader.PublishGuardResult(++tick.Value, unhookRequested: false);
 
@@ -433,8 +478,12 @@ public sealed class ShmDrainIntegrationTests
 
             reader.WriterState.WriteIndex.Should().BeGreaterThan(atPause);
 
+            // 60 iterations (3 s), not 20 (1 s). Swept with the settle loop above rather than left for
+            // the next post-merge run: five records at the harness's ~120/s take ~42 ms, and a budget
+            // sized on the measured rate is exactly what goes red under four parallel assemblies while
+            // nothing is wrong.
             var after = new List<FlFrameRecord>();
-            for (int i = 0; i < 20 && after.Count < 5; i++)
+            for (int i = 0; i < 60 && after.Count < 5; i++)
             {
                 DrainResult r = reader.Drain(buffer);
                 after.AddRange(buffer.AsSpan(0, r.Copied).ToArray());

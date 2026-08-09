@@ -163,6 +163,28 @@ GitHub release body, so a missing section will mean an empty release note.
 - `NativeAntiCheatGuard`'s §S21 rationale was attached to `NativeCheckRules` by two stacked
   `<summary>` blocks while `NativeRulesFilePath`, which it describes, had none.
 
+### A fourth failure that was not a race at all — an off-by-one wearing a flake's costume
+
+`APausedSessionStopsRecordingAndResumesWhereItLeftOff` failed roughly one run in five, which is
+exactly what the three fixed above looked like. It was **`EstablishRecordingAsync`'s loop bound and
+its assertion disagreeing by one**: the loop ran while `seen < 10` and so exited at *exactly* 10,
+and the assertion demanded `> 10`. It passed only when a single drain happened to bring in eleven or
+more at once — so the timing decided whether the off-by-one was visible, and two rounds of budget
+tuning made it rarer without touching it. One constant now serves both.
+
+**The lesson is the diagnosis, not the fix.** Having just repaired three genuine races, the fourth
+failure in the same file was assumed to be a fourth race, and it was treated with the remedy for the
+previous three. What settled it was reading the failure message instead of the pattern: *"Expected
+seen to be greater than 10 … but found 10"* names the defect exactly and took one run to obtain.
+
+Swept alongside it, since the class was the thing under review: the pause test now waits for the
+writer to **settle** — two reads 100 ms apart with nothing between them — rather than assuming a
+fixed 250 ms covers a present already in flight, and it keeps ticking throughout, because the pause
+path is only reachable on a frame where `guardTicks` changed (the defect #46 fixed, and the reason
+this test exists). The resume-drain budget goes 1 s → 3 s for the contention reason.
+
+Ten consecutive full runs clean afterwards.
+
 ### Three racy assertions that #60 merged, caught by the post-merge run
 
 `docs/HANDOFF.md` says to run `./build.ps1 check` with no switches **after** every PR. This is what
