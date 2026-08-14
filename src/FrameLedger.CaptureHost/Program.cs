@@ -216,6 +216,17 @@ internal static class Program
                           $"UpscalerParams={withParams}/{dominant.Count}  " +
                           $"(a value below the total means the hook came up mid-session, not that it never did)");
 
+        // The RAW values, so a real-title run can be checked against the game's own settings.
+        // Grouped rather than sampled: one record could be a transient, and what a verification
+        // run needs is what the writer said for most of the session.
+        foreach (var g in dominant.Where(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.UpscalerParams))
+                     .GroupBy(r => (r.RenderW, r.RenderH, r.UpscalerQuality, r.Upscaler))
+                     .OrderByDescending(g => g.Count()).Take(3))
+        {
+            HostConsole.Line($"    render {g.Key.RenderW}x{g.Key.RenderH}  quality=0x{g.Key.UpscalerQuality:X2}  " +
+                              $"upscaler={(FlUpscaler)g.Key.Upscaler}  on {g.Count()} record(s)");
+        }
+
         HostConsole.Line(SessionReport.Render(facts));
     }
 }
