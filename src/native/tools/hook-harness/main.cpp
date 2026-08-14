@@ -726,6 +726,54 @@ HMODULE LoadStubExactly(const wchar_t* absolutePath) {
     return h;
 }
 
+// The ABI check: right module name, right symbol name, WRONG GENERATION.
+//
+// This case is invisible to module scoping, which is why it needs its own
+// fixture. The decoy in ProbeUpscalerResolve has the wrong module NAME, so
+// scoping catches it. Streamline 1.5.6 -- which The Witcher 3 ships -- has the
+// RIGHT name and a different slEvaluateFeature signature, and scoping cannot see
+// a signature. Measured 2026-08-14 by fl-probe-interposer, which access-violated
+// on it.
+//
+// LOADS ONLY THE V1 STUB. Both stubs are called sl.interposer.dll, and
+// GetModuleHandleExW resolves by name, so a process holding both would answer
+// whichever loaded first and this probe would silently be testing the other
+// fixture. That is why the two live in different directories and why this mode
+// is separate from --probe-upscaler-resolve rather than an extra section of it.
+bool ProbeSlAbi() {
+    std::printf("\n[upscaler] a Streamline 1.x module has the right name and the wrong ABI\n");
+
+    const HMODULE v1 = LoadStubExactly(FL_STUB_SL_INTERPOSER_V1);
+    Check(v1 != nullptr, "the Streamline 1.x sl.interposer.dll fixture loaded from its absolute path");
+    if (v1 == nullptr) {
+        return false;
+    }
+
+    // VACUITY GUARD FIRST. If this fixture did not actually export the symbol,
+    // "the Overlay refused it" would be true for the wrong reason and this whole
+    // probe would prove nothing -- the exact defect stub_sl_common.cpp records
+    // against its own first version.
+    Check(GetProcAddress(v1, "slEvaluateFeature") != nullptr,
+          "the 1.x fixture really DOES export slEvaluateFeature - so refusing it is about the ABI, not the name");
+    Check(GetProcAddress(v1, "slInit") != nullptr, "and slInit, which both generations have");
+    Check(GetProcAddress(v1, "slGetHooks") != nullptr, "and slGetHooks, which only 1.x has");
+
+    // The three SL2 markers are absent, which is the signal.
+    Check(GetProcAddress(v1, "slSetD3DDevice") == nullptr, "it does NOT export slSetD3DDevice");
+    Check(GetProcAddress(v1, "slIsFeatureLoaded") == nullptr, "it does NOT export slIsFeatureLoaded");
+    Check(GetProcAddress(v1, "slGetNewFrameToken") == nullptr, "it does NOT export slGetNewFrameToken");
+    Check(!fl::inventory::SpeaksStreamline2(v1), "so SpeaksStreamline2 says no");
+
+    // THE PROPERTY UNDER TEST. The Overlay's own resolver -- the one
+    // InstallUpscalerHooks calls -- must return nothing, so no detour is
+    // installed, FL_HOOK_UPSCALER_IDENTITY is never published, and the record
+    // says FL_UPSCALER_NOT_REPORTED instead of a name read out of the wrong
+    // argument.
+    Check(fl::inventory::ResolveScoped(L"sl.interposer.dll", "slEvaluateFeature") == nullptr,
+          "ResolveScoped REFUSES it - a wrong-generation module is the same answer as no module");
+    return g_failures == 0;
+}
+
 bool ProbeUpscalerResolve() {
     std::printf("\n[upscaler] module-scoped symbol resolution, with a decoy exporting the same name\n");
 
@@ -940,6 +988,9 @@ int main(int argc, char** argv) {
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-upscaler-resolve") == 0) {
             ok = ProbeUpscalerResolve() && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-sl-abi") == 0) {
+            ok = ProbeSlAbi() && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-d3d12") == 0) {
             ok = ProbeD3D12Acquisition() && ok;

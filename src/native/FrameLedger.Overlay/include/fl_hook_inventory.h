@@ -55,6 +55,64 @@ namespace fl::inventory {
 // symbol", never "does anything export it".
 #define FL_HOOK_INVENTORY(X) X(L"sl.interposer.dll", "slEvaluateFeature", fl::FL_HOOK_UPSCALER_IDENTITY)
 
+// Does this module speak the Streamline 2 ABI the vendored headers describe?
+//
+// MEASURED 2026-08-14, and it cost an access violation to find. The Witcher 3
+// ships sl.interposer.dll 1.5.6 -- a different API generation. It exports
+// slInit, slEvaluateFeature, slSetTag and slShutdown, so a name check passes;
+// it also exports slGetHooks, slIsFeatureEnabled and slSetFeatureConstants,
+// which SL2 does not have, and it does NOT export the three below.
+//
+// THE NAMES SURVIVED THE VERSION BUMP AND THE SIGNATURES DID NOT, which is the
+// whole hazard. docs/vendor-exports.json records ONE COPY PER MODULE NAME, so
+// hookinventory-check Pass A resolves `slEvaluateFeature` against one machine's
+// 2.7.4 and says nothing about the 1.5.6 a title ships. A detour typed with
+// PFun_slEvaluateFeature -- SL2's (Feature, const FrameToken&,
+// const BaseStructure**, uint32_t, CommandBuffer*) -- would then be called with
+// SL1's argument list. Reading argument 1 as a feature id when it is not one
+// yields a WRONG UPSCALER NAME, not a crash, which is the failure class
+// 17_HOOK_ENGINE calls the highest false-confidence risk in the spike.
+//
+// So we refuse the module rather than hook it, and the record then says nothing
+// about the upscaler -- which is true. FL_UPSCALER_NOT_REPORTED, not a guess.
+//
+// WHY THESE THREE NAMES ARE NOT INVENTORY ROWS. A row is a symbol we DETOUR;
+// these are symbols we probe for existence and never call, so they carry no
+// signature risk of their own. They live in this header because it is the file
+// that owns which vendor names the Overlay speaks -- and because
+// hookinventory-check Pass B excludes exactly this file from its stray-literal
+// sweep, so putting them anywhere else in the Overlay would fail that gate for a
+// reason unrelated to what the gate is for.
+inline bool SpeaksStreamline2(HMODULE h) noexcept {
+    return h != nullptr && GetProcAddress(h, "slSetD3DDevice") != nullptr &&
+           GetProcAddress(h, "slIsFeatureLoaded") != nullptr && GetProcAddress(h, "slGetNewFrameToken") != nullptr;
+}
+
+// Is this module's ABI one we compiled against?
+//
+// SCOPED TO THE INTERPOSER BY NAME, not to `sl.*`, and the first version of this
+// got that wrong. The three markers above are exports of the INTERPOSER; the
+// Streamline plugins are a different shape entirely -- a real sl.common.dll
+// exports the NGX C API and slGetPluginFunction and none of the three. A `sl.`
+// prefix test therefore refuses modules whose generation it has no business
+// judging, and the decoy fixture in --probe-upscaler-resolve caught it doing
+// exactly that.
+//
+// Scoping to sl.interposer.dll is also all that is needed: slEvaluateFeature has
+// exactly ONE exporter in the measured data, and it is this module. Anything else
+// passes, because "no known ABI hazard" is the honest default for a module class
+// nobody has measured a break in -- and inventing a check for one would be
+// guessing, not guarding.
+inline bool SpeaksExpectedAbi(const wchar_t* module, HMODULE h) noexcept {
+    if (module == nullptr) {
+        return false;
+    }
+    if (_wcsicmp(module, L"sl.interposer.dll") == 0) {
+        return SpeaksStreamline2(h);
+    }
+    return true;
+}
+
 // Resolve a symbol from ONE named module, or nothing.
 //
 // GetModuleHandleExW, NEVER LoadLibraryW, and the difference is not stylistic.
@@ -81,6 +139,13 @@ inline void* ResolveScoped(const wchar_t* module, const char* symbol) noexcept {
     HMODULE h = nullptr;
     if (!GetModuleHandleExW(0, module, &h) || h == nullptr) {
         return nullptr;    // the game has not loaded it; that is an answer, not a failure
+    }
+    // A module of the right NAME whose ABI is not ours is the same answer as no
+    // module: we cannot read its arguments, so we do not hook it. See
+    // SpeaksExpectedAbi -- this is the Witcher 3 case, and refusing here is what
+    // keeps a wrong upscaler name out of the record.
+    if (!SpeaksExpectedAbi(module, h)) {
+        return nullptr;
     }
     return reinterpret_cast<void*>(GetProcAddress(h, symbol));
 }

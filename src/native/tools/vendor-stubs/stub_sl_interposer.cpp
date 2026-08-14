@@ -59,6 +59,35 @@ SL_API sl::Result slEvaluateFeature(sl::Feature feature, const sl::FrameToken& f
     return sl::Result::eOk;
 }
 
+// THE ABI MARKERS. Three SL2-only entry points, exported so this stub actually
+// looks like the generation it stands in for.
+//
+// The Overlay refuses to hook an sl.* module that does not export all three
+// (fl_hook_inventory.h SpeaksStreamline2), because Streamline 1.x keeps the NAME
+// slEvaluateFeature and changes its SIGNATURE -- measured on The Witcher 3's
+// 1.5.6. Without these, this fixture would be an SL1-shaped module wearing an SL2
+// name, the Overlay would correctly decline to hook it, and every [upscaler] test
+// would fail for a reason that has nothing to do with what it is testing.
+//
+// Bodies are deliberately trivial: nothing calls them, and their existence is the
+// entire signal.
+SL_API sl::Result slSetD3DDevice(void* d3dDevice) {
+    (void)d3dDevice;
+    return sl::Result::eOk;
+}
+
+SL_API sl::Result slIsFeatureLoaded(sl::Feature feature, bool& loaded) {
+    (void)feature;
+    loaded = true;
+    return sl::Result::eOk;
+}
+
+SL_API sl::Result slGetNewFrameToken(sl::FrameToken*& token, const uint32_t* frameIndex) {
+    (void)frameIndex;
+    token = nullptr;
+    return sl::Result::eOk;
+}
+
 // FrameLedger-named, so nothing here pretends to be part of a vendor API.
 __declspec(dllexport) unsigned int FlStubEvaluateCount() {
     return static_cast<unsigned int>(InterlockedCompareExchange(&g_calls, 0, 0));

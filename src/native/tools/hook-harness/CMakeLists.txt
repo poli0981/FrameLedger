@@ -22,8 +22,9 @@ target_compile_definitions(hook-harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_definitions(hook-harness PRIVATE
     FL_STUB_SL_INTERPOSER=L"$<TARGET_FILE:fl_stub_sl_interposer>"
     FL_STUB_SL_COMMON=L"$<TARGET_FILE:fl_stub_sl_common>"
+    FL_STUB_SL_INTERPOSER_V1=L"$<TARGET_FILE:fl_stub_sl_interposer_v1>"
 )
-add_dependencies(hook-harness fl_stub_sl_interposer fl_stub_sl_common)
+add_dependencies(hook-harness fl_stub_sl_interposer fl_stub_sl_common fl_stub_sl_interposer_v1)
 
 # WARP + CreateSwapChainForComposition means no GPU and no HWND are needed, so
 # these run on a hosted CI runner — which is what 20_OPEN_QUESTIONS §H4 said
@@ -56,6 +57,11 @@ add_test(NAME fl_proxy_swapchain COMMAND hook-harness --probe-proxy)
 # module-scoped one behave identically and every test passes. The decoy is what
 # makes them distinguishable.
 add_test(NAME fl_upscaler_resolve COMMAND hook-harness --probe-upscaler-resolve)
+
+# Its own ctest, and its own PROCESS, which is the point. Both fixtures are named
+# sl.interposer.dll and GetModuleHandleExW resolves by name, so running this
+# inside fl_upscaler_resolve would have the two silently test each other.
+add_test(NAME fl_sl_abi_guard COMMAND hook-harness --probe-sl-abi)
 
 # §H7 — our unhook must not silently remove an overlay that hooked the same
 # slot after us. Simulated rather than depending on RTSS being installed, so it
