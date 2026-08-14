@@ -15,7 +15,19 @@
 # so the -D_HAS_EXCEPTIONS=0 / no-allocation rules that shape the Overlay do not
 # apply. Same reasoning as fl-probe-guard.
 add_executable(fl-probe-interposer main.cpp)
-target_link_libraries(fl-probe-interposer PRIVATE fl_native_flags d3d11 dxgi)
+# d3d12: Part 2 builds a real-adapter D3D12 device, because DLSS-G is an NVIDIA
+# D3D12 feature and a WARP device could never reach the engaged state the probe
+# exists to produce. d3d12.dll is a system module, always present.
+target_link_libraries(fl-probe-interposer PRIVATE fl_native_flags d3d11 d3d12 dxgi)
+# fl_streamline_headers is an INTERFACE target: include directories and NOTHING
+# else. sl::Preferences and the PFun_* typedefs come from it; every sl* entry
+# point is still resolved with GetProcAddress.
+#
+# LINKING sl.interposer WOULD BREAK THE CTEST BELOW, not just offend a rule. Part
+# 1 runs as `ctest fl_vtable_identity_control` on CI, where no Streamline exists,
+# so a load-time dependency would stop the control starting on the only machine
+# that runs it.
+target_link_libraries(fl-probe-interposer PRIVATE fl_streamline_headers)
 # psapi: the engagement check enumerates OUR OWN modules to prove the interposer
 # actually loaded its plugins. Without that, a passthrough result reads as an
 # answer — which is exactly how the first run of this probe was wrong.
