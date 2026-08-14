@@ -53,7 +53,20 @@ namespace fl::inventory {
 // KEEP THE SPELLING EXACT. tools/hookinventory-check.ps1 checks each row against
 // docs/vendor-exports.json, module-scoped: "does THIS module export THIS
 // symbol", never "does anything export it".
-#define FL_HOOK_INVENTORY(X) X(L"sl.interposer.dll", "slEvaluateFeature", fl::FL_HOOK_UPSCALER_IDENTITY)
+// TWO ROWS, TWO FAMILIES, TWO DETOURS. dllmain's installer binds each row by its
+// family bit; a row whose family has no detour installs nothing rather than
+// borrowing a neighbour's body.
+//
+// slSetTag carries the GLOBAL resource tags, which is where a title states the
+// size of the buffer it is upscaling FROM. sl_core_api.h documents local tags as
+// merely *allowed* in slEvaluateFeature's `inputs` ("they do NOT interact with
+// same tags sent in the global scope"), so a global-tagging title yields nothing
+// from the inputs walk -- and only four of the ten Streamline titles measured on
+// this machine route DLSS super-resolution through Streamline at all. Deferring
+// this row would have shipped a producer whose hit rate could be zero.
+#define FL_HOOK_INVENTORY(X)                                                                                           \
+    X(L"sl.interposer.dll", "slEvaluateFeature", fl::FL_HOOK_UPSCALER_IDENTITY)                                        \
+    X(L"sl.interposer.dll", "slSetTag", fl::FL_HOOK_UPSCALER_PARAMS)
 
 // Does this module speak the Streamline 2 ABI the vendored headers describe?
 //
