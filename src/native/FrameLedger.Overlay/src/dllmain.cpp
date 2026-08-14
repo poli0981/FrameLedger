@@ -577,6 +577,100 @@ std::atomic<uint32_t> g_upscalerIdentityLive{0};
 using PFN_SlEvaluateFeature = ::PFun_slEvaluateFeature*;
 PFN_SlEvaluateFeature g_origSlEvaluateFeature = nullptr;
 
+// The params half, behind its own family bit and its own latch: an NGX-direct
+// title yields identity and nothing else, and the two must be separable.
+std::atomic<uint32_t> g_upscalerParamsLive{0};
+
+// NO #pragma warning FOR C4996, and that is measured rather than assumed.
+// sl_core_api.h marks slSetTag [[deprecated]] behind `#if __cplusplus >= 201402L`,
+// and src/native/CMakeLists.txt sets /W4 /WX WITHOUT /Zc:__cplusplus -- so MSVC
+// reports 199711L here and the attribute never applies. Compiled and run under
+// this target's exact flags on 2026-08-14: 199711L; adding /Zc:__cplusplus gives
+// 202002L. A pragma would therefore suppress a warning that is not emitted, and
+// its justification comment would assert a compile behaviour that does not occur.
+//
+// IF ANYONE ADDS /Zc:__cplusplus, this line is where the build will break, and
+// the fix is a scoped pragma -- not deleting the hook. slSetTagForFrame, the
+// replacement the attribute names, is exported by ZERO measured modules
+// (docs/vendor-exports.json), so the deprecated entry point is the one that
+// exists at runtime.
+using PFN_SlSetTag = ::PFun_slSetTag*;
+PFN_SlSetTag g_origSlSetTag = nullptr;
+
+// The render-resolution sample, packed into one word.
+//
+//   bits  0-15  renderW      bits 16-31  renderH      bit 32  a real sample
+//
+// ONE WORD BECAUSE TWO CANNOT BE READ TOGETHER. RecordPresent runs on the
+// present thread while slSetTag runs on whatever thread the title tags from --
+// the vendor documents slSetTag as thread-safe and slEvaluateFeature as NOT --
+// so two separate atomics could be read half-updated and publish a width from
+// one resolution beside a height from another. A number nobody rendered at.
+std::atomic<uint64_t> g_tagExtent{0};
+
+constexpr uint64_t kTagValid = 1ull << 32;
+
+// WHY THIS PERSISTS RATHER THAN BEING exchange(0)'d LIKE g_slSeen.
+//
+// g_slSeen answers "did an upscaler run THIS FRAME", so a sample that outlived
+// its frame would be a lie. A global tag answers "how big is the input buffer",
+// which is viewport state the title sets once and leaves alone -- Streamline's
+// own lifecycle for it is eValidUntilPresent, and re-tagging is how a settings
+// change is expressed. Draining it per present would report the resolution on
+// one frame in N and nothing on the rest.
+//
+// The staleness that DOES matter -- a title that stops upscaling while the tag
+// stands -- is handled at the consumer end in RecordPresent: renderW/H are only
+// published on a frame where an evaluation was actually seen. Tag alone is never
+// enough.
+void NoteTags(const sl::ResourceTag* tags, uint32_t numTags) noexcept {
+    // A null list REMOVES tags (sl_core_api.h: "set to null to remove the
+    // specified tag"). Forgetting this is how renderW/H would latch a stale
+    // resolution across a settings change.
+    if (tags == nullptr || numTags == 0) {
+        g_tagExtent.store(0, std::memory_order_release);
+        return;
+    }
+
+    // BOUNDED. numTags is the caller's number and we are inside their process:
+    // a wrong one walks off the end of an array we do not own. 64 is far above
+    // any plausible tag count and the cap costs nothing.
+    constexpr uint32_t kMaxTags = 64;
+    const uint32_t     n = numTags < kMaxTags ? numTags : kMaxTags;
+
+    for (uint32_t i = 0; i < n; ++i) {
+        const sl::ResourceTag& t = tags[i];
+        if (t.type != sl::kBufferTypeScalingInputColor) {
+            continue;
+        }
+        // extent is by VALUE and defaults to all-zero, which the vendor header
+        // documents as "using the entire resource". That is the honest unknown
+        // fl_shm.h already defines for renderW/H, so it is stored as such rather
+        // than guessed at from the resource description -- which for D3D12 is
+        // itself unset (sl_core_types.h: mandatory only for Vulkan).
+        const uint64_t w = t.extent.width;
+        const uint64_t h = t.extent.height;
+        if (w == 0 || h == 0 || w > 0xFFFFu || h > 0xFFFFu) {
+            g_tagExtent.store(0, std::memory_order_release);
+            return;
+        }
+        g_tagExtent.store(w | (h << 16) | kTagValid, std::memory_order_release);
+        return;
+    }
+}
+
+sl::Result STDMETHODCALLTYPE Hook_SlSetTag(const sl::ViewportHandle& viewport, const sl::ResourceTag* tags,
+                                           uint32_t numTags, sl::CommandBuffer* cmdBuffer) {
+    FL_HOOK_GUARD({
+        if (MayObserve()) {
+            NoteTags(tags, numTags);
+        }
+    })
+    // ALWAYS exactly once, on every path including the fault path, with every
+    // argument forwarded untouched.
+    return g_origSlSetTag(viewport, tags, numTags, cmdBuffer);
+}
+
 sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const sl::FrameToken& frame,
                                                     const sl::BaseStructure** inputs, uint32_t numInputs,
                                                     sl::CommandBuffer* cmdBuffer) {
@@ -610,26 +704,31 @@ sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const s
 // separable, exactly as docs/HANDOFF.md item 2 requires).
 //
 // Returns true once the hook is live, so the caller can stop trying.
-bool InstallUpscalerHooks() noexcept {
-    if (g_upscalerIdentityLive.load(std::memory_order_acquire) != 0) {
+// Install ONE inventory row: its own target, its own detour, its own family bit,
+// its own latch.
+//
+// THE SHAPE THIS REPLACES WOULD HAVE MIS-BOUND THE SECOND ROW. The previous
+// expansion walked FL_HOOK_INVENTORY, stopped at the FIRST row that resolved,
+// hooked it with Hook_SlEvaluateFeature and OR'd a hardcoded
+// FL_HOOK_UPSCALER_IDENTITY -- ignoring the `family` column entirely. Correct
+// only while the table had one row, and silently wrong the moment it did not:
+// slSetTag would have been detoured by the slEvaluateFeature body, which reads
+// argument 1 as a feature id. Same class of defect as the SL1 ABI break (#71),
+// reached from the other direction.
+bool InstallRow(const wchar_t* module, const char* symbol, uint32_t family, void* detour, void** original,
+                std::atomic<uint32_t>& live) noexcept {
+    if (live.load(std::memory_order_acquire) != 0) {
         return true;
     }
 
-    void* target = nullptr;
-#define FL_TRY_RESOLVE(mod, sym, family)                                                                               \
-    if (target == nullptr) {                                                                                           \
-        target = fl::inventory::ResolveScoped(mod, sym);                                                               \
-    }
-    FL_HOOK_INVENTORY(FL_TRY_RESOLVE)
-#undef FL_TRY_RESOLVE
-
+    void* target = fl::inventory::ResolveScoped(module, symbol);
     if (target == nullptr) {
-        return false;    // the game has not loaded Streamline. An answer, not a failure.
+        // The game has not loaded Streamline, or loaded a generation whose ABI we
+        // do not speak (#71). An answer, not a failure.
+        return false;
     }
 
-    if (MH_CreateHook(target, reinterpret_cast<void*>(&Hook_SlEvaluateFeature),
-                      reinterpret_cast<void**>(&g_origSlEvaluateFeature)) != MH_OK ||
-        MH_EnableHook(target) != MH_OK) {
+    if (MH_CreateHook(target, detour, original) != MH_OK || MH_EnableHook(target) != MH_OK) {
         return false;
     }
 
@@ -640,6 +739,9 @@ bool InstallUpscalerHooks() noexcept {
     // Nothing false would be recorded (the body consults MayObserve), but
     // legal/DISCLAIMER.md §2 promises the part inside the game stops, and a hook
     // installed after the stop is not that.
+    //
+    // FACTORED HERE ON PURPOSE. It used to be inline in the single installer, so
+    // a second lazy installer that forgot it would reopen the window silently.
     if (g_observing.load(std::memory_order_acquire) == 0) {
         MH_DisableHook(target);
         return false;
@@ -647,10 +749,36 @@ bool InstallUpscalerHooks() noexcept {
 
     if (g_state != nullptr) {
         std::atomic_ref<uint32_t> hooks{g_state->hooksInstalledMask};
-        hooks.fetch_or(static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY), std::memory_order_relaxed);
+        hooks.fetch_or(family, std::memory_order_relaxed);
     }
-    g_upscalerIdentityLive.store(1, std::memory_order_release);
+    live.store(1, std::memory_order_release);
     return true;
+}
+
+// Bind a row's family bit to the detour that implements it.
+//
+// A row whose family has no detour installs NOTHING and publishes NOTHING. That
+// is the safe direction: an unbound row is a table entry somebody added without
+// writing its hook, and hooking it with a neighbour's body is exactly what this
+// function exists to stop.
+bool InstallByFamily(const wchar_t* module, const char* symbol, uint32_t family) noexcept {
+    if (family == static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY)) {
+        return InstallRow(module, symbol, family, reinterpret_cast<void*>(&Hook_SlEvaluateFeature),
+                          reinterpret_cast<void**>(&g_origSlEvaluateFeature), g_upscalerIdentityLive);
+    }
+    if (family == static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS)) {
+        return InstallRow(module, symbol, family, reinterpret_cast<void*>(&Hook_SlSetTag),
+                          reinterpret_cast<void**>(&g_origSlSetTag), g_upscalerParamsLive);
+    }
+    return false;
+}
+
+bool InstallUpscalerHooks() noexcept {
+    bool any = false;
+#define FL_INSTALL_ROW(mod, sym, family) any = InstallByFamily(mod, sym, static_cast<uint32_t>(family)) || any;
+    FL_HOOK_INVENTORY(FL_INSTALL_ROW)
+#undef FL_INSTALL_ROW
+    return any;
 }
 
 // The watchdog. Runs whether or not the game presents, which is the reason it
@@ -826,6 +954,43 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
             // (FL_SL_SEEN_OTHER) -- a NEW Streamline feature we do not decode is
             // the same admission, from the other direction.
             rec.upscaler = FL_UPSCALER_UNKNOWN;
+        }
+    }
+
+    // --- Render resolution, from the global resource tags ---------------------
+    //
+    // TWO CONDITIONS, AND THE SECOND IS THE ONE THAT IS EASY TO DROP. The params
+    // hook must be live (we were in a position to read a tag), AND an evaluation
+    // must have been seen THIS FRAME (`seen != 0`). A tag is viewport state that
+    // outlives any one frame, so publishing on the tag alone would report a
+    // render resolution for every frame after a title stopped upscaling --
+    // dressing stale state as a measurement, which is the whole failure class
+    // layout v3 exists to prevent.
+    if (g_upscalerParamsLive.load(std::memory_order_relaxed) != 0 && seen != 0u) {
+        const uint64_t tag = g_tagExtent.load(std::memory_order_acquire);
+        if ((tag & kTagValid) != 0u) {
+            rec.renderW = static_cast<uint16_t>(tag & 0xFFFFu);
+            rec.renderH = static_cast<uint16_t>((tag >> 16) & 0xFFFFu);
+
+            // 0xFF, NEVER 0, and for two different reasons that land on the same
+            // byte. upscalerQuality has no in-band "not measured" sentinel -- 0 is
+            // NGX MaxPerf, a real preset -- so 0 here would publish "DLSS
+            // Performance" as a measurement (fl_shm.h §FL_MEASURED_UPSCALER_PARAMS).
+            // 0xFF is the defined "a hook ran and could not tell", which is exactly
+            // true: the quality preset lives in sl::DLSSOptions, set out of band,
+            // and this writer reads tags rather than options.
+            rec.upscalerQuality = 0xFFu;
+
+            // PERMANENTLY 0xFF, and this is the true value rather than a
+            // placeholder. DLSSOptions::sharpness is
+            // [[deprecated("Sharpness is not supported")]] and
+            // DLSSOptimalSettings::optimalSharpness is Streamline's RECOMMENDATION,
+            // not what the title applied. There is no in-policy route to what was
+            // actually used, so "a hook ran and could not tell" is the answer, now
+            // and later.
+            rec.upscalerSharpness = 0xFFu;
+
+            rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_UPSCALER_PARAMS);
         }
     }
 

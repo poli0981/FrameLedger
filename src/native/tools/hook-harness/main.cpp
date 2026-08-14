@@ -838,6 +838,19 @@ bool ProbeUpscalerResolve() {
 // `feature` before forwarding all five arguments untouched. A dummy buffer is
 // passed rather than a null so the argument is a valid address either way.
 // ---------------------------------------------------------------------------
+// The render extent the upscaled hold tags. A constant here rather than a
+// literal typed twice: guard_test.cpp asserts against it, and a fixture and its
+// assertion holding separate copies of the number under test is the §S29(b)
+// defect the inventory macro exists to prevent, in miniature.
+//
+// 1280x720 is arbitrary, and that is the point -- a writer that hardcoded a
+// plausible render resolution must FAIL here rather than coincide.
+constexpr unsigned kTaggedRenderW = FL_TAGGED_RENDER_W;
+constexpr unsigned kTaggedRenderH = FL_TAGGED_RENDER_H;
+
+using StubSetTagFn = sl::Result(STDMETHODCALLTYPE*)(const sl::ViewportHandle&, const sl::ResourceTag*, uint32_t,
+                                                    sl::CommandBuffer*);
+
 using StubEvaluateFn = sl::Result(STDMETHODCALLTYPE*)(sl::Feature, const void*, const void*, uint32_t, void*);
 
 alignas(16) unsigned char g_dummyFrameToken[64]{};
@@ -854,15 +867,44 @@ int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature) 
         return 1;
     }
 
+    // TAG PER FRAME, and the first version of this tagged once at startup and
+    // was VACUOUS -- 0 records carried the params bit out of 43.
+    //
+    // Two reasons, and both are the fixture being wrong rather than the writer.
+    // The injection happens ~800 ms after this process starts, so a single tag
+    // call before the loop lands before the hook exists and is never seen again:
+    // the same shape main.cpp already records twice, where a fixture presented
+    // before injection and every assertion went quietly vacuous.
+    //
+    // And it is what a real title does. sl_core_api.h's lifecycle here is
+    // eValidUntilPresent -- the tag is valid UNTIL the frame is presented, so an
+    // integration re-tags every frame. Tagging once was not the faithful choice
+    // dressed up as a shortcut; it was simply wrong about the vendor's contract.
+    auto setTag = reinterpret_cast<StubSetTagFn>(reinterpret_cast<void*>(GetProcAddress(stub, "slSetTag")));
+    if (setTag == nullptr) {
+        Check(false, "the stub exports slSetTag");
+        return 1;
+    }
+    sl::Extent extent{};
+    extent.width = kTaggedRenderW;
+    extent.height = kTaggedRenderH;
+    sl::ResourceTag tag(nullptr, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent, &extent);
+    sl::ViewportHandle viewport{0u};
+
     const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
     std::printf("  presenting for %d second(s) [%s], evaluating feature %u before each present\n", seconds,
                 real ? "REAL" : "DXGI_PRESENT_TEST", static_cast<unsigned>(feature));
+    std::printf("  tagged kBufferTypeScalingInputColor extent %ux%u\n", kTaggedRenderW, kTaggedRenderH);
     std::fflush(stdout);
 
     const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
     long long       presented = 0;
     long long       evaluated = 0;
     while (GetTickCount64() < until) {
+        // Tag, then evaluate, then present -- the order a Streamline title uses,
+        // and the order that matters: the extent must be in place before the
+        // evaluation the Overlay attributes it to.
+        setTag(viewport, &tag, 1, nullptr);
         // ONE EVALUATION PER PRESENT, which is what a real upscaled title does
         // and what makes the drained record's identity checkable frame by frame.
         eval(feature, g_dummyFrameToken, nullptr, 0, nullptr);

@@ -59,6 +59,25 @@ SL_API sl::Result slEvaluateFeature(sl::Feature feature, const sl::FrameToken& f
     return sl::Result::eOk;
 }
 
+// The GLOBAL TAG entry point, and the second inventory row's target. The harness
+// calls it with a known extent so an injected test can assert the exact
+// renderW/H the Overlay published -- a hardcoded resolution in the writer would
+// then fail rather than coincide.
+//
+// Signature from the vendored header, like slEvaluateFeature's, so the stub and
+// the detour cannot disagree about the ABI. Note it is NOT [[deprecated]] here:
+// that attribute is behind `#if __cplusplus >= 201402L` and this build sets
+// /std:c++20 without /Zc:__cplusplus, so MSVC reports 199711L. Measured, not
+// assumed.
+SL_API sl::Result slSetTag(const sl::ViewportHandle& viewport, const sl::ResourceTag* tags, uint32_t numTags,
+                           sl::CommandBuffer* cmdBuffer) {
+    (void)viewport;
+    (void)tags;
+    (void)numTags;
+    (void)cmdBuffer;
+    return sl::Result::eOk;
+}
+
 // THE ABI MARKERS. Three SL2-only entry points, exported so this stub actually
 // looks like the generation it stands in for.
 //

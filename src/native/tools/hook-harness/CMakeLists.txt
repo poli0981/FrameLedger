@@ -23,6 +23,10 @@ target_compile_definitions(hook-harness PRIVATE
     FL_STUB_SL_INTERPOSER=L"$<TARGET_FILE:fl_stub_sl_interposer>"
     FL_STUB_SL_COMMON=L"$<TARGET_FILE:fl_stub_sl_common>"
     FL_STUB_SL_INTERPOSER_V1=L"$<TARGET_FILE:fl_stub_sl_interposer_v1>"
+    # Shared with fl_guard_test from src/native/CMakeLists.txt, so the fixture and
+    # the assertion cannot hold different numbers.
+    FL_TAGGED_RENDER_W=${FL_TAGGED_RENDER_W}
+    FL_TAGGED_RENDER_H=${FL_TAGGED_RENDER_H}
 )
 add_dependencies(hook-harness fl_stub_sl_interposer fl_stub_sl_common fl_stub_sl_interposer_v1)
 

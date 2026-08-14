@@ -39,6 +39,14 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # tools/versioninfo-check.ps1 now makes it true for real, and every shipped
 # native binary calls this.
 # ---------------------------------------------------------------------------
+# The render extent hook-harness tags, and that guard_test asserts the Overlay
+# published. ONE DEFINITION, handed to both targets, because a fixture and its
+# assertion holding separate copies of the number under test is the §S29(b)
+# defect in miniature: `ctest fl_vtable_indices` once proved a fact about
+# dxgi.dll instead of about the Overlay for exactly that reason.
+set(FL_TAGGED_RENDER_W 1280)
+set(FL_TAGGED_RENDER_H 720)
+
 set(FL_VER_MAJOR ${PROJECT_VERSION_MAJOR})
 set(FL_VER_MINOR ${PROJECT_VERSION_MINOR})
 set(FL_VER_PATCH ${PROJECT_VERSION_PATCH})
