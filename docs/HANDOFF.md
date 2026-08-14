@@ -228,8 +228,16 @@ own PR with its own rule-4 justification.
 **What it does NOT deliver, so nobody plans on it:** a title that tags **whole resources**
 yields `renderW/H = 0`, the in-band unknown; a title that sets its preset through
 `slDLSSSetOptions` and never chains `sl::DLSSOptions` yields `upscalerQuality = 0xFF`. Both
-are honest absences and both are invisible until a real title is measured — **the hit rate is
-still unmeasured, and it is still the largest unknown in this item.**
+are honest absences.
+
+**The hit rate is no longer unmeasured, and it SPLIT** — Cyberpunk 2077, 2026-08-15,
+`spike-notes.md` §8. The extent half works and is *exact*: `renderW/H = 1485×835` against the
+title's own `DLSS = Balanced` at 2560×1440, which is a number a writer that hardcoded a
+plausible resolution could not have produced. The `sl::DLSSOptions` half has a **hit rate of
+zero on that title** — it never chains the struct, so `upscalerQuality = 0xFF` there is a true
+property of the title rather than a bug to go hunting for. One title, one configuration;
+Alan Wake 2 is still unmeasured. **What the same run did find is a defect — §S30, and it
+belongs to item 3.**
 
 <details>
 <summary>The original entry, kept for the reasoning it carries</summary>
@@ -341,6 +349,18 @@ than cutting a segment.
 >   between two presents into one. Whatever replaces it must not break 2b's consume block,
 >   which reads the same word — that is why 2b landed first.
 
+- **§S30 is yours, and it is the first defect a real-title run has produced.** Cyberpunk 2077:
+  every one of **2,461** params-carrying records decoded the upscaler as `UNKNOWN` while the
+  title was demonstrably running DLSS. The mechanism is this item's exact drain — 10,169
+  presents carried only 2,461 `g_slSeen.exchange(0)` batches, and the batches that reached a
+  present held `DLSS_G` / `DLSS_RR` and not `kFeatureDLSS`. **Do not fix it by making the
+  decode prefer DLSS.** Which ids actually arrive was never printed, so that fix converts a
+  wrong answer into a *confident* wrong answer. Print them first.
+- **`presents / batches = 4.13` was measured, and it is a PROXY rather than this item's
+  number.** Two runs gave 4.13 and 4.12 against the title's own `DLSS_MultiFrameGeneration =
+  x4`. Encouraging, and *not* `presents / fgEvaluations` — nothing counts `kFeatureDLSS_G`
+  evaluations yet, which is the whole of this item. Quoting 4.13 as an FG factor would be
+  reporting the oracle back to itself.
 - **The arithmetic needs deciding before the hook, not after.** `03_METRICS` defines
   `F_app = presents − Σ fgEvaluations`, i.e. `fgEvaluations` counts GENERATED frames — but
   `slEvaluateFeature(kFeatureDLSS_G)` fires once per APPLICATION frame and produces N−1 of
@@ -530,6 +550,22 @@ diagnosis*.
   every PR that touches `CHANGELOG.md` under `[Unreleased]` — which is every PR touching
   `src/` — conflicts with the one before it. Budget the batch accordingly, or merge one at a
   time and expect to resolve the same conflict repeatedly.
+- **`gh pr update-branch` can COMMIT literal conflict markers, and GitHub then reports the PR
+  as `BLOCKED` rather than `DIRTY`.** Measured 2026-08-15 on #73: the update-branch merge left
+  `<<<<<<<` / `=======` / `>>>>>>>` inside two source files and pushed them, so CI failed with
+  `error C2059: syntax error: '<<'` and a redefinition. **`DIRTY` is the status that means
+  "conflict", and this was not it** — the PR read as an ordinary red build, so a "re-run CI"
+  reflex would never have reached the cause. After any `update-branch`, grep the branch for
+  markers *before* reading the checks; the whole tree is one command and it is cheaper than
+  one CI round. **Anchor the pattern to the line start** — this very bullet contains all three
+  markers inline, so an unanchored sweep reports this file and teaches you to ignore it.
+- **Never run a git-manipulating script in the background against the working tree you are
+  working in.** A merge helper doing `git checkout` between branches moved the tree under an
+  in-flight edit, and a documentation commit meant for one PR landed on another branch and was
+  pushed there. Recovery cost a cherry-pick, a `--force-with-lease`, and a re-verification of
+  the *wrong* PR to prove none of its own work had been lost. This is wrong by design rather
+  than by bad luck — the tree has one HEAD, and a background job racing you for it will
+  sometimes win. Use a separate worktree, or keep it in the foreground.
 - **Anything that writes a file with a script writes LF, and `.gitattributes` hides it until
   it does not.** `dotnet format --verify-no-changes` is the documented victim, but a Python
   or PowerShell `write` is the usual cause. `git commit` prints *"LF will be replaced by
