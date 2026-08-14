@@ -847,6 +847,58 @@ bool ProbeSlInputs() {
         const auto r = fl::slinputs::FindScalingInputExtent(wide, 0xFFFFFFFFu);
         Check(r.found, "a lying numInputs is capped, and the walk still reads up to the cap");
     }
+    // --- the quality preset, and the zero that must never reach the record ---
+    {
+        sl::DLSSOptions opts;
+        opts.mode = sl::DLSSMode::eMaxQuality;
+        const sl::BaseStructure* one[] = {&opts};
+        const auto               r = fl::slinputs::FindScalingInputExtent(one, 1);
+        Check(r.qualityFound && r.quality == static_cast<uint8_t>(sl::DLSSMode::eMaxQuality),
+              "a chained DLSSOptions yields the vendor's own DLSSMode value");
+    }
+    {
+        // THE COLLISION THIS MAPPING EXISTS FOR. DLSSMode::eOff is 0, and
+        // upscalerQuality reserves 0 for "nobody looked" -- so a verbatim copy
+        // would make "the title turned DLSS off" indistinguishable from an
+        // unhooked writer, and 0 would decode as NGX MaxPerf, "DLSS Performance".
+        sl::DLSSOptions off;
+        off.mode = sl::DLSSMode::eOff;
+        const sl::BaseStructure* one[] = {&off};
+        const auto               r = fl::slinputs::FindScalingInputExtent(one, 1);
+        Check(r.qualityFound && r.quality == 0xFFu, "eOff maps to 0xFF, never to 0");
+    }
+    {
+        // A mode from a newer SDK than these headers describe.
+        sl::DLSSOptions future;
+        future.mode = static_cast<sl::DLSSMode>(9999);
+        const sl::BaseStructure* one[] = {&future};
+        const auto               r = fl::slinputs::FindScalingInputExtent(one, 1);
+        Check(r.quality == 0xFFu, "a mode at or beyond eCount maps to 0xFF, not to a preset we invented");
+    }
+    {
+        // EVERY mode, exhaustively: none may produce 0. A single mapping mistake
+        // here publishes a wrong preset rather than an absence.
+        bool anyZero = false;
+        for (uint32_t m = 0; m <= static_cast<uint32_t>(sl::DLSSMode::eCount) + 2; ++m) {
+            if (fl::slinputs::QualityFromMode(static_cast<sl::DLSSMode>(m)) == 0) {
+                anyZero = true;
+            }
+        }
+        Check(!anyZero, "NO DLSSMode value, in range or out, ever maps to 0");
+    }
+    {
+        // Extent and quality arrive in DIFFERENT structures, and a title may
+        // chain them in either order. Returning early on the first hit would have
+        // made quality depend on chain order -- a property of the title, not of
+        // what it is doing.
+        sl::DLSSOptions opts;
+        opts.mode = sl::DLSSMode::eBalanced;
+        sl::ResourceTag tagFirst = tagWithExtent;
+        tagFirst.next = &opts;
+        const sl::BaseStructure* one[] = {&tagFirst};
+        const auto               r = fl::slinputs::FindScalingInputExtent(one, 1);
+        Check(r.found && r.qualityFound, "extent and quality are both found when chained together");
+    }
     return g_failures == 0;
 }
 

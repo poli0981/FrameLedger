@@ -11,7 +11,9 @@ identifier.
 
 **Unmodified, and checked rather than claimed.** `git hash-object` on the
 downloaded upstream file and `git ls-files -s` on this repository's index agree
-for `sl.h`, `sl_core_api.h` and `sl_core_types.h`. Upstream ships **CRLF** and
+for `sl.h`, `sl_core_api.h`, `sl_core_types.h` and `sl_dlss.h` (the last
+verified 2026-08-15: `git hash-object` = `3aac47be62c9322aef119b88926602d37655d3ed`,
+8,489 bytes, CRLF, and none of §Checklist step 2's four needles appear in it). Upstream ships **CRLF** and
 the index blob is CRLF too, so unlike the NVAPI case — where upstream is LF and
 `.gitattributes` normalisation was the thing that needed explaining — no
 transformation happens here in either direction. The bytes under version control
@@ -42,7 +44,7 @@ the IGCL rule *"unanswered for NVIDIA"*. It is answered here.
 
 ## What is here, and what is not
 
-The complete include closure of `sl.h`, and nothing else — nine files:
+The complete include closure of `sl.h`, plus `sl_dlss.h` — ten files:
 
 | | |
 |---|---|
@@ -51,6 +53,7 @@ The complete include closure of `sl.h`, and nothing else — nine files:
 | `sl_appidentity.h` `sl_device_wrappers.h` | included by `sl.h`; **neither carries a licence header of its own** — both are covered by `license.txt` |
 | `sl_core_api.h` | declares `slEvaluateFeature` and publishes `PFun_slEvaluateFeature` |
 | `sl_core_types.h` | `using Feature = uint32_t`, the `kFeature*` ids, `BufferType` |
+| `sl_dlss.h` | `sl::DLSSOptions` and `sl::DLSSMode`, read from `slEvaluateFeature`'s chained `inputs`. **Vendored 2026-08-15 with its consumer**, per the rule below. Its include closure is EMPTY — verified on the upstream file — so it adds no other header, and it relies on `sl.h` having been included first |
 
 **Excluded deliberately, and each exclusion is load-bearing:**
 
@@ -62,12 +65,12 @@ The complete include closure of `sl.h`, and nothing else — nine files:
   A recursive copy does the forbidden thing by default, which is why this
   directory was assembled file by file from the closure rather than by copying a
   tree.
-- **The fourteen other `include/` headers** (`sl_dlss.h`, `sl_dlss_g.h`,
-  `sl_reflex.h`, `sl_helpers*.h`, …). `docs/18_GPU_VENDOR_APIS.md` records that an
+- **The thirteen other `include/` headers** (`sl_dlss_g.h`, `sl_reflex.h`,
+  `sl_helpers*.h`, …). `docs/18_GPU_VENDOR_APIS.md` records that an
   unconsumed vendored dependency can have an incomplete header closure with every
   gate green, so nothing is vendored ahead of the code that consumes it.
-  `sl_dlss.h` lands with the PR that reads `DLSSOptions`; `sl_dlss_g.h` with
-  frame generation.
+  `sl_dlss.h` HAS now landed, with the PR that reads `DLSSOptions`; `sl_dlss_g.h`
+  still waits for frame generation.
 
 ## How it is consumed, and the constraint that shapes that
 
