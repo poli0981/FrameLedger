@@ -242,6 +242,35 @@ enum FlRtFlags : uint8_t {
     // and two statements of one fact is what this file exists to complain about.
 };
 
+// values for FlWriterState::rtTier — and the one value D3D12 does NOT give us.
+//
+// The tier is stored as D3D12_RAYTRACING_TIER's own value, because that enum is
+// already "tier x10": measured against the Windows SDK 10.0.26100.0 header,
+// NOT_SUPPORTED = 0, TIER_1_0 = 10, TIER_1_1 = 11, TIER_1_2 = 12. So no
+// arithmetic is done on it and a tier this build has never heard of still
+// arrives intact -- which is why nothing below names 1_0/1_1/1_2.
+//
+// THE COLLISION THIS EXISTS TO RESOLVE. D3D12_RAYTRACING_TIER_NOT_SUPPORTED is
+// 0, and 0 already means NOT QUERIED here. Storing the enum verbatim would make
+// "we asked and this device cannot ray-trace" byte-identical to "nobody looked"
+// -- the affirmative-negative conflation the whole of layout v3 exists to make
+// impossible, arrived at by copying a vendor enum instead of by a guess.
+//
+// So a queried-and-incapable device stores FL_RT_TIER_UNSUPPORTED. 1 is chosen
+// because no D3D12 tier value is 1 and none can be: the enum's own step is 10,
+// and 03_METRICS' `No` branch tests `rtTier >= 10`, so an incapable device
+// correctly fails that conjunct and the session reads N/A rather than a
+// confident negative about a machine that could never have produced one.
+enum FlRtTier : uint32_t {
+    FL_RT_TIER_NOT_QUERIED = 0,    // no D3D12 device was identified, or the query failed
+    FL_RT_TIER_UNSUPPORTED = 1,    // D3D12 answered NOT_SUPPORTED -- a measurement, not a silence
+
+    // The threshold 03_METRICS §RT/PT/RR states for "an RT-capable device". Named
+    // here so the consumer stops spelling it as a literal 10 next to a field whose
+    // units are not obvious from its type.
+    FL_RT_TIER_CAPABLE_MIN = 10,
+};
+
 // bits in FlWriterState::hooksInstalledMask — which hook FAMILIES are live.
 //
 // Writer-level, not per-frame, and it exists because "we looked and saw nothing"
@@ -426,11 +455,18 @@ struct alignas(64) FlWriterState {
     // agree with a particular record cannot be stated per frame; state it over
     // the session (see hooksInstalledMask).
 
-    // Device ray-tracing tier x10 (D3D12_RAYTRACING_TIER_1_0 -> 10), 0 = NOT
-    // QUERIED. Without this, 03_METRICS' definite RT `No` -- "RT-capable device
-    // present, no AS builds and no dispatches for the whole session" -- has no
-    // producer at all, so item 6 could reach Yes or N/A and never No. Queried
-    // once, at device identification.
+    // Device ray-tracing tier, encoded as FlRtTier. Without this, 03_METRICS'
+    // definite RT `No` -- "RT-capable device present, no AS builds and no
+    // dispatches for the whole session" -- has no producer at all, so item 6
+    // could reach Yes or N/A and never No. Written at device identification --
+    // once per swapchain the writer newly sees, not once per session, because it
+    // is a property of the adapter and every query answers the same thing.
+    //
+    // THREE STATES, NOT TWO, and this comment said two until the producer was
+    // written. "0 = NOT QUERIED" is right, and D3D12's own
+    // D3D12_RAYTRACING_TIER_NOT_SUPPORTED is ALSO 0 -- so the obvious
+    // implementation (store the enum) would have published "nobody looked" about
+    // every non-RT device. FlRtTier above carries the resolution.
     uint32_t rtTier;    // @24
 
     // FlHookFamily bits. Which hook families this writer actually installed.

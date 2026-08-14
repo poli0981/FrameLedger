@@ -160,7 +160,7 @@ Tri-state `Yes | No | N/A` per session with `source` (`measured | manual | inher
 | Flag | Tier-1 evidence | Result |
 |---|---|---|
 | **Ray Tracing** | `BuildRaytracingAccelerationStructure` called, **or** `DispatchRays` called, in ≥ 5% of frames | `Yes` |
-| | **All three of:** `FlWriterState.rtTier ≥ 10` (an RT-capable device, `D3D12_FEATURE_D3D12_OPTIONS5` tier ≥ 1.0 — 0 means *not queried*, not *not capable*); `hooksInstalledMask` contains **`RtAsBuild`**; and no AS builds and no dispatches for the whole session | `No` |
+| | **All three of:** `FlWriterState.rtTier ≥ 10` (an RT-capable device — `rtTier` is `FlRtTier`, and it has **three** states, not two: `0` *not queried*, `1` *queried and this device cannot*, and otherwise `D3D12_FEATURE_D3D12_OPTIONS5`'s own tier value, which is already ×10); `hooksInstalledMask` contains **`RtAsBuild`**; and no AS builds and no dispatches for the whole session | `No` |
 | | No RT-capable API in use (D3D11/OpenGL), or evidence inconclusive | `N/A` |
 | **Ray Reconstruction** | NGX `RayReconstruction` feature created **and evaluated** (or Streamline `DLSS_RR`) | `Yes` / `No` if DLSS is active without it |
 | **Path Tracing** | heuristic only — see below | usually `N/A` |
@@ -168,6 +168,13 @@ Tri-state `Yes | No | N/A` per session with `source` (`measured | manual | inher
 **Honest limits, documented in the UI tooltip:**
 
 - Hooking `BuildRaytracingAccelerationStructure` is what makes **inline ray tracing (DXR 1.1 `RayQuery`)** detectable at all — those shaders never call `DispatchRays`, so dispatch counting alone would report `No` for a game that is very much ray tracing. AS-build activity catches both paths. This is why both hooks exist.
+- **Why `rtTier` has a third state, recorded because the two-state version was written down
+  first and was wrong.** `D3D12_RAYTRACING_TIER_NOT_SUPPORTED` is **0**, and `rtTier`'s 0
+  already meant *not queried* — so a writer that stored the vendor enum verbatim would have
+  published "nobody looked" about every machine without an RT-capable GPU. `FlRtTier`
+  substitutes `1` for that one value. Both still fail `≥ 10` and both still yield `N/A`, so
+  the table above is unchanged; what changes is that the two are now distinguishable, which
+  is what lets a future reader tell a capability gap from a coverage gap.
 - **The `No` branch needs all three conjuncts, and the second is the one that is easy to drop.** The AS-build hook is what makes inline `RayQuery` visible; a writer that installed only `DispatchRays` sees nothing on a RayQuery-only title, and its silence is indistinguishable from a real negative. Requiring `RtAsBuild` to have been *installed* — not merely for RT to have been "measured" — is what stops that becoming a confident `No` about a title that ray-traces every frame. Where any conjunct fails the answer is `N/A`.
 - **Path tracing has no API-level signature.** The heuristic combines three inputs: rays dispatched per output pixel ≥ ~1.0, `MaxTraceRecursionDepth` from the RT PSO config, and the number of distinct RT state objects (`FlWriterState.rtStateObjectsCreated`). It produces a **confidence score**, and only ≥ 0.8 offers a *suggestion* in the UI ("looks like path tracing — confirm?"). It never sets `Yes` on its own. Manual override remains the authoritative path, per game, inherited by future sessions.
 
