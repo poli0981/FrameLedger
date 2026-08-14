@@ -75,6 +75,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S23-2** | 🚫 **owner only — no PR can close it** | `Rules / validate` is **not** a required status check on `main`. **Re-verified against the live branch protection 2026-08-05**, not repeated from the entry: `required_status_checks.contexts` is exactly `["check", "analyze (csharp, none)", "analyze (cpp, manual)"]` (`strict: true`, `enforce_admins: true`, `required_linear_history: true`). The `validate` job is path-filtered and `pull_request`-only, so a red removal check does not block the merge button. **The gate that exists to make the anti-cheat blocklist un-removable is advisory.** This is a branch-protection setting |
 
 | **S29** | 🔴 **open, new 2026-08-05 — five of seven closed** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work. **Sharpened 2026-08-06:** fixing §S19(b) alone would still gate nothing, because `build.ps1`'s `-SkipIntegration` applies `--filter 'Category!=Integration'` and excludes the class *before* the guard is ever asked. Two independent mechanisms produce one absence, and `ci.yml` must drop the switch too; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ❓ the **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is untouched and is item 6's to settle — but its second half's PREMISE was stale and is corrected in place: layout v3 put `rtTier` and `hooksInstalledMask` in `FlWriterState`, and neither has a producer, so **`Yes` is unreachable as well as `No`**; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
+| **S30** | ❓ **open, new 2026-08-15** | The record names the WRONG upscaler on a real title. Cyberpunk 2077, 10,169 presents: every one of the 2,461 params-carrying records decoded to `UNKNOWN` while the title was running DLSS. Honest — the writer never says `NONE` — and not the answer exit criterion 1 asks for. The first defect a real-title run has produced. Item 3's to fix, because it restructures the same `g_slSeen` drain |
 
 ~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
 exit criterion 2, not seven, and the undercount came from reading only the ❓ rows.**
@@ -82,7 +83,7 @@ The criterion is *"resolved, **or** explicitly deferred with a written rationale
 so ⏳ (open, sequenced) and ◐ (partly closed) are just as open as ❓, and each needs
 either work or a rationale written down:
 
-- ~~**six ❓**~~ **three ❓** — S6, S19(c), S20 feed half. *(S19(a), S19(d)
+- ~~**six ❓**~~ ~~three ❓~~ **four ❓** — S6, S19(c), S20 feed half, **S30**. *(S19(a), S19(d)
   residual and S23-5 resolved 2026-08-05, each by a mechanism rather than by a
   correction.)*
 - **three ⏳** — S2 part three, S4 signing, S23-3
@@ -93,8 +94,10 @@ either work or a rationale written down:
 - **plus 🚫 S23-2**, which no amount of code will do — the owner has to change a
   branch-protection setting.
 
-**Nine, down from twelve.** Keep this list in the same PR that changes a row, or
+~~**Nine, down from twelve.**~~ **TEN on 2026-08-15**, and it went UP — S30 is a defect a real-title run found, not a doc drift. Keep this list in the same PR that changes a row, or
 the recount becomes the next thing that needs recounting.
+
+> **A rising count here is the ledger working, not failing.** Every previous movement was downward and came from closing something. This one is upward because the first capture from a real game produced a wrong answer that no fixture had been able to produce — which is the whole reason exit criterion 1 asks for a real title rather than a harness.
 
 > **Still nine on 2026-08-06.** Item 1 closed §S29(c) and §S29(e) and corrected
 > §S29(f)'s premise, but §S29 is one row and stays 🔴 while (a), (d) and (f) are open,
@@ -480,6 +483,48 @@ the unconditional assignment turns the new test red with the build green.
 > did not silently pass by never executing. The test also pins the overflowed stream's
 > *share* (~1/17), because an absolute floor alone would be satisfied by a harness
 > presenting on one chain.
+
+### S30 ❓ · The record names the WRONG upscaler on a real title, and it is honest while being wrong
+
+**Measured 2026-08-15, Cyberpunk 2077, and it is the first defect a real-title run
+has produced** (`spike-notes.md` §8). The title is running DLSS. Every one of the
+**2,461** params-carrying presents in a 40 s / 10,169-present capture decoded to
+`FL_UPSCALER_UNKNOWN`.
+
+`UNKNOWN` is the honest failure — `fl_shm.h` allows only `NONE` to be aggregated as
+a negative, and the writer correctly never says `NONE`. But exit criterion 1 asks
+for the **correct** upscaler, and `Unknown` is not it. **A wrong answer that cannot
+be called a lie is still a wrong answer**, and it is the exact shape
+`17_HOOK_ENGINE` calls the highest false-confidence risk in the spike, reached from
+a direction nobody was watching: not a misspelt symbol, but a correctly-resolved
+hook attributing the frame to the wrong feature.
+
+**The mechanism, as far as the data shows.** `RecordPresent` drains `g_slSeen` with
+`exchange(0)`, so a record is told about whichever Streamline features evaluated
+since the *previous* present. Under multi-frame generation the app frame's
+`kFeatureDLSS` evaluation and the presents that carry it are not one-to-one: 10,169
+presents carried only 2,461 evaluation batches (×4.13, and the title's settings say
+`DLSS_MultiFrameGeneration = x4`). The batches that reached a present held
+`DLSS_G` / `DLSS_RR` / `OTHER` and not `kFeatureDLSS`, so the decode fell through to
+`UNKNOWN`.
+
+**What is NOT yet established, and must not be assumed while fixing it:**
+
+- Whether `kFeatureDLSS` is evaluated at all in this title, or only `DLSS_G` and
+  `DLSS_RR`. Cyberpunk ships `sl.dlss.dll`, so it *should* be — but "should" is what
+  this ledger exists to distrust. The identity hook fires; **which** ids it sees was
+  never printed.
+- Whether the same happens without frame generation. One configuration was measured.
+- Whether the fix belongs in the drain (accumulate identity across presents until an
+  app frame boundary) or in the decode (prefer a super-resolution id over an FG id
+  when several are seen). These produce different answers for a title that switches
+  upscaler mid-session.
+
+**Whose it is.** Item 3 restructures this exact drain — `g_slSeen` is a bitmask and
+frame generation needs a **count** — so the fix lands there rather than as a
+separate change that item 3 would immediately rewrite. **Do not "fix" it by making
+the decode prefer DLSS without first measuring which ids arrive**: that would turn
+a wrong answer into a confident wrong answer.
 
 ### S27 · The chokepoint is the ANTI-CHEAT gate, and it is not the consent gate
 
@@ -2429,11 +2474,46 @@ make us miss the present.
 > its own output — an interposing Streamline cannot leave the *factory* vtable
 > unwrapped, since wrapping the factory is how it reaches the swapchain.
 >
-> Reaching the wrapped path needs `slInit`'s `sl::Preferences`, i.e. vendor ABI,
+> ~~Reaching the wrapped path needs `slInit`'s `sl::Preferences`, i.e. vendor ABI,
 > i.e. the question `legal/THIRD_PARTY_NOTICES.md` answers for Intel IGCL and
-> nobody has asked for NVIDIA. **The risk is also narrower than the entry
+> nobody has asked for NVIDIA.~~ **Unblocked by #64 and MEASURED 2026-08-14.**
+> Streamline is MIT and `sl::Preferences` is vendored, so `fl-probe-interposer` now
+> calls `slInit` → `D3D12CreateDevice` *through the interposer* → `slSetD3DDevice`,
+> every entry point resolved with `GetProcAddress`. **The premise holds:** with
+> `slInit` returning `eOk`, the interposer hands back a swapchain whose vtable is
+> inside `sl.interposer.dll` while `dxgi.dll`'s own route yields `dxgi.dll`'s.
+> Reproduced on Alan Wake 2 (SL 2.7.0) and Cyberpunk 2077 (SL 2.7.1), RTX 5080.
+> **The risk is also narrower than the entry
 > implies:** NGX-direct titles never wrap the swapchain, so the vtable premise is
 > only in question for Streamline-shimmed ones.
+>
+> > **What that does and does not settle, because the difference is the whole
+> > metric.** It settles that the game's swapchain is **not** an instance of the
+> > class whose shared vtable we patch. It does **not** settle whether we miss the
+> > present: §H5's own `--probe-proxy` result stands — a *forwarding* proxy calls
+> > `real_->Present(...)`, an ordinary virtual dispatch, caught one layer down.
+> > **Different class ≠ missed present.** Deciding which needs presents driven
+> > through this proxy with our hook installed. No feature plugin reported loaded in
+> > these runs, so the DLSS-G question — whether GENERATED presents reach the same
+> > vtable — is untouched.
+> >
+> > **A second finding, which cost a crash to get.** The Witcher 3 ships
+> > `sl.interposer.dll` **1.5.6**, a different API generation: it exports
+> > `slGetHooks`, `slIsFeatureEnabled` and `slSetFeatureConstants`, and exports
+> > **neither** `slSetD3DDevice` nor `slIsFeatureLoaded`. `slInit` exists in both
+> > with a **different `sl::Preferences` layout**, so calling it with the vendored
+> > 2.x struct access-violates (`0xC0000005`). The probe now version-guards on the
+> > SL2-only exports and skips with a reason.
+> >
+> > **That generalises past the probe and touches the hook inventory.**
+> > `docs/vendor-exports.json` records **one copy per module name**, so its
+> > `sl.interposer.dll` is one machine's 2.7.4 and says nothing about a 1.5.6 a title
+> > may ship. `hookinventory-check` Pass A would pass `slEvaluateFeature` against
+> > such a title — the **name** exists in both generations — while the **signature**
+> > differs, so a detour typed with the 2.x `PFun_slEvaluateFeature` would read 1.x
+> > arguments. Today's hook reads only `feature`, the first argument, and is
+> > probably unharmed. **Item 2b's plan to walk `inputs`/`numInputs` is not**, and
+> > needs a version guard of its own before it dereferences anything.
 >
 > What the probe *did* settle is the premise underneath everything else, and it
 > is now ctest `fl_vtable_identity_control`: two independently created swapchains

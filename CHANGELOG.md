@@ -17,6 +17,49 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Added
+
+- **`FL_MEASURED_UPSCALER_PARAMS` gets its first producer: render resolution, from the global
+  resource tags** — `docs/HANDOFF.md` item 2b, and one of the five values P0 exit criterion 1
+  names. A second inventory row detours `sl.interposer.dll!slSetTag`, reads the
+  `kBufferTypeScalingInputColor` extent, and publishes `renderW/H`.
+  - **`slSetTag` was scheduled for deferral and is included instead**, on measured grounds:
+    `sl_core_api.h` documents the local tags in `slEvaluateFeature`'s `inputs` as merely
+    *allowed* — *"they do NOT interact with same tags sent in the global scope"* — and only
+    **four of the ten** Streamline titles installed here route DLSS super-resolution through
+    Streamline at all. An inputs-only producer could have shipped with a hit rate of zero.
+  - **The installer had to be restructured first, and it was a latent mis-bind.** The
+    expansion over `FL_HOOK_INVENTORY` ignored the `family` column, stopped at the first row
+    that resolved, and hooked it with `Hook_SlEvaluateFeature`. Correct with one row; with two
+    it would have detoured `slSetTag` with a body that reads argument 1 as a feature id. Each
+    row now carries its own detour, family bit and latch, and a row whose family has no detour
+    installs **nothing** rather than borrowing a neighbour's. The install-after-stop guard is
+    factored out of the single installer for the same reason.
+  - **Two conditions to publish, and the second is the one that is easy to drop:** the params
+    hook live, **and** an evaluation seen *this frame*. A tag is viewport state that outlives a
+    frame, so publishing on the tag alone would report a render resolution for every frame
+    after a title stopped upscaling — stale state dressed as a measurement.
+  - `upscalerQuality` is **`0xFF`, never 0** — 0 is NGX MaxPerf, a real preset, so it would
+    publish "DLSS Performance" as a measurement. `upscalerSharpness` is `0xFF` **permanently**:
+    `DLSSOptions::sharpness` is deprecated as unsupported and `optimalSharpness` is
+    Streamline's recommendation, not what the title applied.
+  - **`claimedParams == 0` is inverted, not deleted** — that was the honest assertion while
+    `renderW/H` had no source, and it is the line a reviewer should see change. It now asserts
+    the **exact** tagged extent, the honesty invariant on every claiming record, and the
+    reverse direction (a value set while the bit is clear).
+  - Two fixture bugs the test found rather than reasoning: tagging **once** at startup landed
+    before injection and left the bit set on **0 of 43** records — and `eValidUntilPresent`
+    means a real title re-tags every frame anyway, so tagging once was simply wrong about the
+    vendor contract. And a floor of `> size - 3` hid a real 6-record window where identity was
+    live and params was not; the drain now waits for **both** families and asserts equality.
+  - Proved red by canary: hardcoding a plausible 1920×1080 trips `wrongExtent` on all 40
+    records, and it compiles.
+  - No `#pragma warning` for C4996 on the deprecated `slSetTag`, and that is measured:
+    `/std:c++20` **without** `/Zc:__cplusplus` makes MSVC report `199711L`, so the
+    `#if __cplusplus >= 201402L` guard on the attribute never opens. A pragma would suppress a
+    warning that is not emitted. The condition that would change it is recorded at the
+    declaration.
+
 ### Fixed
 
 - **The Overlay would hook a Streamline module of the wrong generation, and read its
@@ -79,6 +122,64 @@ GitHub release body, so a missing section will mean an empty release note.
     `MeasuredFacts.RayTracingOf`'s two conjuncts both have producers now, but
     `FL_MEASURED_RT` still has none, so RT is `N/A` on every session. The gap moved; it did
     not close.
+- **`hookinventory-check` grows a third pass, over the one failure the other two cannot
+  see** — and the document that already claimed this pass existed is corrected in the same
+  commit. Passes A and B are source checks: they see what the Overlay *resolves*. Neither
+  sees what it *links*. Taking the address of an `SL_API` declaration in evaluated code makes
+  `sl.interposer.dll` a **load-time dependency** of `FrameLedger.Overlay.dll`, which then
+  fails to load in every game that ships no Streamline — in the loader, before `DllMain`,
+  with no message anywhere. **Pass C reads the binary's own dependency list** and fails on
+  `^(sl\.|_?nvngx|libxess|ffx_|amd_fidelityfx)`.
+  - **`src/native/third_party/streamline/README.md` had asserted this gate since
+    2026-08-09.** It did not exist: the script's only mention of `dumpbin` was a comment
+    about a different tool. Found by an audit that went looking for the code instead of
+    trusting the sentence — the shape this project keeps hitting, and worse here because the
+    failure Pass C catches has no symptom to notice.
+  - **It refuses rather than passes whenever it cannot look.** A zero-length import list is a
+    failure, not a clean result — every way that parse can break produces the same empty list
+    as a binary with no vendor imports. The list must also contain `kernel32.dll` before any
+    verdict is formed, the same discrimination rule the oracle probe already follows.
+  - **It runs only under `-RequireBinaries`.** The first version read whatever binary was in
+    the build tree, so `check -SkipNative` printed a skip line *and* ran the pass anyway,
+    against an artefact the run did not produce. Reporting on the wrong binary is worse than
+    saying nothing.
+  - Proven on real PEs as well as fixtures: out of `AlanWake2.exe`'s 47 imports and
+    `Cyberpunk2077.exe`'s 36, it names exactly `sl.interposer.dll` and — for Cyberpunk —
+    `libxess.dll`, `libxess_fg.dll`, `ffx_fsr3_x64.dll`, `ffx_backend_dx12_x64.dll`, and
+    nothing else. Self-test is 17 cases, both directions, including that the match is
+    anchored so an innocent name merely *containing* a vendor prefix passes.
+  - Pass B's stray-literal sweep gains `xefg[A-Z]`, which `xess[A-Z]` does not cover:
+    `libxess_fg.dll`'s 31 measured exports include 28 `xefgSwapChain*` names and no `xess*`
+    name at all. Widened before the FG hooks land rather than after.
+- **§H5 case 3 gets an answer, and a second finding cost a crash to get** —
+  `fl-probe-interposer` reported INCONCLUSIVE because it never called `slInit`, blaming a
+  licence question over `sl::Preferences`. #64 vendored Streamline under MIT and removed that
+  blocker; the probe now runs the sequence a real title runs — `slInit` →
+  `D3D12CreateDevice` **through the interposer** → `slSetD3DDevice` — with every entry point
+  resolved by `GetProcAddress`, never linked.
+  - **MEASURED: the swapchain class is not ours.** With `slInit` returning `eOk`, the
+    interposer hands back a swapchain whose vtable sits inside `sl.interposer.dll` while
+    `dxgi.dll`'s own route yields `dxgi.dll`'s. Reproduced on Alan Wake 2 (SL 2.7.0) and
+    Cyberpunk 2077 (SL 2.7.1). **It does not follow that we miss the present** — §H5's
+    `--probe-proxy` result stands, a forwarding proxy is caught one layer down — and the
+    probe says so rather than converting a premise into a verdict.
+  - **The Witcher 3 ships Streamline 1.5.6, and it crashed the probe.** A different API
+    generation: `slGetHooks`, `slIsFeatureEnabled`, `slSetFeatureConstants`, and **no**
+    `slSetD3DDevice` or `slIsFeatureLoaded`. `slInit` exists in both with a different
+    `sl::Preferences` layout, so the vendored 2.x struct access-violates. Now version-guarded
+    on the SL2-only exports, skipping with a reason.
+  - **That reaches the hook inventory.** `docs/vendor-exports.json` records one copy per
+    module *name*, so its `sl.interposer.dll` is one machine's 2.7.4 and says nothing about a
+    1.5.6 a title ships. Pass A would accept `slEvaluateFeature` against such a title — the
+    name exists in both generations — while the **signature** differs. Today's hook reads
+    only `feature` and is probably unharmed; **item 2b's `inputs`/`numInputs` walk is not**,
+    and needs its own version guard before dereferencing anything.
+  - **The engagement read was a race first.** Plugin load is deferred: the first run reported
+    both features unloaded while Streamline's own log — flushed after ours — showed six
+    plugins verifying. Now polled for the state, bounded by a wall clock.
+  - `ctest fl_vtable_identity_control` (Part 1, the control) is unchanged and still runs on
+    CI; the probe imports `d3d11.dll` and `KERNEL32.dll` only, so linking Streamline could
+    not have broken it.
 
 - **The upscaler identity hook, and a fixture that can prove a wrong symbol name wrong** —
   `docs/HANDOFF.md` queue item 2. `FrameLedger.Overlay` gains **module-scoped symbol

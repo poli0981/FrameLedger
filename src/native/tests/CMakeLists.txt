@@ -86,6 +86,11 @@ add_custom_target(fl_stage_overlay_payload DEPENDS "${FL_STAGED_OVERLAY}")
 
 target_compile_definitions(fl_guard_test PRIVATE
     FL_HARNESS_EXE=L"$<TARGET_FILE:hook-harness>"
+    # The extent hook-harness tags, from src/native/CMakeLists.txt. Shared rather
+    # than retyped: a fixture and its assertion holding separate copies of the
+    # number under test is how a test starts proving something else.
+    FL_TAGGED_RENDER_W=${FL_TAGGED_RENDER_W}
+    FL_TAGGED_RENDER_H=${FL_TAGGED_RENDER_H}
     FL_OVERLAY_DLL=L"${FL_STAGED_OVERLAY}"
     # The un-staged original, so a test can prove the check discriminates on
     # DIRECTORY rather than on filename: same bytes, same name, wrong place.

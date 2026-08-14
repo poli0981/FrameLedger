@@ -2672,15 +2672,19 @@ void DiscardBacklog(fl::RingReader& rd) {
 // FL_STATUS_READY does not imply this hook exists, because the watchdog installs
 // it on a later tick. A single read would race the very mechanism under test
 // (HANDOFF §Traps: a test that reads a writer state ONCE is racing InitThread).
-bool WaitForIdentityHook(const fl::FlWriterState* st) {
+bool WaitForHookFamily(const fl::FlWriterState* st, uint32_t family) {
     for (int i = 0; i < 200; ++i) {
         std::atomic_ref<const uint32_t> hooks{st->hooksInstalledMask};
-        if ((hooks.load(std::memory_order_acquire) & fl::FL_HOOK_UPSCALER_IDENTITY) != 0) {
+        if ((hooks.load(std::memory_order_acquire) & family) != 0) {
             return true;
         }
         Sleep(50);
     }
     return false;
+}
+
+bool WaitForIdentityHook(const fl::FlWriterState* st) {
+    return WaitForHookFamily(st, static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY));
 }
 
 }    // namespace
@@ -2728,9 +2732,15 @@ TEST_CASE("the injected Overlay measures an upscaler it can identify", "[guard][
     // hooksInstalledMask had NO PRODUCER anywhere in the tree before this PR,
     // not even the present bit, which the present hook was always entitled to.
     CHECK((st->hooksInstalledMask & fl::FL_HOOK_PRESENT) != 0u);
-    // The split HANDOFF item 2 requires, demonstrated by one of the pair being
-    // genuinely OFF: identity has a producer, params does not.
-    CHECK((st->hooksInstalledMask & fl::FL_HOOK_UPSCALER_PARAMS) == 0u);
+    // BOTH FAMILIES NOW, and waiting for the second is what makes the params
+    // assertions below about the PRODUCER rather than about install ordering.
+    // The two hooks install independently on the 1 Hz watchdog, so there is a
+    // real window where identity is live and params is not -- measured at 6
+    // records out of 41 on the first run, which a floor would have papered over
+    // instead of eliminating. Poll for the state you mean (HANDOFF §Traps), then
+    // discard everything that came before it.
+    REQUIRE(WaitForHookFamily(st, static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS)));
+    CHECK((st->hooksInstalledMask & fl::FL_HOOK_UPSCALER_PARAMS) != 0u);
 
     fl::RingReader rd;
     REQUIRE(rd.Init(base, FL_SHM_DEFAULT_CAPACITY));
@@ -2745,6 +2755,9 @@ TEST_CASE("the injected Overlay measures an upscaler it can identify", "[guard][
     int measured = 0;
     int claimedParams = 0;
     int claimedNone = 0;
+    int dishonestParams = 0;
+    int wrongExtent = 0;
+    int valueWithoutBit = 0;
     for (const auto& r : all) {
         if ((r.measuredMask & fl::FL_MEASURED_UPSCALER) != 0u) {
             ++measured;
@@ -2754,6 +2767,24 @@ TEST_CASE("the injected Overlay measures an upscaler it can identify", "[guard][
         }
         if ((r.measuredMask & fl::FL_MEASURED_UPSCALER_PARAMS) != 0u) {
             ++claimedParams;
+            // THE HONESTY INVARIANT, checked on every record that claims the bit
+            // rather than once at the end. fl_shm.h has no in-band "not measured"
+            // for upscalerQuality -- 0 is NGX MaxPerf, a real preset -- so 0 here
+            // would publish "DLSS Performance" as a measurement. Sharpness is
+            // 0xFF permanently: DLSSOptions::sharpness is deprecated as
+            // unsupported, so there is no in-policy route to what a title applied.
+            if (r.upscalerQuality == 0u || r.upscalerSharpness != 0xFFu) {
+                ++dishonestParams;
+            }
+            // The EXACT extent the harness tagged, not merely "non-zero". A
+            // writer that hardcoded a plausible render resolution fails here.
+            if (r.renderW != FL_TAGGED_RENDER_W || r.renderH != FL_TAGGED_RENDER_H) {
+                ++wrongExtent;
+            }
+        } else if (r.renderW != 0u || r.renderH != 0u) {
+            // The other direction: a VALUE set while its bit is clear is the same
+            // defect seen from the record instead of from the mask.
+            ++valueWithoutBit;
         }
         if (r.upscaler == fl::FL_UPSCALER_NONE) {
             ++claimedNone;
@@ -2775,11 +2806,23 @@ TEST_CASE("the injected Overlay measures an upscaler it can identify", "[guard][
     // aggregated as a negative.
     CHECK(claimedNone == 0);
 
-    // The params bit has no producer, and saying so is the point: upscalerQuality
-    // has no in-band "not measured" sentinel, because 0 is NGX MaxPerf, a real
-    // preset. This bit is the only thing between an unhooked writer and
-    // "DLSS Performance" published as a measurement.
-    CHECK(claimedParams == 0);
+    // THE PARAMS BIT NOW HAS A PRODUCER. This assertion is INVERTED rather than
+    // deleted -- it read `claimedParams == 0`, which was the honest statement
+    // while renderW/H had no source, and is the exact line a reviewer should see
+    // change when they do.
+    //
+    // EQUALITY, not a floor, because the drain begins only after BOTH hooks are
+    // live and the backlog is discarded there. A floor would have hidden the
+    // install-ordering window rather than eliminating it.
+    INFO("params claimed on " << claimedParams << " of " << all.size());
+    CHECK(claimedParams == static_cast<int>(all.size()));
+
+    // Zero tolerance on these three, unlike the floors above: there is no
+    // legitimate reason for even one record to over-claim or to name a
+    // resolution nobody tagged.
+    CHECK(dishonestParams == 0);
+    CHECK(wrongExtent == 0);
+    CHECK(valueWithoutBit == 0);
 
     CHECK(st->faultCount == 0);
 
