@@ -272,6 +272,55 @@ struct SwapChainSlot {
     uint8_t  api = FL_API_UNKNOWN;
 };
 
+// Ask the device whether it can ray-trace, once, and publish it as FlRtTier.
+//
+// NOT A HOOK. This is a capability QUERY on a device DXGI just handed us for a
+// swapchain we were called on, so it reads nothing but an object we legitimately
+// own (CLAUDE.md rule 4) and installs nothing. It is here rather than in a
+// feature PR because 03_METRICS' RT `No` needs all three of rtTier, the AS-build
+// hook and a silent session -- and this is the only conjunct that needs no hook
+// at all, so it can be true before any RT hook exists.
+//
+// NOT write-once, and the difference is worth a line because the field's comment
+// says "queried once". FindOrAdd calls ResolveApi once per NEWLY SEEN swapchain,
+// so a title with several D3D12 swapchains queries several times. That is fine
+// and is left unguarded on purpose: raytracing support is a property of the
+// adapter, not of the swapchain, so every query in one process answers the same
+// thing, and a compare-exchange here would buy nothing while hiding the day that
+// stops being true.
+//
+// ONLY THE ID3D12Device BRANCH CALLS THIS. ResolveApi keeps a second, currently
+// unreachable branch for a DXGI that hands back the command queue instead; that
+// branch resolves api = D3D12 and leaves rtTier NOT_QUERIED. Honest rather than
+// wrong -- nothing asked the device -- and deliberately not fixed here, because
+// the fix would be untested code on a path no fixture reaches.
+//
+// Runs inside FL_HOOK_GUARD: the call chain is Hook_Present -> RecordPresent ->
+// FindOrAdd -> ResolveApi, and dllmain.cpp:944 wraps that whole body.
+void PublishRtTier(ID3D12Device* device) noexcept {
+    if (device == nullptr || g_state == nullptr) {
+        return;
+    }
+    D3D12_FEATURE_DATA_D3D12_OPTIONS5 options{};
+    // A FAILED query stays FL_RT_TIER_NOT_QUERIED. It is not "no ray tracing":
+    // this call can fail on a device created at a feature level that predates the
+    // capability, and reporting that as UNSUPPORTED would be the same
+    // could-not-look/looked-and-found-nothing collision FlRtTier exists to close,
+    // one layer up.
+    if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options, sizeof(options)))) {
+        return;
+    }
+    // The enum's own value, with ONE substitution -- see FlRtTier. Nothing here
+    // names TIER_1_0/1_1/1_2, so a tier newer than this SDK still arrives intact
+    // instead of being clamped to whatever this build happened to know about.
+    const uint32_t tier = (options.RaytracingTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED)
+                              ? static_cast<uint32_t>(fl::FL_RT_TIER_UNSUPPORTED)
+                              : static_cast<uint32_t>(options.RaytracingTier);
+
+    std::atomic_ref<uint32_t> slot{g_state->rtTier};
+    slot.store(tier, std::memory_order_relaxed);
+}
+
 // Which API this swapchain belongs to, asked of the swapchain itself.
 //
 // One hook sees every swapchain in the process, and a D3D11 title and a D3D12
@@ -308,6 +357,7 @@ uint8_t ResolveApi(IDXGISwapChain* sc) noexcept {
     ID3D11Device*       d11 = nullptr;
     if (SUCCEEDED(dev->QueryInterface(__uuidof(ID3D12Device), reinterpret_cast<void**>(&d12))) && d12 != nullptr) {
         api = FL_API_D3D12;
+        PublishRtTier(d12);
         d12->Release();
     } else if (SUCCEEDED(dev->QueryInterface(__uuidof(ID3D12CommandQueue), reinterpret_cast<void**>(&queue))) &&
                queue != nullptr) {

@@ -658,7 +658,11 @@ public sealed class ShmDrainIntegrationTests
                 // Establish that it IS recording. A stop asserted against a capture side that was never
                 // writing proves nothing.
                 int seen = 0;
-                for (int i = 0; i < 40 && seen < 10; i++)
+                // `<= 10`, NOT `< 10`: the loop used to exit the moment `seen` reached 10 while the
+                // assertion below demands MORE than 10, so it passed only when a drain overshot and
+                // failed with "found 10" when one landed on the boundary. #62's shape, in a case that
+                // sweep missed, and #62's remedy — make the LOOP guarantee what the assertion demands.
+                for (int i = 0; i < 40 && seen <= 10; i++)
                 {
                     reader.PublishGuardResult(++tick, unhookRequested: false);
                     await Task.Delay(100, TestContext.Current.CancellationToken);
