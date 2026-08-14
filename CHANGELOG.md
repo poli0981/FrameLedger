@@ -52,6 +52,34 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **`FlWriterState.rtTier` gets a producer, and the vendor enum it copies had a collision in
+  it** — `docs/HANDOFF.md` queue item 4, the one conjunct that needs no hook. `ResolveApi`
+  already obtained an `ID3D12Device*` on the first present of a D3D12 swapchain and released
+  it three lines later without asking it anything; it now asks
+  `CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5)` first. No hook, no MinHook, no vtable —
+  a capability query on a device DXGI handed us for a swapchain we were called on.
+  - **`D3D12_RAYTRACING_TIER_NOT_SUPPORTED` is 0, and `rtTier`'s 0 already meant NOT
+    QUERIED.** Storing the enum verbatim — the obvious implementation, and the one
+    `fl_shm.h`'s own field comment described — would have published "nobody looked" about
+    every non-RT device: the affirmative-negative collision layout v3 exists to prevent,
+    reached by copying a vendor enum rather than by a guess. New `FlRtTier` carries three
+    states: `NOT_QUERIED = 0`, `UNSUPPORTED = 1`, and the D3D12 value verbatim otherwise.
+  - **Measured against the Windows SDK header rather than remembered:** `NOT_SUPPORTED = 0`,
+    `TIER_1_0 = 10`, `TIER_1_1 = 11`, **`TIER_1_2 = 12`** — the enum is already "tier ×10", so
+    nothing multiplies it and nothing names the individual tiers. A tier newer than the SDK
+    this was built against arrives intact instead of being clamped to what the build knew.
+  - **Both directions are asserted, in `ctest fl_guard`.** The D3D12 case asserts the field
+    holds a legal `FlRtTier` value; the D3D11 case asserts it is exactly `NOT_QUERIED`,
+    because a writer that stored `UNSUPPORTED` unconditionally would pass the first on its
+    own. What the D3D12 case does **not** assert is *which* tier: the fixture's device is
+    WARP, and whether WARP supports DXR is the open question `HANDOFF` item 4 says to check
+    rather than assume — so the value is `CAPTURE`d and the test records the answer instead
+    of depending on it.
+  - **It does not make RT reachable yet, and the consumer comment now says so precisely.**
+    `MeasuredFacts.RayTracingOf`'s two conjuncts both have producers now, but
+    `FL_MEASURED_RT` still has none, so RT is `N/A` on every session. The gap moved; it did
+    not close.
+
 - **The upscaler identity hook, and a fixture that can prove a wrong symbol name wrong** —
   `docs/HANDOFF.md` queue item 2. `FrameLedger.Overlay` gains **module-scoped symbol
   resolution** (it had none: `GetProcAddress`/`GetModuleHandle` appeared nowhere in the

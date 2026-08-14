@@ -229,6 +229,36 @@ public enum FlRtFlags : byte
 }
 
 /// <summary>
+/// Values for <see cref="FlWriterState.RtTier"/>. Not a flags enum: the tier is
+/// <c>D3D12_RAYTRACING_TIER</c>'s own value, which is already "tier ×10" — measured against the
+/// Windows SDK header, <c>NOT_SUPPORTED = 0</c>, <c>TIER_1_0 = 10</c>, <c>TIER_1_1 = 11</c>,
+/// <c>TIER_1_2 = 12</c>. Nothing here names the individual tiers, so a tier newer than any build
+/// still arrives intact.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <c>D3D12_RAYTRACING_TIER_NOT_SUPPORTED</c> is 0 and 0 already meant NOT QUERIED, so storing the
+/// vendor enum verbatim would have published "nobody looked" about every non-RT device — the
+/// affirmative-negative collision layout v3 exists to prevent, reached by copying an enum. The
+/// writer substitutes <see cref="Unsupported"/> for that one value.
+/// </para>
+/// </remarks>
+public enum FlRtTier : uint
+{
+    /// <summary>No D3D12 device was identified, or the capability query failed.</summary>
+    NotQueried = 0,
+
+    /// <summary>D3D12 answered NOT_SUPPORTED. A measurement, not a silence.</summary>
+    Unsupported = 1,
+
+    /// <summary>
+    /// The threshold <c>03_METRICS</c> §RT/PT/RR states for "an RT-capable device". Named so the
+    /// consumer stops spelling it as a literal 10 beside a field whose units its type does not carry.
+    /// </summary>
+    CapableMin = 10,
+}
+
+/// <summary>
 /// Which fields a frame actually MEASURED. A bit CLEAR means "not measured": render N/A and do not
 /// aggregate. The zero-defaults elsewhere in the record are affirmative negatives, and a writer that has
 /// not installed the corresponding hook is not entitled to make them.
@@ -344,9 +374,11 @@ public unsafe struct FlWriterState
     public uint VramBudgetMb;
 
     /// <summary>
-    /// Device ray-tracing tier ×10 (<c>D3D12_RAYTRACING_TIER_1_0</c> → 10); <b>0 = not queried</b>.
-    /// Without it, 03_METRICS' definite RT "No" — "RT-capable device present, no AS builds and no
-    /// dispatches for the whole session" — has no producer, so RT could reach Yes or N/A and never No.
+    /// Device ray-tracing tier, encoded as <see cref="FlRtTier"/>. Without it, 03_METRICS' definite
+    /// RT "No" — "RT-capable device present, no AS builds and no dispatches for the whole session" —
+    /// has no producer, so RT could reach Yes or N/A and never No. <b>Three states, not two:</b> a
+    /// device that answered NOT_SUPPORTED is <see cref="FlRtTier.Unsupported"/>, never 0, because 0
+    /// is reserved for "nobody looked".
     /// </summary>
     public uint RtTier;
 

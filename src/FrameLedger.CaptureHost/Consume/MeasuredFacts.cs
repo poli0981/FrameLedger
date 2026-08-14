@@ -292,11 +292,15 @@ internal sealed record MeasuredFacts
         // indistinguishable from a real negative — so `No` needs the AS-BUILD hook to have been
         // INSTALLED, not merely for RT to have been "measured".
         //
-        // Today rtTier and hooksInstalledMask have NO PRODUCER anywhere in the tree, so this reaches
-        // NotApplicable on every session and both other branches are unreachable. §S29(f) recorded that
-        // for `No` alone and from a stale premise (it said no record field carries the tier; layout v3
-        // put it in FlWriterState @24). It is true of `Yes` as well, which is stronger.
-        bool capable = writer.RtTier >= 10;
+        // Both conjuncts now have producers: hooksInstalledMask since the present hook, rtTier since
+        // ResolveApi started asking the D3D12 device. What is still missing is the RT hooks themselves,
+        // so FlMeasured.Rt is never set and `measured` is false — which is why this still reaches
+        // NotApplicable on every session. The gap moved; it did not close.
+        //
+        // CapableMin, not a literal 10. rtTier holds D3D12_RAYTRACING_TIER's own value, and a device
+        // that answered NOT_SUPPORTED is FlRtTier.Unsupported (1) rather than 0 — so `>=` correctly
+        // excludes it while 0 keeps meaning nobody looked.
+        bool capable = writer.RtTier >= (uint)FlRtTier.CapableMin;
         bool asBuildInstalled = ((FlHookFamily)writer.HooksInstalledMask).HasFlag(FlHookFamily.RtAsBuild);
         return measured && capable && asBuildInstalled && evidence == 0 ? Tri.No : Tri.NotApplicable;
     }
