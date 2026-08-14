@@ -12,12 +12,15 @@
 >
 > **What actually works today:** frame boundaries, frame times and output resolution, from
 > a Direct3D 11/12 present hook, written into shared memory and read back by the Agent's
-> ring reader. The anti-cheat guard runs all of its pre-injection checks and refuses.
+> ring reader. Plus, for titles that go through NVIDIA Streamline, **which upscaler is
+> executing** and **whether Ray Reconstruction is running with it** — identity only, not the
+> quality preset and not the render resolution. The anti-cheat guard runs all of its
+> pre-injection checks and refuses.
 >
 > **What does not yet exist**, and is written above in the present tense: every bullet
-> under *What makes it different* except output resolution — no upscaler, quality preset,
-> render resolution, frame generation, ray tracing, VRAM, shader-stutter or Reflex hook has
-> been written. The capture side says so in its own data rather than defaulting to "none"
+> under *What makes it different* except output resolution and upscaler identity — no
+> quality preset, render resolution, frame generation, ray tracing, VRAM, shader-stutter or
+> Reflex hook has been written. The capture side says so in its own data rather than defaulting to "none"
 > (`docs/03_METRICS.md`, CLAUDE.md rules 6 and 7). There is also no storage, no charts, no
 > library import, no UI and no installer.
 >

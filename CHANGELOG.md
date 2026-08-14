@@ -17,8 +17,68 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Overlay would hook a Streamline module of the wrong generation, and read its
+  arguments through the wrong signature.** The inventory scopes `slEvaluateFeature` to
+  `sl.interposer.dll` — correct, and not enough. **The Witcher 3 ships that module at
+  1.5.6**, a different API generation: it exports `slInit`, `slEvaluateFeature`, `slSetTag`
+  and `slShutdown` so every name check passes, plus `slGetHooks`, `slIsFeatureEnabled` and
+  `slSetFeatureConstants` which Streamline 2 does not have, and **none** of
+  `slSetD3DDevice` / `slIsFeatureLoaded` / `slGetNewFrameToken`.
+  - **The name survived the version bump and the signature did not**, which is why no gate
+    saw it. `docs/vendor-exports.json` records one copy per module *name*, so
+    `hookinventory-check` Pass A resolves against one machine's 2.7.4 and says nothing about
+    a 1.5.6 in a game. A detour typed with SL2's `PFun_slEvaluateFeature`, called with SL1's
+    argument list, reads argument 1 as a feature id when it is not one — a **wrong upscaler
+    name**, not a crash, which `17_HOOK_ENGINE` calls the highest false-confidence risk in
+    the spike.
+  - `ResolveScoped` now refuses a `sl.interposer.dll` that does not export the three
+    SL2-only entry points. No hook is installed, `FL_HOOK_UPSCALER_IDENTITY` is never
+    published, and the record says `FL_UPSCALER_NOT_REPORTED` — true, rather than a guess.
+  - **Scoped to the interposer by name, and the first version got that wrong.** Those three
+    are *interposer* exports; a real `sl.common.dll` is a plugin and exports none of them, so
+    an `sl.*` prefix test refused modules whose generation it had no business judging. The
+    existing decoy fixture caught it.
+  - New fixture `stub_sl_interposer_v1.cpp` — right module name, right symbol name, SL1 ABI —
+    and `ctest fl_sl_abi_guard`. It is the complement of the decoy: scoping catches a wrong
+    module *name*, and cannot see a wrong *signature*. Its own ctest and its own process,
+    because both fixtures are called `sl.interposer.dll` and `GetModuleHandleExW` resolves by
+    name, so sharing one would have the two silently test each other.
+  - Proved red by canary: neutering the check leaves exactly one assertion failing, and it
+    compiles, so it is a canary rather than a build failure wearing one.
+  - The SL2 stub gains the three markers, so it honestly looks like the generation it stands
+    in for. Found because the guard correctly refused it otherwise.
+
 ### Added
 
+- **`FlWriterState.rtTier` gets a producer, and the vendor enum it copies had a collision in
+  it** — `docs/HANDOFF.md` queue item 4, the one conjunct that needs no hook. `ResolveApi`
+  already obtained an `ID3D12Device*` on the first present of a D3D12 swapchain and released
+  it three lines later without asking it anything; it now asks
+  `CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5)` first. No hook, no MinHook, no vtable —
+  a capability query on a device DXGI handed us for a swapchain we were called on.
+  - **`D3D12_RAYTRACING_TIER_NOT_SUPPORTED` is 0, and `rtTier`'s 0 already meant NOT
+    QUERIED.** Storing the enum verbatim — the obvious implementation, and the one
+    `fl_shm.h`'s own field comment described — would have published "nobody looked" about
+    every non-RT device: the affirmative-negative collision layout v3 exists to prevent,
+    reached by copying a vendor enum rather than by a guess. New `FlRtTier` carries three
+    states: `NOT_QUERIED = 0`, `UNSUPPORTED = 1`, and the D3D12 value verbatim otherwise.
+  - **Measured against the Windows SDK header rather than remembered:** `NOT_SUPPORTED = 0`,
+    `TIER_1_0 = 10`, `TIER_1_1 = 11`, **`TIER_1_2 = 12`** — the enum is already "tier ×10", so
+    nothing multiplies it and nothing names the individual tiers. A tier newer than the SDK
+    this was built against arrives intact instead of being clamped to what the build knew.
+  - **Both directions are asserted, in `ctest fl_guard`.** The D3D12 case asserts the field
+    holds a legal `FlRtTier` value; the D3D11 case asserts it is exactly `NOT_QUERIED`,
+    because a writer that stored `UNSUPPORTED` unconditionally would pass the first on its
+    own. What the D3D12 case does **not** assert is *which* tier: the fixture's device is
+    WARP, and whether WARP supports DXR is the open question `HANDOFF` item 4 says to check
+    rather than assume — so the value is `CAPTURE`d and the test records the answer instead
+    of depending on it.
+  - **It does not make RT reachable yet, and the consumer comment now says so precisely.**
+    `MeasuredFacts.RayTracingOf`'s two conjuncts both have producers now, but
+    `FL_MEASURED_RT` still has none, so RT is `N/A` on every session. The gap moved; it did
+    not close.
 - **§H5 case 3 gets an answer, and a second finding cost a crash to get** —
   `fl-probe-interposer` reported INCONCLUSIVE because it never called `slInit`, blaming a
   licence question over `sl::Preferences`. #64 vendored Streamline under MIT and removed that
