@@ -1348,6 +1348,25 @@ TEST_CASE("a D3D12 title is recorded as D3D12, not as the D3D11 we used to assum
     CHECK((st->apiMask & (1u << fl::FL_API_D3D12)) != 0);
     CHECK((st->apiMask & (1u << fl::FL_API_D3D11)) == 0);
 
+    // rtTier: ASSERT THAT WE ASKED, REPORT WHAT THE ANSWER WAS.
+    //
+    // 03_METRICS' RT `No` needs an RT-capable device, and until this producer
+    // existed rtTier was 0 on every session -- so `No` was unreachable and, since
+    // hooksInstalledMask is the other conjunct, so was `Yes`.
+    //
+    // What is asserted is the PRODUCER'S promise: a D3D12 device was identified,
+    // so the query ran and the field holds one of FlRtTier's legal encodings. What
+    // is NOT asserted is which one. The fixture's device is WARP, and whether WARP
+    // supports DXR is the open question docs/HANDOFF.md item 4 says to check
+    // rather than assume -- asserting a tier here would turn that unknown into a
+    // test that fails on some runners for a reason unrelated to this code.
+    //
+    // CAPTURE, not a comment, so the run RECORDS the answer. This test is
+    // therefore also the measurement.
+    CAPTURE(st->rtTier);
+    CHECK(st->rtTier != fl::FL_RT_TIER_NOT_QUERIED);
+    CHECK((st->rtTier == fl::FL_RT_TIER_UNSUPPORTED || st->rtTier >= fl::FL_RT_TIER_CAPABLE_MIN));
+
     UnmapViewOfFile(base);
     CloseHandle(mapping);
 }
@@ -1537,6 +1556,17 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
     CHECK(identified);
     CHECK((st->apiMask & (1u << fl::FL_API_D3D11)) != 0);
     CHECK((st->apiMask & (1u << fl::FL_API_D3D12)) == 0);
+
+    // THE OTHER DIRECTION OF rtTier, and it is what makes the D3D12 case above
+    // mean something. That case asserts the field is a legal FlRtTier value; a
+    // writer that simply stored FL_RT_TIER_UNSUPPORTED unconditionally would pass
+    // it. This harness presents through D3D11, so no ID3D12Device is ever
+    // identified, the query never runs, and NOT_QUERIED is the only honest value.
+    //
+    // Same shape as the api assertion four lines up, and for the same reason:
+    // without a case where the answer must be different, "we measured it" and "we
+    // made it up" are indistinguishable.
+    CHECK(st->rtTier == fl::FL_RT_TIER_NOT_QUERIED);
 
     // Published at first present, never at init: our dummy device's adapter is
     // not the game's (#36).
