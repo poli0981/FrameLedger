@@ -19,6 +19,30 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **The LOCAL tags too — `slEvaluateFeature`'s `inputs` walk, hardened against input a title
+  should never send.** `sl_core_api.h:258` is explicit that buffer tags passed to
+  `slEvaluateFeature` are *"local"* and *"do NOT interact with same tags sent in the global
+  scope using slSetTag API"*. The two are alternative integration styles, not layers, so a
+  locally-tagging title yields nothing from the `slSetTag` hook and vice versa. Both are now
+  read; the local one wins when present, because it is scoped to the evaluation rather than to
+  the viewport and cannot be older than the frame being measured.
+  - **In a header, `fl_sl_inputs.h`, precisely so it can be tested without a game.** Every
+    branch dereferences caller-supplied pointers, and a fault lands in `FL_HOOK_GUARD` and
+    burns one of the three that self-disable the Overlay — so a malformed input that faults is
+    a **bug**, not degradation. `ctest fl_sl_inputs` drives 12 shapes in microseconds: null
+    array, zero count, null element mid-array, wrong buffer type, wrong struct GUID,
+    `structVersion` below `kStructVersion1`, whole-resource extent, a tag reached through
+    `next`, a **self-referential** `next`, a **two-node cycle**, and a `numInputs` of
+    `0xFFFFFFFF`.
+  - **The cycle handling is the depth cap, and that is deliberate**: a visited-set would
+    allocate, which a hook path may not. A cycle is worse than a fault — no exception, no
+    self-disable, just a frozen game with our DLL in it.
+  - **What the input cap does not buy, stated rather than implied.** It turns
+    `numInputs = 4 billion` into 32 reads. It does **not** protect against a count of 5 with a
+    2-element array: nothing in the ABI carries the allocation's length, so that direction is
+    unprotectable from here. Same for a struct whose GUID matches but whose allocation is
+    short. Both are the vendor's contract to keep, and both are written down.
+
 - **`FL_MEASURED_UPSCALER_PARAMS` gets its first producer: render resolution, from the global
   resource tags** — `docs/HANDOFF.md` item 2b, and one of the five values P0 exit criterion 1
   names. A second inventory row detours `sl.interposer.dll!slSetTag`, reads the

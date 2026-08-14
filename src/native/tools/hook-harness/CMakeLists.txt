@@ -67,6 +67,12 @@ add_test(NAME fl_upscaler_resolve COMMAND hook-harness --probe-upscaler-resolve)
 # inside fl_upscaler_resolve would have the two silently test each other.
 add_test(NAME fl_sl_abi_guard COMMAND hook-harness --probe-sl-abi)
 
+# The inputs walk against malformed input. A unit probe rather than an injected
+# case: every branch dereferences caller-supplied pointers, a fault in the real
+# thing burns one of the three that self-disable the Overlay, and a game fixture
+# could only approximate these shapes. Here they are exact and cost microseconds.
+add_test(NAME fl_sl_inputs COMMAND hook-harness --probe-sl-inputs)
+
 # §H7 — our unhook must not silently remove an overlay that hooked the same
 # slot after us. Simulated rather than depending on RTSS being installed, so it
 # is deterministic and runs on CI; the dev machine can then confirm against the

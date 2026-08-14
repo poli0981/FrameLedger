@@ -45,6 +45,7 @@
 #include <fl_hook_inventory.h>
 #include <fl_ring.h>
 #include <fl_shm.h>
+#include <fl_sl_inputs.h>
 #include <MinHook.h>
 #include <sddl.h>
 
@@ -692,6 +693,25 @@ sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const s
                 bit = FL_SL_SEEN_DLSS_G;
             }
             g_slSeen.fetch_or(bit, std::memory_order_relaxed);
+
+            // LOCAL TAGS, which slSetTag never sees.
+            //
+            // sl_core_api.h:258 is explicit that buffer tags passed here are
+            // "local" and "do NOT interact with same tags sent in the global
+            // scope using slSetTag API". A title that tags locally therefore
+            // yields nothing from the slSetTag hook, and vice versa -- the two
+            // are alternative integration styles, not layers, so both are read
+            // and neither is sufficient alone.
+            //
+            // LOCAL WINS WHEN PRESENT, because it is scoped to this evaluation
+            // rather than to the viewport, so it cannot be older than the frame
+            // being measured.
+            const auto scan = fl::slinputs::FindScalingInputExtent(inputs, numInputs);
+            if (scan.found) {
+                g_tagExtent.store(static_cast<uint64_t>(scan.renderW) | (static_cast<uint64_t>(scan.renderH) << 16) |
+                                      kTagValid,
+                                  std::memory_order_release);
+            }
         }
     })
     // ALWAYS exactly once, on every path including the fault path, with every
