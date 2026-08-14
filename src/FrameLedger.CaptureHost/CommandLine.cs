@@ -1,3 +1,4 @@
+using System.Globalization;
 namespace FrameLedger.CaptureHost;
 
 /// <summary>
@@ -21,11 +22,31 @@ namespace FrameLedger.CaptureHost;
 internal sealed record CommandLine
 {
     /// <summary>Every option this host accepts. A test pins it.</summary>
-    public static readonly string[] AcceptedOptions = ["--exe"];
+    public static readonly string[] AcceptedOptions = ["--exe", "--seconds"];
 
     public Verb Verb { get; init; }
 
     public string? ExePath { get; init; }
+
+    /// <summary>
+    /// A hard stop for <c>capture</c>, in seconds. Zero means "until the target exits", which
+    /// is the default and the product behaviour.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is a duration bound, not a safety bypass.</b> The options this host refuses —
+    /// <c>--pid</c>, <c>--payload</c>, <c>--force</c>, <c>--yes</c> — all widen WHAT may be
+    /// injected or skip a check. This narrows HOW LONG an already-consented, already-guarded
+    /// session runs, and it can only make a session shorter.
+    /// </para>
+    /// <para>
+    /// It exists because a real-title measurement otherwise cannot end: <c>MaxDuration</c> was
+    /// honoured by <c>CaptureLoop</c> and covered by tests, but nothing could set it, so
+    /// <c>capture</c> against a running game ran until the game was closed and the report is
+    /// only printed at the end. An operator taking a bounded measurement had no way to take one.
+    /// </para>
+    /// </remarks>
+    public int Seconds { get; init; }
 
     public string? Error { get; init; }
 
@@ -44,10 +65,11 @@ internal sealed record CommandLine
 
         if (verb == Verb.None)
         {
-            return new CommandLine { Error = "usage: consent list | consent grant --exe <path> | consent revoke --exe <path> | capture --exe <path>" };
+            return new CommandLine { Error = "usage: consent list | consent grant --exe <path> | consent revoke --exe <path> | capture --exe <path> [--seconds <n>]" };
         }
 
         string? exe = null;
+        int seconds = 0;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i].StartsWith("--", StringComparison.Ordinal))
@@ -62,7 +84,24 @@ internal sealed record CommandLine
                     return new CommandLine { Error = $"'{args[i]}' needs a value" };
                 }
 
-                exe = args[++i];
+                string option = args[i];
+                string value = args[++i];
+                if (string.Equals(option, "--seconds", StringComparison.Ordinal))
+                {
+                    // A non-numeric or non-positive value is an ERROR, never a silent 0. Zero
+                    // means "run until the target exits", so accepting garbage as 0 would turn
+                    // a mistyped bound into an unbounded session — the opposite of what the
+                    // operator asked for, arrived at by leniency.
+                    if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out seconds)
+                        || seconds <= 0)
+                    {
+                        return new CommandLine { Error = "'--seconds' needs a positive whole number" };
+                    }
+                }
+                else
+                {
+                    exe = value;
+                }
             }
         }
 
@@ -71,6 +110,6 @@ internal sealed record CommandLine
             return new CommandLine { Error = "--exe <path> is required" };
         }
 
-        return new CommandLine { Verb = verb, ExePath = exe };
+        return new CommandLine { Verb = verb, ExePath = exe, Seconds = seconds };
     }
 }
