@@ -992,6 +992,36 @@ gate.
 > `rules-publish`'s removal check — correctly. That gate exists to make a
 > blocklist removal reviewable, and this is one.
 
+### The guard against a RUNNING title, 2026-08-15
+
+The precondition every verification run below depends on, and it had never been
+measured against a live process. Everything earlier in this file evaluated the
+guard in **launch-mode arrangement** — our binary as the game's ancestor,
+evaluate-only, nothing injected — or scanned files on disk. Neither answers the
+question the capture path actually asks: *does the guard allow this title while it
+is playing?*
+
+**Alan Wake 2, pid 40424, running, `FlGuardEvaluate` → `Allow`.** Reason 0, empty
+family, empty signal. Rules resolved from
+`C:\Users\Anon\AppData\Local\FrameLedger\rules\detection-rules.json`, 24 reason
+codes.
+
+**Evaluate only. Nothing was injected**, and no consent record exists for this
+title — `FlGuardEvaluate` is the read-only half of the ABI and takes no injection
+rights.
+
+Why it needed doing at all: the installed-corpus scan (§Environment) is a **file**
+scan, and the guard scans **loaded modules of the live process** plus the target's
+ancestors (§S16). A title clean on disk can still load an anti-cheat module at
+runtime, and Alan Wake 2 is launched by the Epic client, which is in the scan set.
+Had this refused, every per-title row in §8 would have been undischargeable and the
+upscaler/FG/RT work would have had no oracle to verify against.
+
+**One title, one moment.** This is not a statement about Cyberpunk 2077, about
+Alan Wake 2 on another machine, or about the same machine after a launcher update.
+It is the one measurement that was missing before the feature hooks had anywhere
+to prove themselves.
+
 ## 8 · The accuracy question — why this rewrite exists
 
 ≥ 3 real offline titles. Verify against each game's own settings menu.
