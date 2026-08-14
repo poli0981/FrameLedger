@@ -19,6 +19,36 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **§H5 case 3 gets an answer, and a second finding cost a crash to get** —
+  `fl-probe-interposer` reported INCONCLUSIVE because it never called `slInit`, blaming a
+  licence question over `sl::Preferences`. #64 vendored Streamline under MIT and removed that
+  blocker; the probe now runs the sequence a real title runs — `slInit` →
+  `D3D12CreateDevice` **through the interposer** → `slSetD3DDevice` — with every entry point
+  resolved by `GetProcAddress`, never linked.
+  - **MEASURED: the swapchain class is not ours.** With `slInit` returning `eOk`, the
+    interposer hands back a swapchain whose vtable sits inside `sl.interposer.dll` while
+    `dxgi.dll`'s own route yields `dxgi.dll`'s. Reproduced on Alan Wake 2 (SL 2.7.0) and
+    Cyberpunk 2077 (SL 2.7.1). **It does not follow that we miss the present** — §H5's
+    `--probe-proxy` result stands, a forwarding proxy is caught one layer down — and the
+    probe says so rather than converting a premise into a verdict.
+  - **The Witcher 3 ships Streamline 1.5.6, and it crashed the probe.** A different API
+    generation: `slGetHooks`, `slIsFeatureEnabled`, `slSetFeatureConstants`, and **no**
+    `slSetD3DDevice` or `slIsFeatureLoaded`. `slInit` exists in both with a different
+    `sl::Preferences` layout, so the vendored 2.x struct access-violates. Now version-guarded
+    on the SL2-only exports, skipping with a reason.
+  - **That reaches the hook inventory.** `docs/vendor-exports.json` records one copy per
+    module *name*, so its `sl.interposer.dll` is one machine's 2.7.4 and says nothing about a
+    1.5.6 a title ships. Pass A would accept `slEvaluateFeature` against such a title — the
+    name exists in both generations — while the **signature** differs. Today's hook reads
+    only `feature` and is probably unharmed; **item 2b's `inputs`/`numInputs` walk is not**,
+    and needs its own version guard before dereferencing anything.
+  - **The engagement read was a race first.** Plugin load is deferred: the first run reported
+    both features unloaded while Streamline's own log — flushed after ours — showed six
+    plugins verifying. Now polled for the state, bounded by a wall clock.
+  - `ctest fl_vtable_identity_control` (Part 1, the control) is unchanged and still runs on
+    CI; the probe imports `d3d11.dll` and `KERNEL32.dll` only, so linking Streamline could
+    not have broken it.
+
 - **The upscaler identity hook, and a fixture that can prove a wrong symbol name wrong** —
   `docs/HANDOFF.md` queue item 2. `FrameLedger.Overlay` gains **module-scoped symbol
   resolution** (it had none: `GetProcAddress`/`GetModuleHandle` appeared nowhere in the

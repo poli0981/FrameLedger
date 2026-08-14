@@ -21,21 +21,41 @@
 // a process we own, and compares vtables. No game runs, no injection happens, no
 // guard is involved, and nothing is written anywhere.
 //
-// IT NEEDS NO VENDOR HEADERS. Everything here is GetProcAddress plus DXGI types
-// from the Windows SDK, so it does not touch the question
-// legal/THIRD_PARTY_NOTICES.md settles for Intel IGCL -- "re-declaring the API by
-// hand is explicitly NOT an approved workaround". Nothing is re-declared: the
-// interposer's CreateDXGIFactory* have the same signatures as dxgi.dll's, which
-// is the whole point of an interposer.
+// WHY IT NOW USES THE VENDORED HEADERS, having deliberately avoided them.
+//
+// This file used to say "it needs no vendor headers", and that was correct when
+// written: reaching the engaged path needs slInit's sl::Preferences, i.e. vendor
+// ABI, and legal/THIRD_PARTY_NOTICES.md settles for Intel IGCL that "re-declaring
+// the API by hand is explicitly NOT an approved workaround". So the probe could
+// only measure PASSTHROUGH and reported INCONCLUSIVE, which is what it did.
+//
+// PR #64 vendored the Streamline headers under MIT, after this file was written.
+// The blocker is gone: sl::Preferences is sl_core_types.h:549 and slInit is
+// sl_core_api.h:83, both MIT, neither re-declared here. 20_OPEN_QUESTIONS §S24
+// records the unblock; §H5 case 3's own text still said "blocked on a licence
+// decision" and is corrected in this PR.
+//
+// STILL RESOLVED WITH GetProcAddress, AND THAT IS NOT OPTIONAL. The headers are
+// for types only. Calling slInit by name would make sl.interposer.dll a
+// load-time dependency of this executable -- and Part 1 of this probe is
+// `ctest fl_vtable_identity_control`, which runs on CI, where no Streamline
+// exists. Linking it would turn the control into a test that cannot start on the
+// one machine that runs it. Same rule as the Overlay, for a different reason.
 
 #include <windows.h>
 
 #include <d3d11.h>
+#include <d3d12.h>
 #include <dxgi1_4.h>
 
 #include <cstdio>
 #include <cwchar>
 #include <psapi.h>
+
+// TYPES ONLY. Nothing below names an SL_API function in evaluated code; every
+// entry point is resolved with GetProcAddress from the module we loaded by
+// absolute path. See the header comment.
+#include <sl.h>
 
 namespace {
 
@@ -143,7 +163,10 @@ int CountLoadedSlPlugins(bool print) {
 
 // Create a composition swapchain through a caller-supplied factory entry point.
 // Returns the swapchain, or nullptr with the HRESULT printed.
-IDXGISwapChain1* MakeSwapChain(PFN_CreateDXGIFactory2 create, ID3D11Device* device, const char* label) {
+// IUnknown* rather than ID3D11Device*, because a D3D12 swapchain is created from
+// the COMMAND QUEUE, not the device -- the same asymmetry ResolveApi in the
+// Overlay had to learn. Part 1 still passes a D3D11 device; Part 2 passes a queue.
+IDXGISwapChain1* MakeSwapChain(PFN_CreateDXGIFactory2 create, IUnknown* device, const char* label) {
     IDXGIFactory2* factory = nullptr;
     HRESULT        hr = create(0, __uuidof(IDXGIFactory2), reinterpret_cast<void**>(&factory));
     if (FAILED(hr) || factory == nullptr) {
@@ -223,9 +246,109 @@ bool RunControl(Gfx& g) {
 }
 
 // -------------------------------------------------------------------------
+// Engagement — what the first version of this probe could not do.
+//
+// Streamline forwards straight to dxgi.dll until slInit() has run AND a feature
+// plugin has loaded. Comparing vtables before that measures passthrough, which
+// is why the probe reported INCONCLUSIVE rather than a verdict.
+//
+// The sequence below is the one a real title performs, in order, because the
+// order is what decides whether the interposer is in a position to wrap
+// anything: slInit -> D3D12CreateDevice THROUGH THE INTERPOSER -> slSetD3DDevice.
+// Creating the device through dxgi/d3d12 directly and then telling Streamline
+// about it is not the same arrangement and would answer a different question.
+// -------------------------------------------------------------------------
+
+// The vendor's own function TYPES, from the MIT headers. Pointers to these are
+// filled by GetProcAddress; none of these names appears in evaluated code.
+using PFN_slInit = ::PFun_slInit*;
+using PFN_slSetD3DDevice = ::PFun_slSetD3DDevice*;
+using PFN_slIsFeatureLoaded = ::PFun_slIsFeatureLoaded*;
+using PFN_slShutdown = ::PFun_slShutdown*;
+using PFN_D3D12CreateDevice = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
+
+struct Gfx12 {
+    ID3D12Device*       device = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+
+    ~Gfx12() {
+        if (queue != nullptr) {
+            queue->Release();
+        }
+        if (device != nullptr) {
+            device->Release();
+        }
+    }
+};
+
+// NOT WARP, and that is the one place this probe cannot follow hook-harness.
+//
+// DLSS-G is an NVIDIA feature on a real adapter; WARP will not load the plugin,
+// so a WARP device could never reach the engaged state this function exists to
+// produce. nullptr = the default adapter. On a machine with no NVIDIA GPU this
+// simply fails to engage and the caller reports INCONCLUSIVE, which is correct:
+// the question is about what Streamline does when it is working.
+bool CreateD3D12(Gfx12& g, PFN_D3D12CreateDevice create) {
+    const HRESULT hr =
+        create(nullptr, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), reinterpret_cast<void**>(&g.device));
+    if (FAILED(hr) || g.device == nullptr) {
+        std::printf("  D3D12CreateDevice(default adapter) failed: 0x%08lX\n", static_cast<unsigned long>(hr));
+        return false;
+    }
+    D3D12_COMMAND_QUEUE_DESC qd{};
+    qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    if (FAILED(g.device->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), reinterpret_cast<void**>(&g.queue)))) {
+        std::printf("  CreateCommandQueue failed\n");
+        return false;
+    }
+    return true;
+}
+
+// Ask Streamline to initialise, naming the title's own directory as the plugin
+// search path. Returns false when it could not, and prints why -- never a
+// verdict, because "did not engage" is the input to an INCONCLUSIVE report.
+bool SlInit(HMODULE sl, const wchar_t* dir) {
+    auto init = reinterpret_cast<PFN_slInit>(reinterpret_cast<void*>(GetProcAddress(sl, "slInit")));
+    if (init == nullptr) {
+        std::printf("  sl.interposer.dll does not export slInit\n");
+        return false;
+    }
+
+    // BOTH features requested, because the installed corpus splits on exactly
+    // this: only four of the ten Streamline titles on this machine ship
+    // sl.dlss.dll, while the rest use Streamline for frame generation only. Asking
+    // for one would make the answer depend on which title the caller pointed at.
+    const sl::Feature features[] = {sl::kFeatureDLSS, sl::kFeatureDLSS_G};
+    const wchar_t*    paths[] = {dir};
+    sl::Preferences   pref{};
+    pref.pathsToPlugins = paths;
+    pref.numPathsToPlugins = 1;
+    pref.featuresToLoad = features;
+    pref.numFeaturesToLoad = 2;
+    pref.logLevel = sl::LogLevel::eOff;
+    pref.pathToLogsAndData = nullptr;    // no file logging from a probe
+    pref.renderAPI = sl::RenderAPI::eD3D12;
+    pref.engine = sl::EngineType::eCustom;
+    pref.engineVersion = "fl-probe-interposer";
+    pref.projectId = "b7f4f0b1-6a0f-4f7e-9d8a-frameledger01";
+
+    const sl::Result r = init(pref, sl::kSDKVersion);
+    if (r != sl::Result::eOk) {
+        std::printf("  slInit returned %u (not eOk)\n", static_cast<unsigned>(r));
+        return false;
+    }
+    return true;
+}
+
+// -------------------------------------------------------------------------
 // Part 2 — the question. Needs a real sl.interposer.dll, so it is opt-in.
 // -------------------------------------------------------------------------
-int RunInterposer(Gfx& g, const wchar_t* dir) {
+// NO Gfx PARAMETER any more. Part 1's D3D11 WARP device is the CONTROL's device
+// and has no role here: Part 2 now builds its own D3D12 device through the
+// interposer, which is the arrangement the question is about. Leaving the
+// parameter in place would be an unread argument under /W4 /WX, i.e. a build
+// error -- the same C4100/CS9113 shape docs/HANDOFF.md §Traps records.
+int RunInterposer(const wchar_t* dir) {
     std::printf("\nPart 2 - Streamline interposer\n");
     std::wprintf(L"  directory: %ls\n", dir);
 
@@ -263,8 +386,110 @@ int RunInterposer(Gfx& g, const wchar_t* dir) {
     Check(reinterpret_cast<void*>(slCreate) != reinterpret_cast<void*>(realCreate),
           "the interposer's entry point is not just dxgi.dll's (we are on a different path)");
 
-    IDXGISwapChain1* real = MakeSwapChain(realCreate, g.device, "real");
-    IDXGISwapChain1* shim = MakeSwapChain(slCreate, g.device, "interposer");
+    // --- ENGAGE. Everything below this point is what the first version could
+    // --- not reach, and without it the comparison measures passthrough.
+    std::printf("\n  engaging Streamline (slInit -> D3D12CreateDevice -> slSetD3DDevice)\n");
+
+    auto slD3D12Create =
+        reinterpret_cast<PFN_D3D12CreateDevice>(reinterpret_cast<void*>(GetProcAddress(sl, "D3D12CreateDevice")));
+    if (slD3D12Create == nullptr) {
+        std::printf("  INCONCLUSIVE: sl.interposer.dll does not export D3D12CreateDevice\n");
+        return 2;
+    }
+
+    // VERSION GUARD, and it is here because the probe CRASHED without it.
+    //
+    // Measured 2026-08-14: The Witcher 3 ships sl.interposer.dll **1.5.6**, not
+    // 2.x. Its export set is a different API generation -- slGetHooks,
+    // slGetNumHooks, slIsFeatureEnabled, slSetFeatureEnabled,
+    // slSetFeatureConstants, slGetFeatureConfiguration -- and it exports NEITHER
+    // slSetD3DDevice NOR slIsFeatureLoaded. slInit exists in both, with a
+    // DIFFERENT sl::Preferences layout, so calling it with the vendored 2.x
+    // struct passes a wrongly-shaped argument and access-violates (0xC0000005).
+    //
+    // The SL2-only entry points are the version probe. They cost nothing and are
+    // the honest test: "does this module speak the ABI our vendored headers
+    // describe", not "is it named sl.interposer.dll".
+    const bool sl2 = GetProcAddress(sl, "slSetD3DDevice") != nullptr &&
+                     GetProcAddress(sl, "slIsFeatureLoaded") != nullptr &&
+                     GetProcAddress(sl, "slGetNewFrameToken") != nullptr;
+    if (!sl2) {
+        std::printf("\n  ==> SKIPPED - this is a Streamline 1.x interposer.\n"
+                    "      It exports slInit but not slSetD3DDevice / slIsFeatureLoaded /\n"
+                    "      slGetNewFrameToken, and its sl::Preferences has a different layout,\n"
+                    "      so calling slInit with the vendored 2.x struct crashes. Refusing is\n"
+                    "      the answer; the first version of this guard was its absence.\n"
+                    "\n"
+                    "      THIS MATTERS BEYOND THIS PROBE. docs/vendor-exports.json records ONE\n"
+                    "      COPY PER MODULE NAME, so 'sl.interposer.dll' there is one machine's\n"
+                    "      2.7.4 and says nothing about the 1.5.6 a title may ship.\n"
+                    "      FL_HOOK_INVENTORY's oracle would pass slEvaluateFeature against it --\n"
+                    "      the NAME exists in both generations -- while the SIGNATURE differs.\n"
+                    "      A detour typed with the 2.x PFun_ would then read 1.x arguments.\n");
+        return 2;
+    }
+
+    if (!SlInit(sl, dir)) {
+        std::printf("\n  ==> INCONCLUSIVE - slInit did not succeed, so nothing is wrapped and the\n"
+                    "      comparison would measure passthrough. Not a verdict about the vtables.\n");
+        return 2;
+    }
+
+    // THROUGH THE INTERPOSER, deliberately: this is the call a Streamline title
+    // makes, and every one measured on this machine imports D3D12CreateDevice
+    // from sl.interposer.dll rather than d3d12.dll.
+    Gfx12 g12;
+    if (!CreateD3D12(g12, slD3D12Create)) {
+        std::printf("\n  ==> INCONCLUSIVE - no D3D12 device, so no D3D12 swapchain and no DLSS-G.\n");
+        return 2;
+    }
+
+    auto setDevice =
+        reinterpret_cast<PFN_slSetD3DDevice>(reinterpret_cast<void*>(GetProcAddress(sl, "slSetD3DDevice")));
+    if (setDevice != nullptr) {
+        const sl::Result sr = setDevice(g12.device);
+        std::printf("  slSetD3DDevice -> %u\n", static_cast<unsigned>(sr));
+    }
+
+    // WAIT FOR ENGAGEMENT. Reading this ONCE is a race, and the first run of this
+    // version lost it: slIsFeatureLoaded said "no" for both features and the
+    // module scan found only sl.interposer.dll, while Streamline's own log --
+    // flushed AFTER our output -- showed it verifying and loading sl.common,
+    // sl.dlss, sl.dlss_d, sl.dlss_g, sl.pcl and sl.reflex. Plugin load is
+    // deferred, so "not engaged yet" and "will not engage" are the same answer
+    // read too early. Exactly the shape docs/HANDOFF.md §Traps records for the
+    // drain tests: poll for the STATE, bounded by a generous wall clock.
+    auto loaded =
+        reinterpret_cast<PFN_slIsFeatureLoaded>(reinterpret_cast<void*>(GetProcAddress(sl, "slIsFeatureLoaded")));
+    bool anyLoaded = false;
+    for (int i = 0; i < 100 && !anyLoaded; ++i) {
+        if (loaded != nullptr) {
+            for (const auto f : {sl::kFeatureDLSS, sl::kFeatureDLSS_G}) {
+                bool on = false;
+                loaded(f, on);
+                anyLoaded = anyLoaded || on;
+            }
+        }
+        // A plugin can be MAPPED before it reports loaded, so either signal ends
+        // the wait -- the verdict below re-checks both.
+        if (!anyLoaded && CountLoadedSlPlugins(false) > 0) {
+            break;
+        }
+        if (!anyLoaded) {
+            Sleep(100);
+        }
+    }
+    if (loaded != nullptr) {
+        for (const auto f : {sl::kFeatureDLSS, sl::kFeatureDLSS_G}) {
+            bool on = false;
+            loaded(f, on);
+            std::printf("  slIsFeatureLoaded(%u) -> %s\n", static_cast<unsigned>(f), on ? "yes" : "no");
+        }
+    }
+
+    // The swapchain a D3D12 title actually gets: created from the COMMAND QUEUE.
+    IDXGISwapChain1* real = MakeSwapChain(realCreate, g12.queue, "real/d3d12");
+    IDXGISwapChain1* shim = MakeSwapChain(slCreate, g12.queue, "interposer/d3d12");
     if (real == nullptr || shim == nullptr) {
         std::printf("  INCONCLUSIVE: could not create both swapchains\n");
         if (real != nullptr) {
@@ -287,6 +512,42 @@ int RunInterposer(Gfx& g, const wchar_t* dir) {
     const int plugins = CountLoadedSlPlugins(true);
 
     // ENGAGEMENT CHECK. Without it the verdict below is unreadable.
+    // THE VTABLE QUESTION IS ANSWERED BY slInit ALONE, and separating it from the
+    // plugin question is the correction this run forced.
+    //
+    // Measured 2026-08-14 against Alan Wake 2 (SL 2.7.0) on an RTX 5080: with
+    // slInit returning eOk and NO feature plugin reporting loaded, the interposer
+    // still hands back a swapchain whose vtable is inside sl.interposer.dll's
+    // module range while dxgi.dll's own route yields dxgi.dll's. So §H5 case 3's
+    // PREMISE is real and does not need DLSS-G to be running to be true.
+    //
+    // What that does NOT settle is whether we still see the presents. §H5's
+    // --probe-proxy result stands: a FORWARDING proxy calls real_->Present(...),
+    // an ordinary virtual dispatch, and a hook on the real vtable catches it one
+    // layer down. Different class != missed present. Deciding that needs presents
+    // driven through the proxy with our hook installed, which is a different
+    // fixture and is called out as such rather than guessed at here.
+    if (!same) {
+        std::printf("\n  ==> MEASURED: THE SWAPCHAIN CLASS IS NOT OURS.\n"
+                    "      slInit returned eOk and the interposer's swapchain vtable (%p) is not\n"
+                    "      dxgi.dll's (%p). §H5 case 3's premise holds: the object a Streamline\n"
+                    "      title calls Present on is not an instance of the class whose shared\n"
+                    "      vtable we patch.\n"
+                    "\n"
+                    "      STILL UNMEASURED, and it is the half that decides fg_factor: whether\n"
+                    "      that proxy FORWARDS to the real vtable. hook-harness --probe-proxy\n"
+                    "      shows a forwarding proxy is caught one layer down, so 'different\n"
+                    "      class' is not by itself 'missed present'. Answering it needs presents\n"
+                    "      driven through this proxy with our hook installed.\n"
+                    "\n"
+                    "      Feature plugins loaded this run: %d. With none, the DLSS-G-specific\n"
+                    "      question — do GENERATED presents reach the same vtable — is untouched.\n",
+                    vshim, vreal, plugins);
+        real->Release();
+        shim->Release();
+        return 1;
+    }
+
     if (plugins == 0) {
         std::printf("\n  ==> INCONCLUSIVE — THE INTERPOSER NEVER ENGAGED.\n"
                     "      Only sl.interposer.dll is mapped: no sl.common, no feature plugin.\n"
@@ -296,10 +557,12 @@ int RunInterposer(Gfx& g, const wchar_t* dir) {
                     "      FACTORY vtables matched too, which a genuinely interposing Streamline\n"
                     "      cannot produce — it must wrap the factory to reach the swapchain.\n"
                     "\n"
-                    "      Answering the real question needs slInit(), whose sl::Preferences\n"
-                    "      struct is vendor ABI — the licence question in\n"
-                    "      legal/THIRD_PARTY_NOTICES.md, unanswered. Recorded as unanswered\n"
-                    "      rather than closed on a passthrough measurement.\n",
+                    "      slInit() DID return eOk above, so this is no longer the licence block\n"
+                    "      that used to stop here — it is a plugin that declined to load. Usual\n"
+                    "      causes: no NVIDIA adapter, a driver too old for the features asked\n"
+                    "      for, or a title directory whose sl.* plugins do not match its\n"
+                    "      interposer. Still reported as unanswered rather than closed on a\n"
+                    "      passthrough measurement.\n",
                     same ? "identical" : "different");
         real->Release();
         shim->Release();
@@ -374,7 +637,7 @@ int wmain(int argc, wchar_t** argv) {
         return 0;
     }
 
-    const int rc = RunInterposer(g, dir);
+    const int rc = RunInterposer(dir);
     std::printf("\nchecks: %d/%d passed\n", g_checks - g_failures, g_checks);
     if (g_failures != 0) {
         return 1;

@@ -2429,11 +2429,46 @@ make us miss the present.
 > its own output — an interposing Streamline cannot leave the *factory* vtable
 > unwrapped, since wrapping the factory is how it reaches the swapchain.
 >
-> Reaching the wrapped path needs `slInit`'s `sl::Preferences`, i.e. vendor ABI,
+> ~~Reaching the wrapped path needs `slInit`'s `sl::Preferences`, i.e. vendor ABI,
 > i.e. the question `legal/THIRD_PARTY_NOTICES.md` answers for Intel IGCL and
-> nobody has asked for NVIDIA. **The risk is also narrower than the entry
+> nobody has asked for NVIDIA.~~ **Unblocked by #64 and MEASURED 2026-08-14.**
+> Streamline is MIT and `sl::Preferences` is vendored, so `fl-probe-interposer` now
+> calls `slInit` → `D3D12CreateDevice` *through the interposer* → `slSetD3DDevice`,
+> every entry point resolved with `GetProcAddress`. **The premise holds:** with
+> `slInit` returning `eOk`, the interposer hands back a swapchain whose vtable is
+> inside `sl.interposer.dll` while `dxgi.dll`'s own route yields `dxgi.dll`'s.
+> Reproduced on Alan Wake 2 (SL 2.7.0) and Cyberpunk 2077 (SL 2.7.1), RTX 5080.
+> **The risk is also narrower than the entry
 > implies:** NGX-direct titles never wrap the swapchain, so the vtable premise is
 > only in question for Streamline-shimmed ones.
+>
+> > **What that does and does not settle, because the difference is the whole
+> > metric.** It settles that the game's swapchain is **not** an instance of the
+> > class whose shared vtable we patch. It does **not** settle whether we miss the
+> > present: §H5's own `--probe-proxy` result stands — a *forwarding* proxy calls
+> > `real_->Present(...)`, an ordinary virtual dispatch, caught one layer down.
+> > **Different class ≠ missed present.** Deciding which needs presents driven
+> > through this proxy with our hook installed. No feature plugin reported loaded in
+> > these runs, so the DLSS-G question — whether GENERATED presents reach the same
+> > vtable — is untouched.
+> >
+> > **A second finding, which cost a crash to get.** The Witcher 3 ships
+> > `sl.interposer.dll` **1.5.6**, a different API generation: it exports
+> > `slGetHooks`, `slIsFeatureEnabled` and `slSetFeatureConstants`, and exports
+> > **neither** `slSetD3DDevice` nor `slIsFeatureLoaded`. `slInit` exists in both
+> > with a **different `sl::Preferences` layout**, so calling it with the vendored
+> > 2.x struct access-violates (`0xC0000005`). The probe now version-guards on the
+> > SL2-only exports and skips with a reason.
+> >
+> > **That generalises past the probe and touches the hook inventory.**
+> > `docs/vendor-exports.json` records **one copy per module name**, so its
+> > `sl.interposer.dll` is one machine's 2.7.4 and says nothing about a 1.5.6 a title
+> > may ship. `hookinventory-check` Pass A would pass `slEvaluateFeature` against
+> > such a title — the **name** exists in both generations — while the **signature**
+> > differs, so a detour typed with the 2.x `PFun_slEvaluateFeature` would read 1.x
+> > arguments. Today's hook reads only `feature`, the first argument, and is
+> > probably unharmed. **Item 2b's plan to walk `inputs`/`numInputs` is not**, and
+> > needs a version guard of its own before it dereferences anything.
 >
 > What the probe *did* settle is the premise underneath everything else, and it
 > is now ctest `fl_vtable_identity_control`: two independently created swapchains
