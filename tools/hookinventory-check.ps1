@@ -27,15 +27,41 @@
     SUBTRACTING that count — so a double-counted evaluation lands on fg_factor,
     the number CLAUDE.md rule 6 exists to protect.
 
-    TWO INDEPENDENT PASSES, because a header-only check has a blind spot. Pass A
-    checks the inventory rows against the oracle. Pass B sweeps the Overlay's
-    own sources for vendor-shaped string literals that are NOT in the inventory —
-    a second resolver written somewhere else would otherwise be invisible to this
-    gate while being exactly what it exists to prevent. Same argument
-    tools/chokepoint-check.ps1 makes about FL_GUARD_TESTABLE.
+    THREE INDEPENDENT PASSES, because each has a blind spot the next covers.
+    Pass A checks the inventory rows against the oracle. Pass B sweeps the
+    Overlay's own sources for vendor-shaped string literals that are NOT in the
+    inventory — a second resolver written somewhere else would otherwise be
+    invisible to this gate while being exactly what it exists to prevent. Same
+    argument tools/chokepoint-check.ps1 makes about FL_GUARD_TESTABLE.
+
+    PASS C READS THE BUILT BINARY, and it is the only one that can catch the
+    failure that matters most. A and B are source checks: they see what we
+    RESOLVE. Neither sees what we LINK. Taking the address of an SL_API
+    declaration in evaluated code — `&slEvaluateFeature` instead of the runtime
+    resolution — makes sl.interposer.dll a LOAD-TIME dependency of
+    FrameLedger.Overlay.dll, and the Overlay then fails to load in every game
+    that ships no Streamline: inside the loader, before DllMain, with no message
+    anywhere and nothing in the ring to explain it. The vendored headers are
+    included for types only for exactly this reason
+    (src/native/third_party/streamline/README.md).
+
+    THAT README ASSERTED THIS CHECK EXISTED AND IT DID NOT. Recorded because it
+    is the shape this repository keeps finding: a document describing a gate,
+    reviewers trusting the document, and nothing behind it. Added 2026-08-14
+    after a plan-time audit went looking for the code and found one mention of
+    `dumpbin`, in a comment, about a different script.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to this script's parent directory.
+
+.PARAMETER BuildDir
+    Native build output, for Pass C. Defaults to build/native/x64-release.
+
+.PARAMETER RequireBinaries
+    Makes Pass C mandatory. Without it a missing FrameLedger.Overlay.dll is
+    reported and skipped, because `build.ps1 -SkipNative` legitimately produces
+    no binary; with it, a missing or unreadable binary is a FAILURE. build.ps1
+    passes it whenever the native build ran, following chokepoint-check.
 
 .PARAMETER SelfTest
     Runs the decision table in BOTH directions and exits non-zero if any case
@@ -48,6 +74,12 @@
 param(
     [Parameter(ParameterSetName = 'Check')]
     [string]$RepoRoot = (Split-Path $PSScriptRoot -Parent),
+
+    [Parameter(ParameterSetName = 'Check')]
+    [string]$BuildDir,
+
+    [Parameter(ParameterSetName = 'Check')]
+    [switch]$RequireBinaries,
 
     [Parameter(ParameterSetName = 'SelfTest', Mandatory = $true)]
     [switch]$SelfTest
@@ -85,12 +117,48 @@ function Test-ModuleExports($Modules, [string]$Module, [string]$Symbol) {
 
 # Vendor-shaped literals the Overlay must not resolve outside the inventory.
 # Deliberately broad on the vendor prefixes and narrow on where it looks.
+#
+# `xefg` is its own alternative and is NOT covered by `xess`: Intel's frame
+# generation exports are xefgSwapChainD3D12InitFromSwapChain and friends, which
+# share no prefix with xessD3D12CreateContext. Measured from
+# docs/vendor-exports.json, where libxess_fg.dll's 31 exports include 28
+# xefgSwapChain* names and not one xess* name. Added before the FG hooks land
+# rather than after, because the sweep going quiet on a whole vendor family is
+# exactly the silence this gate exists to break.
 function Get-StrayVendorLiteral([string]$SourceText) {
     $stray = @()
-    foreach ($m in [regex]::Matches($SourceText, '"((?:sl[A-Z]|NVSDK_NGX_|xess[A-Z]|ffx[A-Z])[A-Za-z0-9_]*)"')) {
+    foreach ($m in [regex]::Matches($SourceText, '"((?:sl[A-Z]|NVSDK_NGX_|xess[A-Z]|xefg[A-Z]|ffx[A-Z])[A-Za-z0-9_]*)"')) {
         $stray += $m.Groups[1].Value
     }
     return , $stray
+}
+
+# The DLL names a binary imports, from `dumpbin /dependents` output.
+#
+# Both the ordinary and the delay-loaded dependency lists are wanted: a
+# delay-loaded sl.interposer.dll fails later than a load-time one but fails the
+# same way, in a game that has no Streamline to load.
+function Get-ImportName([string]$DumpbinText) {
+    $names = @()
+    foreach ($line in ($DumpbinText -split "`r?`n")) {
+        if ($line -match '^\s{4}(\S+\.(?:dll|DLL))\s*$') { $names += $Matches[1] }
+    }
+    return , $names
+}
+
+# Modules FrameLedger.Overlay.dll must never appear to depend on.
+#
+# ANCHORED, because the failure this catches is about the module the LOADER will
+# go looking for, and a substring match would fire on any name that happened to
+# contain "ffx". `_?nvngx` covers the driver-store core, which ships as
+# _nvngx.dll — an unanchored `nvngx` would have missed it and an anchored one
+# without the underscore would have missed it too.
+function Get-ForbiddenImport([string[]]$ImportNames) {
+    $bad = @()
+    foreach ($n in $ImportNames) {
+        if ($n -match '^(sl\.|_?nvngx|libxess|ffx_|amd_fidelityfx)') { $bad += $n }
+    }
+    return , $bad
 }
 
 # --- Self-test ---------------------------------------------------------------
@@ -120,6 +188,24 @@ if ($SelfTest) {
            Got  = ((Get-StrayVendorLiteral 'GetProcAddress(h, "slSomethingElse");') -contains 'slSomethingElse'); Want = $true }
         @{ Name = 'an ordinary string is not mistaken for one'
            Got  = ((Get-StrayVendorLiteral 'printf("slept for a while");').Count -eq 0); Want = $true }
+        @{ Name = 'an XeFG literal is found - xess[A-Z] does not cover xefg*'
+           Got  = ((Get-StrayVendorLiteral 'p = GetProcAddress(h, "xefgSwapChainD3D12InitFromSwapChain");') -contains 'xefgSwapChainD3D12InitFromSwapChain'); Want = $true }
+
+        # --- Pass C: the import parser, then the predicate over it -----------
+        @{ Name = 'dumpbin dependent lines parse into module names'
+           Got  = ((Get-ImportName "  Image has the following dependencies:`r`n`r`n    KERNEL32.dll`r`n    d3d12.dll`r`n`r`n  Summary`r`n") -join ',') -eq 'KERNEL32.dll,d3d12.dll'; Want = $true }
+        @{ Name = 'the Summary section does not parse as a dependency'
+           Got  = ((Get-ImportName "  Summary`r`n`r`n        1000 .data`r`n").Count -eq 0); Want = $true }
+        @{ Name = 'a clean import list is clean'
+           Got  = ((Get-ForbiddenImport @('KERNEL32.dll', 'd3d11.dll', 'd3d12.dll', 'dxgi.dll')).Count -eq 0); Want = $true }
+        @{ Name = 'a LINKED sl.interposer.dll is caught - the whole reason Pass C exists'
+           Got  = ((Get-ForbiddenImport @('KERNEL32.dll', 'sl.interposer.dll')) -contains 'sl.interposer.dll'); Want = $true }
+        @{ Name = 'the driver-store NGX core is caught despite its leading underscore'
+           Got  = ((Get-ForbiddenImport @('_nvngx.dll')) -contains '_nvngx.dll'); Want = $true }
+        @{ Name = 'libxess and the FFX modules are caught'
+           Got  = ((Get-ForbiddenImport @('libxess_fg.dll', 'ffx_fsr3_x64.dll', 'amd_fidelityfx_dx12.dll')).Count -eq 3); Want = $true }
+        @{ Name = 'the match is ANCHORED - an innocent name merely CONTAINING a vendor prefix passes'
+           Got  = ((Get-ForbiddenImport @('mysl.dll', 'libffx_helper.dll', 'unvngx.dll')).Count -eq 0); Want = $true }
     )
 
     $bad = @()
@@ -231,6 +317,73 @@ if (Test-Path $overlayDir) {
     }
 }
 
+# --- Pass C: the built Overlay imports no vendor module -----------------------
+#
+# A and B are source checks and structurally cannot see this. What is being
+# guarded is the IMPORT TABLE: a load-time (or delay-load) dependency on a vendor
+# module makes the Overlay unloadable in every game that does not ship it.
+$importState = 'skipped'
+$importCount = 0
+if ($violations.Count -eq 0 -and -not $RequireBinaries) {
+    # SKIPPED ON PURPOSE, not for want of a file. -RequireBinaries is the caller
+    # saying "the native build ran in THIS invocation", so without it any
+    # FrameLedger.Overlay.dll under BuildDir is stale by definition -- left by an
+    # earlier build, from sources that may not be the ones on disk now.
+    #
+    # The first version of this read whatever binary happened to be lying around,
+    # which made `build.ps1 check -SkipNative` print a skip line and run the pass
+    # anyway, against a binary the run did not produce. A gate reporting on the
+    # wrong artefact is worse than one that says it did not look.
+    $importState = 'skipped (native build did not run in this invocation; -RequireBinaries makes it mandatory)'
+}
+elseif ($violations.Count -eq 0) {
+    if (-not $BuildDir) { $BuildDir = Join-Path $RepoRoot 'build/native/x64-release' }
+    $overlayDll = Get-ChildItem $BuildDir -Recurse -Filter 'FrameLedger.Overlay.dll' -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+
+    $dumpbin = $null
+    if (Get-Command dumpbin -ErrorAction SilentlyContinue) { $dumpbin = 'dumpbin' }
+    else {
+        $found = Get-ChildItem 'C:\Program Files*\Microsoft Visual Studio' -Recurse -Filter 'dumpbin.exe' `
+            -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+        if ($found) { $dumpbin = $found.FullName }
+    }
+
+    # -RequireBinaries is necessarily set here, so every way of NOT looking is a
+    # failure. Refusing beats reporting a clean import list nobody read.
+    if (-not $overlayDll) {
+        $violations.Add("Pass C: FrameLedger.Overlay.dll not found under $BuildDir, and -RequireBinaries says the native build ran - a missing binary must fail rather than read as 'no forbidden imports'")
+    }
+    elseif (-not $dumpbin) {
+        $violations.Add('Pass C: dumpbin not found, so the import table could not be read - refusing rather than reporting a clean import list nobody looked at')
+    }
+    else {
+        $raw = (& $dumpbin /nologo /dependents $overlayDll.FullName 2>&1 | Out-String)
+        $imports = Get-ImportName $raw
+        $importCount = $imports.Count
+
+        # ZERO IMPORTS IS NEVER A PASS. Every failure mode of this parse — a
+        # dumpbin that errored, an output format change, a path that was not a
+        # PE — produces the same empty list as a binary with no vendor imports.
+        # Same rule Pass A applies to zero parsed inventory rows.
+        if ($importCount -eq 0) {
+            $violations.Add("Pass C: parsed ZERO imports from $($overlayDll.Name) - a DLL that imports nothing at all is not a thing, so the parse broke and 'no forbidden imports' would be a verdict decided before the check looked")
+        }
+        else {
+            # DISCRIMINATION, before the verdict. The list must contain something
+            # we KNOW is there, or a clean result says only that the parse is
+            # broken in a way that happens to look tidy.
+            if (@($imports | Where-Object { $_ -match '^(?i)kernel32\.dll$' }).Count -eq 0) {
+                $violations.Add("Pass C: the import list does not contain kernel32.dll, which every Win32 DLL imports - the parse is wrong, so no verdict from it can be trusted (got: $($imports -join ', '))")
+            }
+            foreach ($bad in (Get-ForbiddenImport $imports)) {
+                $violations.Add("Pass C: FrameLedger.Overlay.dll IMPORTS '$bad' - the vendored headers are for types only, and a link makes that module a load-time dependency, so the Overlay would fail to load in every game that does not ship it (in the loader, before DllMain, with no message anywhere)")
+            }
+            $importState = "$importCount import(s) checked"
+        }
+    }
+}
+
 # --- Report ------------------------------------------------------------------
 if ($violations.Count -gt 0) {
     Write-Host 'HOOKINVENTORY CHECK FAILED' -ForegroundColor Red
@@ -240,5 +393,5 @@ if ($violations.Count -gt 0) {
     exit 1
 }
 
-Write-Host "hookinventory OK - $($rows.Count) symbol(s) checked module-scoped against $moduleCount measured modules; $swept Overlay source file(s) swept for strays" -ForegroundColor Green
+Write-Host "hookinventory OK - $($rows.Count) symbol(s) checked module-scoped against $moduleCount measured modules; $swept Overlay source file(s) swept for strays; imports: $importState" -ForegroundColor Green
 exit 0

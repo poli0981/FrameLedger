@@ -86,8 +86,17 @@ with no FrameLedger message anywhere, because the failure happens in the loader
 before any of our code runs. The Overlay resolves the symbol at runtime with
 `GetProcAddress` on a module the game already loaded, exactly as it must.
 
-`tools/hookinventory-check.ps1` asserts the second half of that: the built
-`FrameLedger.Overlay.dll` must import nothing matching `^(sl\.|nvngx|libxess|ffx_|amd_fidelityfx)`.
+`tools/hookinventory-check.ps1` **Pass C** asserts the second half of that: the built
+`FrameLedger.Overlay.dll` must import nothing matching `^(sl\.|_?nvngx|libxess|ffx_|amd_fidelityfx)`,
+read out of the binary's own dependency list with `dumpbin /dependents`.
+
+> **This sentence claimed that gate for five days before it existed** — written
+> 2026-08-09 with the vendoring, found 2026-08-14 by an audit that went looking for the
+> code and found one mention of `dumpbin`, in a comment, about a different script. Pass C
+> was then written. Recorded rather than quietly corrected because it is the shape this
+> project keeps hitting: a document describes a gate, reviewers trust the document, and
+> nothing is behind it — and the whole point of *this* gate is that the failure it catches
+> has no symptom to notice.
 
 **One consequence worth stating rather than discovering.** `sl_consts.h` and
 `sl_version.h` include `<string>`, and `sl_core_types.h` includes `<vector>`, so
