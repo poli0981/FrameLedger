@@ -17,6 +17,49 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Added
+
+- **`FL_MEASURED_UPSCALER_PARAMS` gets its first producer: render resolution, from the global
+  resource tags** — `docs/HANDOFF.md` item 2b, and one of the five values P0 exit criterion 1
+  names. A second inventory row detours `sl.interposer.dll!slSetTag`, reads the
+  `kBufferTypeScalingInputColor` extent, and publishes `renderW/H`.
+  - **`slSetTag` was scheduled for deferral and is included instead**, on measured grounds:
+    `sl_core_api.h` documents the local tags in `slEvaluateFeature`'s `inputs` as merely
+    *allowed* — *"they do NOT interact with same tags sent in the global scope"* — and only
+    **four of the ten** Streamline titles installed here route DLSS super-resolution through
+    Streamline at all. An inputs-only producer could have shipped with a hit rate of zero.
+  - **The installer had to be restructured first, and it was a latent mis-bind.** The
+    expansion over `FL_HOOK_INVENTORY` ignored the `family` column, stopped at the first row
+    that resolved, and hooked it with `Hook_SlEvaluateFeature`. Correct with one row; with two
+    it would have detoured `slSetTag` with a body that reads argument 1 as a feature id. Each
+    row now carries its own detour, family bit and latch, and a row whose family has no detour
+    installs **nothing** rather than borrowing a neighbour's. The install-after-stop guard is
+    factored out of the single installer for the same reason.
+  - **Two conditions to publish, and the second is the one that is easy to drop:** the params
+    hook live, **and** an evaluation seen *this frame*. A tag is viewport state that outlives a
+    frame, so publishing on the tag alone would report a render resolution for every frame
+    after a title stopped upscaling — stale state dressed as a measurement.
+  - `upscalerQuality` is **`0xFF`, never 0** — 0 is NGX MaxPerf, a real preset, so it would
+    publish "DLSS Performance" as a measurement. `upscalerSharpness` is `0xFF` **permanently**:
+    `DLSSOptions::sharpness` is deprecated as unsupported and `optimalSharpness` is
+    Streamline's recommendation, not what the title applied.
+  - **`claimedParams == 0` is inverted, not deleted** — that was the honest assertion while
+    `renderW/H` had no source, and it is the line a reviewer should see change. It now asserts
+    the **exact** tagged extent, the honesty invariant on every claiming record, and the
+    reverse direction (a value set while the bit is clear).
+  - Two fixture bugs the test found rather than reasoning: tagging **once** at startup landed
+    before injection and left the bit set on **0 of 43** records — and `eValidUntilPresent`
+    means a real title re-tags every frame anyway, so tagging once was simply wrong about the
+    vendor contract. And a floor of `> size - 3` hid a real 6-record window where identity was
+    live and params was not; the drain now waits for **both** families and asserts equality.
+  - Proved red by canary: hardcoding a plausible 1920×1080 trips `wrongExtent` on all 40
+    records, and it compiles.
+  - No `#pragma warning` for C4996 on the deprecated `slSetTag`, and that is measured:
+    `/std:c++20` **without** `/Zc:__cplusplus` makes MSVC report `199711L`, so the
+    `#if __cplusplus >= 201402L` guard on the attribute never opens. A pragma would suppress a
+    warning that is not emitted. The condition that would change it is recorded at the
+    declaration.
+
 ### Fixed
 
 - **The Overlay would hook a Streamline module of the wrong generation, and read its
