@@ -50,6 +50,7 @@
 
 #include "fl_dxgi_vtable.h"
 #include "fl_hook_inventory.h"
+#include "fl_sl_inputs.h"
 #include "proxy_swapchain.h"
 
 // Vendored MIT Streamline headers, for the feature ids and the ABI of the call
@@ -726,6 +727,129 @@ HMODULE LoadStubExactly(const wchar_t* absolutePath) {
     return h;
 }
 
+// The render extent the fixtures use. Declared here, above every user, and
+// sourced from src/native/CMakeLists.txt so guard_test.cpp asserts against the
+// SAME number -- a fixture and its assertion holding separate copies of the
+// value under test is the §S29(b) defect in miniature.
+//
+// 1280x720 is arbitrary, and that is the point: a writer that hardcoded a
+// plausible render resolution must FAIL rather than coincide.
+constexpr unsigned kTaggedRenderW = FL_TAGGED_RENDER_W;
+constexpr unsigned kTaggedRenderH = FL_TAGGED_RENDER_H;
+
+// The inputs walk, against input a hostile or buggy title could produce.
+//
+// WHY THIS IS A UNIT PROBE AND NOT AN INJECTED CASE. Every branch here
+// dereferences pointers the caller supplied, and a fault in the real thing lands
+// in FL_HOOK_GUARD and burns one of the three that self-disable the Overlay --
+// so a malformed input that faults is a BUG, not degradation. Driving those
+// shapes through an injected game fixture would take seconds per case and could
+// only produce them approximately. Here they are exact and take microseconds.
+bool ProbeSlInputs() {
+    std::printf("\n[upscaler] the slEvaluateFeature inputs walk, against malformed input\n");
+
+    const sl::Extent zero{};
+    sl::Extent       real{};
+    real.width = kTaggedRenderW;
+    real.height = kTaggedRenderH;
+
+    sl::ResourceTag tagWithExtent(nullptr, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent,
+                                  &real);
+    sl::ResourceTag tagWholeResource(nullptr, sl::kBufferTypeScalingInputColor,
+                                     sl::ResourceLifecycle::eValidUntilPresent, &zero);
+    sl::ResourceTag tagOtherBuffer(nullptr, sl::kBufferTypeScalingOutputColor,
+                                   sl::ResourceLifecycle::eValidUntilPresent, &real);
+
+    // --- the cases that must FIND it -------------------------------------
+    {
+        const sl::BaseStructure* one[] = {&tagWithExtent};
+        const auto               r = fl::slinputs::FindScalingInputExtent(one, 1);
+        Check(r.found && r.renderW == kTaggedRenderW && r.renderH == kTaggedRenderH,
+              "a tagged scaling-input extent is found, with the exact values");
+    }
+    {
+        // A null element BEFORE the tag: skipped, not treated as the end.
+        const sl::BaseStructure* withHole[] = {nullptr, &tagWithExtent};
+        const auto               r = fl::slinputs::FindScalingInputExtent(withHole, 2);
+        Check(r.found, "a null element mid-array is skipped rather than ending the walk");
+    }
+    {
+        // Reached through `next` rather than as an array element.
+        sl::ResourceTag head = tagOtherBuffer;
+        head.next = &tagWithExtent;
+        const sl::BaseStructure* chained[] = {&head};
+        const auto               r = fl::slinputs::FindScalingInputExtent(chained, 1);
+        Check(r.found && r.renderW == kTaggedRenderW, "a tag reached through the next chain is found");
+    }
+
+    // --- the cases that must NOT find it, and must not misbehave ----------
+    Check(!fl::slinputs::FindScalingInputExtent(nullptr, 4).found, "a null inputs array finds nothing");
+    {
+        const sl::BaseStructure* one[] = {&tagWithExtent};
+        Check(!fl::slinputs::FindScalingInputExtent(one, 0).found, "numInputs 0 finds nothing even with a real array");
+    }
+    {
+        // The whole-resource case: extent defaults to all-zero, which the vendor
+        // documents as "use the entire resource". Honest unknown, NOT a
+        // resolution of zero.
+        const sl::BaseStructure* one[] = {&tagWholeResource};
+        const auto               r = fl::slinputs::FindScalingInputExtent(one, 1);
+        Check(!r.found && r.renderW == 0 && r.renderH == 0,
+              "a whole-resource tag yields the honest unknown, not a 0x0 resolution");
+    }
+    {
+        const sl::BaseStructure* one[] = {&tagOtherBuffer};
+        Check(!fl::slinputs::FindScalingInputExtent(one, 1).found,
+              "a tag for a DIFFERENT buffer type is not mistaken for the scaling input");
+    }
+    {
+        // GUID matches nothing we know: skipped rather than read as a ResourceTag.
+        sl::ViewportHandle       viewport{7u};
+        const sl::BaseStructure* one[] = {&viewport};
+        Check(!fl::slinputs::FindScalingInputExtent(one, 1).found, "a structure of another type is skipped");
+    }
+    {
+        // structVersion below what our headers describe: we cannot place the
+        // fields, so we do not read them.
+        sl::ResourceTag stale = tagWithExtent;
+        stale.structVersion = 0;
+        const sl::BaseStructure* one[] = {&stale};
+        Check(!fl::slinputs::FindScalingInputExtent(one, 1).found, "a structVersion below kStructVersion1 is skipped");
+    }
+
+    // --- the shapes that would hang or run away ---------------------------
+    {
+        // A SELF-REFERENTIAL next. Without the depth cap this does not fault --
+        // it spins forever on the present thread, which is worse: no exception,
+        // no self-disable, just a frozen game with our DLL in it.
+        sl::ResourceTag loop = tagOtherBuffer;
+        loop.next = &loop;
+        const sl::BaseStructure* one[] = {&loop};
+        Check(!fl::slinputs::FindScalingInputExtent(one, 1).found,
+              "a self-referential next terminates and finds nothing");
+    }
+    {
+        // A TWO-NODE CYCLE, which a self-reference check alone would miss.
+        sl::ResourceTag a = tagOtherBuffer;
+        sl::ResourceTag b = tagOtherBuffer;
+        a.next = &b;
+        b.next = &a;
+        const sl::BaseStructure* one[] = {&a};
+        Check(!fl::slinputs::FindScalingInputExtent(one, 1).found, "a two-node cycle terminates too");
+    }
+    {
+        // numInputs FAR beyond the array, with the array long enough to absorb
+        // the cap. This is the case the cap exists for: 4 billion becomes 32.
+        // It does NOT cover a count that merely exceeds a short array -- nothing
+        // in the ABI carries the allocation length, and the header says so.
+        const sl::BaseStructure* wide[fl::slinputs::kMaxInputs] = {};
+        wide[fl::slinputs::kMaxInputs - 1] = &tagWithExtent;
+        const auto r = fl::slinputs::FindScalingInputExtent(wide, 0xFFFFFFFFu);
+        Check(r.found, "a lying numInputs is capped, and the walk still reads up to the cap");
+    }
+    return g_failures == 0;
+}
+
 // The ABI check: right module name, right symbol name, WRONG GENERATION.
 //
 // This case is invisible to module scoping, which is why it needs its own
@@ -838,16 +962,6 @@ bool ProbeUpscalerResolve() {
 // `feature` before forwarding all five arguments untouched. A dummy buffer is
 // passed rather than a null so the argument is a valid address either way.
 // ---------------------------------------------------------------------------
-// The render extent the upscaled hold tags. A constant here rather than a
-// literal typed twice: guard_test.cpp asserts against it, and a fixture and its
-// assertion holding separate copies of the number under test is the §S29(b)
-// defect the inventory macro exists to prevent, in miniature.
-//
-// 1280x720 is arbitrary, and that is the point -- a writer that hardcoded a
-// plausible render resolution must FAIL here rather than coincide.
-constexpr unsigned kTaggedRenderW = FL_TAGGED_RENDER_W;
-constexpr unsigned kTaggedRenderH = FL_TAGGED_RENDER_H;
-
 using StubSetTagFn = sl::Result(STDMETHODCALLTYPE*)(const sl::ViewportHandle&, const sl::ResourceTag*, uint32_t,
                                                     sl::CommandBuffer*);
 
@@ -1030,6 +1144,9 @@ int main(int argc, char** argv) {
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-upscaler-resolve") == 0) {
             ok = ProbeUpscalerResolve() && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-sl-inputs") == 0) {
+            ok = ProbeSlInputs() && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-sl-abi") == 0) {
             ok = ProbeSlAbi() && ok;
