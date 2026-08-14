@@ -962,19 +962,6 @@ bool ProbeUpscalerResolve() {
 // `feature` before forwarding all five arguments untouched. A dummy buffer is
 // passed rather than a null so the argument is a valid address either way.
 // ---------------------------------------------------------------------------
-<<<<<<< HEAD
-=======
-// The render extent the upscaled hold tags. A constant here rather than a
-// literal typed twice: guard_test.cpp asserts against it, and a fixture and its
-// assertion holding separate copies of the number under test is the §S29(b)
-// defect the inventory macro exists to prevent, in miniature.
-//
-// 1280x720 is arbitrary, and that is the point -- a writer that hardcoded a
-// plausible render resolution must FAIL here rather than coincide.
-constexpr unsigned kTaggedRenderW = FL_TAGGED_RENDER_W;
-constexpr unsigned kTaggedRenderH = FL_TAGGED_RENDER_H;
-
->>>>>>> origin/main
 using StubSetTagFn = sl::Result(STDMETHODCALLTYPE*)(const sl::ViewportHandle&, const sl::ResourceTag*, uint32_t,
                                                     sl::CommandBuffer*);
 

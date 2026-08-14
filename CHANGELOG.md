@@ -19,7 +19,6 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
-<<<<<<< HEAD
 - **The LOCAL tags too — `slEvaluateFeature`'s `inputs` walk, hardened against input a title
   should never send.** `sl_core_api.h:258` is explicit that buffer tags passed to
   `slEvaluateFeature` are *"local"* and *"do NOT interact with same tags sent in the global
@@ -44,8 +43,6 @@ GitHub release body, so a missing section will mean an empty release note.
     unprotectable from here. Same for a struct whose GUID matches but whose allocation is
     short. Both are the vendor's contract to keep, and both are written down.
 
-=======
->>>>>>> origin/main
 - **`FL_MEASURED_UPSCALER_PARAMS` gets its first producer: render resolution, from the global
   resource tags** — `docs/HANDOFF.md` item 2b, and one of the five values P0 exit criterion 1
   names. A second inventory row detours `sl.interposer.dll!slSetTag`, reads the
