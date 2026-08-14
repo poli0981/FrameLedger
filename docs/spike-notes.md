@@ -998,7 +998,49 @@ gate.
 
 | Title | Upscaler | Quality | Render → output | FG active | RT | Matches menu? |
 |---|---|---|---|---|---|---|
-| | | | | | | |
+| **Cyberpunk 2077** (2026-08-15) | ❌ `Unknown` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ⬜ not measured | ⬜ not measured | **1 of 5** |
+
+**The first row, and it is one row.** Read the legend before the marks: ✅ measured and
+correct against the title's own settings; ❌ measured and **wrong**; ⬜ honestly absent — no
+producer, or the title does not expose it on the route we take.
+
+Conditions: Cyberpunk 2077 in combat, 40 s bounded capture, **10,169 presents, 0 gaps, 0
+dropped**, 254.82 displayed FPS, `apiMask` = D3D12, hooks `Present | UpscalerIdentity |
+UpscalerParams`. Consent granted by the operator; the guard evaluated `Allow`. A second run
+minutes earlier gave 11,108 presents with the same shape.
+
+**Render → output is the one that lands, and it lands exactly.** `UserSettings.json` records
+`DLSS = Balanced` at `2560x1440`; Balanced is 0.58, so 2560 × 0.58 = 1484.8 and
+1440 × 0.58 = 835.2. The writer said **1485×835**. This is the first of exit criterion 1's
+five values measured correctly from a real game.
+
+**Quality `0xFF` is a measurement of the TITLE, not a gap in the code.** Cyberpunk sets its
+preset out of band through `slDLSSSetOptions` and never chains `sl::DLSSOptions` into
+`slEvaluateFeature`'s `inputs`. The only route that would reach it is the one
+`docs/HANDOFF.md` §2b refuses on five grounds. So **the `DLSSOptions` half of the inputs walk
+has a ZERO hit rate on this title** — the unknown §2b flagged as its largest, now measured
+once. `0xFF` is the defined "a hook ran and could not tell", and it is true.
+
+**Upscaler `Unknown` is WRONG, and is filed as §S30 rather than reported as a result.**
+Cyberpunk is running DLSS. Every one of the 2,461 params-carrying presents decoded to
+`UNKNOWN`. Honest — it is never `NONE` — and not the answer the exit criterion asks for.
+
+**One number fell out that this run was not designed to take.** The params bit appeared on
+2,461 of 10,169 presents (24.2%), i.e. **10,169 / 2,461 = 4.13**; the earlier run gave
+11,108 / 2,696 = **4.12** independently. `UserSettings.json` says
+`DLSS_MultiFrameGeneration = x4`. That is `fg_factor` matching its oracle to two significant
+figures **before the frame-generation producer exists** — strong support for counting
+evaluations directly (the 2026-08-14 owner ruling) rather than deriving generated frames from
+a multiplier. **It is not a measurement of `fgEvaluations`**: it uses the params bit as a
+proxy for "an SL feature evaluated during this present", and item 3's producer must reproduce
+it directly before the number may be published.
+
+**Two operational facts, learned by hitting them.** The lazy feature-hook install costs the
+opening **~1.15 s** of every session — 292 of 10,169 records lack the `Upscaler` bit, and 288
+of 11,108 in the other run, both matching the 1 Hz watchdog. And **a game launch yields ONE
+capture**: when the host detaches, the Overlay stops receiving guard ticks and self-unhooks at
+the 65 s deadline exactly as `19_SAFETY` specifies, so the next attach correctly reports
+`SupervisionLost` rather than a live session. The Overlay does not re-arm.
 
 ### ✅ The baseline exists — `fl-baseline-probe` (2026-08-03)
 
