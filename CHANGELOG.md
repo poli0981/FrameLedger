@@ -19,7 +19,23 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
-<<<<<<< HEAD
+- **`capture` can be bounded, because a real-title measurement otherwise could not end.**
+  `CaptureLoop` honoured `CaptureOptions.MaxDuration` and tests covered it — **nothing could
+  set it**, so `capture` against a running game ran until the game was closed, and the report
+  only prints at the end. `--seconds <n>` is a **duration bound, not a safety bypass**: the
+  options this host refuses (`--pid`, `--payload`, `--force`, `--yes`) each widen *what* is
+  injected or skip a check, while this only shortens an already-consented, already-guarded
+  session. A non-positive or non-numeric value is an **error, never a silent 0** — 0 means
+  *unbounded*, so leniency would produce the opposite of what the operator asked for.
+  `TheAcceptedOptionsAreExactlyThese` went red, which is the gate working.
+- **The session report could not tell "no hook ran" from "the hook came up late".** Both
+  produce N/A and the same wording, and against Cyberpunk 2077 it said *"no upscaler hook
+  ran"* while the hook was live for 97% of a 10,169-present session — feature hooks install
+  lazily on a 1 Hz watchdog, and the consumer requires the bit on *every* record. The host now
+  prints `hooksInstalledMask`, `apiMask`, `rtTier`, the per-bit record counts, and the modal
+  raw `renderW/H` / `quality` / `upscaler`, so a partial count reads as *came up mid-session*
+  and a verification run can be checked against the game's own settings file.
+
 - **`upscalerQuality` gets a real preset, and `sl_dlss.h` is vendored with its consumer** —
   the last piece of `docs/HANDOFF.md` item 2b that could be built. The same bounded `inputs`
   walk now also matches `sl::DLSSOptions` and reads `mode`.
@@ -68,8 +84,6 @@ GitHub release body, so a missing section will mean an empty release note.
     unprotectable from here. Same for a struct whose GUID matches but whose allocation is
     short. Both are the vendor's contract to keep, and both are written down.
 
-=======
->>>>>>> origin/main
 - **`FL_MEASURED_UPSCALER_PARAMS` gets its first producer: render resolution, from the global
   resource tags** — `docs/HANDOFF.md` item 2b, and one of the five values P0 exit criterion 1
   names. A second inventory row detours `sl.interposer.dll!slSetTag`, reads the
