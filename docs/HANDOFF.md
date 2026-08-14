@@ -201,7 +201,45 @@ own PR with its own rule-4 justification.
 
 </details>
 
-### 2b. The params half — **START HERE**, and the route is already decided
+### ~~2b. The params half~~ — LANDED 2026-08-15, and one deferral in it was overturned
+
+**Do not start here.** `FL_MEASURED_UPSCALER_PARAMS` has a producer. Status is in
+`CHANGELOG.md` and §S24; what belongs here is the **sequencing that changed** and the
+**decisions that live in no other file**:
+
+- **`slSetTag` was deferred by the entry below and is IN.** The deferral reasoned that a
+  globally-tagging title "yields nothing from this PR — not a regression, not a fabrication".
+  Measured, that risk is the common case rather than the edge: `sl_core_api.h:258` documents
+  the local tags in `inputs` as merely *allowed*, and **only 4 of the 10** Streamline titles
+  installed here ship `sl.dlss.dll` at all. An inputs-only producer could have shipped with a
+  hit rate of zero, and nothing would have found out until a real-title run.
+- **Both tag paths are read, and they are alternatives rather than layers.** Global
+  (`slSetTag`) and local (`slEvaluateFeature`'s `inputs`) do not interact — the vendor says so
+  in as many words — so a title using one yields nothing from the other. Local wins when
+  present: it is scoped to the evaluation, so it cannot be older than the frame.
+- **`sl_dlss.h` is vendored** (ten headers now), so `upscalerQuality` carries the vendor's own
+  `DLSSMode`. **`upscalerSharpness` is `0xFF` permanently** — `DLSSOptions::sharpness` carries
+  `SR_DEPRECATED_SHARPENING` in the header itself. That is the true value, not a placeholder.
+- **The installer was restructured first, and had to be.** The old expansion ignored
+  `FL_HOOK_INVENTORY`'s `family` column and bound the first resolving row to
+  `Hook_SlEvaluateFeature`. Correct with one row; with two it would have detoured `slSetTag`
+  with a body that reads argument 1 as a feature id.
+
+**What it does NOT deliver, so nobody plans on it:** a title that tags **whole resources**
+yields `renderW/H = 0`, the in-band unknown; a title that sets its preset through
+`slDLSSSetOptions` and never chains `sl::DLSSOptions` yields `upscalerQuality = 0xFF`. Both
+are honest absences and both are invisible until a real title is measured — **the hit rate is
+still unmeasured, and it is still the largest unknown in this item.**
+
+<details>
+<summary>The original entry, kept for the reasoning it carries</summary>
+
+### 2b. The params half — ~~START HERE~~, and the route is already decided
+
+*(Archived. The live entry is above; this header's "START HERE" is struck so the file
+does not contain two of them — that ambiguity is the exact class this file exists to
+prevent, and leaving it verbatim would have been the letter of "kept unchanged" against
+its purpose.)*
 
 `FL_MEASURED_UPSCALER_PARAMS` has no producer, which is what P0 exit criterion 1
 actually needs. Designed 2026-08-09 by a panel plus three refuters; **the obvious route
@@ -274,6 +312,57 @@ from this PR — not a regression, not a fabrication), and the segmenter tuple
 `03_METRICS:133` wants, so a mid-session settings change currently degrades to N/A rather
 than cutting a segment.
 
+</details>
+
+### 3. Frame generation — **START HERE**, and the swapchain question is now answered
+
+- `fgEvaluations` / `fgMode` / `FL_MEASURED_FG` + `FL_MEASURED_FG_COUNTS`.
+
+> **§H5 case 3 is MEASURED as of 2026-08-15, and the answer is half of what the entry below
+> feared.** `fl-probe-interposer` now calls `slInit` (the licence blocker died with #64's MIT
+> vendoring) and reports: with the interposer engaged, **the swapchain the title holds is not
+> an instance of the class whose shared vtable we patch** — its vtable is inside
+> `sl.interposer.dll`. Reproduced on Alan Wake 2 (SL 2.7.0) and Cyberpunk 2077 (SL 2.7.1).
+>
+> **It does not follow that we miss the present, and the difference is the whole metric.**
+> `--probe-proxy` already showed a *forwarding* proxy is caught one layer down, because it
+> calls `real_->Present(...)` — an ordinary virtual dispatch. **Different class ≠ missed
+> present.** What is still unmeasured is whether *this* proxy forwards, and whether DLSS-G's
+> **generated** presents reach the same vtable. That needs presents driven through the proxy
+> with our hook installed, which is a fixture nobody has built.
+>
+> **Two things that change the shape of this item:**
+>
+> - **`slEvaluateFeature`'s signature is not stable across Streamline generations.** The
+>   Witcher 3 ships `sl.interposer.dll` **1.5.6**, which exports the same NAME with a
+>   different argument list. `ResolveScoped` now refuses a module that does not speak SL2
+>   (#71), so this item inherits that guard — do not weaken it to reach an older title.
+> - **`g_slSeen` is a bitmask, and FG needs a COUNT.** A bit collapses two evaluations
+>   between two presents into one. Whatever replaces it must not break 2b's consume block,
+>   which reads the same word — that is why 2b landed first.
+
+- **The arithmetic needs deciding before the hook, not after.** `03_METRICS` defines
+  `F_app = presents − Σ fgEvaluations`, i.e. `fgEvaluations` counts GENERATED frames — but
+  `slEvaluateFeature(kFeatureDLSS_G)` fires once per APPLICATION frame and produces N−1 of
+  them, and N lives in `sl::DLSSGOptions`, set out of band through `slDLSSGSetOptions`: the
+  same refused route as 2b's. **Counting evaluations directly** gives
+  `F_app = Σ evaluations`, `F_disp = presents`, `fg_factor = presents / evaluations` with no
+  multiplier and no new header — at the cost of a `03_METRICS` change in the same PR.
+  Owner-decided 2026-08-14: **count evaluations directly.**
+- **The other two vendors, measured.** `libxess_fg.dll` proxies the swapchain
+  (`xefgSwapChainD3D12InitFromSwapChain`, `…GetSwapChainPtr`, `…SetEnabled`). `ffx_fsr3_x64.dll`
+  exports `ffxFsr3SkipPresent`. **But the newer `amd_fidelityfx_framegeneration_dx12.dll`
+  (3.1.5, in three installed titles) exports only the five generic `ffx*` entry points** —
+  identity comes from the arguments, not the symbol, so telling FG from upscaling means
+  decoding a vendor struct we have no headers for. Defer with a written rationale rather than
+  guessing.
+- Oracle: the game's own settings menu and frame counter (owner decision). **Cyberpunk 2077 is
+  the sharpest**: `DLSS_MultiFrameGeneration = x4` in its settings file, so the expected
+  answer is `fg_factor ≈ 4.0` — a number a structurally-1.0 bug cannot fake.
+
+<details>
+<summary>The original entry, kept for the reasoning it carries</summary>
+
 ### 3. Frame generation, and the present it may not own
 
 - `fgEvaluations` / `fgMode` / `FL_MEASURED_FG` + `FL_MEASURED_FG_COUNTS`.
@@ -288,6 +377,32 @@ than cutting a segment.
   criterion already says "verified against the game's own settings menu", so this does
   not import P2's ETW source.
 
+</details>
+
+### 4. Ray tracing — §S29(f) is ruled, and the cheapest conjunct has landed
+
+> **The RayQuery contradiction is settled, 2026-08-14 (owner).** AS-build activity proves
+> **ray tracing is happening** ⇒ `RT = Yes`; *classifying the technique as RayQuery* is what
+> needs a DXIL scan and stays `N/A`. CLAUDE.md rule 7's `N/A` applies to the **classification**,
+> not to the yes/no question — so `03_METRICS:170` and `README.md:34` both stand. **Amend rule
+> 7 in the PR that writes the hook**, and build both hooks: a `DispatchRays`-only writer sees
+> nothing on a RayQuery-only title and its silence is indistinguishable from a real negative.
+>
+> **`rtTier` already has a producer** (#67) — `ResolveApi` queries
+> `D3D12_FEATURE_D3D12_OPTIONS5` on the device DXGI hands it. Two of the `No` branch's three
+> conjuncts are therefore live; **what is still missing is `FL_MEASURED_RT`**, so RT is `N/A`
+> on every session and both `Yes` and `No` remain unreachable. The gap moved; it did not close.
+>
+> **And a trap that has now appeared twice in two different vendors' enums.**
+> `D3D12_RAYTRACING_TIER_NOT_SUPPORTED` is **0**, against `rtTier`'s "not queried";
+> `sl::DLSSMode::eOff` is **0**, against `upscalerQuality`'s "not measured". Both would have
+> published an affirmative negative by simply copying the vendor value. **Assume the next
+> vendor enum has the same shape**, and resolve it at the writer, where the two states are
+> still distinguishable.
+
+<details>
+<summary>The original entry, kept for the reasoning it carries</summary>
+
 ### 4. Ray tracing, including the path dispatch counting misses
 
 - `CreateStateObject`, `DispatchRays`, `BuildRaytracingAccelerationStructure`;
@@ -300,6 +415,8 @@ than cutting a segment.
 - **§S29(f) must be settled before the hook is written.** CLAUDE.md rule 7 and
   `03_METRICS` §RT disagree about whether inline RayQuery is measurable, and the answer
   decides whether a RayQuery-only title reports `Yes` or `N/A`.
+
+</details>
 
 ### 5. Item 4's answer, measured on real titles
 
@@ -392,6 +509,32 @@ deferred with a written rationale.
 The mechanical ones live in the toolchain notes; these are the ones that cost a *wrong
 diagnosis*.
 
+- **A vendor keeps the SYMBOL NAME and changes the SIGNATURE, and no gate we have can see
+  it.** The Witcher 3 ships `sl.interposer.dll` **1.5.6**: it exports `slInit`,
+  `slEvaluateFeature`, `slSetTag` and `slShutdown`, so every name check passes, and it exports
+  **none** of `slSetD3DDevice` / `slIsFeatureLoaded` / `slGetNewFrameToken`. `slInit`'s
+  `sl::Preferences` has a different layout, so calling it with the vendored 2.x struct
+  **access-violates**. `docs/vendor-exports.json` records **one copy per module NAME**, so
+  `hookinventory-check` Pass A resolves against one machine's 2.7.4 and says nothing about a
+  1.5.6 in a game directory. The guard is `SpeaksStreamline2` in `fl_hook_inventory.h`;
+  **do not weaken it to reach an older title.**
+- **A vendor enum's zero is not your zero, and this has now happened twice.**
+  `D3D12_RAYTRACING_TIER_NOT_SUPPORTED` is 0 against `rtTier`'s "not queried";
+  `sl::DLSSMode::eOff` is 0 against `upscalerQuality`'s "not measured". Copying the vendor
+  value verbatim publishes an affirmative negative in both cases — and for `upscalerQuality`,
+  0 decodes as "DLSS Performance". **Assume the next one has the same shape**; resolve it at
+  the writer.
+- **`main` has `strict: true` branch protection, so merging ANY pull request makes every
+  other one `BEHIND`.** A batch of ready PRs cannot be merged in a loop: each needs
+  `gh pr update-branch` after the previous one lands, which re-runs CI (~6–11 min each). And
+  every PR that touches `CHANGELOG.md` under `[Unreleased]` — which is every PR touching
+  `src/` — conflicts with the one before it. Budget the batch accordingly, or merge one at a
+  time and expect to resolve the same conflict repeatedly.
+- **Anything that writes a file with a script writes LF, and `.gitattributes` hides it until
+  it does not.** `dotnet format --verify-no-changes` is the documented victim, but a Python
+  or PowerShell `write` is the usual cause. `git commit` prints *"LF will be replaced by
+  CRLF"* and then normalises for you — so the COMMIT is fine and the WORKING TREE is not,
+  which is the confusing half. Normalise explicitly after any scripted edit.
 - **Never run `cmake`/`ctest` directly — always `./build.ps1`.** Without the MSVC
   environment it imports, configure fails, the build never runs, and ctest executes the
   **stale binary** and prints `Passed`. Cost two wrong diagnoses in one session.
