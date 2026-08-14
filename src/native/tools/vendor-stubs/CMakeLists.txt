@@ -36,3 +36,24 @@ fl_add_vendor_stub(fl_stub_sl_interposer "sl.interposer" stub_sl_interposer.cpp)
 # The decoy: same symbol, different module, must NOT be hooked. Without it,
 # "module-scoped resolution" is a property no test can falsify.
 fl_add_vendor_stub(fl_stub_sl_common "sl.common" stub_sl_common.cpp)
+
+# The WRONG-GENERATION fixture: right module name, right symbol name, Streamline
+# 1.x ABI. Must NOT be hooked either, for a different reason than the decoy —
+# scoping cannot see it, because the module name is correct.
+#
+# ITS OWN SUBDIRECTORY, and that is forced rather than tidy: its output name is
+# also `sl.interposer.dll`, so it would collide with the SL2 stub in a shared
+# output directory. Separate directories also mean a test can load exactly one of
+# them by absolute path, which is what makes the two cases independent —
+# GetModuleHandleExW resolves by name, so a process holding both would answer
+# whichever loaded first and the fixtures would silently test each other.
+fl_add_vendor_stub(fl_stub_sl_interposer_v1 "sl.interposer" stub_sl_interposer_v1.cpp)
+# ARCHIVE_ too, and it is not optional: on Windows a SHARED library emits the DLL
+# under RUNTIME_ and the IMPORT LIBRARY under ARCHIVE_. Redirecting only the first
+# two leaves both targets generating tools/vendor-stubs/sl.interposer.lib, and
+# ninja refuses the configure with "multiple rules generate" -- which is the
+# generator catching a collision the DLL rename hid.
+set_target_properties(fl_stub_sl_interposer_v1 PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sl1"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sl1"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sl1")
