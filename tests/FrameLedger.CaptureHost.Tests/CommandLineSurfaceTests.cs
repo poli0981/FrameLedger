@@ -18,7 +18,35 @@ public sealed class CommandLineSurfaceTests
     [Fact]
     public void TheAcceptedOptionsAreExactlyThese()
     {
-        CommandLine.AcceptedOptions.Should().BeEquivalentTo(["--exe"]);
+        // TWO, and adding the second was a deliberate, reviewed act -- this assertion is what
+        // made it one. `--seconds` bounds how long an already-consented, already-guarded
+        // session runs; it cannot widen WHAT is injected or skip a check, which is the
+        // property that separates it from the --pid / --payload / --force / --yes this host
+        // refuses. It exists because CaptureLoop honoured MaxDuration and nothing could set
+        // it, so a bounded real-title measurement was impossible to take.
+        CommandLine.AcceptedOptions.Should().BeEquivalentTo(["--exe", "--seconds"]);
+    }
+
+    [Fact]
+    public void ASecondsValueThatIsNotAPositiveNumberIsAnErrorAndNeverASilentZero()
+    {
+        // ZERO MEANS "UNTIL THE TARGET EXITS". So leniency here does not produce a shorter
+        // session than asked for — it produces an UNBOUNDED one, which is the opposite of what
+        // an operator typing --seconds wants. Every rejected form is listed, because "it parsed
+        // as 0" and "it was refused" are indistinguishable from the exit code alone.
+        foreach (string bad in new[] { "abc", "0", "-5", "", "1.5", "2s", "+9", " 9" })
+        {
+            CommandLine.Parse(["capture", "--exe", "game.exe", "--seconds", bad]).Error
+                .Should().NotBeNull($"'--seconds {bad}' must be refused rather than read as unbounded");
+        }
+
+        CommandLine parsed = CommandLine.Parse(["capture", "--exe", "game.exe", "--seconds", "45"]);
+        parsed.Error.Should().BeNull();
+        parsed.Seconds.Should().Be(45);
+        parsed.ExePath.Should().Be("game.exe", "--seconds must not be mistaken for the --exe value");
+
+        // Absent is the product default, and it is 0 = run until the target exits.
+        CommandLine.Parse(["capture", "--exe", "game.exe"]).Seconds.Should().Be(0);
     }
 
     [Fact]

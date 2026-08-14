@@ -24,6 +24,10 @@
 
 #include <cstdint>
 #include <sl.h>
+// AFTER sl.h, deliberately: sl_dlss.h has NO includes of its own -- verified on
+// the upstream file, its closure is empty -- and relies on sl.h having been
+// pulled in first for SL_STRUCT_BEGIN, Boolean and INVALID_UINT.
+#include <sl_dlss.h>
 
 namespace fl::slinputs {
 
@@ -51,7 +55,34 @@ struct ScanResult {
     uint16_t renderW = 0;
     uint16_t renderH = 0;
     bool     found = false;
+
+    // The vendor's own DLSSMode value, or 0xFF for "a hook ran and could not
+    // tell". NEVER 0: fl_shm.h has no in-band "not measured" for
+    // upscalerQuality, so 0 would publish DLSSMode::eMaxPerformance -- "DLSS
+    // Performance" -- as a measurement.
+    uint8_t quality = 0xFFu;
+    bool    qualityFound = false;
 };
+
+// DLSSMode -> the byte fl_shm.h carries. Never 0, for any input.
+//
+// eOff IS ZERO in the vendor enum, and that is the trap this exists for: storing
+// DLSSMode verbatim would make "the title turned DLSS off" and "nobody looked"
+// the same byte. Exactly the collision class as
+// D3D12_RAYTRACING_TIER_NOT_SUPPORTED against rtTier's "not queried", and
+// resolved the same way -- at the writer, where the two are still
+// distinguishable, rather than at the reader where they no longer are.
+inline uint8_t QualityFromMode(sl::DLSSMode mode) noexcept {
+    const uint32_t v = static_cast<uint32_t>(mode);
+    if (v == static_cast<uint32_t>(sl::DLSSMode::eOff) || v >= static_cast<uint32_t>(sl::DLSSMode::eCount)) {
+        // eOff is a real statement -- "not upscaling" -- but it is not a
+        // QUALITY, and the field it would land in reserves 0 for "nobody
+        // looked". A mode at or beyond eCount is a newer SDK than these headers
+        // describe. Both are honestly "a hook ran and could not tell".
+        return 0xFFu;
+    }
+    return static_cast<uint8_t>(v);
+}
 
 // Is this structure a ResourceTag we can read?
 //
@@ -65,8 +96,13 @@ struct ScanResult {
 // is shorter than the declaration -- there is no length in the ABI to compare
 // against. That is the vendor's contract to keep, and it is stated here so the
 // limit is known rather than discovered.
+template <typename T>
+inline bool IsReadable(const sl::BaseStructure* s) noexcept {
+    return s != nullptr && s->structType == T::s_structType && s->structVersion >= sl::kStructVersion1;
+}
+
 inline bool IsReadableResourceTag(const sl::BaseStructure* s) noexcept {
-    return s != nullptr && s->structType == sl::ResourceTag::s_structType && s->structVersion >= sl::kStructVersion1;
+    return IsReadable<sl::ResourceTag>(s);
 }
 
 // Find the extent a title tagged as the upscaler's INPUT colour buffer.
@@ -99,24 +135,34 @@ inline ScanResult FindScalingInputExtent(const sl::BaseStructure** inputs, uint3
         // allocation is forbidden.
         const sl::BaseStructure* s = inputs[i];
         for (uint32_t depth = 0; s != nullptr && depth < kMaxChain; ++depth, s = s->next) {
-            if (!IsReadableResourceTag(s)) {
-                continue;
+            // TWO THINGS ARE WANTED, so this no longer returns on the first hit:
+            // the extent and the quality arrive in different structures and a
+            // title may chain them in either order. Returning early on the
+            // extent would have made quality depend on chain order, which is a
+            // property of the title rather than of what it is doing.
+            if (IsReadableResourceTag(s)) {
+                const auto* tag = static_cast<const sl::ResourceTag*>(s);
+                if (tag->type == sl::kBufferTypeScalingInputColor && !out.found) {
+                    const uint32_t w = tag->extent.width;
+                    const uint32_t h = tag->extent.height;
+                    if (w != 0 && h != 0 && w <= 0xFFFFu && h <= 0xFFFFu) {
+                        out.renderW = static_cast<uint16_t>(w);
+                        out.renderH = static_cast<uint16_t>(h);
+                        out.found = true;
+                    }
+                    // Otherwise a whole-resource tag, or a size that cannot be a
+                    // render target. Keep looking: a title may chain several tags
+                    // and only one of them carries an extent.
+                }
+            } else if (IsReadable<sl::DLSSOptions>(s) && !out.qualityFound) {
+                // `mode` is the FIRST member of DLSSOptions and has been since
+                // kStructVersion1, so it is readable at any version at or above
+                // the one these headers describe -- which is what makes matching
+                // on `>=` correct here rather than optimistic. The struct is
+                // kStructVersion3 today and grew by appending.
+                out.quality = QualityFromMode(static_cast<const sl::DLSSOptions*>(s)->mode);
+                out.qualityFound = true;
             }
-            const auto* tag = static_cast<const sl::ResourceTag*>(s);
-            if (tag->type != sl::kBufferTypeScalingInputColor) {
-                continue;
-            }
-            const uint32_t w = tag->extent.width;
-            const uint32_t h = tag->extent.height;
-            if (w != 0 && h != 0 && w <= 0xFFFFu && h <= 0xFFFFu) {
-                out.renderW = static_cast<uint16_t>(w);
-                out.renderH = static_cast<uint16_t>(h);
-                out.found = true;
-                return out;
-            }
-            // A whole-resource tag, or a size that cannot be a render target.
-            // Keep looking rather than returning: a title may chain several tags
-            // and only one of them carries an extent.
         }
     }
     return out;

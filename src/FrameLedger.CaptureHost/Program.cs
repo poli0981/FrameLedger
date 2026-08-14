@@ -66,7 +66,7 @@ internal static class Program
             Verb.ConsentList => await ListAsync(store).ConfigureAwait(false),
             Verb.ConsentGrant => await GrantAsync(store, cmd.ExePath!).ConfigureAwait(false),
             Verb.ConsentRevoke => await RevokeAsync(store, cmd.ExePath!).ConfigureAwait(false),
-            Verb.Capture => await CaptureAsync(store, cmd.ExePath!).ConfigureAwait(false),
+            Verb.Capture => await CaptureAsync(store, cmd.ExePath!, cmd.Seconds).ConfigureAwait(false),
             _ => _exitUsage,
         };
     }
@@ -128,7 +128,7 @@ internal static class Program
         return outcome is ConsentWriteOutcome.Written or ConsentWriteOutcome.NotFound ? _exitOk : _exitRefused;
     }
 
-    private static async Task<int> CaptureAsync(FileGameConsentStore store, string exePath)
+    private static async Task<int> CaptureAsync(FileGameConsentStore store, string exePath, int seconds)
     {
         string normalised = ExecutableIdentity.Normalise(exePath);
         ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
@@ -156,7 +156,13 @@ internal static class Program
                     out ShmAttachRefusal refusal);
                 return (reader is null ? null : new ShmCaptureSink(reader), refusal);
             },
-            new CaptureOptions());
+            new CaptureOptions
+            {
+                // Zero keeps the product behaviour: run until the target exits. A positive
+                // --seconds is an operator taking a bounded measurement, and CaptureLoop
+                // already honoured MaxDuration -- nothing could set it.
+                MaxDuration = seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero,
+            });
 
         CaptureResult result = await loop.RunAsync(normalised, observed, payload).ConfigureAwait(false);
 
@@ -194,6 +200,33 @@ internal static class Program
         HostConsole.Line($"  guard ticks published: {result.GuardTicksPublished}");
         HostConsole.Line($"  records: {result.Records.Count} ({dominant.Count} on the dominant stream), " +
                           $"{segments.Count} segment(s), gaps {result.TotalGaps}, dropped {result.TotalDropped}");
+
+        // WHICH HOOKS THE WRITER ACTUALLY INSTALLED, and it is not cosmetic.
+        //
+        // Every N/A below has two very different causes and the same wording: the hook never
+        // installed, or it installed LATE and the consumer requires its bit on EVERY record
+        // (feature hooks install lazily on a 1 Hz watchdog, so the first second of a session
+        // predates them). "no upscaler hook ran" is only true in the first case, and a real
+        // measurement cannot tell them apart without this line.
+        int withUpscaler = dominant.Count(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler));
+        int withParams = dominant.Count(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.UpscalerParams));
+        HostConsole.Line($"  hooks installed: {(FlHookFamily)result.WriterState.HooksInstalledMask}" +
+                          $"   apiMask=0x{result.WriterState.ApiMask:X}   rtTier={result.WriterState.RtTier}");
+        HostConsole.Line($"  records carrying Upscaler={withUpscaler}/{dominant.Count}  " +
+                          $"UpscalerParams={withParams}/{dominant.Count}  " +
+                          $"(a value below the total means the hook came up mid-session, not that it never did)");
+
+        // The RAW values, so a real-title run can be checked against the game's own settings.
+        // Grouped rather than sampled: one record could be a transient, and what a verification
+        // run needs is what the writer said for most of the session.
+        foreach (var g in dominant.Where(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.UpscalerParams))
+                     .GroupBy(r => (r.RenderW, r.RenderH, r.UpscalerQuality, r.Upscaler))
+                     .OrderByDescending(g => g.Count()).Take(3))
+        {
+            HostConsole.Line($"    render {g.Key.RenderW}x{g.Key.RenderH}  quality=0x{g.Key.UpscalerQuality:X2}  " +
+                              $"upscaler={(FlUpscaler)g.Key.Upscaler}  on {g.Count()} record(s)");
+        }
+
         HostConsole.Line(SessionReport.Render(facts));
     }
 }

@@ -19,6 +19,47 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **`capture` can be bounded, because a real-title measurement otherwise could not end.**
+  `CaptureLoop` honoured `CaptureOptions.MaxDuration` and tests covered it — **nothing could
+  set it**, so `capture` against a running game ran until the game was closed, and the report
+  only prints at the end. `--seconds <n>` is a **duration bound, not a safety bypass**: the
+  options this host refuses (`--pid`, `--payload`, `--force`, `--yes`) each widen *what* is
+  injected or skip a check, while this only shortens an already-consented, already-guarded
+  session. A non-positive or non-numeric value is an **error, never a silent 0** — 0 means
+  *unbounded*, so leniency would produce the opposite of what the operator asked for.
+  `TheAcceptedOptionsAreExactlyThese` went red, which is the gate working.
+- **The session report could not tell "no hook ran" from "the hook came up late".** Both
+  produce N/A and the same wording, and against Cyberpunk 2077 it said *"no upscaler hook
+  ran"* while the hook was live for 97% of a 10,169-present session — feature hooks install
+  lazily on a 1 Hz watchdog, and the consumer requires the bit on *every* record. The host now
+  prints `hooksInstalledMask`, `apiMask`, `rtTier`, the per-bit record counts, and the modal
+  raw `renderW/H` / `quality` / `upscaler`, so a partial count reads as *came up mid-session*
+  and a verification run can be checked against the game's own settings file.
+
+- **`upscalerQuality` gets a real preset, and `sl_dlss.h` is vendored with its consumer** —
+  the last piece of `docs/HANDOFF.md` item 2b that could be built. The same bounded `inputs`
+  walk now also matches `sl::DLSSOptions` and reads `mode`.
+  - **Vendored the way the process requires, not approximately.** Upstream
+    `NVIDIA-RTX/Streamline@main`, 8,489 bytes, **CRLF preserved**,
+    `git hash-object 3aac47be62c9322aef119b88926602d37655d3ed`. Its include closure is
+    **empty** — verified on the upstream file — so it adds no other header. None of
+    `18_GPU_VENDOR_APIS` §Checklist step 2's four needles appear in it, so step 1 applies and
+    step 3 is unreachable. Notices, the vendoring README and `17_HOOK_ENGINE` are corrected in
+    the same commit: nine headers → ten.
+  - **`DLSSMode::eOff` is 0, and `upscalerQuality` reserves 0 for "nobody looked."** Storing
+    the vendor enum verbatim would make *"the title turned DLSS off"* and *"no hook ran"* the
+    same byte — and 0 decodes as NGX MaxPerf, i.e. it would publish **"DLSS Performance"** as
+    a measurement. `QualityFromMode` maps `eOff` and anything at or beyond `eCount` to `0xFF`.
+    **Exactly the collision `D3D12_RAYTRACING_TIER_NOT_SUPPORTED` had against `rtTier`**, in a
+    different vendor's enum, resolved the same way: at the writer, while the two are still
+    distinguishable.
+  - Asserted **exhaustively** rather than by example: no `DLSSMode` value, in range or out,
+    may map to 0. A single mapping mistake publishes a wrong preset rather than an absence.
+  - The walk no longer returns on its first hit. Extent and quality arrive in **different**
+    structures and a title may chain them in either order, so an early return made quality
+    depend on chain order — a property of the title, not of what it is doing.
+
+
 - **The LOCAL tags too — `slEvaluateFeature`'s `inputs` walk, hardened against input a title
   should never send.** `sl_core_api.h:258` is explicit that buffer tags passed to
   `slEvaluateFeature` are *"local"* and *"do NOT interact with same tags sent in the global

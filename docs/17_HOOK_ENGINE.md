@@ -162,7 +162,10 @@ So:
   > The licence-clean alternative is Streamline's own MIT surface — `slSetTag`'s
   > resource extents (`kBufferTypeScalingInputColor` / `…OutputColor` give
   > render → output directly) and the DLSS options struct reached through
-  > `slGetFeatureFunction`. That is the params PR's job, and it needs `sl_dlss.h`
+  > ~~`slGetFeatureFunction`~~ — that route is refused on five grounds
+  > (`docs/HANDOFF.md` §2b); the one taken reads `slSetTag`'s extents and
+  > `sl::DLSSOptions` chained into `slEvaluateFeature`'s own `inputs`. That was the
+  > params PR's job, and it needed `sl_dlss.h`
   > vendored alongside the nine headers already taken.
   >
   > Reversing this is an owner decision about the checklist, not a coding task.

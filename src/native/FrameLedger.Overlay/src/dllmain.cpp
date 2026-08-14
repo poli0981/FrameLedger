@@ -659,6 +659,12 @@ PFN_SlSetTag g_origSlSetTag = nullptr;
 // one resolution beside a height from another. A number nobody rendered at.
 std::atomic<uint64_t> g_tagExtent{0};
 
+// The DLSS quality preset, as fl_shm.h's byte. 0xFF until a title chains
+// sl::DLSSOptions -- "a hook ran and could not tell", which is the honest state
+// for the many titles that set options out of band through slDLSSSetOptions and
+// never pass them here.
+std::atomic<uint8_t> g_dlssQuality{0xFFu};
+
 constexpr uint64_t kTagValid = 1ull << 32;
 
 // WHY THIS PERSISTS RATHER THAN BEING exchange(0)'d LIKE g_slSeen.
@@ -761,6 +767,14 @@ sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const s
                 g_tagExtent.store(static_cast<uint64_t>(scan.renderW) | (static_cast<uint64_t>(scan.renderH) << 16) |
                                       kTagValid,
                                   std::memory_order_release);
+            }
+            // Quality travels separately from the extent, because a title can
+            // chain sl::DLSSOptions without a local ResourceTag and vice versa.
+            // A separate word, not packed with the extent: they have different
+            // producers and pretending otherwise would tie one's absence to the
+            // other's.
+            if (scan.qualityFound) {
+                g_dlssQuality.store(scan.quality, std::memory_order_release);
             }
         }
     })
@@ -1046,10 +1060,15 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
             // byte. upscalerQuality has no in-band "not measured" sentinel -- 0 is
             // NGX MaxPerf, a real preset -- so 0 here would publish "DLSS
             // Performance" as a measurement (fl_shm.h §FL_MEASURED_UPSCALER_PARAMS).
-            // 0xFF is the defined "a hook ran and could not tell", which is exactly
-            // true: the quality preset lives in sl::DLSSOptions, set out of band,
-            // and this writer reads tags rather than options.
-            rec.upscalerQuality = 0xFFu;
+            // 0xFF is the defined "a hook ran and could not tell", and it stays
+            // the value for the many titles that set the preset out of band
+            // through slDLSSSetOptions and never pass sl::DLSSOptions to us.
+            //
+            // When a title DOES chain it, this carries the vendor's own DLSSMode
+            // value -- and QualityFromMode guarantees the byte is never 0, so
+            // eOff cannot masquerade as "nobody looked" the way
+            // D3D12_RAYTRACING_TIER_NOT_SUPPORTED once could against rtTier.
+            rec.upscalerQuality = g_dlssQuality.load(std::memory_order_acquire);
 
             // PERMANENTLY 0xFF, and this is the true value rather than a
             // placeholder. DLSSOptions::sharpness is
