@@ -1361,8 +1361,17 @@ TEST_CASE("a D3D12 title is recorded as D3D12, not as the D3D11 we used to assum
     // rather than assume -- asserting a tier here would turn that unknown into a
     // test that fails on some runners for a reason unrelated to this code.
     //
-    // CAPTURE, not a comment, so the run RECORDS the answer. This test is
-    // therefore also the measurement.
+    // CAPTURE surfaces the value WHEN THIS FAILS, and only then. An earlier
+    // version of this comment claimed the run "records the answer" and that the
+    // test was therefore also the measurement -- both false, and caught by going
+    // and reading a green CI log for the number that was supposed to be in it.
+    // Catch2 discards a CAPTURE on success, and `ctest --preset` (build.ps1:199)
+    // suppresses a passing test's output anyway.
+    //
+    // So WHETHER WARP SUPPORTS DXR IS STILL UNANSWERED, and item 4's harness DXR
+    // mode must query it at runtime and skip WITH A REASON rather than assume it
+    // either way. Left as a CAPTURE because it costs nothing and is exactly what
+    // a reader wants the moment this does fail.
     CAPTURE(st->rtTier);
     CHECK(st->rtTier != fl::FL_RT_TIER_NOT_QUERIED);
     CHECK((st->rtTier == fl::FL_RT_TIER_UNSUPPORTED || st->rtTier >= fl::FL_RT_TIER_CAPABLE_MIN));
