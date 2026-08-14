@@ -17,6 +17,39 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Overlay would hook a Streamline module of the wrong generation, and read its
+  arguments through the wrong signature.** The inventory scopes `slEvaluateFeature` to
+  `sl.interposer.dll` — correct, and not enough. **The Witcher 3 ships that module at
+  1.5.6**, a different API generation: it exports `slInit`, `slEvaluateFeature`, `slSetTag`
+  and `slShutdown` so every name check passes, plus `slGetHooks`, `slIsFeatureEnabled` and
+  `slSetFeatureConstants` which Streamline 2 does not have, and **none** of
+  `slSetD3DDevice` / `slIsFeatureLoaded` / `slGetNewFrameToken`.
+  - **The name survived the version bump and the signature did not**, which is why no gate
+    saw it. `docs/vendor-exports.json` records one copy per module *name*, so
+    `hookinventory-check` Pass A resolves against one machine's 2.7.4 and says nothing about
+    a 1.5.6 in a game. A detour typed with SL2's `PFun_slEvaluateFeature`, called with SL1's
+    argument list, reads argument 1 as a feature id when it is not one — a **wrong upscaler
+    name**, not a crash, which `17_HOOK_ENGINE` calls the highest false-confidence risk in
+    the spike.
+  - `ResolveScoped` now refuses a `sl.interposer.dll` that does not export the three
+    SL2-only entry points. No hook is installed, `FL_HOOK_UPSCALER_IDENTITY` is never
+    published, and the record says `FL_UPSCALER_NOT_REPORTED` — true, rather than a guess.
+  - **Scoped to the interposer by name, and the first version got that wrong.** Those three
+    are *interposer* exports; a real `sl.common.dll` is a plugin and exports none of them, so
+    an `sl.*` prefix test refused modules whose generation it had no business judging. The
+    existing decoy fixture caught it.
+  - New fixture `stub_sl_interposer_v1.cpp` — right module name, right symbol name, SL1 ABI —
+    and `ctest fl_sl_abi_guard`. It is the complement of the decoy: scoping catches a wrong
+    module *name*, and cannot see a wrong *signature*. Its own ctest and its own process,
+    because both fixtures are called `sl.interposer.dll` and `GetModuleHandleExW` resolves by
+    name, so sharing one would have the two silently test each other.
+  - Proved red by canary: neutering the check leaves exactly one assertion failing, and it
+    compiles, so it is a canary rather than a build failure wearing one.
+  - The SL2 stub gains the three markers, so it honestly looks like the generation it stands
+    in for. Found because the guard correctly refused it otherwise.
+
 ### Added
 
 - **`FlWriterState.rtTier` gets a producer, and the vendor enum it copies had a collision in
