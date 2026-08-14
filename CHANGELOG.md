@@ -19,6 +19,7 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+<<<<<<< HEAD
 - **`upscalerQuality` gets a real preset, and `sl_dlss.h` is vendored with its consumer** —
   the last piece of `docs/HANDOFF.md` item 2b that could be built. The same bounded `inputs`
   walk now also matches `sl::DLSSOptions` and reads `mode`.
@@ -67,6 +68,8 @@ GitHub release body, so a missing section will mean an empty release note.
     unprotectable from here. Same for a struct whose GUID matches but whose allocation is
     short. Both are the vendor's contract to keep, and both are written down.
 
+=======
+>>>>>>> origin/main
 - **`FL_MEASURED_UPSCALER_PARAMS` gets its first producer: render resolution, from the global
   resource tags** — `docs/HANDOFF.md` item 2b, and one of the five values P0 exit criterion 1
   names. A second inventory row detours `sl.interposer.dll!slSetTag`, reads the
@@ -142,6 +145,92 @@ GitHub release body, so a missing section will mean an empty release note.
     in for. Found because the guard correctly refused it otherwise.
 
 ### Added
+
+- **`FlWriterState.rtTier` gets a producer, and the vendor enum it copies had a collision in
+  it** — `docs/HANDOFF.md` queue item 4, the one conjunct that needs no hook. `ResolveApi`
+  already obtained an `ID3D12Device*` on the first present of a D3D12 swapchain and released
+  it three lines later without asking it anything; it now asks
+  `CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5)` first. No hook, no MinHook, no vtable —
+  a capability query on a device DXGI handed us for a swapchain we were called on.
+  - **`D3D12_RAYTRACING_TIER_NOT_SUPPORTED` is 0, and `rtTier`'s 0 already meant NOT
+    QUERIED.** Storing the enum verbatim — the obvious implementation, and the one
+    `fl_shm.h`'s own field comment described — would have published "nobody looked" about
+    every non-RT device: the affirmative-negative collision layout v3 exists to prevent,
+    reached by copying a vendor enum rather than by a guess. New `FlRtTier` carries three
+    states: `NOT_QUERIED = 0`, `UNSUPPORTED = 1`, and the D3D12 value verbatim otherwise.
+  - **Measured against the Windows SDK header rather than remembered:** `NOT_SUPPORTED = 0`,
+    `TIER_1_0 = 10`, `TIER_1_1 = 11`, **`TIER_1_2 = 12`** — the enum is already "tier ×10", so
+    nothing multiplies it and nothing names the individual tiers. A tier newer than the SDK
+    this was built against arrives intact instead of being clamped to what the build knew.
+  - **Both directions are asserted, in `ctest fl_guard`.** The D3D12 case asserts the field
+    holds a legal `FlRtTier` value; the D3D11 case asserts it is exactly `NOT_QUERIED`,
+    because a writer that stored `UNSUPPORTED` unconditionally would pass the first on its
+    own. What the D3D12 case does **not** assert is *which* tier: the fixture's device is
+    WARP, and whether WARP supports DXR is the open question `HANDOFF` item 4 says to check
+    rather than assume — so the value is `CAPTURE`d and the test records the answer instead
+    of depending on it.
+  - **It does not make RT reachable yet, and the consumer comment now says so precisely.**
+    `MeasuredFacts.RayTracingOf`'s two conjuncts both have producers now, but
+    `FL_MEASURED_RT` still has none, so RT is `N/A` on every session. The gap moved; it did
+    not close.
+- **`hookinventory-check` grows a third pass, over the one failure the other two cannot
+  see** — and the document that already claimed this pass existed is corrected in the same
+  commit. Passes A and B are source checks: they see what the Overlay *resolves*. Neither
+  sees what it *links*. Taking the address of an `SL_API` declaration in evaluated code makes
+  `sl.interposer.dll` a **load-time dependency** of `FrameLedger.Overlay.dll`, which then
+  fails to load in every game that ships no Streamline — in the loader, before `DllMain`,
+  with no message anywhere. **Pass C reads the binary's own dependency list** and fails on
+  `^(sl\.|_?nvngx|libxess|ffx_|amd_fidelityfx)`.
+  - **`src/native/third_party/streamline/README.md` had asserted this gate since
+    2026-08-09.** It did not exist: the script's only mention of `dumpbin` was a comment
+    about a different tool. Found by an audit that went looking for the code instead of
+    trusting the sentence — the shape this project keeps hitting, and worse here because the
+    failure Pass C catches has no symptom to notice.
+  - **It refuses rather than passes whenever it cannot look.** A zero-length import list is a
+    failure, not a clean result — every way that parse can break produces the same empty list
+    as a binary with no vendor imports. The list must also contain `kernel32.dll` before any
+    verdict is formed, the same discrimination rule the oracle probe already follows.
+  - **It runs only under `-RequireBinaries`.** The first version read whatever binary was in
+    the build tree, so `check -SkipNative` printed a skip line *and* ran the pass anyway,
+    against an artefact the run did not produce. Reporting on the wrong binary is worse than
+    saying nothing.
+  - Proven on real PEs as well as fixtures: out of `AlanWake2.exe`'s 47 imports and
+    `Cyberpunk2077.exe`'s 36, it names exactly `sl.interposer.dll` and — for Cyberpunk —
+    `libxess.dll`, `libxess_fg.dll`, `ffx_fsr3_x64.dll`, `ffx_backend_dx12_x64.dll`, and
+    nothing else. Self-test is 17 cases, both directions, including that the match is
+    anchored so an innocent name merely *containing* a vendor prefix passes.
+  - Pass B's stray-literal sweep gains `xefg[A-Z]`, which `xess[A-Z]` does not cover:
+    `libxess_fg.dll`'s 31 measured exports include 28 `xefgSwapChain*` names and no `xess*`
+    name at all. Widened before the FG hooks land rather than after.
+- **§H5 case 3 gets an answer, and a second finding cost a crash to get** —
+  `fl-probe-interposer` reported INCONCLUSIVE because it never called `slInit`, blaming a
+  licence question over `sl::Preferences`. #64 vendored Streamline under MIT and removed that
+  blocker; the probe now runs the sequence a real title runs — `slInit` →
+  `D3D12CreateDevice` **through the interposer** → `slSetD3DDevice` — with every entry point
+  resolved by `GetProcAddress`, never linked.
+  - **MEASURED: the swapchain class is not ours.** With `slInit` returning `eOk`, the
+    interposer hands back a swapchain whose vtable sits inside `sl.interposer.dll` while
+    `dxgi.dll`'s own route yields `dxgi.dll`'s. Reproduced on Alan Wake 2 (SL 2.7.0) and
+    Cyberpunk 2077 (SL 2.7.1). **It does not follow that we miss the present** — §H5's
+    `--probe-proxy` result stands, a forwarding proxy is caught one layer down — and the
+    probe says so rather than converting a premise into a verdict.
+  - **The Witcher 3 ships Streamline 1.5.6, and it crashed the probe.** A different API
+    generation: `slGetHooks`, `slIsFeatureEnabled`, `slSetFeatureConstants`, and **no**
+    `slSetD3DDevice` or `slIsFeatureLoaded`. `slInit` exists in both with a different
+    `sl::Preferences` layout, so the vendored 2.x struct access-violates. Now version-guarded
+    on the SL2-only exports, skipping with a reason.
+  - **That reaches the hook inventory.** `docs/vendor-exports.json` records one copy per
+    module *name*, so its `sl.interposer.dll` is one machine's 2.7.4 and says nothing about a
+    1.5.6 a title ships. Pass A would accept `slEvaluateFeature` against such a title — the
+    name exists in both generations — while the **signature** differs. Today's hook reads
+    only `feature` and is probably unharmed; **item 2b's `inputs`/`numInputs` walk is not**,
+    and needs its own version guard before dereferencing anything.
+  - **The engagement read was a race first.** Plugin load is deferred: the first run reported
+    both features unloaded while Streamline's own log — flushed after ours — showed six
+    plugins verifying. Now polled for the state, bounded by a wall clock.
+  - `ctest fl_vtable_identity_control` (Part 1, the control) is unchanged and still runs on
+    CI; the probe imports `d3d11.dll` and `KERNEL32.dll` only, so linking Streamline could
+    not have broken it.
 
 - **The upscaler identity hook, and a fixture that can prove a wrong symbol name wrong** —
   `docs/HANDOFF.md` queue item 2. `FrameLedger.Overlay` gains **module-scoped symbol

@@ -137,9 +137,19 @@ public sealed partial class MeasuredFactsTests
         MeasuredFacts.From(stream, dispatchOnly, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(
             Tri.NotApplicable, "a writer without the AS-build hook sees nothing on a RayQuery-only title");
 
-        var notQueried = capable with { RtTier = 0 };
+        var notQueried = capable with { RtTier = (uint)FlRtTier.NotQueried };
         MeasuredFacts.From(stream, notQueried, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(
             Tri.NotApplicable, "rtTier 0 means NOT QUERIED, not `not capable`");
+
+        // THE THIRD STATE, which did not exist until rtTier got a producer. D3D12's own
+        // NOT_SUPPORTED is 0, so the writer substitutes FlRtTier.Unsupported to keep "we asked and
+        // this device cannot" distinguishable from "nobody asked". Both reach N/A here — and they
+        // must reach it for DIFFERENT reasons, which is why the previous case is not enough on its
+        // own: a consumer that collapsed Unsupported back to 0 would pass that one and this one, but
+        // a `>= CapableMin` written as `!= 0` would pass that one and FAIL this.
+        var incapable = capable with { RtTier = (uint)FlRtTier.Unsupported };
+        MeasuredFacts.From(stream, incapable, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(
+            Tri.NotApplicable, "a device that cannot ray-trace produces no evidence, so `No` says nothing");
     }
 
     [Fact]

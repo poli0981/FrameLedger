@@ -194,6 +194,28 @@ So:
 > between the inventory and the stub fixtures: `static_assert(InventoryHas(...))`
 > makes it a build error, so the typo never reaches the gate. Stronger, and not
 > the script's credit to take.
+>
+> **A THIRD PASS landed 2026-08-14, and it covers the failure the other two
+> structurally cannot see.** Passes A and B are source checks: they see what the
+> Overlay *resolves*. Neither sees what it *links*. Taking the address of an
+> `SL_API` declaration in evaluated code makes `sl.interposer.dll` a **load-time
+> dependency**, and the Overlay then fails to load in every game that ships no
+> Streamline — inside the loader, before `DllMain`, with no message anywhere and
+> nothing in the ring to explain it. **Pass C reads the built binary's own
+> dependency list** (`dumpbin /dependents`) and fails on any module matching
+> `^(sl\.|_?nvngx|libxess|ffx_|amd_fidelityfx)`.
+>
+> Two properties worth stating because both were mistakes first. It **refuses
+> rather than passes** when it cannot look — a zero-length import list, a missing
+> binary under `-RequireBinaries`, or an absent `dumpbin` are all failures, and
+> the list must contain `kernel32.dll` before any verdict is formed, for the same
+> discrimination reason as the oracle probe above. And it runs **only** under
+> `-RequireBinaries`, because without it any binary in the build tree is stale by
+> definition, and a gate reporting on the wrong artefact is worse than one that
+> says it did not look.
+>
+> **`third_party/streamline/README.md` asserted this pass existed for five days
+> before it did**, which is why it is described here rather than only there.
 
 ### Ray tracing
 | Hook | Yields |
