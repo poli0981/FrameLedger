@@ -338,15 +338,25 @@ function Invoke-ProjectGates {
     # the spike, and the failure has no symptom: the record a misspelt hook
     # writes is byte-identical to an honest writer's on a title with no upscaler.
     #
-    # NOT gated on -SkipNative: it reads a header and a JSON file, not build
-    # output. BOTH halves run, following changelog-check — a gate wired
-    # self-test-only never reads the repository, which is the defect it exists to
-    # prevent.
+    # Passes A and B are NOT gated on -SkipNative: they read a header and a JSON
+    # file, not build output. BOTH halves run, following changelog-check — a gate
+    # wired self-test-only never reads the repository, which is the defect it
+    # exists to prevent.
+    #
+    # -RequireBinaries drives PASS C, the import-table half: the built Overlay must
+    # import no vendor module, or it fails to load in every game that ships no
+    # Streamline — in the loader, before DllMain. That needs something built, so it
+    # is skipped loudly rather than silently when the native build was, exactly as
+    # chokepoint-check's symbol half is.
     Write-Step 'hookinventory-check'
     $inventoryTool = Join-Path $repo 'tools/hookinventory-check.ps1'
     if (Test-Path $inventoryTool) {
         Invoke-Checked 'hookinventory-check (self-test)' { & $inventoryTool -SelfTest }
-        Invoke-Checked 'hookinventory-check' { & $inventoryTool -RepoRoot $repo }
+        Invoke-Checked 'hookinventory-check' {
+            & $inventoryTool -RepoRoot $repo -BuildDir (Join-Path $repo "build/native/x64-$($Configuration.ToLower())") `
+                -RequireBinaries:(-not $SkipNative)
+        }
+        if ($SkipNative) { Skip-Gate 'hookinventory-check (imports)' 'native build skipped, so there is no binary to inspect' }
     }
     else {
         Skip-Gate 'hookinventory-check' 'tools/hookinventory-check.ps1 not implemented yet'
