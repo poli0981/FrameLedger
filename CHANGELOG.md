@@ -79,6 +79,35 @@ GitHub release body, so a missing section will mean an empty release note.
     `MeasuredFacts.RayTracingOf`'s two conjuncts both have producers now, but
     `FL_MEASURED_RT` still has none, so RT is `N/A` on every session. The gap moved; it did
     not close.
+- **`hookinventory-check` grows a third pass, over the one failure the other two cannot
+  see** — and the document that already claimed this pass existed is corrected in the same
+  commit. Passes A and B are source checks: they see what the Overlay *resolves*. Neither
+  sees what it *links*. Taking the address of an `SL_API` declaration in evaluated code makes
+  `sl.interposer.dll` a **load-time dependency** of `FrameLedger.Overlay.dll`, which then
+  fails to load in every game that ships no Streamline — in the loader, before `DllMain`,
+  with no message anywhere. **Pass C reads the binary's own dependency list** and fails on
+  `^(sl\.|_?nvngx|libxess|ffx_|amd_fidelityfx)`.
+  - **`src/native/third_party/streamline/README.md` had asserted this gate since
+    2026-08-09.** It did not exist: the script's only mention of `dumpbin` was a comment
+    about a different tool. Found by an audit that went looking for the code instead of
+    trusting the sentence — the shape this project keeps hitting, and worse here because the
+    failure Pass C catches has no symptom to notice.
+  - **It refuses rather than passes whenever it cannot look.** A zero-length import list is a
+    failure, not a clean result — every way that parse can break produces the same empty list
+    as a binary with no vendor imports. The list must also contain `kernel32.dll` before any
+    verdict is formed, the same discrimination rule the oracle probe already follows.
+  - **It runs only under `-RequireBinaries`.** The first version read whatever binary was in
+    the build tree, so `check -SkipNative` printed a skip line *and* ran the pass anyway,
+    against an artefact the run did not produce. Reporting on the wrong binary is worse than
+    saying nothing.
+  - Proven on real PEs as well as fixtures: out of `AlanWake2.exe`'s 47 imports and
+    `Cyberpunk2077.exe`'s 36, it names exactly `sl.interposer.dll` and — for Cyberpunk —
+    `libxess.dll`, `libxess_fg.dll`, `ffx_fsr3_x64.dll`, `ffx_backend_dx12_x64.dll`, and
+    nothing else. Self-test is 17 cases, both directions, including that the match is
+    anchored so an innocent name merely *containing* a vendor prefix passes.
+  - Pass B's stray-literal sweep gains `xefg[A-Z]`, which `xess[A-Z]` does not cover:
+    `libxess_fg.dll`'s 31 measured exports include 28 `xefgSwapChain*` names and no `xess*`
+    name at all. Widened before the FG hooks land rather than after.
 
 - **The upscaler identity hook, and a fixture that can prove a wrong symbol name wrong** —
   `docs/HANDOFF.md` queue item 2. `FrameLedger.Overlay` gains **module-scoped symbol
