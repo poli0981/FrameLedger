@@ -19,6 +19,59 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **The FG factor gets a consumer, and most of it is the refusals.** `FgWindow` takes
+  `F_disp` and `F_app` from **one record set** — every drained record in one QPC span, not
+  the dominant stream — because `g_slSeen` is one process-wide word drained by whichever
+  present arrives first, so an evaluation belonging to the game's frame can be consumed by
+  a UI swapchain's present. Summing the denominator over one stream while counting presents
+  over all of them overstates the factor with no diagnostic. Five refusals, each a number
+  this consumer would otherwise have printed as a measurement: nothing counted (a data gap,
+  never 1.0); a saturated 255 (a sentinel, not a floor to divide by); a record with
+  `swapchainId 0`; more than one stream in the span; and **the frame-generation state
+  changing during the session**.
+- **That last one was found by an adversarial review of the design, before any of this was
+  written, and it produces a number above the physically achievable one.** Half a session at
+  ×4 and half with FG off gives a whole-window factor of 8 from an ×4 configuration, and
+  `NativeFps` inherits the whole error — while every other guard stays silent, because the
+  count is not zero, the factor is not 1.0 and it is not below 1.0. `03_METRICS:133` already
+  forbids this for upscaling ("averaging across a settings change is the classic way
+  benchmark numbers become meaningless") and lists `fg_mode` as a **segment** column. The
+  window is now split into eight buckets and any bucket whose factor departs from the whole
+  refuses the lot.
+- **`evaluations/batch`, the premise check that needs no oracle.** HANDOFF item 3 rests on
+  `slEvaluateFeature(kFeatureDLSS_G)` firing **once** per application frame, and nothing in
+  this repository had verified it. The quotient of the two ratios a run can compute —
+  `(presents/batches) ÷ (presents/Σ)` — reduces to `Σ/batches`, and it is the ONLY check
+  that catches the k-per-frame case: three evaluations per frame at ×4 yields a factor of
+  1.34, which is above 1.0 so an over-counting guard is silent, is not 1.0 so a
+  structurally-1.0 guard is silent, and still **moves with the setting** so a three-point
+  sweep passes too. Batches come from `FL_FEAT_RAY_RECONSTRUCTION_OBSERVED`, which the
+  writer sets under `seen != 0` and nothing else — an exact indicator, unlike the params bit
+  whose extra tag-validity conjunct makes the ledger's 4.0134 an upper bound.
+- **`NativeFps` is counted, not derived.** `Σ / seconds`, not `DisplayedFps / factor`.
+  Derived, the rule-6 trio is internally consistent by construction and a reader can
+  conclude nothing from that consistency; computed separately, `Native × Factor ≈ Displayed`
+  is a property a test checks — to within exactly one frame, because Displayed counts
+  intervals and Native counts records, and that difference is asserted rather than rounded
+  away. The renderer now prints all three off **one** window or prints one labelled number
+  and the reason, which is the half of rule 6 that had no test at all.
+- **`SlCensus` — §S30's "print them first", built rather than promised.** Per record, which
+  of the five Streamline feature classes arrived, including the undecoded one, which is only
+  separable because of the `FL_FEAT_SL_UNDECODED` bit added in the previous commit. It names
+  the §S30 shape directly: batches that generated frames carrying **no** super-resolution id.
+- **The O1–O5 decision table is committed to `20_OPEN_QUESTIONS` §S30 BEFORE the run.**
+  "Measure, then fix" becomes "fix, then justify" the moment the table is written after the
+  numbers are known, and nobody can tell the two apart afterwards. The table includes the
+  falsifier for its own independent oracle: if `fl-baseline-probe` reports `nvngx_dlssg.dll`
+  LOADED with multi-frame generation off, it is not an oracle for FG engagement and must be
+  retired in the same `spike-notes` row rather than quietly relied on.
+- **A factor of exactly 1.0 is NOT reported as §H5 case 3.** Three causes produce it and this
+  data cannot separate them — generated presents never reaching the vtable we patch, FG
+  configured off while the feature is still evaluated, and an evaluation that FAILED and was
+  counted anyway, because `Hook_SlEvaluateFeature` increments before forwarding and ignores
+  the `sl::Result`. The report prints all three. Naming one is how the item gets routed down
+  the wrong branch.
+
 - **`fgEvaluations` and `fgMode` get a producer, and the count is of EVALUATIONS.**
   `slEvaluateFeature(kFeatureDLSS_G)` now contributes to a saturating 24-bit count in the
   high field of the same word the feature bits live in (`fl_sl_seen.h`), consumed by the

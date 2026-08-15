@@ -194,8 +194,15 @@ internal static class Program
     {
         IReadOnlyList<FlFrameRecord> dominant = StreamSegmenter.DominantStream(result.Records);
         IReadOnlyList<Segment> segments = StreamSegmenter.Segment(result.Records);
+        // OVER EVERY RECORD, not over the dominant stream, and that asymmetry is deliberate.
+        // g_slSeen is one process-wide word drained by whichever present arrives first, so an
+        // evaluation belonging to the game's frame can be consumed by a UI swapchain's
+        // present. Summing the denominator over one stream while counting presents over all
+        // of them overstates the factor with no diagnostic; FgWindow takes both from one set
+        // and refuses outright when the span holds more than one stream.
+        FgWindow fg = FgWindow.From(result.Records, Stopwatch.Frequency);
         MeasuredFacts facts = MeasuredFacts.From(
-            dominant, result.WriterState, Stopwatch.Frequency, result.TotalGaps, result.TotalDropped);
+            dominant, result.WriterState, Stopwatch.Frequency, result.TotalGaps, result.TotalDropped, fg);
 
         HostConsole.Line($"  guard ticks published: {result.GuardTicksPublished}");
         HostConsole.Line($"  records: {result.Records.Count} ({dominant.Count} on the dominant stream), " +
@@ -215,6 +222,10 @@ internal static class Program
         HostConsole.Line($"  records carrying Upscaler={withUpscaler}/{dominant.Count}  " +
                           $"UpscalerParams={withParams}/{dominant.Count}  " +
                           $"(a value below the total means the hook came up mid-session, not that it never did)");
+
+        // WHICH FEATURE IDS ACTUALLY ARRIVED. §S30's "print them first", and the input to the
+        // decision table pre-committed in 20_OPEN_QUESTIONS before this run happens.
+        HostConsole.Line(SlCensus.From(dominant).Describe());
 
         // The RAW values, so a real-title run can be checked against the game's own settings.
         // Grouped rather than sampled: one record could be a transient, and what a verification

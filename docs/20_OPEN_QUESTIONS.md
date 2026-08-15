@@ -526,6 +526,44 @@ separate change that item 3 would immediately rewrite. **Do not "fix" it by maki
 the decode prefer DLSS without first measuring which ids arrive**: that would turn
 a wrong answer into a confident wrong answer.
 
+> ### The instrument is built. The decision table is below, and it is written BEFORE the run.
+>
+> **Why it is here rather than in the PR that acts on it.** "Measure, then fix" becomes
+> "fix, then justify" the moment the table is written after the numbers are known — and
+> nobody can tell the two apart afterwards, least of all the person who did it. So the
+> mapping from measurement to action is committed first, in the file that owns the item,
+> and the run that follows either lands on a row or does not.
+>
+> **What produces the input.** `FrameLedger.CaptureHost` now prints a Streamline id census
+> (`SlCensus`) over the window the identity hook governs: how many presents drained a batch,
+> and of those how many carried `kFeatureDLSS`, `kFeatureNIS`, `kFeatureDLSS_RR`,
+> `kFeatureDLSS_G` and an **undecoded** id — the last of which is only separable because
+> layout v3's `FL_FEAT_SL_UNDECODED` exists. It also prints `evaluations/batch`, which
+> tests item 3's unverified premise with no oracle at all.
+>
+> | # | What the census says | What it means | The decode change |
+> |---|---|---|---|
+> | **O1** | `kFeatureDLSS = 0`, `kFeatureDLSS_G > 0`, `UNDECODED = 0` | the title does not route super-resolution through `slEvaluateFeature` at all | **none.** `UNKNOWN` is the true answer and the entry closes as "measured, not a defect". The upscaler fact then needs a different producer, which is its own item |
+> | **O2** | `kFeatureDLSS > 0` on some batches, `0` on the batches that also carry `kFeatureDLSS_G` | identity and frame generation arrive in *different* batches | **drain**, not decode: accumulate identity across the presents of one application frame. Do NOT prefer DLSS in the decode — that gives the wrong answer for a title that switches upscaler mid-session, which is the whole reason these two options differ |
+> | **O3** | `kFeatureDLSS > 0` on the SAME batches that carry `kFeatureDLSS_G`, yet the record still decoded `UNKNOWN` | the decode is losing an id it was handed | **decode.** The if/else-if chain assigns ONE bit per call and the last writer wins within a batch; make the mapping additive and re-check |
+> | **O4** | `UNDECODED > 0` on the batches that decoded `UNKNOWN` | an id we do not map is arriving, and may be the super-resolution one under another name | **neither, yet.** Print the raw `sl::Feature` values before mapping anything — a new id decoded by guess is exactly this entry repeating. That needs a writer change of its own |
+> | **O5** | `batches = 0`, or `evaluations/batch` far from 1 | the hook is not seeing what we think it sees | **stop.** Neither fix is safe: `evaluations/batch ≠ 1` falsifies item 3's premise outright and the FG factor is wrong by that factor, so that is the defect to chase first |
+>
+> **The independent oracle, and its own falsifier — also written first.** `fl-baseline-probe`
+> against a **running** Cyberpunk 2077 at MFG ×4, ×2 and off answers "is `nvngx_dlssg.dll`
+> loaded", which is evidence about FG engagement that shares nothing with the writer under
+> test. **If it reports LOADED with MFG off, it is not an oracle for this question** —
+> plugin loading happens at `slInit`/feature discovery, not at feature engagement — and it
+> must be retired in the same `spike-notes` row rather than quietly relied on. The fallback
+> is the game's own frame counter.
+>
+> **Not in the table on purpose:** a factor of exactly 1.0 must NOT be recorded as §H5 case 3.
+> At least three causes produce it and this data cannot separate them — generated presents
+> never reaching the vtable we patch, frame generation configured off while the feature is
+> still evaluated, and an evaluation that FAILED and was counted anyway, because
+> `Hook_SlEvaluateFeature` increments before forwarding and ignores the `sl::Result`. The
+> report prints all three rather than naming one.
+
 ### S27 · The chokepoint is the ANTI-CHEAT gate, and it is not the consent gate
 
 Found 2026-08-05 by an adversarial review of the drain host's design, before it was

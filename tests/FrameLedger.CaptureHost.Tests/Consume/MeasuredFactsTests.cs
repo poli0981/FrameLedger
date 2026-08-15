@@ -93,10 +93,50 @@ public sealed partial class MeasuredFactsTests
         string text = SessionReport.Render(
             MeasuredFacts.From(Stream(60, Stopwatch.Frequency / 60), _presentOnly, Stopwatch.Frequency, 0, 0));
 
-        text.Should().Contain("FG state not measured");
+        text.Should().Contain("FG factor NOT measured");
         FgFactorShape().IsMatch(text).Should().BeFalse("an ×N beside a single number reads as a measured factor");
         text.Should().NotContain("Native FPS", "showing it as N/A beside a real Displayed figure invites "
                                                + "reading Displayed as Native");
+    }
+
+    [Fact]
+    public void TheRenderedReportShowsTheWHOLETrioWhenItHasOne()
+    {
+        // THE OTHER DIRECTION OF RULE 6, and it was untested: a renderer that never printed
+        // Native or the factor at all would have passed the case above for the wrong reason.
+        // Both halves of "together or not at all" have to be reachable.
+        List<FlFrameRecord> stream = [];
+        ulong qpc = 1_000_000;
+        long step = Stopwatch.Frequency / 240;
+        for (int f = 0; f < 40; f++)
+        {
+            for (int p = 0; p < 4; p++)
+            {
+                stream.Add(new FlFrameRecord
+                {
+                    Qpc = qpc,
+                    SwapchainId = 1,
+                    MeasuredMask = (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs
+                                            | FlMeasured.Fg | FlMeasured.FgCounts),
+                    FgEvaluations = (byte)(p == 0 ? 1 : 0),
+                    FgMode = (byte)(p == 0 ? FlFgMode.DlssG : FlFgMode.Unknown),
+                    FeatureFlags = (byte)(p == 0 ? FlFeatureFlags.RayReconstructionObserved : FlFeatureFlags.None),
+                });
+                qpc += (ulong)step;
+            }
+        }
+
+        var writer = new FlWriterState
+        {
+            HooksInstalledMask = (uint)(FlHookFamily.Present | FlHookFamily.UpscalerIdentity
+                                        | FlHookFamily.FgEvaluations),
+        };
+        string text = SessionReport.Render(MeasuredFacts.From(
+            stream, writer, Stopwatch.Frequency, 0, 0, FgWindow.From(stream, Stopwatch.Frequency)));
+
+        text.Should().Contain("Native FPS").And.Contain("Displayed FPS").And.Contain("x4 FG");
+        text.Should().Contain("evaluations/batch").And.Contain("histogram");
+        text.Should().Contain("frame generation: DlssG");
     }
 
     [Fact]
