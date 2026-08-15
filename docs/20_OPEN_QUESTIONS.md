@@ -484,6 +484,48 @@ the unconditional assignment turns the new test red with the build green.
 > *share* (~1/17), because an absolute floor alone would be satisfied by a harness
 > presenting on one chain.
 
+### S30 ✅ · The record names the WRONG upscaler on a real title — **closed 2026-08-15, and the fix broke the instrument that found it**
+
+> **Answered: Ray Reconstruction was doing the upscaling.** With `DLSS_D = True` Cyberpunk
+> 2077 evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once**
+> — 2,523 of 2,523 batches across three 40 s captures, zero DLSS, zero NIS, zero undecoded
+> ids. RR **replaces** the super-resolution pass rather than running beside it; the decode
+> had no arm for that and fell through to `UNKNOWN`. `spike-notes` §8 carries the run.
+>
+> **Not the shortcut this entry forbade.** No preference is applied and no id is outranked,
+> because only one id ever arrives. What makes it a measurement: `renderW/H` are published
+> only on a frame that drained an evaluation, and they read 1485×835 against the title's own
+> `DLSS = Balanced` at 2560×1440 — 0.58 exactly — so the scaling-input tag arrives **on the
+> RR evaluation**. The evaluation that upscales is the one the decode was already holding.
+> Mapped to `FL_UPSCALER_DLSS` and not a new value: layout v3 retired
+> `FL_UPSCALER_RETIRED_RAY_RECONSTRUCTION` precisely because RR is an independent axis, and
+> `FL_FEAT_RAY_RECONSTRUCTION` already carries it from the same word.
+>
+> **THE DECISION TABLE BELOW HAD TWO HOLES, AND THE RUN FOUND BOTH.** It was written before
+> the measurement, exactly as this entry demanded, and it was still incomplete: **O1 assumed
+> `kFeatureDLSS_G > 0`**, so no row covered "batches arrive and DLSS-G never does"; and **no
+> row anticipated a single non-super-resolution id accounting for 100% of batches.** The
+> table is kept unchanged rather than quietly repaired, because a pre-committed table that
+> gets edited after the fact is worth nothing, and because what it got wrong is the useful
+> part: the hole was in the *hypotheses*, not in the discipline. Writing it first is what
+> made the gap visible instead of invisible.
+>
+> **AND THE FIX CONTAMINATED THE INSTRUMENT.** `SlCensus` derived "a super-resolution id
+> arrived" from the DECODED `upscaler` byte, so correcting the decode made it report 2,569
+> arrivals of an id that arrives zero times — a measurement that moves when its subject moves
+> cannot be evidence about the subject, which is the only job this entry gave it, and the
+> next reader would have taken it at face value. `FL_FEAT_SL_SUPER_RESOLUTION` now carries
+> the raw fact from the drain word, independent of any decode. Generalises: **when a decode
+> is corrected, check every consumer that derived a fact FROM that decode.**
+>
+> **What is NOT closed by this.** `kFeatureDLSS_G` is never evaluated either — see
+> `spike-notes` §8 and §H5 — so item 3's counter has nothing to count on this route. That is
+> a separate finding with its own consequences for HANDOFF item 3, and it does not belong to
+> this entry.
+
+<details>
+<summary>The entry as it stood while it was open, including the pre-committed table with its two holes</summary>
+
 ### S30 ❓ · The record names the WRONG upscaler on a real title, and it is honest while being wrong
 
 **Measured 2026-08-15, Cyberpunk 2077, and it is the first defect a real-title run
@@ -563,6 +605,8 @@ a wrong answer into a confident wrong answer.
 > still evaluated, and an evaluation that FAILED and was counted anyway, because
 > `Hook_SlEvaluateFeature` increments before forwarding and ignores the `sl::Result`. The
 > report prints all three rather than naming one.
+
+</details>
 
 ### S27 · The chokepoint is the ANTI-CHEAT gate, and it is not the consent gate
 

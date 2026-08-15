@@ -1029,6 +1029,7 @@ to prove themselves.
 | Title | Upscaler | Quality | Render → output | FG active | RT | Matches menu? |
 |---|---|---|---|---|---|---|
 | **Cyberpunk 2077** (2026-08-15) | ❌ `Unknown` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ⬜ not measured | ⬜ not measured | **1 of 5** |
+| **Cyberpunk 2077** (2026-08-15, later, after §S30) | ✅ `Dlss` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ◐ on, factor not measurable on this route | ⬜ not measured | **2 of 5** |
 
 **The first row, and it is one row.** Read the legend before the marks: ✅ measured and
 correct against the title's own settings; ❌ measured and **wrong**; ⬜ honestly absent — no
@@ -1043,6 +1044,41 @@ minutes earlier gave 11,108 presents with the same shape.
 `DLSS = Balanced` at `2560x1440`; Balanced is 0.58, so 2560 × 0.58 = 1484.8 and
 1440 × 0.58 = 835.2. The writer said **1485×835**. This is the first of exit criterion 1's
 five values measured correctly from a real game.
+
+> ### The second row, and §S30's answer: Ray Reconstruction was doing the upscaling
+>
+> **Three further 40 s captures, same title, same settings** (`DLSS = Balanced`,
+> `DLSS_D = True`, `DLSS_MultiFrameGeneration = x4`, `ReflexMode = Enabled`, 2560×1440),
+> with the id census the previous row's defect motivated. Conditions: 10,092–10,443
+> presents, 0 gaps, 0 dropped, ~260 displayed FPS, `apiMask` = D3D12, `rtTier` = **12**
+> (`TIER_1_2`), hooks `Present | UpscalerIdentity | UpscalerParams | FgEvaluations`.
+>
+> **The census, and it is the whole of §S30:** of 2,523 batches, `kFeatureDLSS_RR` = 2,523,
+> `kFeatureDLSS` = **0**, `kFeatureNIS` = 0, `kFeatureDLSS_G` = **0**, undecoded = 0. With
+> Ray Reconstruction on, the title evaluates RR **instead of** super-resolution, not beside
+> it. The decode had no arm for that and reported `UNKNOWN`. What settles it rather than
+> suggesting it: `renderW/H` are published only on a frame that drained an evaluation, and
+> they are 1485×835 — so the scaling-input tag arrives ON the RR evaluation. The evaluation
+> that upscales is the one the decode was already looking at.
+>
+> **`presents/batch = 4.000` on three independent runs** (10,176/2,544 · 10,276/2,569 ·
+> 10,092/2,523), against the title's own `x4`. Two things follow, and the second is the one
+> that changes the plan:
+>
+> - **DLSS-G's GENERATED presents reach the vtable we patch.** A factor of exactly 4 cannot
+>   be produced by a writer that only sees application frames. §H5's fear — `fg_factor`
+>   structurally 1.0 on every Streamline title — does **not** hold for the present path.
+> - **`slEvaluateFeature(kFeatureDLSS_G)` is never called.** Zero, in ~7,600 batches across
+>   three runs, while frame generation is demonstrably active. On Streamline 2.x DLSS-G is
+>   driven through the interposer's swapchain proxy, not through the feature-evaluation
+>   entry point — so **HANDOFF item 3's premise is wrong for this route**, and the counter
+>   built for it is correct and has nothing to count. `presents/batch` is a working proxy
+>   only because RR happens to be evaluated once per application frame.
+>
+> **Still unmeasured, and it is one setting away:** the same capture with multi-frame
+> generation OFF. If `presents/batch` falls to ~1 the 4.000 is proven to be FG rather than a
+> property of how this title evaluates RR, and §H5 closes on two points instead of one.
+> Until then the ×4 reading has one configuration behind it.
 
 **Quality `0xFF` is a measurement of the TITLE, not a gap in the code.** Cyberpunk sets its
 preset out of band through `slDLSSSetOptions` and never chains `sl::DLSSOptions` into
