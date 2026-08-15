@@ -210,6 +210,124 @@ public sealed partial class MeasuredFactsTests
     }
 
     [Fact]
+    public void AHookThatCameUpMidSessionIsStillMeasured()
+    {
+        // THE DEFECT THIS PINS. `stream.All(...)` was unsatisfiable by construction: feature hooks
+        // install lazily from the 1 Hz watchdog, so the opening of every session predates them and the
+        // consumer reported "no upscaler hook ran" about a session where the hook was live for 97% of
+        // the presents. Program.cs grew a per-bit record count to explain that in prose; this makes it
+        // unnecessary.
+        List<FlFrameRecord> stream = [.. Stream(100, 1000).Select((r, i) =>
+        {
+            if (i >= 12)
+            {
+                r.MeasuredMask |= (ushort)FlMeasured.Upscaler;
+                r.Upscaler = (byte)FlUpscaler.Dlss;
+            }
+
+            return r;
+        })];
+
+        MeasuredFacts.From(stream, _presentOnly, Stopwatch.Frequency, 0, 0).Upscaler.Should().Be(
+            "Dlss", "12 cold records at the head are the install window, not an absence of measurement");
+    }
+
+    [Fact]
+    public void AStreamNoRecordEverClaimedStaysNotApplicable()
+    {
+        // The other direction, and the one that keeps the fix above from degenerating into "always
+        // claim": with no record carrying the bit the maximal claiming suffix is empty, and empty must
+        // read as N/A rather than as an aggregate over nothing.
+        MeasuredFacts facts = MeasuredFacts.From(Stream(40, 1000), _presentOnly, Stopwatch.Frequency, 0, 0);
+
+        facts.Upscaler.Should().BeNull();
+        facts.RayTracing.Should().Be(Tri.NotApplicable);
+        facts.Hdr.Should().Be(Tri.NotApplicable);
+    }
+
+    [Fact]
+    public void AnIntermittentBitIsNotAnInstallWindow()
+    {
+        // Set, cleared, set again. The trailing run looks exactly like a clean install window on its
+        // own, so without the boundary check it would be averaged as if it were the whole session —
+        // publishing a value about an interval nobody measured. hooksInstalledMask is monotonic, so
+        // this shape can only come from a writer defect, and the honest reading of a writer
+        // contradicting itself is N/A.
+        List<FlFrameRecord> stream = [.. Stream(30, 1000).Select((r, i) =>
+        {
+            if (i is < 5 or >= 20)
+            {
+                r.MeasuredMask |= (ushort)FlMeasured.Upscaler;
+                r.Upscaler = (byte)FlUpscaler.Dlss;
+            }
+
+            return r;
+        })];
+
+        MeasuredFacts.From(stream, _presentOnly, Stopwatch.Frequency, 0, 0).Upscaler.Should().BeNull();
+    }
+
+    [Fact]
+    public void RayTracingCountsEvidenceOverExactlyTheRecordsItClaims()
+    {
+        // ONE RECORD SET FOR BOTH SIDES OF THE RATIO. 10 cold records then 10 claiming records, all
+        // ten carrying AS-build evidence. Counting evidence over the suffix and dividing by the whole
+        // stream gives 10/20 = 50% — still over the 5% gate, so that error would not show here — but
+        // the reverse pairing is what this pins: `measured` must be decided over the same records the
+        // denominator counts, or the two disagree the moment evidence is sparse.
+        List<FlFrameRecord> stream = [.. Stream(20, 1000).Select((r, i) =>
+        {
+            if (i >= 10)
+            {
+                r.MeasuredMask |= (ushort)FlMeasured.Rt;
+                r.RtFlags = (byte)FlRtFlags.AsBuildObserved;
+            }
+
+            return r;
+        })];
+
+        MeasuredFacts.From(stream, _presentOnly, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(
+            Tri.Yes, "the RT hook came up at record 10 and every record after it carries evidence");
+
+        // And the 5% gate still has to be able to say no: one evidence record in twenty claiming ones
+        // is 5% exactly, so make it one in forty.
+        List<FlFrameRecord> sparse = [.. Stream(41, 1000).Select((r, i) =>
+        {
+            r.MeasuredMask |= (ushort)FlMeasured.Rt;
+            if (i == 40)
+            {
+                r.RtFlags = (byte)FlRtFlags.AsBuildObserved;
+            }
+
+            return r;
+        })];
+
+        MeasuredFacts.From(sparse, _presentOnly, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(
+            Tri.NotApplicable, "one evidence record in 41 is under the 5% gate, and `No` needs the "
+                               + "AS-build hook installed and an RT-capable device besides");
+    }
+
+    [Fact]
+    public void HdrSurvivesTheInstallWindowToo()
+    {
+        // The fourth member of the class, and the one the first sweep of it missed. SetColorSpace1 is
+        // unbuilt today so this cannot regress in production yet — which is exactly why it is asserted
+        // now, while the answer is still cheap to get right.
+        List<FlFrameRecord> stream = [.. Stream(50, 1000).Select((r, i) =>
+        {
+            if (i >= 7)
+            {
+                r.MeasuredMask |= (ushort)FlMeasured.Hdr;
+                r.ColorSpace = (byte)FlColorSpace.Hdr10;
+            }
+
+            return r;
+        })];
+
+        MeasuredFacts.From(stream, _presentOnly, Stopwatch.Frequency, 0, 0).Hdr.Should().Be(Tri.Yes);
+    }
+
+    [Fact]
     public void GapsAndDropsAreReportedRatherThanAbsorbed()
     {
         MeasuredFacts facts = MeasuredFacts.From(Stream(10, 1000), _presentOnly, Stopwatch.Frequency, totalGaps: 0, totalDropped: 4);

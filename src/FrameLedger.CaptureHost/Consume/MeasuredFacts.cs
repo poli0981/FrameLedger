@@ -243,12 +243,83 @@ internal sealed record MeasuredFacts
             return false;
         }
 
+        // fgEvaluations has no in-band sentinel — 0 is a real count — so only the mask bit
+        // can say whether anyone counted. Added here to keep this in step with the native
+        // twin in guard_test.cpp, which HANDOFF item 3 will make load-bearing.
+        if (!mask.HasFlag(FlMeasured.FgCounts) && r.FgEvaluations != 0)
+        {
+            return false;
+        }
+
+        // featureFlags carries Ray Reconstruction's fact and OBSERVED bits, produced by the same
+        // Streamline detour as the upscaler identity. A writer not entitled to claim an upscaler
+        // is not entitled to say anything about RR either.
+        if (!entitled.HasFlag(FlMeasured.Upscaler) && (FlFeatureFlags)r.FeatureFlags != FlFeatureFlags.None)
+        {
+            return false;
+        }
+
         return mask.HasFlag(FlMeasured.Rt) || (FlRtFlags)r.RtFlags == FlRtFlags.None;
+    }
+
+    /// <summary>
+    /// Index of the first record of the maximal SUFFIX on which <paramref name="claims"/>
+    /// holds for every record; <c>stream.Count</c> when no such suffix exists.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This replaces <c>stream.All(...)</c>, which was unsatisfiable by construction.</b>
+    /// Feature hooks install lazily from the 1 Hz watchdog, so the opening of every session
+    /// predates them — measured on Cyberpunk 2077, 292 of 10,169 records carry no
+    /// <see cref="FlMeasured.Upscaler"/> bit (<c>spike-notes</c> §8). A whole-stream
+    /// <c>All</c> therefore reported "no upscaler hook ran" about a session in which the
+    /// hook was live for 97% of the presents: the report said the opposite of what
+    /// happened, and <c>Program.cs</c> grew a per-bit record count to explain it in prose.
+    /// </para>
+    /// <para>
+    /// A SUFFIX rather than a tolerance, because the property being asserted has not
+    /// changed: every record we aggregate must carry the bit. Excluding a leading prefix
+    /// is safe precisely because <see cref="FlWriterState.HooksInstalledMask"/> is
+    /// monotonic (<c>fl_shm.h</c> §FlHookFamily) — a real install produces one clean
+    /// boundary, so a writer that sets the bit intermittently still fails to be
+    /// aggregated instead of being averaged over its gaps.
+    /// </para>
+    /// <para>
+    /// Takes a predicate and not an <see cref="FlMeasured"/> on purpose: the axes this
+    /// has to cover do not all live in <c>measuredMask</c>. See
+    /// <see cref="RayReconstructionOf"/>, which is gated on <see cref="FlFeatureFlags"/>
+    /// and is deliberately NOT a caller.
+    /// </para>
+    /// </remarks>
+    private static int ClaimedSuffixStart(IReadOnlyList<FlFrameRecord> stream, Func<FlFrameRecord, bool> claims)
+    {
+        int start = stream.Count;
+        for (int i = stream.Count - 1; i >= 0 && claims(stream[i]); i--)
+        {
+            start = i;
+        }
+
+        // THE BOUNDARY MUST BE CLEAN, or this is not an install window and nothing is aggregated.
+        // hooksInstalledMask is monotonic, so a real install sets the bit once and never clears it:
+        // every record before the boundary must LACK it. Without this, a writer setting the bit
+        // intermittently would have its trailing run averaged as though it were a whole session —
+        // the same "a value nobody measured over that interval" defect, reached from the other side,
+        // and silently, because the trailing run always looks like a clean suffix on its own.
+        for (int i = 0; i < start; i++)
+        {
+            if (claims(stream[i]))
+            {
+                return stream.Count;
+            }
+        }
+
+        return start;
     }
 
     private static string? UpscalerOf(IReadOnlyList<FlFrameRecord> stream)
     {
-        if (stream.Count == 0 || !stream.All(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler)))
+        int start = ClaimedSuffixStart(stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler));
+        if (start == stream.Count)
         {
             return null;
         }
@@ -273,16 +344,24 @@ internal sealed record MeasuredFacts
 
     private static Tri RayTracingOf(IReadOnlyList<FlFrameRecord> stream, FlWriterState writer)
     {
-        if (stream.Count == 0)
+        // ONE RECORD SET FOR BOTH THE EVIDENCE AND ITS DENOMINATOR. Counting evidence over
+        // the whole stream while `measured` is decided over a suffix would divide by records
+        // the claim does not cover — a different number from either honest choice.
+        int start = ClaimedSuffixStart(stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Rt));
+        bool measured = start < stream.Count;
+        int frames = stream.Count - start;
+
+        int evidence = 0;
+        for (int i = start; i < stream.Count; i++)
         {
-            return Tri.NotApplicable;
+            if (((FlRtFlags)stream[i].RtFlags & (FlRtFlags.AsBuildObserved | FlRtFlags.DispatchObserved))
+                != FlRtFlags.None)
+            {
+                evidence++;
+            }
         }
 
-        bool measured = stream.All(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Rt));
-        int evidence = stream.Count(r =>
-            ((FlRtFlags)r.RtFlags & (FlRtFlags.AsBuildObserved | FlRtFlags.DispatchObserved)) != FlRtFlags.None);
-
-        if (measured && evidence * 20 >= stream.Count)
+        if (measured && evidence * 20 >= frames)
         {
             return Tri.Yes;    // 03_METRICS: AS-build or DispatchRays in >= 5% of frames.
         }
@@ -310,6 +389,20 @@ internal sealed record MeasuredFacts
         // Gated on the in-band OBSERVED bit, NOT on measuredMask. FL_MEASURED_UPSCALER also covers FFX,
         // XeSS and NIS, so a writer with FFX hooks and no NGX hooks has "upscaler measured" and knows
         // nothing whatever about RR — sharing the mask bit would publish RR = No.
+        //
+        // AND THAT IS WHY THIS IS NOT A ClaimedSuffixStart CALLER, THOUGH IT LOOKS LIKE ONE.
+        // The other three axes are gated on a HOOK-LIVENESS bit, which is monotonic, so excluding the
+        // install prefix is the whole fix. This one is gated on a PER-PRESENT OBSERVATION: dllmain.cpp
+        // sets RayReconstructionObserved under `seen != 0`, deliberately, so an NGX-direct title running
+        // DLSS-RR does not get a fabricated `No`. Under frame generation that bit is intermittent by
+        // construction — on the Cyberpunk stream one Streamline batch spans ~4 presents, so ~24% of
+        // records carry it — and the maximal claiming suffix is then ONE record. Feeding that to the
+        // `Any` below would publish a whole-session Yes/No from a single frame, which is worse than the
+        // N/A this returns today.
+        //
+        // So the honest state is: RR is N/A on every frame-generating title, for a reason that is not
+        // the install window and is not fixed by sweeping it. Fixing it needs the application-frame
+        // unit that HANDOFF item 3 introduces; until then this stays as it is, and says so.
         if (stream.Count == 0
             || !stream.All(r => ((FlFeatureFlags)r.FeatureFlags).HasFlag(FlFeatureFlags.RayReconstructionObserved)))
         {
@@ -323,7 +416,8 @@ internal sealed record MeasuredFacts
 
     private static Tri HdrOf(IReadOnlyList<FlFrameRecord> stream)
     {
-        if (stream.Count == 0 || !stream.All(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Hdr)))
+        int start = ClaimedSuffixStart(stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Hdr));
+        if (start == stream.Count)
         {
             return Tri.NotApplicable;
         }

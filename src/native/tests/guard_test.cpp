@@ -1160,6 +1160,80 @@ bool StartHarness(Child& child) {
     return WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT;
 }
 
+// What a writer carrying `hooks` is entitled to claim, and whether a record stayed
+// inside it.
+//
+// DERIVED FROM hooksInstalledMask, NOT HARDCODED, and that is the whole change. The
+// assertion below used to compare measuredMask against the constant
+// `FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` with `!=` -- which was exactly
+// right while the Overlay hooked only presents, and states a fact about ONE BUILD
+// rather than about honesty. The managed side (MeasuredFacts.EntitledBy) was already
+// derived and already a SUBSET test; this side had drifted into an equality that a
+// correct writer fails the moment any feature bit is per-frame rather than per-session
+// -- FL_MEASURED_UPSCALER_PARAMS is gated on `seen != 0` (dllmain.cpp:1053), so under
+// frame generation three records in four legitimately lack it.
+//
+// TWO COPIES OF ONE CONTRACT, deliberately, and NOTHING GATES THEIR AGREEMENT. The
+// struct mirror has fl-layout-dump; this does not. Stated here rather than left to be
+// discovered: a change to MeasuredFacts.EntitledBy must be made here too.
+uint16_t EntitledBy(uint32_t hooks) noexcept {
+    uint16_t allowed = 0;
+    if ((hooks & fl::FL_HOOK_PRESENT) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_OUTPUT_RES | fl::FL_MEASURED_PRESENT_ARGS);
+    }
+    if ((hooks & fl::FL_HOOK_UPSCALER_IDENTITY) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_UPSCALER | fl::FL_MEASURED_FG);
+    }
+    if ((hooks & fl::FL_HOOK_UPSCALER_PARAMS) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_UPSCALER_PARAMS);
+    }
+    if ((hooks & fl::FL_HOOK_FG_EVALUATIONS) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_FG_COUNTS);
+    }
+    if ((hooks & (fl::FL_HOOK_RT_DISPATCH | fl::FL_HOOK_RT_AS_BUILD | fl::FL_HOOK_RT_PSO)) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_RT);
+    }
+    if ((hooks & fl::FL_HOOK_PSO) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_PSO);
+    }
+    if ((hooks & fl::FL_HOOK_COLOR_SPACE) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_HDR);
+    }
+    if ((hooks & fl::FL_HOOK_VRAM) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_VRAM);
+    }
+    if ((hooks & fl::FL_HOOK_REFLEX) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_LATENCY);
+    }
+    return allowed;
+}
+
+// BOTH DIRECTIONS, because a mask bit with no hook behind it and a VALUE with no mask
+// bit behind it are the same defect seen from two sides. Layout v3 makes the zero of
+// every enum "nobody said", so the second list is what a writer publishes when it
+// forgets.
+bool IsHonest(const fl::FlFrameRecord& r, uint16_t entitled) noexcept {
+    if ((r.measuredMask & static_cast<uint16_t>(~entitled)) != 0u) {
+        return false;
+    }
+    if ((r.measuredMask & fl::FL_MEASURED_UPSCALER) == 0u && r.upscaler != fl::FL_UPSCALER_NOT_REPORTED) {
+        return false;
+    }
+    if ((r.measuredMask & fl::FL_MEASURED_FG) == 0u && r.fgMode != fl::FL_FG_NOT_REPORTED) {
+        return false;
+    }
+    if ((r.measuredMask & fl::FL_MEASURED_FG_COUNTS) == 0u && r.fgEvaluations != 0u) {
+        return false;
+    }
+    // featureFlags carries Ray Reconstruction's fact and OBSERVED bits, produced by the
+    // same Streamline detour as the upscaler identity. A writer not entitled to claim
+    // an upscaler is not entitled to say anything about RR either.
+    if ((entitled & fl::FL_MEASURED_UPSCALER) == 0u && r.featureFlags != 0u) {
+        return false;
+    }
+    return (r.measuredMask & fl::FL_MEASURED_RT) != 0u || r.rtFlags == 0u;
+}
+
 }    // namespace
 
 TEST_CASE("the injection primitive really loads our DLL into another process", "[guard][inject]") {
@@ -1536,18 +1610,11 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
         if (i > 0 && all[i].qpc <= all[i - 1].qpc) {
             timeMovesForward = false;
         }
-        // The honesty property: a present-only writer may claim the output size
-        // and its own call arguments, and NOTHING else.
-        //
-        // Layout v3 changed how "nothing else" is spelled. rtFlags bits are now
-        // *_OBSERVED, so 0 is the honest value and FL_MEASURED_RT staying clear
-        // is what says nobody looked; the old opt-in FL_RT_NOT_MEASURED is
-        // retired. The enums moved with it: FL_UPSCALER_NOT_REPORTED and
-        // FL_FG_NOT_REPORTED are 0, so the zero-defaults no longer assert "no
-        // upscaler, no frame generation" and are checked here as such.
-        const uint16_t entitled = static_cast<uint16_t>(fl::FL_MEASURED_OUTPUT_RES | fl::FL_MEASURED_PRESENT_ARGS);
-        if (all[i].measuredMask != entitled || all[i].rtFlags != 0 || all[i].upscaler != fl::FL_UPSCALER_NOT_REPORTED ||
-            all[i].fgMode != fl::FL_FG_NOT_REPORTED || all[i].featureFlags != 0) {
+        // The honesty property: a writer may claim a measurement ONLY where it
+        // installed a hook capable of taking it, and may not set a value field whose
+        // mask bit is clear. Derived from hooksInstalledMask -- see EntitledBy above
+        // for why this is no longer a hardcoded constant compared with `!=`.
+        if (!IsHonest(all[i], EntitledBy(st->hooksInstalledMask))) {
             honest = false;
         }
         if (all[i].swapchainId == 0) {
@@ -1563,6 +1630,17 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
     CHECK(timeMovesForward);
     CHECK(honest);
     CHECK(identified);
+
+    // AND THE DERIVED FORM ONLY MEANS SOMETHING IF THIS WRITER REALLY IS PRESENT-ONLY.
+    // EntitledBy(hooks) widens with every family, so a writer that installed everything
+    // would be "honest" about any claim it made and the loop above would pass while
+    // proving nothing. EQUALITY, not a bit test: an extra family bit is exactly the
+    // failure this has to catch, and `& FL_HOOK_PRESENT` is blind to one.
+    //
+    // This harness is `--hold-presenting`, which loads no Streamline stub, so
+    // FL_HOOK_PRESENT alone is the correct and only answer here.
+    CHECK(st->hooksInstalledMask == static_cast<uint32_t>(fl::FL_HOOK_PRESENT));
+
     CHECK((st->apiMask & (1u << fl::FL_API_D3D11)) != 0);
     CHECK((st->apiMask & (1u << fl::FL_API_D3D12)) == 0);
 

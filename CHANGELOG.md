@@ -17,6 +17,62 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Four session calculators asked a question no session could answer yes to.** `UpscalerOf`,
+  `RayTracingOf`, `HdrOf` and `RayReconstructionOf` each gated on `stream.All(... bit ...)`,
+  and feature hooks install lazily from the 1 Hz watchdog — so the opening of every session
+  predates them. Measured on Cyberpunk 2077: **292 of 10,169 records carry no `Upscaler`
+  bit**, and the consumer therefore reported *"no upscaler hook ran"* about a session in
+  which the hook was live for 97% of the presents. `Program.cs` had already grown a per-bit
+  record count to explain that in prose. The three hook-liveness axes now aggregate over the
+  maximal claiming **suffix**, and the boundary must be **clean** — a bit that goes on, off
+  and on again is a writer contradicting itself, and its trailing run must not be averaged as
+  though it were a whole session, which is the same defect reached from the other side.
+- **`RayReconstructionOf` is deliberately NOT in that sweep, and the reason is now in the
+  code.** It looks identical and is not: the other three gate on a *hook-liveness* bit, which
+  is monotonic, while this one gates on a *per-present observation* (`seen != 0`), which under
+  frame generation is intermittent by construction — one Streamline batch spans ~4 presents on
+  the Cyberpunk stream, so the maximal claiming suffix is ONE record and feeding it to the
+  `Any` below would publish a whole-session Yes/No from a single frame. Worse than the `N/A`
+  it returns today. Fixing it needs the application-frame unit HANDOFF item 3 introduces.
+- **`guard_test.cpp`'s honesty assertion was a hardcoded equality where the managed twin was a
+  derived subset test.** It compared `measuredMask` against the constant
+  `FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` with `!=` — right while the Overlay
+  hooked only presents, and a statement about **one build** rather than about honesty. It is
+  now derived from `hooksInstalledMask` the way `MeasuredFacts.EntitledBy` is, as a subset
+  test, plus the value-without-bit conjuncts. Left as an equality it would have gone **red on
+  a correct writer** the moment any feature bit is per-frame rather than per-session:
+  `FL_MEASURED_UPSCALER_PARAMS` is gated on `seen != 0`, so under frame generation three
+  records in four legitimately lack it. **The derived form is paired with an equality on
+  `hooksInstalledMask` itself** — without it a writer that installed everything would be
+  "honest" about any claim and the loop would pass while proving nothing.
+  Both sides gained two conjuncts they were missing: `fgEvaluations` with `FG_COUNTS` clear,
+  and `featureFlags` on a writer not entitled to claim an upscaler.
+  **Two copies of one contract with nothing gating their agreement** — the struct mirror has
+  `fl-layout-dump`; this does not. Stated in both files rather than left to be discovered.
+- **`slSetTag` shipped on 2026-08-15 with no row in `17_HOOK_ENGINE` §Hook inventory**, whose
+  own first line says anything not on the list is not allowed to exist and which NFR-11 makes
+  the enumeration of the hook set. `hookinventory-check` never reads that file — it checks
+  `FL_HOOK_INVENTORY` against `vendor-exports.json` — so a shipped hook missing from the doc
+  is invisible to every gate in the tree. Row added; the banner above it said **three** rows
+  were built when the answer was five, and said a present-only writer's `measuredMask` is what
+  the record carries, which stopped being true at item 2.
+- **The removed `presentdelta` rung outlived its removal in two more places.**
+  `03_METRICS` retired `GetFrameStatistics().PresentCount` on 2026-08-05 as *structurally*
+  zero rather than unreliable, and `17_HOOK_ENGINE` forbids re-adding it — but
+  `05_DETECTION`'s FG row and `06_DATA_MODEL`'s `fg_source` enum both still named it. Both
+  corrected, with the reasoning kept where a reader of either would need it.
+- **`sessions.fg_mode` defaulted to `'none'`**, reinstating at the storage layer the exact
+  affirmative negative the writer and the consumer both refuse — `none` is the one FG state
+  `03_METRICS` allows to be aggregated as a negative. Now `'na'`, matching the four tri-state
+  columns beside it. And `frame_blobs.rt_flags` named its third bit `rtPsoAlive`, a name
+  `fl_shm.h` renamed away because the bit **latches**: creation is observed at
+  `CreateStateObject`, destruction is COM `Release`, which is not in the hook inventory and
+  must not be added, so "alive" claimed a present-tense fact the hook set cannot retract.
+  `06_DATA_MODEL:133` records that the schema is free to edit exactly once, before P2 writes
+  `0001_init.sql`; after that these are migrations.
+
 ### Added
 
 - **`capture` can be bounded, because a real-title measurement otherwise could not end.**

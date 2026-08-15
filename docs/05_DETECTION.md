@@ -20,12 +20,22 @@ Derived in the Agent from the record stream; the mapping is in `03_METRICS`. Sum
 | HDR output | `SetColorSpace1` |
 | Upscaler identity + quality preset | NGX / Streamline / FFX / XeSS create+evaluate calls |
 | Render resolution vs output resolution (incl. mid-session changes) | upscaler parameter reads + `ResizeBuffers` |
-| Frame Generation mode + factor | NGX/SL/FFX FG feature evaluation, present-count delta, cadence |
+| Frame Generation mode + factor | NGX/SL/FFX FG feature evaluation, then (Tier 2 only) PresentMon `FrameType`, then cadence |
 | Ray Tracing active | AS builds + `DispatchRays` (both, to catch inline RayQuery) |
 | Ray Reconstruction | NGX `RayReconstruction` feature evaluated |
 | Reflex on + PC latency | NVAPI Reflex hooks |
 | Per-process VRAM | `QueryVideoMemoryInfo` |
 | PSO compilation events | pipeline-creation hooks |
+
+> **"present-count delta" is removed from the FG row, and it was not merely unreliable —
+> it was structurally zero.** `03_METRICS` §Frame Generation retired that rung on
+> 2026-08-05: `IDXGISwapChain::GetFrameStatistics().PresentCount` counts presents *the
+> application submitted through that swapchain*, i.e. the same events our present hook
+> intercepts, so the difference is zero by construction and a metric that is always zero
+> reads as "no frame generation" rather than as a failure. `17_HOOK_ENGINE` forbids
+> re-adding it. This row went on naming it for ten days after the removal, which is the
+> stale-by-not-being-touched failure this project keeps recording; `06_DATA_MODEL`'s
+> `fg_source` enum carried the same value and is corrected in the same pass.
 
 Tier-2 sessions have `upscaler = unknown`, resolutions `N/A`, RT `N/A`, and an FG mode only if PresentMon's `FrameType` or cadence resolves it.
 
