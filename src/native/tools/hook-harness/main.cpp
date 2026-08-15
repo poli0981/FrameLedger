@@ -35,6 +35,22 @@
 //                    present for N seconds on one that cannot get a slot. The
 //                    only path where the writer KNOWS it has no output size
 //                    (20_OPEN_QUESTIONS §S29(g))
+//   --probe-sl-seen  the g_slSeen word's encoding: free feature bits, and
+//                        saturation going HIGH rather than wrapping low
+//   --hold-presenting-fg N
+//                    present for N seconds, evaluating kFeatureDLSS_G once per
+//                    --presents-per-eval presents and passing the scaling-input
+//                    extent as a LOCAL tag through slEvaluateFeature's `inputs`.
+//                    The only fixture where presents != evaluations, i.e. the only
+//                    one that can tell a counter of evaluations from a counter of
+//                    presents; and the only one that reaches the inputs walk's
+//                    production call site at all
+//   --presents-per-eval K
+//                    the FG factor --hold-presenting-fg emits. 1 is the control
+//
+// This list was incomplete for several modes before 2026-08-15 and is not the
+// authority: the strcmp chain in main() is. Kept in step because a reader looking
+// for a fixture looks here first.
 
 #include <windows.h>
 
@@ -51,6 +67,7 @@
 #include "fl_dxgi_vtable.h"
 #include "fl_hook_inventory.h"
 #include "fl_sl_inputs.h"
+#include "fl_sl_seen.h"
 #include "proxy_swapchain.h"
 
 // Vendored MIT Streamline headers, for the feature ids and the ABI of the call
@@ -902,6 +919,72 @@ bool ProbeSlInputs() {
     return g_failures == 0;
 }
 
+// The word RecordPresent drains: features in the low byte, the frame-generation
+// count above them.
+//
+// WHAT THIS PROBE IS FOR, and what it deliberately is NOT. The field boundaries are
+// integer arithmetic and are pinned by static_asserts inside fl_sl_seen.h, so they
+// are checked in every translation unit that includes the header and no test can
+// forget to run them. Spending a 16-million-iteration loop here to "prove" a carry
+// cannot propagate downward would be a gate that cannot fail. What IS behaviour,
+// and what this drives, is the saturation direction and the free-bit property --
+// the two places a plausible edit changes an answer.
+bool ProbeSlSeen() {
+    std::printf("\n[upscaler] the g_slSeen word: features in the low byte, the FG count above\n");
+
+    using namespace fl::slseen;
+
+    // --- the free bits, which is the case a literal kFeatureMask gets wrong -----
+    //
+    // Today FlSlSeen occupies bits 0-4 and the next enumerator lands on bit 5. With
+    // kFeatureMask written as 0x1Fu that bit is set by the hook and masked off by
+    // Features(), so RecordPresent's two `feature field is non-zero` gates go false
+    // and a title silently loses render resolution and gains a fabricated Ray
+    // Reconstruction answer. Derived from kCountShift it cannot happen, and this is
+    // the assertion that says so.
+    // ACCUMULATED, NOT SHORT-CIRCUITED. An early return here would let the first
+    // failing case hide every case after it -- the same shape as the Catch2
+    // terminate-on-REQUIRE defect this repo fixed on 2026-08-09, where "1 test
+    // failed" was true and "and 2 never ran" was the part that mattered.
+    bool freeBits = true;
+    for (uint32_t bit = 0; bit < kCountShift; ++bit) {
+        const uint32_t w = 1u << bit;
+        if (Features(w) != w || FgEvals(w) != 0u) {
+            freeBits = false;
+        }
+    }
+    Check(freeBits, "every bit below kCountShift is a feature bit and reads back as one");
+
+    // --- one increment does not disturb the features, and vice versa ------------
+    Check(Features(kFeatureMask | kCountOne) == kFeatureMask && FgEvals(kFeatureMask | kCountOne) == 1u,
+          "a count and a full feature field coexist in one word without either reading the other");
+
+    // --- accumulation, in the shape the hook actually produces ------------------
+    {
+        uint32_t w = 0;
+        w |= 1u << 3;    // some feature bit
+        for (int i = 0; i < 7; ++i) {
+            w += kCountOne;    // what fetch_add(kCountOne) does
+        }
+        Check(FgEvals(w) == 7u && Features(w) == (1u << 3),
+              "seven increments read back as seven, with the feature bit untouched");
+    }
+
+    // --- saturation, and the DIRECTION is the whole point -----------------------
+    //
+    // A wrapped count reads LOW, and fg_factor divides by it -- so a wrap inflates
+    // the factor without bound. Saturating reads HIGH, which a consumer can see and
+    // refuse. 255 is a sentinel as much as a value: no configuration evaluates frame
+    // generation 255 times between two presents.
+    Check(SaturateToByte(0u) == 0u, "zero evaluations is a real count, not a sentinel");
+    Check(SaturateToByte(1u) == 1u && SaturateToByte(4u) == 4u, "an ordinary count passes through unchanged");
+    Check(SaturateToByte(255u) == 255u, "the last representable count is not treated as overflow");
+    Check(SaturateToByte(256u) == 255u && SaturateToByte(kCountMax) == 255u,
+          "an over-large count saturates HIGH rather than wrapping low, which would inflate fg_factor");
+
+    return g_failures == 0;
+}
+
 // The ABI check: right module name, right symbol name, WRONG GENERATION.
 //
 // This case is invisible to module scoping, which is why it needs its own
@@ -1086,6 +1169,81 @@ int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature) 
     return 0;
 }
 
+// A target that generates frames: ONE kFeatureDLSS_G evaluation, then K presents.
+//
+// THIS IS THE SHAPE THE METRIC IS BUILT ON, and it is the one no fixture produced
+// before. `--hold-presenting-upscaled` evaluates once per present, so a writer that
+// counted evaluations and a writer that counted presents are indistinguishable in
+// it -- every ratio is 1. Multi-frame generation is exactly the case where they
+// diverge: slEvaluateFeature(kFeatureDLSS_G) fires once per APPLICATION frame and
+// the vendor's swapchain emits K presents from it, so `presents / Σ evaluations`
+// is K. Driving K = 1 and K = 4 through the same assertion is what makes the
+// counter falsifiable rather than merely exercised.
+//
+// The evaluation comes BEFORE its presents, which is both what a title does and
+// what the drain requires: RecordPresent consumes the word, so an evaluation
+// reaches the FIRST present after it and the other K-1 legitimately carry zero.
+// Those zeros are the point — a consumer that filtered them would recover
+// presents == Σ, i.e. fg_factor 1.0.
+int HoldPresentingFg(Gfx& g, int seconds, bool real, int presentsPerEval) {
+    const HMODULE stub = LoadStubExactly(FL_STUB_SL_INTERPOSER);
+    if (stub == nullptr) {
+        Check(false, "the sl.interposer.dll stub loaded for the frame-generation hold");
+        return 1;
+    }
+    auto eval = reinterpret_cast<StubEvaluateFn>(reinterpret_cast<void*>(GetProcAddress(stub, "slEvaluateFeature")));
+    if (eval == nullptr) {
+        Check(false, "the stub exports slEvaluateFeature");
+        return 1;
+    }
+
+    // THE LOCAL TAG, PASSED THROUGH slEvaluateFeature'S OWN `inputs`, and this
+    // fixture is the ONLY place that route is exercised end to end.
+    //
+    // fl::slinputs::FindScalingInputExtent has exactly one production call site --
+    // inside the detour, after the feature decode -- and until now nothing reached
+    // it: every test calls the header directly, and every other injected fixture
+    // passes inputs = nullptr. So the WIRING could be deleted outright and the whole
+    // suite would stay green while a locally-tagging title silently lost renderW/H.
+    // That mattered less when the decode arms all fell through to it; it matters now,
+    // because frame generation takes a different arm and "fall through" became a
+    // property somebody could reasonably tidy away.
+    //
+    // AND IT DISCRIMINATES: this hold NEVER calls slSetTag, so a render resolution
+    // arriving in the record can only have come from this array. The global route
+    // cannot produce it.
+    sl::Extent extent{};
+    extent.width = kTaggedRenderW;
+    extent.height = kTaggedRenderH;
+    sl::ResourceTag localTag(nullptr, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent,
+                             &extent);
+    const sl::BaseStructure* inputs[] = {&localTag};
+
+    const int  k = presentsPerEval < 1 ? 1 : presentsPerEval;
+    const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
+    std::printf("  presenting for %d second(s) [%s], one kFeatureDLSS_G evaluation per %d present(s)\n", seconds,
+                real ? "REAL" : "DXGI_PRESENT_TEST", k);
+    std::printf("  LOCAL tag only (no slSetTag call): kBufferTypeScalingInputColor extent %ux%u\n", kTaggedRenderW,
+                kTaggedRenderH);
+    std::fflush(stdout);
+
+    const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
+    long long       presented = 0;
+    long long       evaluated = 0;
+    while (GetTickCount64() < until) {
+        eval(sl::kFeatureDLSS_G, g_dummyFrameToken, inputs, 1u, nullptr);
+        ++evaluated;
+        for (int i = 0; i < k; ++i) {
+            g.swapChain->Present(0, flags);
+            ++presented;
+            Sleep(8);
+        }
+    }
+    std::printf("  presented=%lld evaluated=%lld presentsPerEval=%d\n", presented, evaluated, k);
+    std::fflush(stdout);
+    return 0;
+}
+
 // What a frame IS, asserted against DXGI's own counter.
 //
 // GetLastPresentCount is the one oracle in this area that does not share the
@@ -1160,6 +1318,11 @@ int main(int argc, char** argv) {
     // has to sit through is seconds rather than minutes.
     int presentIntervalMs = 8;
 
+    // Presents per kFeatureDLSS_G evaluation for --hold-presenting-fg. 1 is the
+    // no-frame-generation shape and is the control: it and K = 4 have to be told
+    // apart by one assertion, or the assertion is not measuring the counter.
+    int presentsPerEval = 1;
+
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0) {
             real = true;
@@ -1170,18 +1333,31 @@ int main(int argc, char** argv) {
             if (presentIntervalMs < 0) {
                 presentIntervalMs = 0;
             }
+        } else if (std::strcmp(argv[i], "--presents-per-eval") == 0 && i + 1 < argc) {
+            // The FG factor the fixture EMITS. A pre-pass argument rather than a
+            // second positional, so one hold mode drives both K = 1 and K = 4 and a
+            // test can assert the SAME expression against both -- which is what
+            // makes the pair discriminating instead of two separate acceptances.
+            presentsPerEval = std::atoi(argv[++i]);
+            if (presentsPerEval < 1) {
+                presentsPerEval = 1;
+            }
         }
     }
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--plus-ui") == 0 ||
-            std::strcmp(argv[i], "--present-interval-ms") == 0) {
-            if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0) {
+            std::strcmp(argv[i], "--present-interval-ms") == 0 || std::strcmp(argv[i], "--presents-per-eval") == 0) {
+            if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
+                std::strcmp(argv[i], "--presents-per-eval") == 0) {
                 ++i;
             }
             continue;    // consumed above
         } else if (std::strcmp(argv[i], "--probe-frames") == 0) {
             ok = ProbeFrameIdentity(g) && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting-fg") == 0 && i + 1 < argc) {
+            ok = HoldPresentingFg(g, std::atoi(argv[++i]), real, presentsPerEval) == 0 && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting-upscaled") == 0 && i + 1 < argc) {
             ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, sl::kFeatureDLSS) == 0 && ok;
@@ -1199,6 +1375,9 @@ int main(int argc, char** argv) {
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-sl-inputs") == 0) {
             ok = ProbeSlInputs() && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-sl-seen") == 0) {
+            ok = ProbeSlSeen() && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-sl-abi") == 0) {
             ok = ProbeSlAbi() && ok;

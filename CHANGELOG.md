@@ -17,6 +17,63 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Added
+
+- **`fgEvaluations` and `fgMode` get a producer, and the count is of EVALUATIONS.**
+  `slEvaluateFeature(kFeatureDLSS_G)` now contributes to a saturating 24-bit count in the
+  high field of the same word the feature bits live in (`fl_sl_seen.h`), consumed by the
+  one `exchange(0)` `RecordPresent` already performed. A bit could not carry it: a bit
+  collapses several evaluations between two presents into one, and under multi-frame
+  generation that is the common case rather than the edge — 10,169 presents carried 2,461
+  Streamline batches on the one real title measured.
+  **The five existing consumers of that word are untouched**, which is why the split was
+  chosen over a second atomic: `seen != 0` still means "an evaluation happened this
+  present" (any evaluation either sets a feature bit or increments the count), and the
+  three bit tests read bits 0-2, which the count cannot reach. Still exactly one
+  read-modify-write per call, on either arm — making the count itself the identity removes
+  the need for a compare-exchange rather than paying for one on a hook path.
+- **`F_app = Σ fgEvaluations`, not `presents − Σ fgEvaluations`** (owner ruling
+  2026-08-14), swept across `03_METRICS` §Frame Generation and its export table,
+  `fl_shm.h`'s field and mask comments, `fl_hook_inventory.h`'s module-scoping rationale
+  and `17_HOOK_ENGINE`'s FG row. The subtraction needs a count of *generated* frames, and
+  nothing can produce that in policy: the evaluation fires once per **application** frame
+  and yields N−1 generated ones, where N lives in `sl::DLSSGOptions` — set out of band
+  through `slDLSSGSetOptions`, the route HANDOFF §2b refused on five grounds. The two
+  forms are not interchangeable: on the one real title measured they differ by ×4.
+  `native_or_generated`'s polarity inverts with it, and the per-frame classification is
+  now documented as exact in aggregate and accurate to one frame per record.
+- **`FL_FEAT_SL_UNDECODED` + its OBSERVED companion**, so §S30 can be answered rather than
+  guessed at. Once frame generation leaves the feature bitmask, a present carrying
+  `kFeatureDLSS_G` alongside any id that falls to `FL_SL_SEEN_OTHER` — Reflex, PCL,
+  DeepDVC, Latewarp, DirectSR — is byte-identical to one that carried DLSS-G alone, so a
+  consumer counting "presents that carried an id we cannot decode" would read ZERO on a
+  title evaluating one every application frame. Cyberpunk runs Reflex. A decision table
+  keyed on that bucket would have closed §S30 on a number that could not have been
+  anything else. **Enumerators, not fields**: no struct change, so no
+  `FL_SHM_LAYOUT_VERSION` bump, no `fl-layout-dump` entry, no `ShmLayout.cs` struct edit.
+- **The CONSUMER half is not in this PR, and a capture will still print "FG state not
+  measured".** `MeasuredFacts.FgMode`, `NativeFps` and `FgFactor` stay hard-null: the
+  arithmetic they need — one record set for both sides of the ratio, a refusal to publish a
+  session-level factor across an FG state change, and the presents-per-batch cross-check —
+  is its own change with its own canaries, and shipping half of it would put a number in
+  front of a reader before the thing that decides whether the number is allowed. So the
+  writer measures and the report is silent, on purpose, for exactly one PR.
+- **The decode is UNCHANGED, deliberately.** §S30 — a real title decoding every
+  params-carrying record as `UNKNOWN` while running DLSS — is not fixed here. HANDOFF
+  forbids by name changing the decode before the ids that actually arrive have been
+  printed, because that turns a wrong answer into a confident wrong answer. This PR builds
+  the instrument.
+- **`--hold-presenting-fg` and `--presents-per-eval`**, the first fixture in the tree where
+  presents ≠ evaluations. Every other injected fixture evaluates once per present, so a
+  writer counting evaluations and a writer counting presents are indistinguishable in all
+  of them — every ratio is 1. It also passes the scaling-input extent as a **local** tag
+  through `slEvaluateFeature`'s own `inputs` and never calls `slSetTag`, which closes a
+  coverage hole this PR would otherwise have widened: `FindScalingInputExtent` has one
+  production call site, inside the detour, and nothing reached it — every test called the
+  header directly and every fixture passed `inputs = nullptr`. Frame generation now takes a
+  different decode arm, so "the arm must fall through to the walk" became a property
+  somebody could reasonably tidy away.
+
 ### Fixed
 
 - **Four session calculators asked a question no session could answer yes to.** `UpscalerOf`,

@@ -76,9 +76,15 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 > the whole of layout v3 exists to make impossible.
 >
 > Likewise **`fg_factor` is `N/A` unless `FL_MEASURED_FG_COUNTS` is set**, and never `1.0`.
-> `F_app = presents − Σ fgEvaluations` with the counts unmeasured makes `F_app == F_disp`
-> by construction — CLAUDE.md rule 6's forbidden number, reached by a consumer that
-> counted nothing.
+> With the counts unmeasured `Σ fgEvaluations` is zero, and a consumer that treated that as
+> "no frame generation" would publish `F_app == F_disp` — CLAUDE.md rule 6's forbidden
+> number, reached by counting nothing. **Zero is a data gap here, never a measurement**, and
+> the mask bit is what tells the two apart.
+>
+> The same holds one level down: a present that drained no evaluation carries
+> `fgEvaluations = 0` *with the bit set*, which is a real measurement of that present. A
+> consumer must not filter those records out — doing so leaves `presents == Σ` and recovers
+> the forbidden 1.0 from honest data.
 
 ### Counting native vs displayed frames at Tier 1
 
@@ -88,11 +94,35 @@ we hooked, so **our present hook sees them all** — the present count alone is
 
 ```
 F_disp  = presents observed by the hook
-F_app   = presents − Σ fgEvaluations       (generated frames, counted at the source)
+F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the source)
 ```
 
-`fgEvaluations` is recorded per frame by the NGX/Streamline/FFX/XeSS FG hooks
+`fgEvaluations` is recorded per present by the NGX/Streamline/FFX/XeSS FG hooks
 (`17_HOOK_ENGINE` §Upscaling / frame generation). `fg_factor = F_disp / F_app`.
+
+> **`fgEvaluations` counts EVALUATIONS, not generated frames — owner ruling, 2026-08-14 —
+> and this block said the opposite until the producer was written.** The subtraction form
+> above (`F_app = presents − Σ fgEvaluations`) needs the count to be of *generated* frames,
+> and nothing can produce that number in policy: `slEvaluateFeature(kFeatureDLSS_G)` fires
+> **once per application frame** and yields N−1 generated ones, where N lives in
+> `sl::DLSSGOptions` — set out of band through `slDLSSGSetOptions`, which is the route
+> `HANDOFF` §2b refused on five separate grounds. Counting the evaluations themselves needs
+> no multiplier and no vendor header at all, and the two forms are not interchangeable:
+> on the one real title measured they differ by a factor of four.
+>
+> **What it costs, stated rather than discovered.** The per-frame `native_or_generated`
+> bit below is now "this present carried an application frame's evaluation" rather than
+> "this present was generated", and its polarity is inverted accordingly. Because the
+> drain attributes a batch to the *next* present, that classification is exact in
+> aggregate and approximate per frame — a generated present and its application frame are
+> adjacent, and which of them carries the bit is decided by thread timing. Aggregates
+> (Native FPS, the FG factor, the lows) are unaffected; a per-frame *timeline* coloured by
+> that bit is accurate to one frame.
+>
+> **And `fgEvaluations` saturates at 255 rather than wrapping.** A wrapped count reads
+> LOW and is the denominator here, so it would inflate the factor without bound. No
+> configuration evaluates frame generation 255 times between two presents, so a consumer
+> seeing 255 must refuse to publish a factor rather than divide by a floor.
 
 > **What this replaces, and why.** An earlier revision derived generated frames
 > from `IDXGISwapChain::GetFrameStatistics().PresentCount` minus our hooked
@@ -221,7 +251,7 @@ Per-column sources, and what a *Tier-2* export does instead:
 | Column | Tier-1 source | Tier 2 |
 |---|---|---|
 | `frame_index`, `qpc_ms`, `frametime_ms` | `frametimes` blob + session `qpcEpoch` | from CSV |
-| `native_or_generated` | `frame_flags` generated bit, set from `fgEvaluations` | `FrameType` (2.x) |
+| `native_or_generated` | `frame_flags` generated bit — set where `fgEvaluations == 0`, i.e. the presents that carried **no** application-frame evaluation. Inverted from the pre-2026-08-14 reading, and accurate to one frame per the note in §Frame Generation | `FrameType` (2.x) |
 | `render_w/h`, `output_w/h` | `render_res` blob — **two `uint16` pairs per frame**, not one; `ResizeBuffers` is hooked precisely because output resolution changes mid-session | `N/A` |
 | `upscaler`, `upscaler_quality`, `fg_mode` | segment table, joined by frame index | `N/A` |
 | `rt_flags` | `rt_flags` blob, **one byte per frame** preserving all three bits (`asBuildObserved`, `dispatchObserved`, `psoCreatedEver`) — collapsing them to a single "rt-active" bit loses the inline-RayQuery distinction this project exists to measure. The third was `rtPsoAlive` until layout v3 renamed it: creation is observed at `CreateStateObject` and destruction is COM `Release`, which is not in the hook inventory and must not be added, so the bit latches and could only ever mean "created ever" | `N/A` |

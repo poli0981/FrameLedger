@@ -178,8 +178,24 @@ public enum FlFeatureFlags : byte
     RayReconstruction = 1 << 0,
     ReflexEnabled = 1 << 1,
 
+    /// <summary>
+    /// A Streamline feature id the Overlay does not decode was evaluated this frame.
+    /// </summary>
+    /// <remarks>
+    /// The only way to tell apart two sessions that otherwise look identical. Once the
+    /// frame-generation count leaves the feature bitmask, a present carrying
+    /// <c>kFeatureDLSS_G</c> alongside any id that falls to <c>FL_SL_SEEN_OTHER</c> — Reflex,
+    /// PCL, DeepDVC, Latewarp, DirectSR, or a feature a newer Streamline adds — has
+    /// <c>fgEvaluations &gt; 0</c> and is indistinguishable from a present that carried
+    /// DLSS-G alone. Without it the "an id we do not decode" bucket reads ZERO on a title
+    /// evaluating one every application frame, and a decision table keyed on that bucket
+    /// would settle §S30 on a number that could not have been anything else.
+    /// </remarks>
+    SlUndecoded = 1 << 2,
+
     RayReconstructionObserved = 1 << 4,
     ReflexObserved = 1 << 5,
+    SlUndecodedObserved = 1 << 6,
 }
 
 /// <summary>Which hook families a writer installed. Bits in <see cref="FlWriterState.HooksInstalledMask"/>.</summary>

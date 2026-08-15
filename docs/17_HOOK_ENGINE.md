@@ -82,12 +82,17 @@ Prefer hooking the **vtable entry** over inline-patching for COM methods (cleane
 
 Every hook must be listed here with a purpose. Anything not on this list is not allowed to exist (`19_SAFETY` review checklist).
 
-> **This table is a SPECIFICATION, and as of 2026-08-15 exactly FIVE of its rows are
-> built.** `FrameLedger.Overlay` installs `Present` (slot 8), `ResizeBuffers` (13) and
-> `Present1` (22) via MinHook on the shared `dxgi.dll` class vtable — indices proved by
-> behaviour, never hardcoded (ctest `fl_vtable_indices`) — plus
-> `sl.interposer.dll!slEvaluateFeature` and `sl.interposer.dll!slSetTag`, module-scoped
-> and installed lazily by the watchdog. **Every other row below is unwritten**, including
+> **This table is a SPECIFICATION. As of 2026-08-15 the Overlay installs FIVE DETOURS,
+> and they are marked ✅ across SIX rows** — the counts differ on purpose and the
+> difference is worth reading, because a row is a *capability* and a detour is a *patch*.
+> `Present` (slot 8), `ResizeBuffers` (13) and `Present1` (22) go on the shared
+> `dxgi.dll` class vtable — indices proved by behaviour, never hardcoded (ctest
+> `fl_vtable_indices`); `sl.interposer.dll!slEvaluateFeature` and
+> `sl.interposer.dll!slSetTag` are resolved module-scoped and installed lazily by the
+> watchdog. The sixth ✅ row, **FG evaluations per present, has no detour of its own**:
+> it is the same `slEvaluateFeature` patch answering a second question, which is why its
+> inventory row carries a compound family and a `static_assert` pinning it.
+> **Every other row below is unwritten**, including
 > `SetFullscreenState`, `SetColorSpace1`, `CreateSwapChain*`, `wglSwapBuffers`, and all of
 > §Ray tracing, §Pipeline and §Memory/latency.
 >
@@ -126,7 +131,7 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 | ✅ Streamline: `slSetTag` | The **global** resource tags, where a title states the size of the buffer it is upscaling *from*: `kBufferTypeScalingInputColor`'s extent → `renderW/H`. **Built 2026-08-15** (`FL_HOOK_UPSCALER_PARAMS`), and it is an ALTERNATIVE to the local tags in `slEvaluateFeature`'s `inputs`, not a layer over them — `sl_core_api.h:258` says global and local tags "do NOT interact", so a title using one yields nothing from the other and both are read. Published only on a frame where an evaluation was also seen, because a tag is viewport state that outlives any one frame. This row was MISSING from this table while the hook shipped, which is the gap the banner above now names |
 | FidelityFX: `ffxFsr2ContextCreate` / `ffxFsr3*` / unified `ffxCreateContext` (`ffx_api`) | `maxRenderSize` vs `displaySize`/`maxUpscaleSize`, FSR version, frame-interpolation context presence |
 | XeSS: `xessD3D12CreateContext`, `xessD3D12Init`, `xessD3D12Execute` | `outputResolution`, `qualitySetting`, XeSS version; `xess_fg` variants for XeFG |
-| NGX/SL/FFX/XeSS **FG feature evaluations per present** (`fgEvaluations`) | Native vs Displayed frame counts at Tier 1 — see `03_METRICS` §Frame Generation. This is what separates the two counts: generated frames go out through the same swapchain we hooked, so the present count alone is Displayed, not Native |
+| ✅ NGX/SL/FFX/XeSS **FG feature evaluations per present** (`fgEvaluations`) | Native vs Displayed frame counts at Tier 1 — see `03_METRICS` §Frame Generation. This is what separates the two counts: generated frames go out through the same swapchain we hooked, so the present count alone is Displayed, not Native. **Built 2026-08-15 for Streamline**, on the detour that was already there: `kFeatureDLSS_G` contributes to a saturating COUNT in the same word the feature bits live in (`fl_sl_seen.h`) rather than to a bit, because a bit collapses several evaluations between two presents into one — and under multi-frame generation that is the common case, not the edge. The row's family is therefore compound (`FL_HOOK_UPSCALER_IDENTITY \| FL_HOOK_FG_EVALUATIONS`), pinned by a `static_assert` because `hookinventory-check` reads that column as an opaque identifier. **Counts EVALUATIONS, not generated frames** — the 2026-08-14 owner ruling; the multiplier lives in `sl::DLSSGOptions`, which is only reachable by the route §2b refused. Non-NVIDIA FG vendors are **deferred with a written rationale**: `amd_fidelityfx_framegeneration_dx12.dll` 3.1.5 exports only the five generic `ffx*` entry points, identical to five sibling modules, so identity is in the arguments and we have no headers |
 
 > `GetFrameStatistics().PresentCount` is **not** in this inventory and must not be
 > re-added as an FG signal. It counts presents the application submitted through

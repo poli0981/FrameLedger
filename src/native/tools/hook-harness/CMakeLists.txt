@@ -73,6 +73,16 @@ add_test(NAME fl_sl_abi_guard COMMAND hook-harness --probe-sl-abi)
 # could only approximate these shapes. Here they are exact and cost microseconds.
 add_test(NAME fl_sl_inputs COMMAND hook-harness --probe-sl-inputs)
 
+# The word RecordPresent drains. Its FIELD BOUNDARIES are static_asserts inside
+# fl_sl_seen.h -- integer algebra, checked in every TU that includes the header, so
+# no test can forget them and a 16-million-iteration loop proving a carry cannot go
+# downward would be a gate that cannot fail. What this ctest covers is the part that
+# is behaviour: that saturation goes HIGH (a wrapped count reads low, and fg_factor
+# DIVIDES by it, so a wrap inflates the number rule 6 exists to protect), and that
+# every bit below kCountShift is genuinely free -- the case a literal 0x1Fu gets
+# wrong by silently swallowing the next FlSlSeen enumerator.
+add_test(NAME fl_sl_seen COMMAND hook-harness --probe-sl-seen)
+
 # §H7 — our unhook must not silently remove an overlay that hooked the same
 # slot after us. Simulated rather than depending on RTSS being installed, so it
 # is deterministic and runs on CI; the dev machine can then confirm against the

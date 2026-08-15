@@ -2982,3 +2982,189 @@ TEST_CASE("an upscaler the Overlay cannot identify is UNKNOWN, never NONE", "[gu
     UnmapViewOfFile(base);
     CloseHandle(mapping);
 }
+
+namespace {
+
+// What one --hold-presenting-fg run yields, drained after the identity hook is live.
+struct FgObservation {
+    std::size_t   drained = 0;
+    std::uint64_t sigma = 0;    // sum of fgEvaluations over the window
+    std::uint32_t hooks = 0;
+    std::uint32_t faults = 0;
+    bool          everyRecordClaimsCounts = true;
+    bool          modeIsNeverNone = true;
+    bool          zeroCountRecordsStillCarryTheBits = false;
+    std::size_t   withLocalTagExtent = 0;
+};
+
+// Inject into a frame-generating target and drain a post-install window.
+//
+// FACTORED SO BOTH K VALUES RUN THE IDENTICAL CODE. Two hand-written cases would
+// let the K = 4 one acquire a tolerance the K = 1 one does not have, and the pair
+// stops discriminating the moment they differ.
+bool ObserveFg(int presentsPerEval, FgObservation& out) {
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --presents-per-eval " +
+                       std::to_wstring(presentsPerEval) + L" --hold-presenting-fg 14";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    if (!CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                        &child.pi)) {
+        return false;
+    }
+    Sleep(800);
+    if (WaitForSingleObject(child.pi.hProcess, 0) != WAIT_TIMEOUT) {
+        return false;
+    }
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    if (!GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed()) {
+        return false;
+    }
+
+    wchar_t name[128]{};
+    if (_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) <= 0) {
+        return false;
+    }
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    if (mapping == nullptr) {
+        return false;
+    }
+    const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    if (base == nullptr) {
+        CloseHandle(mapping);
+        return false;
+    }
+
+    const auto* st =
+        reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+
+    bool ok = st->status == fl::FL_STATUS_READY && WaitForIdentityHook(st);
+    if (ok) {
+        fl::RingReader rd;
+        ok = rd.Init(base, FL_SHM_DEFAULT_CAPACITY);
+        if (ok) {
+            // Records written before the hook went live legitimately carry no count.
+            DiscardBacklog(rd);
+            const std::vector<fl::FlFrameRecord> all = DrainAtLeast(rd, 60, 9000);
+            out.drained = all.size();
+            for (const auto& r : all) {
+                out.sigma += r.fgEvaluations;
+                if ((r.measuredMask & fl::FL_MEASURED_FG_COUNTS) == 0u) {
+                    out.everyRecordClaimsCounts = false;
+                }
+                if (r.fgMode == fl::FL_FG_NONE) {
+                    out.modeIsNeverNone = false;
+                }
+                // The anti-filter property: a present that drained no evaluation must
+                // still carry the bits and a zero byte, or a consumer could drop those
+                // records and recover presents == sigma, i.e. fg_factor 1.0.
+                if (r.fgEvaluations == 0u && (r.measuredMask & fl::FL_MEASURED_FG_COUNTS) != 0u) {
+                    out.zeroCountRecordsStillCarryTheBits = true;
+                }
+                // The LOCAL-tag route: this fixture never calls slSetTag, so an extent
+                // here can only have come from slEvaluateFeature's own `inputs`.
+                if ((r.measuredMask & fl::FL_MEASURED_UPSCALER_PARAMS) != 0u && r.renderW == FL_TAGGED_RENDER_W &&
+                    r.renderH == FL_TAGGED_RENDER_H) {
+                    ++out.withLocalTagExtent;
+                }
+            }
+        }
+    }
+    out.hooks = st->hooksInstalledMask;
+    out.faults = st->faultCount;
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+    return ok;
+}
+
+}    // namespace
+
+TEST_CASE("frame-generation evaluations are COUNTED, and the count tracks the fixture's factor",
+          "[guard][inject][shm][fg]") {
+    // ONE EXPRESSION, TWO FIXTURES, and that pairing is the whole test.
+    //
+    // A single K = 4 run cannot fail usefully: a writer that counted PRESENTS instead
+    // of evaluations, or that wrote a constant, would still produce some ratio and a
+    // reader would have nothing to compare it against. K = 1 is the control -- one
+    // evaluation per present, the no-frame-generation shape -- and the SAME assertion
+    // has to hold for both, so a writer that ignores the difference is red in one of
+    // them by construction.
+    //
+    // THE TOLERANCE IS DERIVED, NOT TUNED. Each evaluation is followed by exactly K
+    // presents, so within a drained window of sigma evaluation-carrying records the
+    // span from the first to the last is (sigma-1)*K + 1 records, plus at most K-1 at
+    // each end from opening and closing mid-group. That bounds |drained - K*sigma| by
+    // K-1; asserting <= K leaves one record of slack and still fails a writer that is
+    // wrong by a factor. Widening it past K would let K = 4 and K = 1 agree, which is
+    // exactly the "fix" this note exists to forbid.
+    for (const int k : {1, 4}) {
+        CAPTURE(k);
+
+        FgObservation obs;
+        REQUIRE(ObserveFg(k, obs));
+
+        CAPTURE(obs.drained);
+        CAPTURE(obs.sigma);
+
+        // A COUNT OF ZERO FAILS HERE RATHER THAN DIVIDING BY IT. If the fetch_add
+        // never fires -- the total-failure case, and the one a single-sided "the bit
+        // is set" assertion is green for -- sigma is 0 and this is the line that says
+        // so, before any ratio is computed from it.
+        REQUIRE(obs.sigma >= 8u);
+
+        const long long drained = static_cast<long long>(obs.drained);
+        const long long expected = static_cast<long long>(obs.sigma) * k;
+        const long long diff = drained > expected ? drained - expected : expected - drained;
+        CHECK(diff <= k);
+
+        CHECK(obs.everyRecordClaimsCounts);
+        CHECK(obs.modeIsNeverNone);
+        CHECK(obs.faults == 0u);
+
+        // EQUALITY, not a bit test. The compound family constant is the one thing no
+        // gate in the tree reads the VALUE of -- hookinventory-check treats that
+        // column as an opaque identifier -- so a wrong bit would publish a hook family
+        // that does not exist, and `& FAMILY` is blind to exactly that.
+        //
+        // UPSCALER_PARAMS is in the expected set because the stub exports slSetTag as
+        // well, so the watchdog installs BOTH inventory rows regardless of whether
+        // this fixture ever calls the second one. Installing is what the mask records.
+        CHECK(obs.hooks == static_cast<std::uint32_t>(fl::FL_HOOK_PRESENT | fl::FL_HOOK_UPSCALER_IDENTITY |
+                                                      fl::FL_HOOK_UPSCALER_PARAMS | fl::FL_HOOK_FG_EVALUATIONS));
+
+        // At K = 1 every present carries an evaluation, so there is no zero-count
+        // record for the anti-filter property to be about; at K = 4 there must be.
+        if (k > 1) {
+            CHECK(obs.zeroCountRecordsStillCarryTheBits);
+        }
+
+        // THE LOCAL-TAG ROUTE, which had no injected coverage anywhere until this
+        // fixture. FindScalingInputExtent has one production call site -- inside the
+        // detour, after the feature decode -- and every other injected fixture passes
+        // inputs = nullptr, so the wiring could have been deleted outright with the
+        // whole suite green. This hold never calls slSetTag, so an extent in the
+        // record can only have come from slEvaluateFeature's own `inputs`; and
+        // because frame generation now takes a different decode arm, this is also
+        // what makes "the arm must FALL THROUGH to the walk" a falsifiable claim
+        // rather than a comment.
+        //
+        // Not every record: the params publish is gated on an evaluation having been
+        // drained for that present, so at K = 4 three records in four correctly carry
+        // no extent. `sigma` is the right floor, and it is already >= 8 above.
+        CAPTURE(obs.withLocalTagExtent);
+        CHECK(obs.withLocalTagExtent >= 8u);
+    }
+}
