@@ -193,6 +193,20 @@ public enum FlFeatureFlags : byte
     /// </remarks>
     SlUndecoded = 1 << 2,
 
+    /// <summary>
+    /// A super-resolution id — <c>kFeatureDLSS</c> or <c>kFeatureNIS</c> — was evaluated.
+    /// </summary>
+    /// <remarks>
+    /// RAW, and that is the point: which id ARRIVED, independently of what the decode made of
+    /// it. Added 2026-08-15 because the census had been contaminated by the thing it measures.
+    /// Cyberpunk with Ray Reconstruction on evaluates <c>kFeatureDLSS_RR</c> and never
+    /// <c>kFeatureDLSS</c>; correcting the decode to report DLSS for it — correctly, since RR
+    /// performs the upscale — made a census derived from the decoded byte report 2,569 arrivals
+    /// of an id that arrived zero times. A measurement that moves when the decode moves cannot
+    /// be evidence about the decode.
+    /// </remarks>
+    SlSuperResolution = 1 << 3,
+
     RayReconstructionObserved = 1 << 4,
     ReflexObserved = 1 << 5,
     SlUndecodedObserved = 1 << 6,

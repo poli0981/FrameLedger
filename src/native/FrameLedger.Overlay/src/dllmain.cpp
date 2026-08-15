@@ -1076,6 +1076,29 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
             rec.upscaler = FL_UPSCALER_DLSS;
         } else if ((seen & FL_SL_SEEN_NIS) != 0u) {
             rec.upscaler = FL_UPSCALER_NIS;
+        } else if ((seen & FL_SL_SEEN_DLSS_RR) != 0u) {
+            // RAY RECONSTRUCTION IS DOING THE UPSCALING, and this arm is a MEASUREMENT
+            // rather than the preference §S30 forbids.
+            //
+            // Cyberpunk 2077, 2026-08-15, two 40 s captures: with DLSS_D = True the title
+            // evaluates kFeatureDLSS_RR on every application frame and kFeatureDLSS NOT
+            // ONCE -- 2544 of 2544 batches, zero DLSS, zero NIS, zero undecoded ids. RR
+            // replaces the separate super-resolution pass rather than running beside it.
+            //
+            // WHAT MAKES THIS EVIDENCE AND NOT AN INFERENCE: renderW/H are published only
+            // on a frame where an evaluation was seen, and they came back 1485x835 against
+            // the title's own `DLSS = Balanced` at 2560x1440 -- 0.58 exactly. So the
+            // scaling-input tag ARRIVES ON THE RR EVALUATION. The evaluation that upscales
+            // is the one we are looking at, and reporting UNKNOWN for it was our decode
+            // dropping an answer it had been handed.
+            //
+            // FL_UPSCALER_DLSS AND NOT A NEW VALUE. Layout v3 retired
+            // FL_UPSCALER_RETIRED_RAY_RECONSTRUCTION and reserved the slot precisely
+            // because RR is not mutually exclusive with DLSS -- it is an independent
+            // tri-state axis, which FL_FEAT_RAY_RECONSTRUCTION already carries from the
+            // same word. So the technology is DLSS and the RR axis stays where it is;
+            // giving RR its own upscaler value would resurrect the conflation v3 removed.
+            rec.upscaler = FL_UPSCALER_DLSS;
         } else {
             // UNKNOWN, AND NEVER `NONE`. FL_UPSCALER_NONE means "a hook ran and
             // there was genuinely no upscaler" -- the one state fl_shm.h allows
@@ -1169,6 +1192,18 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
         feat = static_cast<uint8_t>(feat | FL_FEAT_SL_UNDECODED_OBSERVED);
         if ((seen & FL_SL_SEEN_OTHER) != 0u) {
             feat = static_cast<uint8_t>(feat | FL_FEAT_SL_UNDECODED);
+        }
+
+        // THE RAW SUPER-RESOLUTION FACT, kept apart from the decoded `upscaler` byte.
+        //
+        // The decode maps kFeatureDLSS_RR to FL_UPSCALER_DLSS, because Ray Reconstruction
+        // performs the upscale and carries the scaling-input tag -- measured. That is the
+        // right answer for the FIELD, and it makes the field useless as evidence about
+        // WHICH ID ARRIVED: a census reading `upscaler == DLSS` reported thousands of
+        // arrivals of kFeatureDLSS on a title that evaluates it zero times. This bit does
+        // not move when the decode moves.
+        if ((seen & (FL_SL_SEEN_DLSS | FL_SL_SEEN_NIS)) != 0u) {
+            feat = static_cast<uint8_t>(feat | FL_FEAT_SL_SUPER_RESOLUTION);
         }
 
         rec.featureFlags = feat;

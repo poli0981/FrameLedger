@@ -88,10 +88,17 @@ internal sealed record SlCensus
             }
 
             batches++;
+
+            // THE RAW FACT, NOT THE DECODED BYTE. Deriving "a super-resolution id arrived"
+            // from `upscaler == Dlss` made this census move when the DECODE moved: correcting
+            // the decode to report DLSS for kFeatureDLSS_RR — right, because RR performs the
+            // upscale — made the census claim 2,569 arrivals of kFeatureDLSS on a title that
+            // evaluates it zero times. An instrument that tracks its own subject cannot be
+            // evidence about it, and this census exists precisely to be that evidence (§S30).
+            bool superResolution = ((FlFeatureFlags)r.FeatureFlags).HasFlag(FlFeatureFlags.SlSuperResolution);
             var upscaler = (FlUpscaler)r.Upscaler;
-            bool superResolution = upscaler is FlUpscaler.Dlss or FlUpscaler.Nis;
-            n[_idxDlss] += upscaler == FlUpscaler.Dlss ? 1 : 0;
-            n[_idxNis] += upscaler == FlUpscaler.Nis ? 1 : 0;
+            n[_idxDlss] += superResolution && upscaler == FlUpscaler.Dlss ? 1 : 0;
+            n[_idxNis] += superResolution && upscaler == FlUpscaler.Nis ? 1 : 0;
             n[_idxRr] += flags.HasFlag(FlFeatureFlags.RayReconstruction) ? 1 : 0;
             n[_idxUndecoded] += flags.HasFlag(FlFeatureFlags.SlUndecoded) ? 1 : 0;
             n[_idxFg] += r.FgEvaluations > 0 ? 1 : 0;

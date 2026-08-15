@@ -46,10 +46,13 @@ public sealed class SlCensusTests
     public void ASuperResolutionIdKeepsAPresentOutOfTheS30Bucket()
     {
         // The other direction, and without it the bucket above is satisfied by any FG title.
+        // The writer sets BOTH the raw fact and the decoded byte when kFeatureDLSS arrives,
+        // and this fixture has to do the same or it is testing a state no writer produces.
         List<FlFrameRecord> stream = [];
         for (int i = 0; i < 20; i++)
         {
-            stream.Add(Batch((byte)FlUpscaler.Dlss, FlFeatureFlags.RayReconstruction, fgEvaluations: 1));
+            stream.Add(Batch((byte)FlUpscaler.Dlss,
+                FlFeatureFlags.RayReconstruction | FlFeatureFlags.SlSuperResolution, fgEvaluations: 1));
         }
 
         SlCensus c = SlCensus.From(stream);
@@ -57,6 +60,30 @@ public sealed class SlCensusTests
         c.WithDlss.Should().Be(20);
         c.WithRayReconstruction.Should().Be(20);
         c.FgWithoutSuperResolution.Should().Be(0);
+    }
+
+    [Fact]
+    public void ADECODEDDlssWithNoRawSuperResolutionIdIsNotAnArrivalOfOne()
+    {
+        // THE DEFECT THIS PINS, and a real title produced it. Ray Reconstruction performs the
+        // upscale, so the decode maps kFeatureDLSS_RR to FL_UPSCALER_DLSS — correctly. A census
+        // that read the DECODED byte then reported 2,569 arrivals of kFeatureDLSS on a session
+        // where that id arrived zero times: the instrument moved because its subject moved, so
+        // it could no longer be evidence about the subject, which is the only job §S30 gave it.
+        //
+        // This is exactly the record such a title writes: RR observed, RR fact set, upscaler
+        // decoded to Dlss, and NO raw super-resolution fact.
+        List<FlFrameRecord> stream = [];
+        for (int i = 0; i < 20; i++)
+        {
+            stream.Add(Batch((byte)FlUpscaler.Dlss, FlFeatureFlags.RayReconstruction));
+        }
+
+        SlCensus c = SlCensus.From(stream);
+
+        c.Batches.Should().Be(20);
+        c.WithRayReconstruction.Should().Be(20);
+        c.WithDlss.Should().Be(0, "kFeatureDLSS did not arrive; the decode inferred DLSS from RR");
     }
 
     [Fact]
@@ -68,7 +95,7 @@ public sealed class SlCensusTests
         List<FlFrameRecord> stream = [];
         for (int i = 0; i < 20; i++)
         {
-            stream.Add(Batch((byte)FlUpscaler.Dlss, FlFeatureFlags.None, fgEvaluations: 1));
+            stream.Add(Batch((byte)FlUpscaler.Dlss, FlFeatureFlags.SlSuperResolution, fgEvaluations: 1));
             stream.Add(new FlFrameRecord
             {
                 SwapchainId = 1,

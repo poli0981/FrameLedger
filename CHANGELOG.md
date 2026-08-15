@@ -17,6 +17,40 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Fixed
+
+- **§S30 is ANSWERED, and the answer is that Ray Reconstruction was doing the upscaling all
+  along.** Cyberpunk 2077, 2026-08-15, three 40 s captures: with `DLSS_D = True` the title
+  evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once** —
+  2,569 of 2,569 batches, zero DLSS, zero NIS, zero undecoded ids. RR replaces the separate
+  super-resolution pass rather than running beside it, and the decode had no arm for it, so
+  every record reported `UNKNOWN`. **What makes this evidence and not an inference:**
+  `renderW/H` are published only on a frame where an evaluation was seen, and they came back
+  `1485x835` against the title's own `DLSS = Balanced` at `2560x1440` — 0.58 exactly. The
+  scaling-input tag arrives ON the RR evaluation. `FL_UPSCALER_DLSS` and not a new value:
+  layout v3 retired `FL_UPSCALER_RETIRED_RAY_RECONSTRUCTION` precisely because RR is an
+  independent axis, which `FL_FEAT_RAY_RECONSTRUCTION` already carries from the same word.
+- **The census was measuring its own subject, and the decode fix is what exposed it.**
+  `SlCensus` derived "a super-resolution id arrived" from the DECODED `upscaler` byte, so the
+  correction above made it report 2,569 arrivals of an id that arrived zero times — an
+  instrument that moves when its subject moves cannot be evidence about the subject, which is
+  the only job §S30 gave it. `FL_FEAT_SL_SUPER_RESOLUTION` now carries the RAW fact, set from
+  the drain word and independent of any decode. An enumerator, not a field: no layout bump.
+  It deliberately gets **no OBSERVED companion** against this enum's own convention — all
+  three Streamline facts in the byte are published under one condition, so their companions
+  would be equal bit for bit, and `FL_FEAT_RAY_RECONSTRUCTION_OBSERVED` already carries it.
+- **`UpscalerOf` read the LAST record, which under frame generation is usually the wrong
+  one.** The writer publishes an identity only on presents that drained an evaluation — one
+  in N — so at ×4 the last record is `UNKNOWN` with probability 3/4, and the report printed
+  "a hook ran and could not identify it" three lines below its own raw block printing
+  `upscaler=Dlss on 2561 record(s)`. Now scans for any record naming a technology, exactly as
+  `FgModeOf` already did, and for the same reason.
+- Two `SlCensusTests` fixtures went red on the raw-fact change and were **right to**: they set
+  a decoded `Dlss` without the raw bit, which is a state no writer produces. Corrected, and a
+  new case pins the discrimination directly — a record with `upscaler == Dlss` and no raw
+  super-resolution fact is the RR-decoded shape and must NOT count as an arrival of
+  `kFeatureDLSS`.
+
 ### Added
 
 - **The FG factor gets a consumer, and most of it is the refusals.** `FgWindow` takes

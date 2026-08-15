@@ -227,7 +227,26 @@ enum FlFeatureFlags : uint8_t {
     // bump, no ShmLayout.cs struct edit and no fl-layout-dump entry. The byte and
     // its offset are unchanged.
     FL_FEAT_SL_UNDECODED = 1u << 2,
-    // bit 3 free for facts
+
+    // A SUPER-RESOLUTION id -- kFeatureDLSS or kFeatureNIS -- was evaluated this frame.
+    //
+    // RAW, AND THAT IS THE ENTIRE POINT: it records which id ARRIVED, independently of
+    // what the decode made of it. Measured 2026-08-15 and added because the instrument
+    // had been contaminated by the thing it measures. Cyberpunk 2077 with Ray
+    // Reconstruction on evaluates kFeatureDLSS_RR and never kFeatureDLSS, and the decode
+    // was corrected to report DLSS for it -- correctly, since RR performs the upscale and
+    // carries the scaling-input tag. But the census derived "kFeatureDLSS arrived" from
+    // the decoded `upscaler` byte, so the same correction made it report 2,569 arrivals
+    // of an id that arrived zero times. A measurement that moves when the decode moves
+    // cannot be evidence ABOUT the decode, which is the whole job §S30 gave it.
+    //
+    // NO SEPARATE OBSERVED COMPANION, deliberately, against this enum's own convention.
+    // All three Streamline facts in this byte are published under one condition -- an
+    // evaluation was drained for this present -- so their companions would be provably
+    // equal bit for bit, and FL_FEAT_RAY_RECONSTRUCTION_OBSERVED already carries it. A
+    // redundant bit is not more honest than a shared one; it is just another thing to
+    // keep in step. Bit 7 stays free.
+    FL_FEAT_SL_SUPER_RESOLUTION = 1u << 3,
 
     FL_FEAT_RAY_RECONSTRUCTION_OBSERVED = 1u << 4,
     FL_FEAT_REFLEX_OBSERVED = 1u << 5,

@@ -336,7 +336,24 @@ internal sealed record MeasuredFacts
             return null;
         }
 
-        var value = (FlUpscaler)stream[^1].Upscaler;
+        // ANY RECORD NAMING A TECHNOLOGY WINS, exactly as FgModeOf does, and for the same
+        // reason: the writer publishes an identity only on the presents that DRAINED an
+        // evaluation. Under frame generation that is one present in N — measured, 2,569 of
+        // 10,276 at ×4 — so reading the LAST record reports UNKNOWN about a title whose every
+        // batch said DLSS, and it does so with probability (N−1)/N. It reported exactly that
+        // on Cyberpunk 2077 on 2026-08-15, three lines below its own raw block printing
+        // `upscaler=Dlss on 2561 record(s)`.
+        var value = FlUpscaler.NotReported;
+        for (int i = start; i < stream.Count; i++)
+        {
+            var candidate = (FlUpscaler)stream[i].Upscaler;
+            if (candidate is not FlUpscaler.NotReported and not FlUpscaler.Unknown)
+            {
+                value = candidate;
+                break;
+            }
+        }
+
         return value switch
         {
             // A hook ran and could not identify what it saw. Still N/A, but a DIFFERENT N/A: it means
