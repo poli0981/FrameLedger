@@ -58,15 +58,7 @@ internal static class SessionReport
         }
 
         AppendFgDiagnostics(sb, facts.Fg);
-
-        sb.Append("  upscaler: ").AppendLine(facts.Upscaler ?? "N/A (no upscaler hook ran)");
-        sb.Append("  render -> output: ").AppendLine(
-            facts.UpscaleRatio is null ? "N/A (render resolution is not measured)" : Num(facts.UpscaleRatio));
-        sb.Append("  frame generation: ").AppendLine(facts.FgMode ?? "N/A (no frame-generation hook ran)");
-        sb.Append("  ray tracing: ").AppendLine(facts.RayTracing.ToString());
-        sb.Append("  ray reconstruction: ").AppendLine(facts.RayReconstruction.ToString());
-        sb.Append("  path tracing: ").AppendLine(facts.PathTracing.ToString());
-        sb.Append("  HDR: ").AppendLine(facts.Hdr.ToString());
+        AppendFacts(sb, facts);
 
         if (facts.HasDataGaps)
         {
@@ -82,6 +74,34 @@ internal static class SessionReport
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>The per-session facts, each with the reason behind its N/A.</summary>
+    /// <remarks>
+    /// <b>THE TWO N/As ARE NOT THE SAME N/A</b>, and printing one wording for both discards the
+    /// distinction <c>fl_shm.h</c> exists to preserve. "No hook capable of answering was live"
+    /// and "a hook ran and could not identify what it saw" mean different things about our
+    /// COVERAGE, and only the second is a lead worth following. Measured on Cyberpunk 2077,
+    /// 2026-08-15: the upscaler hook was live for 9,990 of 10,088 records and this line said it
+    /// never ran — the report asserting the opposite of what the line above it had just printed.
+    /// </remarks>
+    private static void AppendFacts(StringBuilder sb, MeasuredFacts facts)
+    {
+        sb.Append("  upscaler: ").AppendLine(facts.Upscaler
+            ?? (facts.UpscalerHookRan
+                ? "N/A (a hook ran and could not identify it — our coverage is short, not the title's)"
+                : "N/A (no upscaler hook ran)"));
+        sb.Append("  render -> output: ").AppendLine(facts.UpscaleRatio is null
+            ? "N/A (the ratio is not computed yet; the raw sizes are above)"
+            : Num(facts.UpscaleRatio));
+        sb.Append("  frame generation: ").AppendLine(facts.FgMode
+            ?? (facts.FgHookRan
+                ? "N/A (a hook ran and saw no frame-generation evaluation — see the FG counts above)"
+                : "N/A (no frame-generation hook ran)"));
+        sb.Append("  ray tracing: ").AppendLine(facts.RayTracing.ToString());
+        sb.Append("  ray reconstruction: ").AppendLine(facts.RayReconstruction.ToString());
+        sb.Append("  path tracing: ").AppendLine(facts.PathTracing.ToString());
+        sb.Append("  HDR: ").AppendLine(facts.Hdr.ToString());
     }
 
     /// <summary>
@@ -118,11 +138,32 @@ internal static class SessionReport
           .Append("  presents/batch=").Append(Num(w.Batches > 0 ? w.Presents / (double)w.Batches : null))
           .Append("  evaluations/batch=").AppendLine(Num(w.EvaluationsPerBatch));
 
-        if (w.EvaluationsPerBatch is { } perBatch && Math.Abs(perBatch - 1.0) > 0.05)
+        // GATED ON HAVING COUNTED SOMETHING, and the first version was not — which a real
+        // title caught within minutes. With Σ = 0 the quotient is 0, "0 evaluations per
+        // batch" trivially differs from 1, and the line fired claiming the premise was
+        // violated and that "the FG factor is that many times too small". Neither is true:
+        // nothing was counted, the refusal above says exactly that, and a factor that does
+        // not exist cannot be scaled. A premise about the RATIO of two counts says nothing
+        // when one of them is zero.
+        if (w.Evaluations > 0 && w.EvaluationsPerBatch is { } perBatch && Math.Abs(perBatch - 1.0) > 0.05)
         {
             sb.Append("    PREMISE VIOLATED: ").Append(Num(perBatch))
-              .AppendLine(" evaluations per drained batch, not 1 — the FG factor below is that many "
-                          + "times too small, and item 3's once-per-application-frame premise is wrong");
+              .AppendLine(" evaluations per drained batch, not 1 — the FG factor is wrong by that "
+                          + "factor, and item 3's once-per-application-frame premise does not hold here");
+        }
+
+        // AND THE CASE THAT ACTUALLY OCCURRED: batches arrived, evaluations did not. That is
+        // a statement about the TITLE, not about our arithmetic, and it is the sharpest
+        // single number this report produces — presents/batch near N on a title configured
+        // for N-times frame generation says the generated presents DO reach our hook while
+        // the frame-generation feature is not evaluated through slEvaluateFeature at all.
+        if (w.Evaluations == 0 && w.Batches > 0)
+        {
+            sb.Append("    NO FG EVALUATION IN ").Append(Count(w.Batches))
+              .AppendLine(" batch(es): Streamline was evaluated and kFeatureDLSS_G was never among "
+                          + "the ids. Read presents/batch above against the title's own FG setting — "
+                          + "if it is near that setting, the feature is driven somewhere this hook "
+                          + "does not see, and the counter cannot measure it on this title");
         }
 
         sb.Append("    fgEvaluations histogram (0,1,2,3,4,5+): ")

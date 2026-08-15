@@ -73,6 +73,20 @@ internal sealed record MeasuredFacts
     /// <summary>Null when <see cref="FlMeasured.Upscaler"/> is clear or the value is UNKNOWN.</summary>
     public string? Upscaler { get; init; }
 
+    /// <summary>Whether a hook capable of naming the upscaler was live for the aggregated window.</summary>
+    /// <remarks>
+    /// <b>Two different N/As, and the report said the wrong one on the first real title.</b>
+    /// <c>fl_shm.h</c> spends a section on the distinction — <c>NOT_REPORTED</c> is "no hook
+    /// capable of answering was live", <c>UNKNOWN</c> is "a hook ran and could not identify
+    /// what it saw, so our coverage is short" — and a renderer that prints "no upscaler hook
+    /// ran" for both throws it away at the last step. Measured on Cyberpunk 2077: the hook was
+    /// live for 9,990 of 10,088 records and the report said it never ran.
+    /// </remarks>
+    public bool UpscalerHookRan { get; init; }
+
+    /// <summary>Whether a hook capable of naming the frame-generation mode was live.</summary>
+    public bool FgHookRan { get; init; }
+
     /// <summary>Null, because <c>renderW/H</c> are always 0 and the ratio would divide by zero.</summary>
     public double? UpscaleRatio { get; init; }
 
@@ -134,6 +148,10 @@ internal sealed record MeasuredFacts
 
             Fg = fg,
             FgMode = FgModeOf(stream),
+            UpscalerHookRan = RecordWindow.ClaimedSuffixStart(
+                stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler)) < stream.Count,
+            FgHookRan = RecordWindow.ClaimedSuffixStart(
+                stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Fg)) < stream.Count,
 
             // Still a deliberate absence: renderW/H are 0 unless a params hook ran, and the
             // ratio would divide by zero. See the property doc.
