@@ -1184,11 +1184,30 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
         // decorate the byte. Once frame generation is carried as a count, a present
         // holding kFeatureDLSS_G together with any id that fell to FL_SL_SEEN_OTHER
         // is byte-identical to one that held DLSS-G alone -- so a consumer counting
-        // "presents that carried an id we cannot decode" would read ZERO on a title
-        // evaluating one every application frame (Cyberpunk runs Reflex, which is
-        // exactly such an id). Its OBSERVED companion rides the same condition as
-        // Ray Reconstruction's: seeing ANY Streamline evaluation is what makes our
-        // silence about the rest meaningful.
+        // "presents that carried an id we cannot decode" could read ZERO on a title
+        // that evaluates one. Its OBSERVED companion rides the same condition as Ray
+        // Reconstruction's: seeing ANY Streamline evaluation is what makes our silence
+        // about the rest meaningful.
+        //
+        // THIS COMMENT PREDICTED REFLEX WOULD LIGHT IT, AND FIVE REAL CAPTURES SAY
+        // OTHERWISE. It read "Cyberpunk runs Reflex, which is exactly such an id" --
+        // and Cyberpunk does run Reflex (`ReflexMode = Enabled` in its own settings),
+        // yet UNDECODED is 0 across ~14,000 batches at four different frame-generation
+        // settings. Two readings survive and this data cannot separate them: Reflex is
+        // not routed through slEvaluateFeature at all (it has its own SL entry points,
+        // and NVAPI Reflex is a separate surface entirely -- 17_HOOK_ENGINE §Memory /
+        // latency lists it as its own hook class), or the OTHER -> UNDECODED path does
+        // not reach the record in the shipped build. The consumer half is unit-tested;
+        // the writer half has never been driven with an undecoded id through an
+        // injected target, so the bucket is UNPROVEN IN THE POSITIVE DIRECTION.
+        //
+        // That matters because the zero is load-bearing: it is what excludes a vendored
+        // sl::kFeatureDLSS_G constant not matching this title's runtime id, which is the
+        // most likely silent failure behind "frame generation is never evaluated". A
+        // discrimination that has only ever been observed reading zero is the shape this
+        // repo keeps catching -- `a != b` passes when one side is absent. The fixture is
+        // cheap: --hold-presenting-fg already drives a chosen sl::Feature, so a mode
+        // passing an id outside the four decoded constants would settle it.
         feat = static_cast<uint8_t>(feat | FL_FEAT_SL_UNDECODED_OBSERVED);
         if ((seen & FL_SL_SEEN_OTHER) != 0u) {
             feat = static_cast<uint8_t>(feat | FL_FEAT_SL_UNDECODED);

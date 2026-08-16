@@ -2959,6 +2959,8 @@ TEST_CASE("an upscaler the Overlay cannot identify is UNKNOWN, never NONE", "[gu
     int dlss = 0;
     int none = 0;
     int measured = 0;
+    int undecoded = 0;
+    int superResolution = 0;
     for (const auto& r : all) {
         if ((r.measuredMask & fl::FL_MEASURED_UPSCALER) != 0u) {
             ++measured;
@@ -2972,12 +2974,36 @@ TEST_CASE("an upscaler the Overlay cannot identify is UNKNOWN, never NONE", "[gu
         if (r.upscaler == fl::FL_UPSCALER_NONE) {
             ++none;
         }
+        if ((r.featureFlags & fl::FL_FEAT_SL_UNDECODED) != 0u) {
+            ++undecoded;
+        }
+        if ((r.featureFlags & fl::FL_FEAT_SL_SUPER_RESOLUTION) != 0u) {
+            ++superResolution;
+        }
     }
     CHECK(measured == static_cast<int>(all.size()));    // a hook ran, so the field may be read
     CHECK(unknown == static_cast<int>(all.size()));     // and what it says is "I could not tell"
     CHECK(dlss == 0);                                   // never invented
     CHECK(none == 0);                                   // and never a measured negative
     CHECK(st->faultCount == 0);
+
+    // FL_FEAT_SL_UNDECODED, PROVEN IN THE POSITIVE DIRECTION, which it had never been.
+    //
+    // This fixture evaluates 0xF00D -- an id outside the four the detour decodes -- so it is
+    // the one place FL_SL_SEEN_OTHER is driven through detour -> ring -> reader by a real
+    // injected Overlay. Until this assertion existed the bucket had only ever been OBSERVED
+    // READING ZERO: five real-title captures reported UNDECODED = 0, and that zero is
+    // load-bearing, because it is what excludes a vendored sl::kFeatureDLSS_G constant not
+    // matching the runtime id -- the most likely silent explanation for "frame generation is
+    // never evaluated". A discrimination only ever seen reading zero is this repo's recorded
+    // shape: `a != b` passes when one side is absent.
+    //
+    // BOTH DIRECTIONS, in one fixture. The same records must carry NO super-resolution fact,
+    // because 0xF00D is not kFeatureDLSS or kFeatureNIS -- so a writer that lit both bits
+    // from one condition, which is exactly how the census got contaminated once already,
+    // fails here rather than reading as agreement.
+    CHECK(undecoded == static_cast<int>(all.size()));
+    CHECK(superResolution == 0);
 
     UnmapViewOfFile(base);
     CloseHandle(mapping);

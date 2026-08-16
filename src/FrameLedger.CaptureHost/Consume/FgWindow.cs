@@ -237,18 +237,13 @@ internal sealed record FgWindow
     /// </remarks>
     private static string? RefusalFor(FgWindow w)
     {
-        if (w.Evaluations == 0)
-        {
-            return "no frame-generation evaluation was counted in the window — a data gap, "
-                   + "and treating it as 'no frame generation' is how fg_factor becomes 1.0";
-        }
-
-        if (w.Saturated > 0)
-        {
-            return $"{w.Saturated} record(s) hit the fgEvaluations ceiling of 255, which is a "
-                   + "saturation sentinel rather than a count — dividing by it would report a floor";
-        }
-
+        // ATTRIBUTION FIRST, AND THE ORDER IS THE FIX. These two are facts about the record
+        // set and hold whether or not anything was counted — but they used to sit BELOW the
+        // zero-count check, so on the one session shape that actually occurred (a title whose
+        // frame generation is driven off this route, so Evaluations == 0 on every record) they
+        // were structurally unreachable and the report was SILENT about multi-stream rather
+        // than clean. Four real-title captures went by with nobody able to say from the report
+        // how many swapchains those presents came from, which is exactly §H5's third case.
         if (w.Unidentified > 0)
         {
             return $"{w.Unidentified} record(s) carry swapchainId 0, so the presents cannot be "
@@ -259,6 +254,18 @@ internal sealed record FgWindow
         {
             return $"{w.Streams} swapchains presented in the window; g_slSeen is one process-wide "
                    + "word, so an evaluation belonging to one stream can be drained by another's present";
+        }
+
+        if (w.Saturated > 0)
+        {
+            return $"{w.Saturated} record(s) hit the fgEvaluations ceiling of 255, which is a "
+                   + "saturation sentinel rather than a count — dividing by it would report a floor";
+        }
+
+        if (w.Evaluations == 0)
+        {
+            return "no frame-generation evaluation was counted in the window — a data gap, "
+                   + "and treating it as 'no frame generation' is how fg_factor becomes 1.0";
         }
 
         return NonUniform(w);

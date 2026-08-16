@@ -132,9 +132,17 @@ internal static class SessionReport
             return;
         }
 
+        // streams= AND unidentified= ARE PRINTED UNCONDITIONALLY, because a refusal that never
+        // fires says nothing and the reader cannot tell silence from cleanliness. On a title
+        // whose frame generation is driven off this route the zero-count refusal wins, so the
+        // attribution refusals never speak — and presents/batch, which IS printed, is only
+        // meaningful over one stream. Print the provenance beside the ratio or the ratio is a
+        // number with an unnamed denominator.
         sb.Append("    FG counts: presents=").Append(Count(w.Presents))
           .Append(" batches=").Append(Count(w.Batches))
           .Append(" evaluations=").Append(Count(w.Evaluations))
+          .Append(" streams=").Append(Count(w.Streams))
+          .Append(" unidentified=").Append(Count(w.Unidentified))
           .Append("  presents/batch=").Append(Num(w.Batches > 0 ? w.Presents / (double)w.Batches : null))
           .Append("  evaluations/batch=").AppendLine(Num(w.EvaluationsPerBatch));
 

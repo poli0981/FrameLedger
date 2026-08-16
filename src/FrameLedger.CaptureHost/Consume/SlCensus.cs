@@ -52,6 +52,30 @@ internal sealed record SlCensus
     public required int WithUndecoded { get; init; }
 
     /// <summary>
+    /// <b><see cref="WithFrameGeneration"/> IS NOT AN ID OBSERVATION, and must never be quoted
+    /// as one beside <c>fgEvaluations</c>.</b>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It is <c>fgEvaluations &gt; 0</c> restated — the same byte read twice — because
+    /// <c>FL_SL_SEEN_RETIRED_DLSS_G</c> was retired deliberately so frame generation travels
+    /// only as the count (<c>dllmain.cpp</c> §FlSlSeen), and <see cref="FlFeatureFlags"/> has
+    /// no free fact bit left to carry a raw one. So "the census says zero" and "every record
+    /// says zero" are ONE measurement with one provenance, and a ledger entry citing them as
+    /// two corroborating lines would be manufacturing agreement out of a single fact.
+    /// </para>
+    /// <para>
+    /// What genuinely corroborates a zero here is <see cref="WithUndecoded"/>: an id matching
+    /// none of the four decoded constants falls to <c>FL_SL_SEEN_OTHER</c> and lights that
+    /// bucket, so <c>UNDECODED == 0</c> excludes the most likely silent failure — a vendored
+    /// <c>sl::kFeatureDLSS_G</c> constant that does not match the runtime id. That is a
+    /// different bit on a different path, and it is the one to cite.
+    /// </para>
+    /// </remarks>
+    public static string FrameGenerationProvenance =>
+        "fgEvaluations>0 restated — not an independent id observation";
+
+    /// <summary>
     /// Batches that generated frames without any super-resolution id — §S30's exact shape.
     /// </summary>
     public required int FgWithoutSuperResolution { get; init; }
@@ -144,8 +168,13 @@ internal sealed record SlCensus
         sb.Append("    kFeatureDLSS=").Append(N(WithDlss))
           .Append("  kFeatureNIS=").Append(N(WithNis))
           .Append("  kFeatureDLSS_RR=").Append(N(WithRayReconstruction))
-          .Append("  kFeatureDLSS_G=").Append(N(WithFrameGeneration))
           .Append("  UNDECODED=").AppendLine(N(WithUndecoded));
+
+        // NOT ON THE ID LINE. Every other column there is a distinct bit decoded from the
+        // drain word; this one is the fgEvaluations byte restated, and printing it in the
+        // same row invites citing it as a second witness to its own value.
+        sb.Append("    records with fgEvaluations>0: ").Append(N(WithFrameGeneration))
+          .Append("  (").Append(FrameGenerationProvenance).AppendLine(")");
 
         // The §S30 shape, named rather than left for a reader to compute.
         sb.Append("    batches generating frames with NO super-resolution id: ")
