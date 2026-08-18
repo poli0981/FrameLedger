@@ -46,6 +46,7 @@
 #include <fl_ring.h>
 #include <fl_shm.h>
 #include <fl_sl_inputs.h>
+#include <fl_sl_seen.h>
 #include <MinHook.h>
 #include <sddl.h>
 
@@ -611,11 +612,31 @@ bool MayObserve() noexcept {
 // last-writer-wins value: DLSS super-resolution and Ray Reconstruction run in
 // the SAME frame (fl_shm.h retired FL_UPSCALER_RETIRED_RAY_RECONSTRUCTION for
 // exactly that reason), so a single slot would drop one of them.
+// FRAME GENERATION NEEDS A COUNT, NOT A BIT, so the word is now split: features in
+// the low byte, a saturating count of kFeatureDLSS_G evaluations above them
+// (fl_sl_seen.h owns the encoding and is unit-tested without a hook). A bit
+// collapses two evaluations between two presents into one, and under multi-frame
+// generation that is the common case -- 10,169 presents carried 2,461 batches on the
+// one real title measured.
+//
+// THE FIVE EXISTING CONSUMERS ARE UNCHANGED, which is the reason this split was
+// chosen over a second atomic. `seen != 0` still means "an evaluation happened this
+// present" -- any evaluation either sets a feature bit or increments the count, so
+// the word is non-zero either way -- and the three bit tests read bits 0-2, which
+// the count cannot reach.
 enum FlSlSeen : uint32_t {
     FL_SL_SEEN_DLSS = 1u << 0,
     FL_SL_SEEN_NIS = 1u << 1,
     FL_SL_SEEN_DLSS_RR = 1u << 2,
-    FL_SL_SEEN_DLSS_G = 1u << 3,
+
+    // RETIRED, and the bit is RESERVED rather than reused -- the same treatment
+    // fl_shm.h gave FL_UPSCALER_RETIRED_RAY_RECONSTRUCTION, for the same reason.
+    // DLSS-G is carried as fl::slseen's count now. Leaving the enumerator here
+    // stops the next reader reaching for `fetch_or(FL_SL_SEEN_DLSS_G)`, which would
+    // compile, set a bit nothing reads, and leave fgEvaluations at zero -- i.e.
+    // fg_factor 1.0, from a writer that looks like it is counting.
+    FL_SL_SEEN_RETIRED_DLSS_G = 1u << 3,
+
     FL_SL_SEEN_OTHER = 1u << 4,    // an id we do not decode -- coverage is short, and we say so
 };
 
@@ -738,6 +759,13 @@ sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const s
             // real feature. Mapping to our own bit here keeps that collision out
             // of the record entirely -- a `feature` of 0 must never reach a field
             // whose 0 means NOT_REPORTED.
+            // THE CHAIN IS UNCHANGED, DELIBERATELY. Which id maps to which answer is
+            // §S30's open question -- a real title decoded every params-carrying record
+            // as UNKNOWN while running DLSS -- and docs/HANDOFF.md forbids by name
+            // "fixing" the decode before the ids that actually arrive have been
+            // printed. That would turn a wrong answer into a confident wrong answer.
+            // This PR builds the instrument; the decode changes when the measurement
+            // says what to change it to.
             uint32_t bit = FL_SL_SEEN_OTHER;
             if (feature == sl::kFeatureDLSS) {
                 bit = FL_SL_SEEN_DLSS;
@@ -746,9 +774,28 @@ sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const s
             } else if (feature == sl::kFeatureDLSS_RR) {
                 bit = FL_SL_SEEN_DLSS_RR;
             } else if (feature == sl::kFeatureDLSS_G) {
-                bit = FL_SL_SEEN_DLSS_G;
+                bit = 0u;    // carried as a COUNT below, not as a bit
             }
-            g_slSeen.fetch_or(bit, std::memory_order_relaxed);
+
+            // STILL EXACTLY ONE read-modify-write, on either arm. Frame generation
+            // adds fl::slseen::kCountOne to the high field instead of OR-ing a bit
+            // into the low one; everything else is the fetch_or it always was. A
+            // compare-exchange loop would have been needed only to set a bit AND
+            // bump a counter atomically, and making the count itself the identity
+            // removes that requirement rather than paying for it on a hook path.
+            if (feature == sl::kFeatureDLSS_G) {
+                g_slSeen.fetch_add(fl::slseen::kCountOne, std::memory_order_relaxed);
+            } else {
+                g_slSeen.fetch_or(bit, std::memory_order_relaxed);
+            }
+
+            // AND THE WALK BELOW RUNS FOR EVERY FEATURE ID, INCLUDING DLSS-G.
+            // Returning early from the arm above would have been the obvious tidy-up
+            // and would have silently removed FindScalingInputExtent's ONLY
+            // production call site from the frame-generation path -- so a title that
+            // tags LOCALLY would stop publishing renderW/H and upscalerQuality, and
+            // nothing in the tree goes red on that: every test calls the header
+            // directly and every fixture passes inputs = nullptr.
 
             // LOCAL TAGS, which slSetTag never sees.
             //
@@ -846,7 +893,11 @@ bool InstallRow(const wchar_t* module, const char* symbol, uint32_t family, void
 // writing its hook, and hooking it with a neighbour's body is exactly what this
 // function exists to stop.
 bool InstallByFamily(const wchar_t* module, const char* symbol, uint32_t family) noexcept {
-    if (family == static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY)) {
+    // EQUALITY AGAINST THE COMPOUND CONSTANT, not `& FL_HOOK_UPSCALER_IDENTITY`. A
+    // bit test would bind any future row that happens to include identity to THIS
+    // detour -- which is the neighbour's-body defect this function exists to stop,
+    // and it would arrive silently because the row would still install.
+    if (family == fl::inventory::kFamilyEvaluateFeature) {
         return InstallRow(module, symbol, family, reinterpret_cast<void*>(&Hook_SlEvaluateFeature),
                           reinterpret_cast<void**>(&g_origSlEvaluateFeature), g_upscalerIdentityLive);
     }
@@ -1025,6 +1076,29 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
             rec.upscaler = FL_UPSCALER_DLSS;
         } else if ((seen & FL_SL_SEEN_NIS) != 0u) {
             rec.upscaler = FL_UPSCALER_NIS;
+        } else if ((seen & FL_SL_SEEN_DLSS_RR) != 0u) {
+            // RAY RECONSTRUCTION IS DOING THE UPSCALING, and this arm is a MEASUREMENT
+            // rather than the preference §S30 forbids.
+            //
+            // Cyberpunk 2077, 2026-08-15, two 40 s captures: with DLSS_D = True the title
+            // evaluates kFeatureDLSS_RR on every application frame and kFeatureDLSS NOT
+            // ONCE -- 2544 of 2544 batches, zero DLSS, zero NIS, zero undecoded ids. RR
+            // replaces the separate super-resolution pass rather than running beside it.
+            //
+            // WHAT MAKES THIS EVIDENCE AND NOT AN INFERENCE: renderW/H are published only
+            // on a frame where an evaluation was seen, and they came back 1485x835 against
+            // the title's own `DLSS = Balanced` at 2560x1440 -- 0.58 exactly. So the
+            // scaling-input tag ARRIVES ON THE RR EVALUATION. The evaluation that upscales
+            // is the one we are looking at, and reporting UNKNOWN for it was our decode
+            // dropping an answer it had been handed.
+            //
+            // FL_UPSCALER_DLSS AND NOT A NEW VALUE. Layout v3 retired
+            // FL_UPSCALER_RETIRED_RAY_RECONSTRUCTION and reserved the slot precisely
+            // because RR is not mutually exclusive with DLSS -- it is an independent
+            // tri-state axis, which FL_FEAT_RAY_RECONSTRUCTION already carries from the
+            // same word. So the technology is DLSS and the RR axis stays where it is;
+            // giving RR its own upscaler value would resurrect the conflation v3 removed.
+            rec.upscaler = FL_UPSCALER_DLSS;
         } else {
             // UNKNOWN, AND NEVER `NONE`. FL_UPSCALER_NONE means "a hook ran and
             // there was genuinely no upscaler" -- the one state fl_shm.h allows
@@ -1105,7 +1179,80 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
         if ((seen & FL_SL_SEEN_DLSS_RR) != 0u) {
             feat = static_cast<uint8_t>(feat | FL_FEAT_RAY_RECONSTRUCTION);
         }
+
+        // THE UNDECODED-ID FACT, and it exists to answer §S30 rather than to
+        // decorate the byte. Once frame generation is carried as a count, a present
+        // holding kFeatureDLSS_G together with any id that fell to FL_SL_SEEN_OTHER
+        // is byte-identical to one that held DLSS-G alone -- so a consumer counting
+        // "presents that carried an id we cannot decode" could read ZERO on a title
+        // that evaluates one. Its OBSERVED companion rides the same condition as Ray
+        // Reconstruction's: seeing ANY Streamline evaluation is what makes our silence
+        // about the rest meaningful.
+        //
+        // THIS COMMENT PREDICTED REFLEX WOULD LIGHT IT, AND FIVE REAL CAPTURES SAY
+        // OTHERWISE. It read "Cyberpunk runs Reflex, which is exactly such an id" --
+        // and Cyberpunk does run Reflex (`ReflexMode = Enabled` in its own settings),
+        // yet UNDECODED is 0 across ~14,000 batches at four different frame-generation
+        // settings. Two readings survive and this data cannot separate them: Reflex is
+        // not routed through slEvaluateFeature at all (it has its own SL entry points,
+        // and NVAPI Reflex is a separate surface entirely -- 17_HOOK_ENGINE §Memory /
+        // latency lists it as its own hook class), or the OTHER -> UNDECODED path does
+        // not reach the record in the shipped build. The consumer half is unit-tested;
+        // the writer half has never been driven with an undecoded id through an
+        // injected target, so the bucket is UNPROVEN IN THE POSITIVE DIRECTION.
+        //
+        // That matters because the zero is load-bearing: it is what excludes a vendored
+        // sl::kFeatureDLSS_G constant not matching this title's runtime id, which is the
+        // most likely silent failure behind "frame generation is never evaluated". A
+        // discrimination that has only ever been observed reading zero is the shape this
+        // repo keeps catching -- `a != b` passes when one side is absent. The fixture is
+        // cheap: --hold-presenting-fg already drives a chosen sl::Feature, so a mode
+        // passing an id outside the four decoded constants would settle it.
+        feat = static_cast<uint8_t>(feat | FL_FEAT_SL_UNDECODED_OBSERVED);
+        if ((seen & FL_SL_SEEN_OTHER) != 0u) {
+            feat = static_cast<uint8_t>(feat | FL_FEAT_SL_UNDECODED);
+        }
+
+        // THE RAW SUPER-RESOLUTION FACT, kept apart from the decoded `upscaler` byte.
+        //
+        // The decode maps kFeatureDLSS_RR to FL_UPSCALER_DLSS, because Ray Reconstruction
+        // performs the upscale and carries the scaling-input tag -- measured. That is the
+        // right answer for the FIELD, and it makes the field useless as evidence about
+        // WHICH ID ARRIVED: a census reading `upscaler == DLSS` reported thousands of
+        // arrivals of kFeatureDLSS on a title that evaluates it zero times. This bit does
+        // not move when the decode moves.
+        if ((seen & (FL_SL_SEEN_DLSS | FL_SL_SEEN_NIS)) != 0u) {
+            feat = static_cast<uint8_t>(feat | FL_FEAT_SL_SUPER_RESOLUTION);
+        }
+
         rec.featureFlags = feat;
+    }
+
+    // --- Frame generation, COUNTED rather than inferred -----------------------
+    //
+    // fgEvaluations counts EVALUATIONS, not generated frames, and that is the
+    // 2026-08-14 owner ruling rather than a shortcut. slEvaluateFeature(kFeatureDLSS_G)
+    // fires once per APPLICATION frame and produces N-1 generated ones, and N lives
+    // in sl::DLSSGOptions -- set out of band through slDLSSGSetOptions, which is the
+    // route HANDOFF §2b refused on five separate grounds. Counting evaluations gives
+    // F_app = Σ evaluations, F_disp = presents and fg_factor = presents / Σ with no
+    // multiplier and no vendor header at all. 03_METRICS §Frame Generation is
+    // corrected to match in this same commit.
+    //
+    // GATED ON THE DETOUR, NOT ON HAVING COUNTED SOMETHING, and the difference is a
+    // number. A present that drained no DLSS-G evaluation still gets the bits and a
+    // zero byte, because a consumer that filtered zero-count presents out would be
+    // left with presents == Σ, i.e. fg_factor 1.0 -- CLAUDE.md rule 6's forbidden
+    // number, reached by discarding exactly the records that prove otherwise.
+    //
+    // fgMode is UNKNOWN and never NONE when nothing was counted: this writer hooks
+    // Streamline only, so an XeFG or FSR3-FG title generates frames somewhere we are
+    // not looking, and NONE is the one FG state that may be aggregated as a negative.
+    if (g_upscalerIdentityLive.load(std::memory_order_relaxed) != 0) {
+        const uint32_t evals = fl::slseen::FgEvals(seen);
+        rec.fgEvaluations = fl::slseen::SaturateToByte(evals);
+        rec.fgMode = evals != 0u ? static_cast<uint8_t>(FL_FG_DLSS_G) : static_cast<uint8_t>(FL_FG_UNKNOWN);
+        rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_FG | FL_MEASURED_FG_COUNTS);
     }
 
     // NOT SET, deliberately, and each absence is a producer that does not exist
@@ -1122,11 +1269,11 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     //     MaxPerf, a real preset -- so this bit is the ONLY thing standing
     //     between an unhooked writer and "DLSS Performance" as a measurement.
     //
-    //   FL_MEASURED_FG / FL_MEASURED_FG_COUNTS -- kFeatureDLSS_G is decoded above
-    //     into FL_SL_SEEN_DLSS_G and deliberately goes no further. Frame
-    //     generation is item 3, it needs the swapchain question answered
-    //     (§H5 case 3), and fgMode/fgEvaluations published from a half-built
-    //     counter is how fg_factor becomes 1.0.
+    //   (FL_MEASURED_FG and FL_MEASURED_FG_COUNTS were listed here as absences and
+    //   now have a producer, above. §H5 case 3 -- whether DLSS-G's GENERATED
+    //   presents reach the vtable we patch -- is STILL OPEN, and this writer does
+    //   not assume either answer: it counts what it sees and the ratio is what a
+    //   real-title run has to move.)
 
     // rtFlags = 0 is now the honest value, not a claim. Layout v3 flipped the
     // polarity: every bit means "we OBSERVED this", so zero says "no RT evidence

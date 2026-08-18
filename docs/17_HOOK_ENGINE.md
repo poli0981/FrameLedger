@@ -82,21 +82,34 @@ Prefer hooking the **vtable entry** over inline-patching for COM methods (cleane
 
 Every hook must be listed here with a purpose. Anything not on this list is not allowed to exist (`19_SAFETY` review checklist).
 
-> **This table is a SPECIFICATION, and as of 2026-08-05 exactly three of its rows are
-> built.** `FrameLedger.Overlay` installs `Present` (slot 8), `ResizeBuffers` (13) and
-> `Present1` (22) via MinHook on the shared `dxgi.dll` class vtable — indices proved by
-> behaviour, never hardcoded (ctest `fl_vtable_indices`). **Every other row below is
-> unwritten**, including `SetFullscreenState`, `SetColorSpace1`, `CreateSwapChain*`,
-> `wglSwapBuffers`, and all of §Upscaling, §Ray tracing, §Pipeline and §Memory/latency.
+> **This table is a SPECIFICATION. As of 2026-08-15 the Overlay installs FIVE DETOURS,
+> and they are marked ✅ across SIX rows** — the counts differ on purpose and the
+> difference is worth reading, because a row is a *capability* and a detour is a *patch*.
+> `Present` (slot 8), `ResizeBuffers` (13) and `Present1` (22) go on the shared
+> `dxgi.dll` class vtable — indices proved by behaviour, never hardcoded (ctest
+> `fl_vtable_indices`); `sl.interposer.dll!slEvaluateFeature` and
+> `sl.interposer.dll!slSetTag` are resolved module-scoped and installed lazily by the
+> watchdog. The sixth ✅ row, **FG evaluations per present, has no detour of its own**:
+> it is the same `slEvaluateFeature` patch answering a second question, which is why its
+> inventory row carries a compound family and a `static_assert` pinning it.
+> **Every other row below is unwritten**, including
+> `SetFullscreenState`, `SetColorSpace1`, `CreateSwapChain*`, `wglSwapBuffers`, and all of
+> §Ray tracing, §Pipeline and §Memory/latency.
 >
-> Stated here because the distinction is invisible from the table and it is what the
-> record honestly reports: a present-only writer sets `measuredMask =
-> FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` and `rtFlags = 0`
-> (v3: the bits are *observed*, so zero is honest), so the fields those
+> Stated here because the distinction is invisible from the table. What a writer may then
+> claim is **derived from `hooksInstalledMask`, not asserted per build**: a present-only
+> writer sets `measuredMask = FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` and
+> `rtFlags = 0` (v3: the bits are *observed*, so zero is honest), and the fields the
 > unwritten rows would fill are marked *not measured* rather than defaulted to "none"
-> (`fl_shm.h` §FlMeasured, CLAUDE.md rules 6 and 7).
+> (`fl_shm.h` §FlMeasured, CLAUDE.md rules 6 and 7). Both sides check that derivation —
+> `MeasuredFacts.EntitledBy`/`IsHonest` and `guard_test.cpp`'s twin of them, as a SUBSET
+> test in both places.
 >
-> Marked ✅ per row below. When a row is built, flip it in the same PR.
+> **This banner said "three" while five were built, and `slSetTag` had no row at all.**
+> NFR-11 makes this table the enumeration of the hook set, and `hookinventory-check`
+> never reads this file — it checks `FL_HOOK_INVENTORY` against `vendor-exports.json` —
+> so a shipped hook missing from here is invisible to every gate. Flip the row **and this
+> banner** in the same PR that builds a hook.
 
 ### Presentation
 | Hook | Purpose |
@@ -115,9 +128,10 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 | NGX: `NVSDK_NGX_D3D11/D3D12/VULKAN_CreateFeature`, `EvaluateFeature`, `ReleaseFeature` | Which NGX feature is *actually created and evaluated per frame*: SuperSampling (DLSS), RayReconstruction (DLSS-D), FrameGeneration (DLSS-G) |
 | NGX parameter accessors (`NVSDK_NGX_Parameter_SetI/GetI/SetUI`) — **exported by `sl.common.dll` only; see below** | `Width`/`Height` (render) vs `OutWidth`/`OutHeight` (output), `PerfQualityValue` (quality preset), sharpness |
 | ✅ Streamline: `slEvaluateFeature` · ⏳ `slInit`, `slSetFeatureLoaded`, `slSetConstants`, `slGetFeatureRequirements` | Feature set actually active when the game goes through SL rather than NGX directly (`kFeatureDLSS`, `DLSS_G`, `DLSS_RR`, `Reflex`, `NIS`). **Built 2026-08-09**, identity only: one MinHook detour on `sl.interposer.dll!slEvaluateFeature`, resolved **module-scoped** and installed lazily by the watchdog. Sets `FL_MEASURED_UPSCALER` + `FL_HOOK_UPSCALER_IDENTITY`; decodes `kFeatureDLSS`/`kFeatureNIS` and reports `FL_UPSCALER_UNKNOWN` for anything else. **Never `FL_UPSCALER_NONE`** — a Streamline-only writer cannot see FFX, XeSS or NGX-direct, and `NONE` is the only one of the three states that may be aggregated as a negative |
+| ✅ Streamline: `slSetTag` | The **global** resource tags, where a title states the size of the buffer it is upscaling *from*: `kBufferTypeScalingInputColor`'s extent → `renderW/H`. **Built 2026-08-15** (`FL_HOOK_UPSCALER_PARAMS`), and it is an ALTERNATIVE to the local tags in `slEvaluateFeature`'s `inputs`, not a layer over them — `sl_core_api.h:258` says global and local tags "do NOT interact", so a title using one yields nothing from the other and both are read. Published only on a frame where an evaluation was also seen, because a tag is viewport state that outlives any one frame. This row was MISSING from this table while the hook shipped, which is the gap the banner above now names |
 | FidelityFX: `ffxFsr2ContextCreate` / `ffxFsr3*` / unified `ffxCreateContext` (`ffx_api`) | `maxRenderSize` vs `displaySize`/`maxUpscaleSize`, FSR version, frame-interpolation context presence |
 | XeSS: `xessD3D12CreateContext`, `xessD3D12Init`, `xessD3D12Execute` | `outputResolution`, `qualitySetting`, XeSS version; `xess_fg` variants for XeFG |
-| NGX/SL/FFX/XeSS **FG feature evaluations per present** (`fgEvaluations`) | Native vs Displayed frame counts at Tier 1 — see `03_METRICS` §Frame Generation. This is what separates the two counts: generated frames go out through the same swapchain we hooked, so the present count alone is Displayed, not Native |
+| ✅ NGX/SL/FFX/XeSS **FG feature evaluations per present** (`fgEvaluations`) | Native vs Displayed frame counts at Tier 1 — see `03_METRICS` §Frame Generation. This is what separates the two counts: generated frames go out through the same swapchain we hooked, so the present count alone is Displayed, not Native. **Built 2026-08-15 for Streamline, and MEASURED TO YIELD NOTHING ON THAT ROUTE** — `slEvaluateFeature(kFeatureDLSS_G)` is never called by Cyberpunk 2077 (0 across ~14,000 batches, four FG settings), so this row installs, is honest, and counts zero; see `docs/HANDOFF.md` item 3. Built on the detour that was already there: `kFeatureDLSS_G` contributes to a saturating COUNT in the same word the feature bits live in (`fl_sl_seen.h`) rather than to a bit, because a bit collapses several evaluations between two presents into one — and under multi-frame generation that is the common case, not the edge. The row's family is therefore compound (`FL_HOOK_UPSCALER_IDENTITY \| FL_HOOK_FG_EVALUATIONS`), pinned by a `static_assert` because `hookinventory-check` reads that column as an opaque identifier. **Counts EVALUATIONS, not generated frames** — the 2026-08-14 owner ruling; the multiplier lives in `sl::DLSSGOptions`, which is only reachable by the route §2b refused. Non-NVIDIA FG vendors are **deferred with a written rationale**: `amd_fidelityfx_framegeneration_dx12.dll` 3.1.5 exports only the five generic `ffx*` entry points, identical to five sibling modules, so identity is in the arguments and we have no headers |
 
 > `GetFrameStatistics().PresentCount` is **not** in this inventory and must not be
 > re-added as an FG signal. It counts presents the application submitted through

@@ -322,9 +322,67 @@ than cutting a segment.
 
 </details>
 
-### 3. Frame generation — **START HERE**, and the swapchain question is now answered
+### ~~3. Frame generation~~ — BUILT, and the premise it was built on is FALSE
 
-- `fgEvaluations` / `fgMode` / `FL_MEASURED_FG` + `FL_MEASURED_FG_COUNTS`.
+**Do not start here, and do not build the counter again.** `fgEvaluations`, `fgMode`,
+`FL_MEASURED_FG` and `FL_MEASURED_FG_COUNTS` all have producers; the drain, the consumer
+arithmetic, the refusals and the fixtures are in and gated. What is missing is not code.
+
+> **`slEvaluateFeature(kFeatureDLSS_G)` IS NEVER CALLED.** Measured 2026-08-15, Cyberpunk
+> 2077 (SL 2.7.1), five 40 s captures at four frame-generation settings: **0 evaluations
+> across ~14,000 Streamline batches**, while frame generation was demonstrably active. The
+> owner ruling of 2026-08-14 — count evaluations directly — is correct arithmetic on a route
+> the vendor does not use. The counter is right and has nothing to count.
+>
+> **The zero is corroborated, not assumed.** `UNDECODED` is 0 in the same runs, and that
+> bucket is now proven capable of reading non-zero (injected
+> `--hold-presenting-upscaled-unknown`, canaried red), so a vendored `kFeatureDLSS_G`
+> constant not matching the runtime id is excluded. What is NOT measured is where frame
+> generation IS driven from: an absence at one export of one module locates nothing, and the
+> NGX tier — `NVSDK_NGX_D3D12_EvaluateFeature`, **seven** exporting modules — is hooked
+> nowhere.
+>
+> **What DOES work, and it is a proxy.** `presents / batch` reads **1.000 / 2.000 / 4.000**
+> against the title's own off / ×2 / ×4, three independent runs at ×4. So generated presents
+> reach our vtable (§H5's central fear does not occur) and the count tracks the multiplier.
+> **But a "batch" is a present that drained a Streamline evaluation, not an application
+> frame** — they coincide here only because Ray Reconstruction is evaluated once per
+> application frame on this title, which no independent oracle has confirmed. Shipping
+> `presents/batch` as `fg_factor` would be shipping that unverified premise as a measurement.
+>
+> **So the open question is no longer "build a counter". It is: what is the in-policy
+> producer for DLSS-G on Streamline 2.x?** Candidate routes, none costed and none chosen:
+> hooking the interposer's swapchain proxy; `slGetFeatureFunction` + `slDLSSGGetState`
+> (§2b refused a near neighbour on five specific grounds — read them before reaching for it);
+> vendoring `sl_dlss_g.h` with its consumer; NGX-direct `nvngx_dlssg`; or shipping
+> `presents/batch` with the premise stated and an oracle attached. **This is the decision to
+> take before any more code.**
+>
+> **STATE AT THE END OF 2026-08-16, so the next session does not re-derive it.** Five
+> real-title captures across off / x2 / x4 establish that `presents / batch` tracks the
+> configured multiplier exactly (1.000 / 2.000 / 4.000) and that the presents frame
+> generation adds ARE visible to our hook. What they do NOT establish is that a drained
+> Streamline batch IS an application frame: every instrument tried so far either divides by
+> the same known constant we do, or is another in-process present hook.
+> **Three oracles were tried and all three fell** — `fl-baseline-probe` (retired by its own
+> pre-committed falsifier: it reports two mutually exclusive FG implementations both
+> "loaded"), the x2 overlay reading (one agreement counted twice, by algebra), and the x4
+> overlay reading (kills the fixed-divisor rival, cannot separate an independent count from
+> a correct derivation). **The next measurement is PresentMon 2.x `FrameType`**, which
+> classifies each present from ETW and divides by nothing.
+>
+> **And a prerequisite with code attached, before `presents / batch` is published anywhere:**
+> `FgWindow`'s uniformity guard keys on `fgEvaluations`, which is zero on this route, so it
+> passes vacuously and cannot see a window that mixed frame-generation states. Measured: an
+> alt-tab mid-capture produced 1.84 instead of 2.00 — an 8% error with no diagnostic. A
+> published `presents / batch` needs its own per-bucket guard, and the report should be able
+> to say when the window was not uniform.
+
+> **Two cheap measurements would sharpen it and neither has been run**, both pre-committed in
+> §S30: `fl-baseline-probe` against the running title at ×4 / ×2 / off — with its own written
+> falsifier, that it is retired as an FG oracle if it reports `nvngx_dlssg.dll` LOADED with FG
+> off — and the game's own frame counter beside a capture.
+
 
 > **§H5 case 3 is MEASURED as of 2026-08-15, and the answer is half of what the entry below
 > feared.** `fl-probe-interposer` now calls `slInit` (the licence blocker died with #64's MIT
@@ -398,6 +456,25 @@ than cutting a segment.
   not import P2's ETW source.
 
 </details>
+
+### 4. Ray tracing — **START HERE**, and item 3 just took away its denominator
+
+> **The dependency you inherited, before anything else.** The plan for this item routed
+> `03_METRICS`' RT thresholds — `≥ 5% of frames`, `rays_per_pixel`, `rt_frame_pct` — through
+> **application frames**, using `Σ fgEvaluations` as the denominator, because dividing by
+> PRESENTS dilutes every one of them by the frame-generation factor: at ×4 a title that
+> path-traces every application frame reports `rt_frame_pct = 25%`, and `rays_per_pixel`
+> lands at a quarter of the truth, below the heuristic's own 1.0 threshold. That decision was
+> taken when `fgEvaluations` was expected to have a producer. **It does not, on the one route
+> measured** (item 3 above). So this item starts with a choice nobody has made:
+>
+> - use `presents / batch`-derived application frames, inheriting item 3's unverified premise;
+> - divide by presents and write the dilution into `03_METRICS` as a known, quantified limit;
+> - or accumulate RT evidence to an application-frame boundary **in the writer**, which costs
+>   more in the hook and needs the same boundary signal item 3 could not find.
+>
+> Whichever is chosen, say so in `03_METRICS` in the same PR. Do not leave the thresholds
+> reading as though the denominator were settled.
 
 ### 4. Ray tracing — §S29(f) is ruled, and the cheapest conjunct has landed
 

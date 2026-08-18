@@ -27,10 +27,13 @@
 //
 // A name-resolved hook that catches the first match, or worse every match,
 // counts one logical evaluation several times. That number is `fgEvaluations`,
-// and 03_METRICS computes F_app = presents - sum(fgEvaluations), so an inflated
-// count deflates Native FPS and inflates fg_factor -- the single inflated number
-// CLAUDE.md rule 6 exists to forbid, arrived at by arithmetic rather than by a
-// guess. (docs/HANDOFF.md says four modules and names
+// and 03_METRICS computes F_app = sum(fgEvaluations) with
+// fg_factor = presents / F_app -- so an inflated count INFLATES Native FPS and
+// DEFLATES fg_factor, reporting a title as generating fewer frames than it does.
+// Either direction is the same class of defect: a number arrived at by arithmetic
+// rather than by measurement, which is what CLAUDE.md rule 6 exists to forbid.
+// (The polarity here is the 2026-08-14 owner ruling; this comment described the
+// pre-ruling subtraction until the producer landed.) (docs/HANDOFF.md says four modules and names
 // `NVSDK_NGX_EvaluateFeature`, which no measured module exports at all. Both are
 // corrected there in the PR that adds this file.)
 //
@@ -64,8 +67,57 @@ namespace fl::inventory {
 // from the inputs walk -- and only four of the ten Streamline titles measured on
 // this machine route DLSS super-resolution through Streamline at all. Deferring
 // this row would have shipped a producer whose hit rate could be zero.
+// ONE DETOUR, TWO FAMILIES, and the constant exists so a gate can read its VALUE.
+//
+// `slEvaluateFeature` is the single call a Streamline title routes every feature
+// evaluation through, so the one detour on it both IDENTIFIES the upscaler and
+// COUNTS frame-generation evaluations. Those are two FlHookFamily bits, and
+// hooksInstalledMask has to carry both or `MeasuredFacts.EntitledBy` refuses the
+// FG_COUNTS claim the same hook is entitled to make.
+//
+// WHY A NAMED CONSTANT WITH A static_assert RATHER THAN AN INLINE `A | B`.
+// tools/hookinventory-check.ps1 captures the family column as an OPAQUE IDENTIFIER
+// (`([A-Za-z_][A-Za-z0-9_:]*)`) and never evaluates it -- Pass A checks module and
+// symbol against the measured oracle and nothing checks the third column at all. So
+// a plausible mistake here, `| FL_HOOK_RT_PSO` copied from item 4's rows landing
+// next, would compile, parse, install, and publish an RT hook family that does not
+// exist: `EntitledBy` would then grant FlMeasured.Rt and `IsHonest` would stop
+// catching an RT over-claim, with every gate in the tree green. A compile error is
+// the right verdict for a family the detour does not honour, and this is the only
+// check in the chain that can produce one.
+inline constexpr uint32_t kFamilyEvaluateFeature =
+    static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY) | static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS);
+
+// EVERY FAMILY THIS DETOUR DOES NOT IMPLEMENT, NAMED. The obvious assertion --
+// `kFamilyEvaluateFeature == (IDENTITY | FG_EVALUATIONS)` -- is a TAUTOLOGY against
+// the line above it and can never fail, which is this project's signature defect
+// wearing a static_assert. Stating the complement cannot be tautological: it is a
+// second, independent list, and a bit added to the constant has to be REMOVED from
+// here before the build goes green, which is precisely the moment someone has to
+// decide whether the detour actually implements that family.
+//
+// It also fails usefully when FlHookFamily GAINS a member: the new bit is in
+// neither list, the compile still passes, and that is the one case worth
+// tolerating -- a family nobody has wired cannot be wrongly claimed by this row.
+inline constexpr uint32_t kFamiliesEvaluateFeatureDoesNotImplement =
+    static_cast<uint32_t>(fl::FL_HOOK_PRESENT) | static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS) |
+    static_cast<uint32_t>(fl::FL_HOOK_RT_DISPATCH) | static_cast<uint32_t>(fl::FL_HOOK_RT_AS_BUILD) |
+    static_cast<uint32_t>(fl::FL_HOOK_RT_PSO) | static_cast<uint32_t>(fl::FL_HOOK_PSO) |
+    static_cast<uint32_t>(fl::FL_HOOK_COLOR_SPACE) | static_cast<uint32_t>(fl::FL_HOOK_REFLEX) |
+    static_cast<uint32_t>(fl::FL_HOOK_VRAM);
+
+static_assert((kFamilyEvaluateFeature & kFamiliesEvaluateFeatureDoesNotImplement) == 0u,
+              "the slEvaluateFeature row claims a family its detour does not implement -- hookinventory-check "
+              "reads this column as an opaque identifier and cannot see it, so a compile error is the only "
+              "verdict available");
+static_assert((kFamilyEvaluateFeature & static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY)) != 0u,
+              "the detour decodes sl::Feature, so it must claim upscaler identity");
+static_assert((kFamilyEvaluateFeature & static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS)) != 0u,
+              "the detour counts kFeatureDLSS_G evaluations, so it must claim FG evaluations -- without this "
+              "bit EntitledBy refuses FL_MEASURED_FG_COUNTS and every record over-claims");
+
 #define FL_HOOK_INVENTORY(X)                                                                                           \
-    X(L"sl.interposer.dll", "slEvaluateFeature", fl::FL_HOOK_UPSCALER_IDENTITY)                                        \
+    X(L"sl.interposer.dll", "slEvaluateFeature", fl::inventory::kFamilyEvaluateFeature)                                \
     X(L"sl.interposer.dll", "slSetTag", fl::FL_HOOK_UPSCALER_PARAMS)
 
 // Does this module speak the Streamline 2 ABI the vendored headers describe?

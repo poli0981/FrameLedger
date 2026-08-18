@@ -1160,6 +1160,80 @@ bool StartHarness(Child& child) {
     return WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT;
 }
 
+// What a writer carrying `hooks` is entitled to claim, and whether a record stayed
+// inside it.
+//
+// DERIVED FROM hooksInstalledMask, NOT HARDCODED, and that is the whole change. The
+// assertion below used to compare measuredMask against the constant
+// `FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` with `!=` -- which was exactly
+// right while the Overlay hooked only presents, and states a fact about ONE BUILD
+// rather than about honesty. The managed side (MeasuredFacts.EntitledBy) was already
+// derived and already a SUBSET test; this side had drifted into an equality that a
+// correct writer fails the moment any feature bit is per-frame rather than per-session
+// -- FL_MEASURED_UPSCALER_PARAMS is gated on `seen != 0` (dllmain.cpp:1053), so under
+// frame generation three records in four legitimately lack it.
+//
+// TWO COPIES OF ONE CONTRACT, deliberately, and NOTHING GATES THEIR AGREEMENT. The
+// struct mirror has fl-layout-dump; this does not. Stated here rather than left to be
+// discovered: a change to MeasuredFacts.EntitledBy must be made here too.
+uint16_t EntitledBy(uint32_t hooks) noexcept {
+    uint16_t allowed = 0;
+    if ((hooks & fl::FL_HOOK_PRESENT) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_OUTPUT_RES | fl::FL_MEASURED_PRESENT_ARGS);
+    }
+    if ((hooks & fl::FL_HOOK_UPSCALER_IDENTITY) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_UPSCALER | fl::FL_MEASURED_FG);
+    }
+    if ((hooks & fl::FL_HOOK_UPSCALER_PARAMS) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_UPSCALER_PARAMS);
+    }
+    if ((hooks & fl::FL_HOOK_FG_EVALUATIONS) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_FG_COUNTS);
+    }
+    if ((hooks & (fl::FL_HOOK_RT_DISPATCH | fl::FL_HOOK_RT_AS_BUILD | fl::FL_HOOK_RT_PSO)) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_RT);
+    }
+    if ((hooks & fl::FL_HOOK_PSO) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_PSO);
+    }
+    if ((hooks & fl::FL_HOOK_COLOR_SPACE) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_HDR);
+    }
+    if ((hooks & fl::FL_HOOK_VRAM) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_VRAM);
+    }
+    if ((hooks & fl::FL_HOOK_REFLEX) != 0u) {
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_LATENCY);
+    }
+    return allowed;
+}
+
+// BOTH DIRECTIONS, because a mask bit with no hook behind it and a VALUE with no mask
+// bit behind it are the same defect seen from two sides. Layout v3 makes the zero of
+// every enum "nobody said", so the second list is what a writer publishes when it
+// forgets.
+bool IsHonest(const fl::FlFrameRecord& r, uint16_t entitled) noexcept {
+    if ((r.measuredMask & static_cast<uint16_t>(~entitled)) != 0u) {
+        return false;
+    }
+    if ((r.measuredMask & fl::FL_MEASURED_UPSCALER) == 0u && r.upscaler != fl::FL_UPSCALER_NOT_REPORTED) {
+        return false;
+    }
+    if ((r.measuredMask & fl::FL_MEASURED_FG) == 0u && r.fgMode != fl::FL_FG_NOT_REPORTED) {
+        return false;
+    }
+    if ((r.measuredMask & fl::FL_MEASURED_FG_COUNTS) == 0u && r.fgEvaluations != 0u) {
+        return false;
+    }
+    // featureFlags carries Ray Reconstruction's fact and OBSERVED bits, produced by the
+    // same Streamline detour as the upscaler identity. A writer not entitled to claim
+    // an upscaler is not entitled to say anything about RR either.
+    if ((entitled & fl::FL_MEASURED_UPSCALER) == 0u && r.featureFlags != 0u) {
+        return false;
+    }
+    return (r.measuredMask & fl::FL_MEASURED_RT) != 0u || r.rtFlags == 0u;
+}
+
 }    // namespace
 
 TEST_CASE("the injection primitive really loads our DLL into another process", "[guard][inject]") {
@@ -1536,18 +1610,11 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
         if (i > 0 && all[i].qpc <= all[i - 1].qpc) {
             timeMovesForward = false;
         }
-        // The honesty property: a present-only writer may claim the output size
-        // and its own call arguments, and NOTHING else.
-        //
-        // Layout v3 changed how "nothing else" is spelled. rtFlags bits are now
-        // *_OBSERVED, so 0 is the honest value and FL_MEASURED_RT staying clear
-        // is what says nobody looked; the old opt-in FL_RT_NOT_MEASURED is
-        // retired. The enums moved with it: FL_UPSCALER_NOT_REPORTED and
-        // FL_FG_NOT_REPORTED are 0, so the zero-defaults no longer assert "no
-        // upscaler, no frame generation" and are checked here as such.
-        const uint16_t entitled = static_cast<uint16_t>(fl::FL_MEASURED_OUTPUT_RES | fl::FL_MEASURED_PRESENT_ARGS);
-        if (all[i].measuredMask != entitled || all[i].rtFlags != 0 || all[i].upscaler != fl::FL_UPSCALER_NOT_REPORTED ||
-            all[i].fgMode != fl::FL_FG_NOT_REPORTED || all[i].featureFlags != 0) {
+        // The honesty property: a writer may claim a measurement ONLY where it
+        // installed a hook capable of taking it, and may not set a value field whose
+        // mask bit is clear. Derived from hooksInstalledMask -- see EntitledBy above
+        // for why this is no longer a hardcoded constant compared with `!=`.
+        if (!IsHonest(all[i], EntitledBy(st->hooksInstalledMask))) {
             honest = false;
         }
         if (all[i].swapchainId == 0) {
@@ -1563,6 +1630,17 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
     CHECK(timeMovesForward);
     CHECK(honest);
     CHECK(identified);
+
+    // AND THE DERIVED FORM ONLY MEANS SOMETHING IF THIS WRITER REALLY IS PRESENT-ONLY.
+    // EntitledBy(hooks) widens with every family, so a writer that installed everything
+    // would be "honest" about any claim it made and the loop above would pass while
+    // proving nothing. EQUALITY, not a bit test: an extra family bit is exactly the
+    // failure this has to catch, and `& FL_HOOK_PRESENT` is blind to one.
+    //
+    // This harness is `--hold-presenting`, which loads no Streamline stub, so
+    // FL_HOOK_PRESENT alone is the correct and only answer here.
+    CHECK(st->hooksInstalledMask == static_cast<uint32_t>(fl::FL_HOOK_PRESENT));
+
     CHECK((st->apiMask & (1u << fl::FL_API_D3D11)) != 0);
     CHECK((st->apiMask & (1u << fl::FL_API_D3D12)) == 0);
 
@@ -2881,6 +2959,8 @@ TEST_CASE("an upscaler the Overlay cannot identify is UNKNOWN, never NONE", "[gu
     int dlss = 0;
     int none = 0;
     int measured = 0;
+    int undecoded = 0;
+    int superResolution = 0;
     for (const auto& r : all) {
         if ((r.measuredMask & fl::FL_MEASURED_UPSCALER) != 0u) {
             ++measured;
@@ -2894,6 +2974,12 @@ TEST_CASE("an upscaler the Overlay cannot identify is UNKNOWN, never NONE", "[gu
         if (r.upscaler == fl::FL_UPSCALER_NONE) {
             ++none;
         }
+        if ((r.featureFlags & fl::FL_FEAT_SL_UNDECODED) != 0u) {
+            ++undecoded;
+        }
+        if ((r.featureFlags & fl::FL_FEAT_SL_SUPER_RESOLUTION) != 0u) {
+            ++superResolution;
+        }
     }
     CHECK(measured == static_cast<int>(all.size()));    // a hook ran, so the field may be read
     CHECK(unknown == static_cast<int>(all.size()));     // and what it says is "I could not tell"
@@ -2901,6 +2987,210 @@ TEST_CASE("an upscaler the Overlay cannot identify is UNKNOWN, never NONE", "[gu
     CHECK(none == 0);                                   // and never a measured negative
     CHECK(st->faultCount == 0);
 
+    // FL_FEAT_SL_UNDECODED, PROVEN IN THE POSITIVE DIRECTION, which it had never been.
+    //
+    // This fixture evaluates 0xF00D -- an id outside the four the detour decodes -- so it is
+    // the one place FL_SL_SEEN_OTHER is driven through detour -> ring -> reader by a real
+    // injected Overlay. Until this assertion existed the bucket had only ever been OBSERVED
+    // READING ZERO: five real-title captures reported UNDECODED = 0, and that zero is
+    // load-bearing, because it is what excludes a vendored sl::kFeatureDLSS_G constant not
+    // matching the runtime id -- the most likely silent explanation for "frame generation is
+    // never evaluated". A discrimination only ever seen reading zero is this repo's recorded
+    // shape: `a != b` passes when one side is absent.
+    //
+    // BOTH DIRECTIONS, in one fixture. The same records must carry NO super-resolution fact,
+    // because 0xF00D is not kFeatureDLSS or kFeatureNIS -- so a writer that lit both bits
+    // from one condition, which is exactly how the census got contaminated once already,
+    // fails here rather than reading as agreement.
+    CHECK(undecoded == static_cast<int>(all.size()));
+    CHECK(superResolution == 0);
+
     UnmapViewOfFile(base);
     CloseHandle(mapping);
+}
+
+namespace {
+
+// What one --hold-presenting-fg run yields, drained after the identity hook is live.
+struct FgObservation {
+    std::size_t   drained = 0;
+    std::uint64_t sigma = 0;    // sum of fgEvaluations over the window
+    std::uint32_t hooks = 0;
+    std::uint32_t faults = 0;
+    bool          everyRecordClaimsCounts = true;
+    bool          modeIsNeverNone = true;
+    bool          zeroCountRecordsStillCarryTheBits = false;
+    std::size_t   withLocalTagExtent = 0;
+};
+
+// Inject into a frame-generating target and drain a post-install window.
+//
+// FACTORED SO BOTH K VALUES RUN THE IDENTICAL CODE. Two hand-written cases would
+// let the K = 4 one acquire a tolerance the K = 1 one does not have, and the pair
+// stops discriminating the moment they differ.
+bool ObserveFg(int presentsPerEval, FgObservation& out) {
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --presents-per-eval " +
+                       std::to_wstring(presentsPerEval) + L" --hold-presenting-fg 14";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    if (!CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                        &child.pi)) {
+        return false;
+    }
+    Sleep(800);
+    if (WaitForSingleObject(child.pi.hProcess, 0) != WAIT_TIMEOUT) {
+        return false;
+    }
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    if (!GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed()) {
+        return false;
+    }
+
+    wchar_t name[128]{};
+    if (_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) <= 0) {
+        return false;
+    }
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    if (mapping == nullptr) {
+        return false;
+    }
+    const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    if (base == nullptr) {
+        CloseHandle(mapping);
+        return false;
+    }
+
+    const auto* st =
+        reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+
+    bool ok = st->status == fl::FL_STATUS_READY && WaitForIdentityHook(st);
+    if (ok) {
+        fl::RingReader rd;
+        ok = rd.Init(base, FL_SHM_DEFAULT_CAPACITY);
+        if (ok) {
+            // Records written before the hook went live legitimately carry no count.
+            DiscardBacklog(rd);
+            const std::vector<fl::FlFrameRecord> all = DrainAtLeast(rd, 60, 9000);
+            out.drained = all.size();
+            for (const auto& r : all) {
+                out.sigma += r.fgEvaluations;
+                if ((r.measuredMask & fl::FL_MEASURED_FG_COUNTS) == 0u) {
+                    out.everyRecordClaimsCounts = false;
+                }
+                if (r.fgMode == fl::FL_FG_NONE) {
+                    out.modeIsNeverNone = false;
+                }
+                // The anti-filter property: a present that drained no evaluation must
+                // still carry the bits and a zero byte, or a consumer could drop those
+                // records and recover presents == sigma, i.e. fg_factor 1.0.
+                if (r.fgEvaluations == 0u && (r.measuredMask & fl::FL_MEASURED_FG_COUNTS) != 0u) {
+                    out.zeroCountRecordsStillCarryTheBits = true;
+                }
+                // The LOCAL-tag route: this fixture never calls slSetTag, so an extent
+                // here can only have come from slEvaluateFeature's own `inputs`.
+                if ((r.measuredMask & fl::FL_MEASURED_UPSCALER_PARAMS) != 0u && r.renderW == FL_TAGGED_RENDER_W &&
+                    r.renderH == FL_TAGGED_RENDER_H) {
+                    ++out.withLocalTagExtent;
+                }
+            }
+        }
+    }
+    out.hooks = st->hooksInstalledMask;
+    out.faults = st->faultCount;
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+    return ok;
+}
+
+}    // namespace
+
+TEST_CASE("frame-generation evaluations are COUNTED, and the count tracks the fixture's factor",
+          "[guard][inject][shm][fg]") {
+    // ONE EXPRESSION, TWO FIXTURES, and that pairing is the whole test.
+    //
+    // A single K = 4 run cannot fail usefully: a writer that counted PRESENTS instead
+    // of evaluations, or that wrote a constant, would still produce some ratio and a
+    // reader would have nothing to compare it against. K = 1 is the control -- one
+    // evaluation per present, the no-frame-generation shape -- and the SAME assertion
+    // has to hold for both, so a writer that ignores the difference is red in one of
+    // them by construction.
+    //
+    // THE TOLERANCE IS DERIVED, NOT TUNED. Each evaluation is followed by exactly K
+    // presents, so within a drained window of sigma evaluation-carrying records the
+    // span from the first to the last is (sigma-1)*K + 1 records, plus at most K-1 at
+    // each end from opening and closing mid-group. That bounds |drained - K*sigma| by
+    // K-1; asserting <= K leaves one record of slack and still fails a writer that is
+    // wrong by a factor. Widening it past K would let K = 4 and K = 1 agree, which is
+    // exactly the "fix" this note exists to forbid.
+    for (const int k : {1, 4}) {
+        CAPTURE(k);
+
+        FgObservation obs;
+        REQUIRE(ObserveFg(k, obs));
+
+        CAPTURE(obs.drained);
+        CAPTURE(obs.sigma);
+
+        // A COUNT OF ZERO FAILS HERE RATHER THAN DIVIDING BY IT. If the fetch_add
+        // never fires -- the total-failure case, and the one a single-sided "the bit
+        // is set" assertion is green for -- sigma is 0 and this is the line that says
+        // so, before any ratio is computed from it.
+        REQUIRE(obs.sigma >= 8u);
+
+        const long long drained = static_cast<long long>(obs.drained);
+        const long long expected = static_cast<long long>(obs.sigma) * k;
+        const long long diff = drained > expected ? drained - expected : expected - drained;
+        CHECK(diff <= k);
+
+        CHECK(obs.everyRecordClaimsCounts);
+        CHECK(obs.modeIsNeverNone);
+        CHECK(obs.faults == 0u);
+
+        // EQUALITY, not a bit test. The compound family constant is the one thing no
+        // gate in the tree reads the VALUE of -- hookinventory-check treats that
+        // column as an opaque identifier -- so a wrong bit would publish a hook family
+        // that does not exist, and `& FAMILY` is blind to exactly that.
+        //
+        // UPSCALER_PARAMS is in the expected set because the stub exports slSetTag as
+        // well, so the watchdog installs BOTH inventory rows regardless of whether
+        // this fixture ever calls the second one. Installing is what the mask records.
+        CHECK(obs.hooks == static_cast<std::uint32_t>(fl::FL_HOOK_PRESENT | fl::FL_HOOK_UPSCALER_IDENTITY |
+                                                      fl::FL_HOOK_UPSCALER_PARAMS | fl::FL_HOOK_FG_EVALUATIONS));
+
+        // At K = 1 every present carries an evaluation, so there is no zero-count
+        // record for the anti-filter property to be about; at K = 4 there must be.
+        if (k > 1) {
+            CHECK(obs.zeroCountRecordsStillCarryTheBits);
+        }
+
+        // THE LOCAL-TAG ROUTE, which had no injected coverage anywhere until this
+        // fixture. FindScalingInputExtent has one production call site -- inside the
+        // detour, after the feature decode -- and every other injected fixture passes
+        // inputs = nullptr, so the wiring could have been deleted outright with the
+        // whole suite green. This hold never calls slSetTag, so an extent in the
+        // record can only have come from slEvaluateFeature's own `inputs`; and
+        // because frame generation now takes a different decode arm, this is also
+        // what makes "the arm must FALL THROUGH to the walk" a falsifiable claim
+        // rather than a comment.
+        //
+        // Not every record: the params publish is gated on an evaluation having been
+        // drained for that present, so at K = 4 three records in four correctly carry
+        // no extent. `sigma` is the right floor, and it is already >= 8 above.
+        CAPTURE(obs.withLocalTagExtent);
+        CHECK(obs.withLocalTagExtent >= 8u);
+    }
 }

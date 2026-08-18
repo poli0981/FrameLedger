@@ -178,8 +178,38 @@ public enum FlFeatureFlags : byte
     RayReconstruction = 1 << 0,
     ReflexEnabled = 1 << 1,
 
+    /// <summary>
+    /// A Streamline feature id the Overlay does not decode was evaluated this frame.
+    /// </summary>
+    /// <remarks>
+    /// The only way to tell apart two sessions that otherwise look identical. Once the
+    /// frame-generation count leaves the feature bitmask, a present carrying
+    /// <c>kFeatureDLSS_G</c> alongside any id that falls to <c>FL_SL_SEEN_OTHER</c> — Reflex,
+    /// PCL, DeepDVC, Latewarp, DirectSR, or a feature a newer Streamline adds — has
+    /// <c>fgEvaluations &gt; 0</c> and is indistinguishable from a present that carried
+    /// DLSS-G alone. Without it the "an id we do not decode" bucket reads ZERO on a title
+    /// evaluating one every application frame, and a decision table keyed on that bucket
+    /// would settle §S30 on a number that could not have been anything else.
+    /// </remarks>
+    SlUndecoded = 1 << 2,
+
+    /// <summary>
+    /// A super-resolution id — <c>kFeatureDLSS</c> or <c>kFeatureNIS</c> — was evaluated.
+    /// </summary>
+    /// <remarks>
+    /// RAW, and that is the point: which id ARRIVED, independently of what the decode made of
+    /// it. Added 2026-08-15 because the census had been contaminated by the thing it measures.
+    /// Cyberpunk with Ray Reconstruction on evaluates <c>kFeatureDLSS_RR</c> and never
+    /// <c>kFeatureDLSS</c>; correcting the decode to report DLSS for it — correctly, since RR
+    /// performs the upscale — made a census derived from the decoded byte report 2,569 arrivals
+    /// of an id that arrived zero times. A measurement that moves when the decode moves cannot
+    /// be evidence about the decode.
+    /// </remarks>
+    SlSuperResolution = 1 << 3,
+
     RayReconstructionObserved = 1 << 4,
     ReflexObserved = 1 << 5,
+    SlUndecodedObserved = 1 << 6,
 }
 
 /// <summary>Which hook families a writer installed. Bits in <see cref="FlWriterState.HooksInstalledMask"/>.</summary>

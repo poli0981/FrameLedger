@@ -1029,6 +1029,7 @@ to prove themselves.
 | Title | Upscaler | Quality | Render → output | FG active | RT | Matches menu? |
 |---|---|---|---|---|---|---|
 | **Cyberpunk 2077** (2026-08-15) | ❌ `Unknown` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ⬜ not measured | ⬜ not measured | **1 of 5** |
+| **Cyberpunk 2077** (2026-08-15, later, after §S30) | ✅ `Dlss` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ◐ on, factor not measurable on this route | ⬜ not measured | **2 of 5** |
 
 **The first row, and it is one row.** Read the legend before the marks: ✅ measured and
 correct against the title's own settings; ❌ measured and **wrong**; ⬜ honestly absent — no
@@ -1043,6 +1044,41 @@ minutes earlier gave 11,108 presents with the same shape.
 `DLSS = Balanced` at `2560x1440`; Balanced is 0.58, so 2560 × 0.58 = 1484.8 and
 1440 × 0.58 = 835.2. The writer said **1485×835**. This is the first of exit criterion 1's
 five values measured correctly from a real game.
+
+> ### The second row, and §S30's answer: Ray Reconstruction was doing the upscaling
+>
+> **Three further 40 s captures, same title, same settings** (`DLSS = Balanced`,
+> `DLSS_D = True`, `DLSS_MultiFrameGeneration = x4`, `ReflexMode = Enabled`, 2560×1440),
+> with the id census the previous row's defect motivated. Conditions: 10,092–10,443
+> presents, 0 gaps, 0 dropped, ~260 displayed FPS, `apiMask` = D3D12, `rtTier` = **12**
+> (`TIER_1_2`), hooks `Present | UpscalerIdentity | UpscalerParams | FgEvaluations`.
+>
+> **The census, and it is the whole of §S30:** of 2,523 batches, `kFeatureDLSS_RR` = 2,523,
+> `kFeatureDLSS` = **0**, `kFeatureNIS` = 0, `kFeatureDLSS_G` = **0**, undecoded = 0. With
+> Ray Reconstruction on, the title evaluates RR **instead of** super-resolution, not beside
+> it. The decode had no arm for that and reported `UNKNOWN`. What settles it rather than
+> suggesting it: `renderW/H` are published only on a frame that drained an evaluation, and
+> they are 1485×835 — so the scaling-input tag arrives ON the RR evaluation. The evaluation
+> that upscales is the one the decode was already looking at.
+>
+> **`presents/batch = 4.000` on three independent runs** (10,176/2,544 · 10,276/2,569 ·
+> 10,092/2,523), against the title's own `x4`. Two things follow, and the second is the one
+> that changes the plan:
+>
+> - **DLSS-G's GENERATED presents reach the vtable we patch.** A factor of exactly 4 cannot
+>   be produced by a writer that only sees application frames. §H5's fear — `fg_factor`
+>   structurally 1.0 on every Streamline title — does **not** hold for the present path.
+> - **`slEvaluateFeature(kFeatureDLSS_G)` is never called.** Zero, in ~7,600 batches across
+>   three runs, while frame generation is demonstrably active. On Streamline 2.x DLSS-G is
+>   driven through the interposer's swapchain proxy, not through the feature-evaluation
+>   entry point — so **HANDOFF item 3's premise is wrong for this route**, and the counter
+>   built for it is correct and has nothing to count. `presents/batch` is a working proxy
+>   only because RR happens to be evaluated once per application frame.
+>
+> **Still unmeasured, and it is one setting away:** the same capture with multi-frame
+> generation OFF. If `presents/batch` falls to ~1 the 4.000 is proven to be FG rather than a
+> property of how this title evaluates RR, and §H5 closes on two points instead of one.
+> Until then the ×4 reading has one configuration behind it.
 
 **Quality `0xFF` is a measurement of the TITLE, not a gap in the code.** Cyberpunk sets its
 preset out of band through `slDLSSSetOptions` and never chains `sl::DLSSOptions` into
@@ -1244,7 +1280,43 @@ into a real title and the process survives it (§7).
 
 ## 9 · Frame generation
 
-- Rung 1 (API / `fgEvaluations`) vs Tier-2 ETW `FrameType`:
+- **Rung 1 (API / `fgEvaluations`) vs Tier-2 ETW `FrameType`: NOT RUN, and rung 1 does not
+  produce a number to compare.** Measured 2026-08-15 on Cyberpunk 2077 (SL 2.7.1):
+  `slEvaluateFeature(kFeatureDLSS_G)` is **never called** — 0 across ~14,000 Streamline
+  batches at four frame-generation settings — so `fgEvaluations` is 0 on every record and
+  there is nothing for ETW to be compared against. The comparison `15_ROADMAP` item 7 asks
+  for is blocked on a PRODUCER, not on tooling.
+- **What DID move with the setting is `presents / batch`, and it is a PROXY.** Five 40 s
+  captures, one title, one GPU, D3D12, Ray Reconstruction on: **off → 1.000, ×2 → 2.000,
+  ×4 → 4.000** (×4 three times independently, one identified swapchain and 0 gaps/0 dropped
+  in every run). Application frame rate falls 85.3 → 70.9 → 63.1 as the multiplier rises,
+  which is the direction frame-generation overhead predicts, and 70.9 × 2.06 = 146
+  reproduces the ×2 displayed figure. So the extra presents are real, they are visible to
+  our present hook, and their count tracks the configured multiplier.
+  **A batch is "a present that drained a Streamline evaluation", NOT "an application
+  frame"** — the two coincide here only because Ray Reconstruction happens to be evaluated
+  once per application frame on this title, and no independent oracle has confirmed that.
+- **THE APPLICATION-FRAME PREMISE IS STILL NOT MEASURED — a draft of this bullet said it was,
+  and was corrected before it landed, 2026-08-16.** Steam's overlay read `DLSS 162 | FPS 81`
+  during a ×2 capture whose own figures imply 161.7 and 80.8. That is **one** agreement, not
+  two: `presents/batch` was 2.0000 exactly and 162/81 is 2.0000 exactly, so both residuals are
+  forced to −0.182%. The surviving comparison is circular (the span was derived from
+  `Displayed FPS`, so `presents/span` restates it), and the rival reading — that the overlay's
+  `FPS` field is *displayed ÷ 2* rather than an application-frame count — predicts the identical
+  number at ×2. Steam's overlay is also **not** an independent instrument: `17_HOOK_ENGINE`
+  §Coexistence records that it hooks D3D presentation in-process too.
+  **The discriminating run is ×4** (application frames ⇒ ≈65, fixed halving ⇒ ≈130) plus an
+  FG-off leg where a genuine counter converges with displayed and a halving does not, comparing
+  RATIOS — our `presents/batch` against the overlay's `DLSS/FPS` — so neither side needs a span.
+  §S30 carries the full correction.
+
+  **`fl-baseline-probe` was run on 2026-08-16 and is RETIRED as an FG-engagement oracle by
+  its own pre-committed falsifier**: against the running title with FG on at ×2 it reports
+  all seven capabilities `loaded`, including `dlss_g` **and** `xefg` — two mutually exclusive
+  frame-generation implementations — so `loaded` means "mapped", not "engaged", and one run
+  settled it without needing the FG-off leg. Its real job, the static/loaded baseline for
+  item 4, is unaffected. **The game's own frame counter is the only remaining candidate**
+  and is still unrun.
 - Can PresentMon 2.x `FrameType` see driver-level FG / AFMF (§M1):
 - AFMF on this machine: **untested — RTX 5080, AMD driver-side feature**
 

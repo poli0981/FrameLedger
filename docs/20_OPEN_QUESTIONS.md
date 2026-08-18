@@ -75,7 +75,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S23-2** | 🚫 **owner only — no PR can close it** | `Rules / validate` is **not** a required status check on `main`. **Re-verified against the live branch protection 2026-08-05**, not repeated from the entry: `required_status_checks.contexts` is exactly `["check", "analyze (csharp, none)", "analyze (cpp, manual)"]` (`strict: true`, `enforce_admins: true`, `required_linear_history: true`). The `validate` job is path-filtered and `pull_request`-only, so a red removal check does not block the merge button. **The gate that exists to make the anti-cheat blocklist un-removable is advisory.** This is a branch-protection setting |
 
 | **S29** | 🔴 **open, new 2026-08-05 — five of seven closed** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work. **Sharpened 2026-08-06:** fixing §S19(b) alone would still gate nothing, because `build.ps1`'s `-SkipIntegration` applies `--filter 'Category!=Integration'` and excludes the class *before* the guard is ever asked. Two independent mechanisms produce one absence, and `ci.yml` must drop the switch too; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ❓ the **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is untouched and is item 6's to settle — but its second half's PREMISE was stale and is corrected in place: layout v3 put `rtTier` and `hooksInstalledMask` in `FlWriterState`, and neither has a producer, so **`Yes` is unreachable as well as `No`**; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
-| **S30** | ❓ **open, new 2026-08-15** | The record names the WRONG upscaler on a real title. Cyberpunk 2077, 10,169 presents: every one of the 2,461 params-carrying records decoded to `UNKNOWN` while the title was running DLSS. Honest — the writer never says `NONE` — and not the answer exit criterion 1 asks for. The first defect a real-title run has produced. Item 3's to fix, because it restructures the same `g_slSeen` drain |
+| **S30** | ✅ **closed 2026-08-15** | Answered on the title that raised it: with Ray Reconstruction on, Cyberpunk 2077 evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once**, so RR was doing the upscaling and the decode had no arm for it. Evidence rather than inference: `renderW/H` are published only on a frame that drained an evaluation and read 1485×835 = 0.58 × 2560×1440, so the scaling-input tag arrives ON the RR evaluation. Two further defects fell out — the pre-committed decision table had two holes, and the fix contaminated the census that found it (it derived the id from the decoded byte) |
 
 ~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
 exit criterion 2, not seven, and the undercount came from reading only the ❓ rows.**
@@ -484,6 +484,48 @@ the unconditional assignment turns the new test red with the build green.
 > *share* (~1/17), because an absolute floor alone would be satisfied by a harness
 > presenting on one chain.
 
+### S30 ✅ · The record names the WRONG upscaler on a real title — **closed 2026-08-15, and the fix broke the instrument that found it**
+
+> **Answered: Ray Reconstruction was doing the upscaling.** With `DLSS_D = True` Cyberpunk
+> 2077 evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once**
+> — 2,523 of 2,523 batches across three 40 s captures, zero DLSS, zero NIS, zero undecoded
+> ids. RR **replaces** the super-resolution pass rather than running beside it; the decode
+> had no arm for that and fell through to `UNKNOWN`. `spike-notes` §8 carries the run.
+>
+> **Not the shortcut this entry forbade.** No preference is applied and no id is outranked,
+> because only one id ever arrives. What makes it a measurement: `renderW/H` are published
+> only on a frame that drained an evaluation, and they read 1485×835 against the title's own
+> `DLSS = Balanced` at 2560×1440 — 0.58 exactly — so the scaling-input tag arrives **on the
+> RR evaluation**. The evaluation that upscales is the one the decode was already holding.
+> Mapped to `FL_UPSCALER_DLSS` and not a new value: layout v3 retired
+> `FL_UPSCALER_RETIRED_RAY_RECONSTRUCTION` precisely because RR is an independent axis, and
+> `FL_FEAT_RAY_RECONSTRUCTION` already carries it from the same word.
+>
+> **THE DECISION TABLE BELOW HAD TWO HOLES, AND THE RUN FOUND BOTH.** It was written before
+> the measurement, exactly as this entry demanded, and it was still incomplete: **O1 assumed
+> `kFeatureDLSS_G > 0`**, so no row covered "batches arrive and DLSS-G never does"; and **no
+> row anticipated a single non-super-resolution id accounting for 100% of batches.** The
+> table is kept unchanged rather than quietly repaired, because a pre-committed table that
+> gets edited after the fact is worth nothing, and because what it got wrong is the useful
+> part: the hole was in the *hypotheses*, not in the discipline. Writing it first is what
+> made the gap visible instead of invisible.
+>
+> **AND THE FIX CONTAMINATED THE INSTRUMENT.** `SlCensus` derived "a super-resolution id
+> arrived" from the DECODED `upscaler` byte, so correcting the decode made it report 2,569
+> arrivals of an id that arrives zero times — a measurement that moves when its subject moves
+> cannot be evidence about the subject, which is the only job this entry gave it, and the
+> next reader would have taken it at face value. `FL_FEAT_SL_SUPER_RESOLUTION` now carries
+> the raw fact from the drain word, independent of any decode. Generalises: **when a decode
+> is corrected, check every consumer that derived a fact FROM that decode.**
+>
+> **What is NOT closed by this.** `kFeatureDLSS_G` is never evaluated either — see
+> `spike-notes` §8 and §H5 — so item 3's counter has nothing to count on this route. That is
+> a separate finding with its own consequences for HANDOFF item 3, and it does not belong to
+> this entry.
+
+<details>
+<summary>The entry as it stood while it was open, including the pre-committed table with its two holes</summary>
+
 ### S30 ❓ · The record names the WRONG upscaler on a real title, and it is honest while being wrong
 
 **Measured 2026-08-15, Cyberpunk 2077, and it is the first defect a real-title run
@@ -525,6 +567,168 @@ frame generation needs a **count** — so the fix lands there rather than as a
 separate change that item 3 would immediately rewrite. **Do not "fix" it by making
 the decode prefer DLSS without first measuring which ids arrive**: that would turn
 a wrong answer into a confident wrong answer.
+
+> ### The instrument is built. The decision table is below, and it is written BEFORE the run.
+>
+> **Why it is here rather than in the PR that acts on it.** "Measure, then fix" becomes
+> "fix, then justify" the moment the table is written after the numbers are known — and
+> nobody can tell the two apart afterwards, least of all the person who did it. So the
+> mapping from measurement to action is committed first, in the file that owns the item,
+> and the run that follows either lands on a row or does not.
+>
+> **What produces the input.** `FrameLedger.CaptureHost` now prints a Streamline id census
+> (`SlCensus`) over the window the identity hook governs: how many presents drained a batch,
+> and of those how many carried `kFeatureDLSS`, `kFeatureNIS`, `kFeatureDLSS_RR`,
+> `kFeatureDLSS_G` and an **undecoded** id — the last of which is only separable because
+> layout v3's `FL_FEAT_SL_UNDECODED` exists. It also prints `evaluations/batch`, which
+> tests item 3's unverified premise with no oracle at all.
+>
+> | # | What the census says | What it means | The decode change |
+> |---|---|---|---|
+> | **O1** | `kFeatureDLSS = 0`, `kFeatureDLSS_G > 0`, `UNDECODED = 0` | the title does not route super-resolution through `slEvaluateFeature` at all | **none.** `UNKNOWN` is the true answer and the entry closes as "measured, not a defect". The upscaler fact then needs a different producer, which is its own item |
+> | **O2** | `kFeatureDLSS > 0` on some batches, `0` on the batches that also carry `kFeatureDLSS_G` | identity and frame generation arrive in *different* batches | **drain**, not decode: accumulate identity across the presents of one application frame. Do NOT prefer DLSS in the decode — that gives the wrong answer for a title that switches upscaler mid-session, which is the whole reason these two options differ |
+> | **O3** | `kFeatureDLSS > 0` on the SAME batches that carry `kFeatureDLSS_G`, yet the record still decoded `UNKNOWN` | the decode is losing an id it was handed | **decode.** The if/else-if chain assigns ONE bit per call and the last writer wins within a batch; make the mapping additive and re-check |
+> | **O4** | `UNDECODED > 0` on the batches that decoded `UNKNOWN` | an id we do not map is arriving, and may be the super-resolution one under another name | **neither, yet.** Print the raw `sl::Feature` values before mapping anything — a new id decoded by guess is exactly this entry repeating. That needs a writer change of its own |
+> | **O5** | `batches = 0`, or `evaluations/batch` far from 1 | the hook is not seeing what we think it sees | **stop.** Neither fix is safe: `evaluations/batch ≠ 1` falsifies item 3's premise outright and the FG factor is wrong by that factor, so that is the defect to chase first |
+>
+> ### THE x4 LEG, AND WHAT IT DID AND DID NOT SETTLE — 2026-08-16
+>
+> **The named rival is dead.** Read at x4, the overlay shows `DLSS 268 | FPS 67`,
+> `272 | 68` and `260 | 65` across three instants. "Application frames" predicted the
+> second field at ~65; "displayed divided by a fixed 2" predicted ~130. It reads 65-68.
+> The prediction was written before the screenshots and it discriminated.
+>
+> Ratio against ratio, which needs no span and no shared window: ours
+> `presents / batch` = 4.0000, the overlay's `DLSS / FPS` = 4.0000. At x2 both read
+> 2.0000. Two instruments agreeing on a dimensionless quantity across two multipliers.
+>
+> **A SECOND CONCLUSION WAS DRAWN AND THEN WITHDRAWN, and the withdrawal is the useful
+> part.** All five readings are EXACT integer ratios, which requires the true ratio to
+> fall inside about +-1% every time. That looked like proof the overlay DERIVES one field
+> from the other, because our own capture had measured an achieved factor of 1.84 rather
+> than 2.00 — so the real factor seemed to vary while the overlay never did.
+>
+> **The 1.84 was ALT-TAB.** The operator switched away from the game during that capture.
+> Frame generation stops while the title is unfocused, so the window mixed intervals at
+> 2.00 with intervals near 1.00 and averaged 1.84. With that explained, the achieved factor
+> is exactly N whenever the game has focus — and an INDEPENDENT counter would then also read
+> exact integers every time. The evidence for "it derives" evaporates with its premise.
+>
+> **So the position is: "independent count" and "correct derivation" both survive, and no
+> instrument available here can separate them** — each produces the true application rate
+> whenever frame generation meets its configured multiplier, which is always, when focused.
+> The premise that a drained Streamline batch equals an application frame is therefore
+> CORROBORATED ACROSS TWO MULTIPLIERS AND NOT PROVEN.
+>
+> **The instrument that would settle it is already named in this repository.** PresentMon
+> 2.x's `FrameType` classifies each present as application or generated from ETW, by a
+> mechanism that divides by nothing. `15_ROADMAP` item 7 and `03_METRICS` rung 2 both
+> pre-committed it, which is why they exist. That is the next measurement, not another
+> reading of a present-hook overlay.
+>
+> ### AND THE ALT-TAB EXPOSED A REAL DEFECT, which is the finding with code attached
+>
+> `FgWindow` has a uniformity guard built for exactly this — split the window into buckets,
+> refuse a factor when one bucket departs from the whole, because "averaging across a
+> settings change is the classic way benchmark numbers become meaningless"
+> (`03_METRICS`:133). **It cannot see this case.** `BucketsOf` sums `fgEvaluations`, which
+> is zero on every record on this route, so every bucket is identical and the check passes
+> vacuously. The 1.84 run is the proof: a real session where the number a consumer would
+> publish was wrong by 8% and nothing in the report said so.
+>
+> **Consequences, and they are prerequisites rather than nice-to-haves.** If
+> `presents / batch` is ever published as `fg_factor`, it needs a uniformity guard OF ITS
+> OWN, keyed on the per-bucket `presents / batch` rather than on `fgEvaluations`. And a
+> capture whose validity depends on the window being uniform should be able to say when it
+> was not: focus loss is observable in-process, and an unfocused interval is not a
+> measurement of the title's performance in any case.
+
+> ### THE REPLACEMENT ORACLE DOES NOT SETTLE IT EITHER — corrected 2026-08-16, before it landed
+>
+> **A draft of this entry claimed the application-frame premise was measured. It was wrong on
+> three counts and is recorded here rather than quietly deleted, because the draft read
+> exactly like a result.** Steam's overlay, during a ×2 capture, showed `DLSS 162 | FPS 81`
+> against a capture whose own numbers imply 161.7 and 80.8 — "0.2% on both".
+>
+> 1. **THE TWO AGREEMENTS ARE ONE, BY ALGEBRA.** `presents / batch` was 2.0000 exactly and
+>    the overlay's own ratio is 162/81 = 2.0000 exactly, so `batches ÷ 81` and
+>    `presents ÷ 162` are forced to the same residual — both −0.182%, to three digits. Two
+>    independent checks essentially never do that. This is the defect `SlCensus.cs` was
+>    corrected for **the same day** — one quantity read twice and cited as two witnesses —
+>    reproduced in prose hours later. Fixing the code did not fix the habit.
+> 2. **THE SURVIVING COMPARISON IS CIRCULAR.** The span was derived FROM `Displayed FPS`, so
+>    `presents / span` is `Displayed FPS` restated. It compares our present count against
+>    another present count. No step in the arithmetic touches an application frame.
+> 3. **THE RIVAL HYPOTHESIS PREDICTS THE SAME NUMBER.** If the overlay's `FPS` field is
+>    *displayed ÷ 2* rather than a count of application frames, then at ×2 the two are
+>    numerically identical. The pre-registered prediction separated "application frames" from
+>    "displayed frames" and never enumerated this one, so it was not a discriminating test —
+>    and calling the result pre-registered borrowed credibility the design did not have.
+>
+> **And the oracle is not what the draft called it.** Steam's overlay is not "the game's own
+> frame counter" and shares more with us than the draft claimed: `17_HOOK_ENGINE` §Coexistence
+> records that RTSS and the Steam overlay **also hook D3D presentation in-process**. Which
+> layer it counts at is unmeasured, and this title's present path has at least two — with the
+> interposer engaged the swapchain the title holds is not an instance of the class whose
+> vtable we patch (§H5). If Steam counts at the interposer's input, "FPS 81" is a present
+> count one hook over, and equating it with an application frame is the same unverified step
+> relocated.
+>
+> **THE DISCRIMINATING TEST, and it costs one screenshot.** Read the same overlay at **×4**:
+> "application frames" predicts the `FPS` field reads ≈ 65 while "displayed ÷ fixed 2"
+> predicts ≈ 130 — a factor of two apart. Then read it with **frame generation OFF**, where a
+> genuine application counter converges with the displayed one and a fixed halving does not.
+> **Compare RATIOS, not rates:** our `presents / batch` against the overlay's `DLSS / FPS`.
+> Both are dimensionless and each is internal to one instrument, so neither needs a span —
+> which also sidesteps the window defect below.
+>
+> **A code gap this exposed.** `FgWindow.Seconds` is computed and never printed, so the span
+> over the window the batches were actually counted in cannot be read off a report at all.
+> The draft reconstructed it from `Displayed FPS`, which spans a DIFFERENT window —
+> `MeasuredFacts` runs from record 0 while `FgWindow` starts after the lazy-install prefix —
+> and the resulting rate moves across 78.6–83 on window choice alone, ten times the residual
+> the draft quoted. Print it unconditionally beside the other FG counts.
+
+> ### THE PRE-COMMITTED ORACLE IS RETIRED, BY ITS OWN RULE — measured 2026-08-16
+>
+> `fl-baseline-probe --pid <game> --dir "<game-dir>/bin/x64"` against a running Cyberpunk 2077
+> with frame generation ON at ×2 reports **all seven capabilities `loaded`** — `dlss`,
+> `dlss_g`, `dlss_rr`, `streamline`, `fsr`, `xess` **and `xefg`**.
+>
+> **That falsifies it as an FG-engagement oracle in ONE run, without needing the FG-off leg
+> the falsifier asked for.** `dlss_g` watches `nvngx_dlssg.dll` / `sl.dlss_g.dll` and `xefg`
+> watches `libxess_fg.dll` (`rules/detection-rules.json`) — two **mutually exclusive**
+> frame-generation implementations. A title cannot be generating frames with both, and both
+> read `loaded`. So `loaded` means "mapped into the address space", which is exactly what the
+> probe's own header claims and nothing more; §S30 hoped it would stand in for engagement and
+> it cannot, in any configuration.
+>
+> **The probe is not at fault and its real job is unaffected**: it is the static/loaded
+> baseline `15_ROADMAP` item 4 compares against, and it answered that correctly. What is
+> retired is the use §S30 pre-committed it for.
+>
+> **So the app-frame premise still has no independent oracle**, and the one remaining
+> candidate is the game's own frame counter beside a capture — the other half of
+> `docs/HANDOFF.md`'s "the game's own settings menu and frame counter". Writing the falsifier
+> down first is what made this a one-command result instead of a temptation: the output reads
+> like confirmation (`dlss_g … loaded`) and is not.
+
+> **The independent oracle, and its own falsifier — also written first.** `fl-baseline-probe`
+> against a **running** Cyberpunk 2077 at MFG ×4, ×2 and off answers "is `nvngx_dlssg.dll`
+> loaded", which is evidence about FG engagement that shares nothing with the writer under
+> test. **If it reports LOADED with MFG off, it is not an oracle for this question** —
+> plugin loading happens at `slInit`/feature discovery, not at feature engagement — and it
+> must be retired in the same `spike-notes` row rather than quietly relied on. The fallback
+> is the game's own frame counter.
+>
+> **Not in the table on purpose:** a factor of exactly 1.0 must NOT be recorded as §H5 case 3.
+> At least three causes produce it and this data cannot separate them — generated presents
+> never reaching the vtable we patch, frame generation configured off while the feature is
+> still evaluated, and an evaluation that FAILED and was counted anyway, because
+> `Hook_SlEvaluateFeature` increments before forwarding and ignores the `sl::Result`. The
+> report prints all three rather than naming one.
+
+</details>
 
 ### S27 · The chokepoint is the ANTI-CHEAT gate, and it is not the consent gate
 
@@ -2450,6 +2654,53 @@ not let anyone "simplify" it back to an inline install on the grounds that the
 probe never showed a deadlock.
 
 ### H5 ◐ · Proxy swapchains defeat the dummy-vtable assumption
+
+> ### NARROWED, NOT CLOSED — five real-title captures, 2026-08-15
+>
+> **What is now measured.** Cyberpunk 2077, SL 2.7.1, RTX 5080, D3D12, 2560×1440, DLSS
+> Balanced, Ray Reconstruction on. Five 40 s captures at four frame-generation settings,
+> Overlay payload hash-verified against the just-built DLL before each run:
+> **off → `presents/batch` 1.000 · ×2 → 2.000 · ×4 → 4.000** (×4 three times independently).
+> Every run: one identified swapchain, one segment, 0 gaps, 0 dropped.
+>
+> **What that settles.** The presents a multi-frame-generation configuration adds are
+> **visible to a hook on `dxgi.dll`'s shared class vtable**. The ratio tracks the configured
+> MULTIPLIER, not merely the on/off state — which a two-point sweep could not have shown,
+> and which is why §S30's oracle paragraph pre-committed three points. `fg_factor`
+> structurally 1.0 on every Streamline title, the outcome this entry exists to fear, does
+> **not** occur here.
+>
+> **What it does NOT settle, and the distinctions are load-bearing:**
+>
+> - **Case 3 is narrowed, not answered.** Nothing went missing *in aggregate*, but these
+>   runs cannot separate "the interposer forwards through the chain we already see" from
+>   "the interposer presents on its own chain that our shared-vtable patch also catches".
+>   One identified stream in every run is what makes the second reading unlikely rather than
+>   excluded.
+> - **Case 2 is made WORSE by this result, not resolved by it.** If three of every four
+>   presents at ×4 originate in the vendor's swapchain, then ~75% of records carry
+>   `syncInterval` / `presentFlags` that **no application call produced** — and `dllmain.cpp`
+>   sets `FL_MEASURED_PRESENT_ARGS` on every one of them unconditionally, as "the one thing a
+>   DXGI present hook always has". Nothing has compared observed present args against what
+>   the title passed. Any consumer of those two fields inherits this.
+> - **`presents/batch` is a PROXY and its denominator is unverified.** A batch is "a present
+>   that drained a Streamline evaluation". It equals an application frame here only because
+>   Ray Reconstruction is evaluated once per application frame on this title, which no
+>   independent oracle has confirmed — `fl-baseline-probe` at the three settings and the
+>   game's own frame counter are both pre-committed in §S30 and both **unrun**.
+> - **Scope.** One title, one SL build, one GPU, D3D12, RR **on**, MFG only. Says nothing
+>   about RR-off, about other SL 2.x builds, about SL 1.x titles (refused before any hook is
+>   installed), or about XeFG and FSR3-FG.
+>
+> **A separate finding from the same runs, which belongs to HANDOFF item 3 rather than
+> here:** `slEvaluateFeature(kFeatureDLSS_G)` is **never called** — 0 across ~14,000 batches.
+> `UNDECODED` is also 0, and that zero is now meaningful rather than merely observed: the
+> injected `--hold-presenting-upscaled-unknown` case asserts the bucket reads non-zero for an
+> id outside the decoded set, proven red. So a vendored `kFeatureDLSS_G` constant not matching
+> the runtime id is excluded, and the honest statement is that the id does not reach the
+> hooked export. **Where frame generation IS driven from was not measured** — an absence at
+> one export of one module does not locate a mechanism, and the NGX tier
+> (`NVSDK_NGX_D3D12_EvaluateFeature`, seven exporting modules) is hooked nowhere.
 
 **Partly answered, and the news is better than expected.** `hook-harness
 --probe-proxy` builds a real forwarding `IDXGISwapChain` wrapper — what

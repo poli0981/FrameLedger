@@ -17,6 +17,242 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Changed
+
+- **The ledger now records what five real-title captures actually established, and HANDOFF
+  item 3 is struck because its premise is false.** `slEvaluateFeature(kFeatureDLSS_G)` is
+  never called by Cyberpunk 2077 — 0 across ~14,000 Streamline batches at four
+  frame-generation settings, while frame generation was demonstrably active — so the
+  2026-08-14 owner ruling to count evaluations directly is correct arithmetic on a route the
+  vendor does not use. The counter, its drain, its consumer and its fixtures are all in and
+  gated; there is nothing to count. The open question is no longer "build a counter" but
+  "what is the in-policy producer for DLSS-G on Streamline 2.x", and item 3 now lists the
+  candidate routes without choosing one.
+- **§H5 is NARROWED, not closed, and the wording is deliberate.** `presents / batch` reads
+  1.000 / 2.000 / 4.000 against the title's own off / ×2 / ×4 (×4 three times), one
+  identified swapchain and 0 gaps in every run — so generated presents ARE visible to a hook
+  on the shared `dxgi.dll` vtable and the count tracks the MULTIPLIER, which a two-point
+  sweep could not have shown. Recorded as still open: case 3 is narrowed rather than
+  answered; **case 2 is made worse** — at ×4 roughly 75% of records carry `syncInterval` /
+  `presentFlags` no application call produced, and the writer claims
+  `FL_MEASURED_PRESENT_ARGS` on all of them; the proxy's denominator is unverified, because a
+  batch equals an application frame only if Ray Reconstruction is evaluated once per frame,
+  which no independent oracle has confirmed.
+- **`03_METRICS` §Frame Generation and §RT/PT/RR both carry the consequence.** `F_app =
+  Σ fgEvaluations` was written when the counter was expected to have a producer; the section
+  now states that on the measured route it yields zero and that `presents / batch` must not
+  be promoted to `fg_factor` without its premise attached. And RT's per-application-frame
+  quantities — `rt_frame_pct`, `rays_per_pixel`, the 5% gate — are left **without a settled
+  denominator**, which is now the first thing HANDOFF item 4 has to decide rather than
+  something it inherits.
+- `17_HOOK_ENGINE`'s FG row stays ✅ and says it counts zero on the measured route — built,
+  honest, and yielding nothing is three different facts from unbuilt.
+- `15_ROADMAP` item 7's ETW comparison is struck as blocked on a producer rather than on
+  tooling, and `spike-notes` §9 — three empty bullets since the file was written, and the
+  section named after this item — carries the five-capture table.
+- §S30 closed in §S24 with the two defects it produced on the way out: the pre-committed
+  decision table had two holes, and the fix contaminated the census that found it.
+
+### Fixed
+
+- **§S30 is ANSWERED, and the answer is that Ray Reconstruction was doing the upscaling all
+  along.** Cyberpunk 2077, 2026-08-15, three 40 s captures: with `DLSS_D = True` the title
+  evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once** —
+  2,569 of 2,569 batches, zero DLSS, zero NIS, zero undecoded ids. RR replaces the separate
+  super-resolution pass rather than running beside it, and the decode had no arm for it, so
+  every record reported `UNKNOWN`. **What makes this evidence and not an inference:**
+  `renderW/H` are published only on a frame where an evaluation was seen, and they came back
+  `1485x835` against the title's own `DLSS = Balanced` at `2560x1440` — 0.58 exactly. The
+  scaling-input tag arrives ON the RR evaluation. `FL_UPSCALER_DLSS` and not a new value:
+  layout v3 retired `FL_UPSCALER_RETIRED_RAY_RECONSTRUCTION` precisely because RR is an
+  independent axis, which `FL_FEAT_RAY_RECONSTRUCTION` already carries from the same word.
+- **The census was measuring its own subject, and the decode fix is what exposed it.**
+  `SlCensus` derived "a super-resolution id arrived" from the DECODED `upscaler` byte, so the
+  correction above made it report 2,569 arrivals of an id that arrived zero times — an
+  instrument that moves when its subject moves cannot be evidence about the subject, which is
+  the only job §S30 gave it. `FL_FEAT_SL_SUPER_RESOLUTION` now carries the RAW fact, set from
+  the drain word and independent of any decode. An enumerator, not a field: no layout bump.
+  It deliberately gets **no OBSERVED companion** against this enum's own convention — all
+  three Streamline facts in the byte are published under one condition, so their companions
+  would be equal bit for bit, and `FL_FEAT_RAY_RECONSTRUCTION_OBSERVED` already carries it.
+- **`UpscalerOf` read the LAST record, which under frame generation is usually the wrong
+  one.** The writer publishes an identity only on presents that drained an evaluation — one
+  in N — so at ×4 the last record is `UNKNOWN` with probability 3/4, and the report printed
+  "a hook ran and could not identify it" three lines below its own raw block printing
+  `upscaler=Dlss on 2561 record(s)`. Now scans for any record naming a technology, exactly as
+  `FgModeOf` already did, and for the same reason.
+- Two `SlCensusTests` fixtures went red on the raw-fact change and were **right to**: they set
+  a decoded `Dlss` without the raw bit, which is a state no writer produces. Corrected, and a
+  new case pins the discrimination directly — a record with `upscaler == Dlss` and no raw
+  super-resolution fact is the RR-decoded shape and must NOT count as an arrival of
+  `kFeatureDLSS`.
+
+### Added
+
+- **The FG factor gets a consumer, and most of it is the refusals.** `FgWindow` takes
+  `F_disp` and `F_app` from **one record set** — every drained record in one QPC span, not
+  the dominant stream — because `g_slSeen` is one process-wide word drained by whichever
+  present arrives first, so an evaluation belonging to the game's frame can be consumed by
+  a UI swapchain's present. Summing the denominator over one stream while counting presents
+  over all of them overstates the factor with no diagnostic. Five refusals, each a number
+  this consumer would otherwise have printed as a measurement: nothing counted (a data gap,
+  never 1.0); a saturated 255 (a sentinel, not a floor to divide by); a record with
+  `swapchainId 0`; more than one stream in the span; and **the frame-generation state
+  changing during the session**.
+- **That last one was found by an adversarial review of the design, before any of this was
+  written, and it produces a number above the physically achievable one.** Half a session at
+  ×4 and half with FG off gives a whole-window factor of 8 from an ×4 configuration, and
+  `NativeFps` inherits the whole error — while every other guard stays silent, because the
+  count is not zero, the factor is not 1.0 and it is not below 1.0. `03_METRICS:133` already
+  forbids this for upscaling ("averaging across a settings change is the classic way
+  benchmark numbers become meaningless") and lists `fg_mode` as a **segment** column. The
+  window is now split into eight buckets and any bucket whose factor departs from the whole
+  refuses the lot.
+- **`evaluations/batch`, the premise check that needs no oracle.** HANDOFF item 3 rests on
+  `slEvaluateFeature(kFeatureDLSS_G)` firing **once** per application frame, and nothing in
+  this repository had verified it. The quotient of the two ratios a run can compute —
+  `(presents/batches) ÷ (presents/Σ)` — reduces to `Σ/batches`, and it is the ONLY check
+  that catches the k-per-frame case: three evaluations per frame at ×4 yields a factor of
+  1.34, which is above 1.0 so an over-counting guard is silent, is not 1.0 so a
+  structurally-1.0 guard is silent, and still **moves with the setting** so a three-point
+  sweep passes too. Batches come from `FL_FEAT_RAY_RECONSTRUCTION_OBSERVED`, which the
+  writer sets under `seen != 0` and nothing else — an exact indicator, unlike the params bit
+  whose extra tag-validity conjunct makes the ledger's 4.0134 an upper bound.
+- **`NativeFps` is counted, not derived.** `Σ / seconds`, not `DisplayedFps / factor`.
+  Derived, the rule-6 trio is internally consistent by construction and a reader can
+  conclude nothing from that consistency; computed separately, `Native × Factor ≈ Displayed`
+  is a property a test checks — to within exactly one frame, because Displayed counts
+  intervals and Native counts records, and that difference is asserted rather than rounded
+  away. The renderer now prints all three off **one** window or prints one labelled number
+  and the reason, which is the half of rule 6 that had no test at all.
+- **`SlCensus` — §S30's "print them first", built rather than promised.** Per record, which
+  of the five Streamline feature classes arrived, including the undecoded one, which is only
+  separable because of the `FL_FEAT_SL_UNDECODED` bit added in the previous commit. It names
+  the §S30 shape directly: batches that generated frames carrying **no** super-resolution id.
+- **The O1–O5 decision table is committed to `20_OPEN_QUESTIONS` §S30 BEFORE the run.**
+  "Measure, then fix" becomes "fix, then justify" the moment the table is written after the
+  numbers are known, and nobody can tell the two apart afterwards. The table includes the
+  falsifier for its own independent oracle: if `fl-baseline-probe` reports `nvngx_dlssg.dll`
+  LOADED with multi-frame generation off, it is not an oracle for FG engagement and must be
+  retired in the same `spike-notes` row rather than quietly relied on.
+- **A factor of exactly 1.0 is NOT reported as §H5 case 3.** Three causes produce it and this
+  data cannot separate them — generated presents never reaching the vtable we patch, FG
+  configured off while the feature is still evaluated, and an evaluation that FAILED and was
+  counted anyway, because `Hook_SlEvaluateFeature` increments before forwarding and ignores
+  the `sl::Result`. The report prints all three. Naming one is how the item gets routed down
+  the wrong branch.
+
+- **`fgEvaluations` and `fgMode` get a producer, and the count is of EVALUATIONS.**
+  `slEvaluateFeature(kFeatureDLSS_G)` now contributes to a saturating 24-bit count in the
+  high field of the same word the feature bits live in (`fl_sl_seen.h`), consumed by the
+  one `exchange(0)` `RecordPresent` already performed. A bit could not carry it: a bit
+  collapses several evaluations between two presents into one, and under multi-frame
+  generation that is the common case rather than the edge — 10,169 presents carried 2,461
+  Streamline batches on the one real title measured.
+  **The five existing consumers of that word are untouched**, which is why the split was
+  chosen over a second atomic: `seen != 0` still means "an evaluation happened this
+  present" (any evaluation either sets a feature bit or increments the count), and the
+  three bit tests read bits 0-2, which the count cannot reach. Still exactly one
+  read-modify-write per call, on either arm — making the count itself the identity removes
+  the need for a compare-exchange rather than paying for one on a hook path.
+- **`F_app = Σ fgEvaluations`, not `presents − Σ fgEvaluations`** (owner ruling
+  2026-08-14), swept across `03_METRICS` §Frame Generation and its export table,
+  `fl_shm.h`'s field and mask comments, `fl_hook_inventory.h`'s module-scoping rationale
+  and `17_HOOK_ENGINE`'s FG row. The subtraction needs a count of *generated* frames, and
+  nothing can produce that in policy: the evaluation fires once per **application** frame
+  and yields N−1 generated ones, where N lives in `sl::DLSSGOptions` — set out of band
+  through `slDLSSGSetOptions`, the route HANDOFF §2b refused on five grounds. The two
+  forms are not interchangeable: on the one real title measured they differ by ×4.
+  `native_or_generated`'s polarity inverts with it, and the per-frame classification is
+  now documented as exact in aggregate and accurate to one frame per record.
+- **`FL_FEAT_SL_UNDECODED` + its OBSERVED companion**, so §S30 can be answered rather than
+  guessed at. Once frame generation leaves the feature bitmask, a present carrying
+  `kFeatureDLSS_G` alongside any id that falls to `FL_SL_SEEN_OTHER` — Reflex, PCL,
+  DeepDVC, Latewarp, DirectSR — is byte-identical to one that carried DLSS-G alone, so a
+  consumer counting "presents that carried an id we cannot decode" would read ZERO on a
+  title evaluating one every application frame. Cyberpunk runs Reflex. A decision table
+  keyed on that bucket would have closed §S30 on a number that could not have been
+  anything else. **Enumerators, not fields**: no struct change, so no
+  `FL_SHM_LAYOUT_VERSION` bump, no `fl-layout-dump` entry, no `ShmLayout.cs` struct edit.
+- **The CONSUMER half is not in this PR, and a capture will still print "FG state not
+  measured".** `MeasuredFacts.FgMode`, `NativeFps` and `FgFactor` stay hard-null: the
+  arithmetic they need — one record set for both sides of the ratio, a refusal to publish a
+  session-level factor across an FG state change, and the presents-per-batch cross-check —
+  is its own change with its own canaries, and shipping half of it would put a number in
+  front of a reader before the thing that decides whether the number is allowed. So the
+  writer measures and the report is silent, on purpose, for exactly one PR.
+- **The decode is UNCHANGED, deliberately.** §S30 — a real title decoding every
+  params-carrying record as `UNKNOWN` while running DLSS — is not fixed here. HANDOFF
+  forbids by name changing the decode before the ids that actually arrive have been
+  printed, because that turns a wrong answer into a confident wrong answer. This PR builds
+  the instrument.
+- **`--hold-presenting-fg` and `--presents-per-eval`**, the first fixture in the tree where
+  presents ≠ evaluations. Every other injected fixture evaluates once per present, so a
+  writer counting evaluations and a writer counting presents are indistinguishable in all
+  of them — every ratio is 1. It also passes the scaling-input extent as a **local** tag
+  through `slEvaluateFeature`'s own `inputs` and never calls `slSetTag`, which closes a
+  coverage hole this PR would otherwise have widened: `FindScalingInputExtent` has one
+  production call site, inside the detour, and nothing reached it — every test called the
+  header directly and every fixture passed `inputs = nullptr`. Frame generation now takes a
+  different decode arm, so "the arm must fall through to the walk" became a property
+  somebody could reasonably tidy away.
+
+### Fixed
+
+- **Four session calculators asked a question no session could answer yes to.** `UpscalerOf`,
+  `RayTracingOf`, `HdrOf` and `RayReconstructionOf` each gated on `stream.All(... bit ...)`,
+  and feature hooks install lazily from the 1 Hz watchdog — so the opening of every session
+  predates them. Measured on Cyberpunk 2077: **292 of 10,169 records carry no `Upscaler`
+  bit**, and the consumer therefore reported *"no upscaler hook ran"* about a session in
+  which the hook was live for 97% of the presents. `Program.cs` had already grown a per-bit
+  record count to explain that in prose. The three hook-liveness axes now aggregate over the
+  maximal claiming **suffix**, and the boundary must be **clean** — a bit that goes on, off
+  and on again is a writer contradicting itself, and its trailing run must not be averaged as
+  though it were a whole session, which is the same defect reached from the other side.
+- **`RayReconstructionOf` is deliberately NOT in that sweep, and the reason is now in the
+  code.** It looks identical and is not: the other three gate on a *hook-liveness* bit, which
+  is monotonic, while this one gates on a *per-present observation* (`seen != 0`), which under
+  frame generation is intermittent by construction — one Streamline batch spans ~4 presents on
+  the Cyberpunk stream, so the maximal claiming suffix is ONE record and feeding it to the
+  `Any` below would publish a whole-session Yes/No from a single frame. Worse than the `N/A`
+  it returns today. Fixing it needs the application-frame unit HANDOFF item 3 introduces.
+- **`guard_test.cpp`'s honesty assertion was a hardcoded equality where the managed twin was a
+  derived subset test.** It compared `measuredMask` against the constant
+  `FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` with `!=` — right while the Overlay
+  hooked only presents, and a statement about **one build** rather than about honesty. It is
+  now derived from `hooksInstalledMask` the way `MeasuredFacts.EntitledBy` is, as a subset
+  test, plus the value-without-bit conjuncts. Left as an equality it would have gone **red on
+  a correct writer** the moment any feature bit is per-frame rather than per-session:
+  `FL_MEASURED_UPSCALER_PARAMS` is gated on `seen != 0`, so under frame generation three
+  records in four legitimately lack it. **The derived form is paired with an equality on
+  `hooksInstalledMask` itself** — without it a writer that installed everything would be
+  "honest" about any claim and the loop would pass while proving nothing.
+  Both sides gained two conjuncts they were missing: `fgEvaluations` with `FG_COUNTS` clear,
+  and `featureFlags` on a writer not entitled to claim an upscaler.
+  **Two copies of one contract with nothing gating their agreement** — the struct mirror has
+  `fl-layout-dump`; this does not. Stated in both files rather than left to be discovered.
+- **`slSetTag` shipped on 2026-08-15 with no row in `17_HOOK_ENGINE` §Hook inventory**, whose
+  own first line says anything not on the list is not allowed to exist and which NFR-11 makes
+  the enumeration of the hook set. `hookinventory-check` never reads that file — it checks
+  `FL_HOOK_INVENTORY` against `vendor-exports.json` — so a shipped hook missing from the doc
+  is invisible to every gate in the tree. Row added; the banner above it said **three** rows
+  were built when the answer was five, and said a present-only writer's `measuredMask` is what
+  the record carries, which stopped being true at item 2.
+- **The removed `presentdelta` rung outlived its removal in two more places.**
+  `03_METRICS` retired `GetFrameStatistics().PresentCount` on 2026-08-05 as *structurally*
+  zero rather than unreliable, and `17_HOOK_ENGINE` forbids re-adding it — but
+  `05_DETECTION`'s FG row and `06_DATA_MODEL`'s `fg_source` enum both still named it. Both
+  corrected, with the reasoning kept where a reader of either would need it.
+- **`sessions.fg_mode` defaulted to `'none'`**, reinstating at the storage layer the exact
+  affirmative negative the writer and the consumer both refuse — `none` is the one FG state
+  `03_METRICS` allows to be aggregated as a negative. Now `'na'`, matching the four tri-state
+  columns beside it. And `frame_blobs.rt_flags` named its third bit `rtPsoAlive`, a name
+  `fl_shm.h` renamed away because the bit **latches**: creation is observed at
+  `CreateStateObject`, destruction is COM `Release`, which is not in the hook inventory and
+  must not be added, so "alive" claimed a present-tense fact the hook set cannot retract.
+  `06_DATA_MODEL:133` records that the schema is free to edit exactly once, before P2 writes
+  `0001_init.sql`; after that these are migrations.
+
 ### Added
 
 - **`capture` can be bounded, because a real-title measurement otherwise could not end.**

@@ -145,8 +145,14 @@ CREATE TABLE sessions (
   output_w INTEGER, output_h INTEGER,
   upscale_ratio REAL,
   settings_changed_midsession INTEGER NOT NULL DEFAULT 0,
-  fg_mode TEXT NOT NULL DEFAULT 'none',
-  fg_source TEXT,                              -- api|presentdelta|etw|cadence|manual
+  -- 'na', NOT 'none', and the default is the whole point. `none` means "a hook ran and
+  -- there was genuinely no frame generation" -- the one state 03_METRICS allows to be
+  -- aggregated as a negative -- so a DEFAULT of 'none' reinstates at the storage layer
+  -- exactly the affirmative negative the writer and the consumer both refuse
+  -- (fl_shm.h: FL_FG_NOT_REPORTED is 0 in v3; MeasuredFacts.FgMode is null, never "none").
+  -- Matches hdr_flag/rt_flag/pt_flag/rr_flag beside it, which were already 'na'.
+  fg_mode TEXT NOT NULL DEFAULT 'na',
+  fg_source TEXT,                              -- api|etw|cadence|manual
   fg_factor REAL,
 
   -- ray tracing (measured at tier 1)
@@ -206,8 +212,15 @@ CREATE TABLE frame_blobs (
   frametimes BLOB NOT NULL,        -- float32[] ms
   frame_flags BLOB NOT NULL,       -- byte[] : generated/dropped/gap bits
   rt_flags BLOB,                   -- byte[] : one per frame, all 3 bits preserved
-                                   -- (asBuild | dispatchRays | rtPsoAlive). Collapsing
-                                   -- these loses the inline-RayQuery distinction.
+                                   -- (asBuildObserved | dispatchObserved | psoCreatedEver).
+                                   -- Collapsing these loses the inline-RayQuery distinction.
+                                   --
+                                   -- `rtPsoAlive` was the third bit's name here and is WRONG:
+                                   -- fl_shm.h renamed it FL_RT_PSO_CREATED_EVER because the
+                                   -- bit LATCHES -- creation is observed at CreateStateObject,
+                                   -- destruction is COM Release, which is not in the hook
+                                   -- inventory and must not be added -- so "alive" claimed a
+                                   -- present-tense fact the hook set cannot retract.
   render_res BLOB,                 -- uint16[] : TWO pairs per frame (render W/H, output W/H),
                                    -- stored only when either varies
   dispatch_rays BLOB,              -- uint32[] : ray volume per frame, tier 1 only

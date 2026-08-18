@@ -209,11 +209,49 @@ enum FlColorSpace : uint8_t {
 enum FlFeatureFlags : uint8_t {
     FL_FEAT_RAY_RECONSTRUCTION = 1u << 0,
     FL_FEAT_REFLEX_ENABLED = 1u << 1,
-    // bits 2-3 free for facts
+
+    // A Streamline feature id we do not decode was evaluated this frame.
+    //
+    // NOT AN ERROR, AND NOT DECORATION -- it is the only way the consumer can tell
+    // apart two sessions that otherwise look identical. Once the frame-generation
+    // count leaves the feature bitmask, a present carrying kFeatureDLSS_G together
+    // with any id that falls to FL_SL_SEEN_OTHER -- Reflex, PCL, DeepDVC, Latewarp,
+    // DirectSR, or a feature a newer Streamline adds -- has fgEvaluations > 0 and is
+    // indistinguishable from a present that carried DLSS-G alone. §S30's question is
+    // exactly "which ids actually arrive", and without this bit the bucket for
+    // "an id we do not decode" reads ZERO on a title evaluating one every
+    // application frame, so a decision table keyed on that bucket would close the
+    // item on a number that could not have been anything else.
+    //
+    // AN ENUMERATOR, NOT A FIELD: no struct changes, so no FL_SHM_LAYOUT_VERSION
+    // bump, no ShmLayout.cs struct edit and no fl-layout-dump entry. The byte and
+    // its offset are unchanged.
+    FL_FEAT_SL_UNDECODED = 1u << 2,
+
+    // A SUPER-RESOLUTION id -- kFeatureDLSS or kFeatureNIS -- was evaluated this frame.
+    //
+    // RAW, AND THAT IS THE ENTIRE POINT: it records which id ARRIVED, independently of
+    // what the decode made of it. Measured 2026-08-15 and added because the instrument
+    // had been contaminated by the thing it measures. Cyberpunk 2077 with Ray
+    // Reconstruction on evaluates kFeatureDLSS_RR and never kFeatureDLSS, and the decode
+    // was corrected to report DLSS for it -- correctly, since RR performs the upscale and
+    // carries the scaling-input tag. But the census derived "kFeatureDLSS arrived" from
+    // the decoded `upscaler` byte, so the same correction made it report 2,569 arrivals
+    // of an id that arrived zero times. A measurement that moves when the decode moves
+    // cannot be evidence ABOUT the decode, which is the whole job §S30 gave it.
+    //
+    // NO SEPARATE OBSERVED COMPANION, deliberately, against this enum's own convention.
+    // All three Streamline facts in this byte are published under one condition -- an
+    // evaluation was drained for this present -- so their companions would be provably
+    // equal bit for bit, and FL_FEAT_RAY_RECONSTRUCTION_OBSERVED already carries it. A
+    // redundant bit is not more honest than a shared one; it is just another thing to
+    // keep in step. Bit 7 stays free.
+    FL_FEAT_SL_SUPER_RESOLUTION = 1u << 3,
 
     FL_FEAT_RAY_RECONSTRUCTION_OBSERVED = 1u << 4,
     FL_FEAT_REFLEX_OBSERVED = 1u << 5,
-    // bits 6-7 free, and must pair with the fact bit four places below
+    FL_FEAT_SL_UNDECODED_OBSERVED = 1u << 6,
+    // bit 7 free, and must pair with the fact bit four places below
 };
 
 // bits in FlFrameRecord::rtFlags — POLARITY FLIPPED IN v3.
@@ -370,13 +408,22 @@ enum FlMeasured : uint16_t {
 
     // fgEvaluations, split from fgMode.
     //
-    // 17_HOOK_ENGINE lists them as two inventory rows: CreateFeature-class tells
-    // you a FrameGeneration feature exists, and the per-present evaluation count
-    // is a different hook. A writer with identity and no counts would publish
-    // fgEvaluations = 0, and F_app = presents − Σ fgEvaluations then makes
-    // F_app == F_disp, i.e. fg_factor 1.0 -- CLAUDE.md rule 6's forbidden number,
-    // reached by a writer that never counted anything. With this bit clear the
-    // Agent must treat F_app as a data gap, never as equal to F_disp.
+    // 17_HOOK_ENGINE lists them as two hook classes: a CreateFeature-class call
+    // tells you a FrameGeneration feature exists, and the per-present evaluation
+    // count is a different capability. A writer with identity and no counts would
+    // publish fgEvaluations = 0 on every record, and a consumer reading that as a
+    // measurement gets F_app == 0 or, worse, folds it back to F_app == F_disp --
+    // i.e. fg_factor 1.0, CLAUDE.md rule 6's forbidden number, reached by a writer
+    // that never counted anything. With this bit clear the Agent must treat F_app
+    // as a DATA GAP; with it set, a zero on one record is a real measurement of
+    // that present and must not be filtered out.
+    //
+    // THE STREAMLINE WRITER SETS THIS AND FL_MEASURED_FG TOGETHER, from one detour
+    // on slEvaluateFeature, so on that writer the two bits carry the same
+    // information. They stay separate because the split is about HOOK CLASSES and
+    // not about this writer: an NGX-direct or FFX title yields identity through a
+    // CreateFeature-class call with no evaluation count behind it, and that writer
+    // must be able to say so.
     FL_MEASURED_FG_COUNTS = 1u << 10,
 
     // bits 11-15 reserved. Writers leave them zero; readers must IGNORE them
@@ -564,11 +611,23 @@ struct alignas(64) FlFrameRecord {
     // quality and render size, because it comes from the same accessor.
     uint8_t upscalerSharpness;    // @42
 
-    // @43 — NARROWED uint32 -> uint8 and moved from 52. FG evaluations in one
-    // present: DLSS-G is 1, and multi-frame generation is 3 at x4. A byte is 255.
-    // Narrowing a field that feeds F_app = presents − Σ fgEvaluations deserves the
-    // explicit note: saturation at 255 evaluations in a SINGLE present would mean
-    // 256x frame generation, which is not a configuration that exists.
+    // @43 — NARROWED uint32 -> uint8 and moved from 52.
+    //
+    // FG *EVALUATIONS* IN ONE PRESENT, NOT GENERATED FRAMES, and this comment said
+    // the second thing until the producer was written. Owner ruling 2026-08-14:
+    // slEvaluateFeature(kFeatureDLSS_G) fires ONCE PER APPLICATION FRAME and yields
+    // N-1 generated ones, where N lives in sl::DLSSGOptions -- set out of band, by
+    // the route HANDOFF §2b refused. So the value here is 0 or 1 on a DLSS-G title
+    // (1 on the present that drained the batch, 0 on the presents the vendor's
+    // swapchain emitted from it), and 03_METRICS computes F_app = Σ fgEvaluations
+    // rather than presents − Σ. The old reading ("3 at x4") described a number no
+    // in-policy hook can produce.
+    //
+    // SATURATES AT 255, NEVER WRAPS. It is the DENOMINATOR of fg_factor, so a
+    // wrapped count reads low and inflates the factor without bound -- CLAUDE.md
+    // rule 6's forbidden direction. 255 is therefore a sentinel as much as a value:
+    // no configuration evaluates frame generation 255 times between two presents, so
+    // a consumer seeing it must refuse to publish a factor rather than divide.
     uint8_t fgEvaluations;    // @43
 
     // @44 — NARROWED uint64 bytes -> uint32 MiB, renamed, moved from 40. This is
