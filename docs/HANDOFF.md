@@ -358,6 +358,26 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > `presents/batch` with the premise stated and an oracle attached. **This is the decision to
 > take before any more code.**
 >
+> **STATE AT THE END OF 2026-08-16, so the next session does not re-derive it.** Five
+> real-title captures across off / x2 / x4 establish that `presents / batch` tracks the
+> configured multiplier exactly (1.000 / 2.000 / 4.000) and that the presents frame
+> generation adds ARE visible to our hook. What they do NOT establish is that a drained
+> Streamline batch IS an application frame: every instrument tried so far either divides by
+> the same known constant we do, or is another in-process present hook.
+> **Three oracles were tried and all three fell** — `fl-baseline-probe` (retired by its own
+> pre-committed falsifier: it reports two mutually exclusive FG implementations both
+> "loaded"), the x2 overlay reading (one agreement counted twice, by algebra), and the x4
+> overlay reading (kills the fixed-divisor rival, cannot separate an independent count from
+> a correct derivation). **The next measurement is PresentMon 2.x `FrameType`**, which
+> classifies each present from ETW and divides by nothing.
+>
+> **And a prerequisite with code attached, before `presents / batch` is published anywhere:**
+> `FgWindow`'s uniformity guard keys on `fgEvaluations`, which is zero on this route, so it
+> passes vacuously and cannot see a window that mixed frame-generation states. Measured: an
+> alt-tab mid-capture produced 1.84 instead of 2.00 — an 8% error with no diagnostic. A
+> published `presents / batch` needs its own per-bucket guard, and the report should be able
+> to say when the window was not uniform.
+
 > **Two cheap measurements would sharpen it and neither has been run**, both pre-committed in
 > §S30: `fl-baseline-probe` against the running title at ×4 / ×2 / off — with its own written
 > falsifier, that it is retired as an FG oracle if it reports `nvngx_dlssg.dll` LOADED with FG

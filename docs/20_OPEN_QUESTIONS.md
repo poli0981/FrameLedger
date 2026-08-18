@@ -591,9 +591,107 @@ a wrong answer into a confident wrong answer.
 > | **O4** | `UNDECODED > 0` on the batches that decoded `UNKNOWN` | an id we do not map is arriving, and may be the super-resolution one under another name | **neither, yet.** Print the raw `sl::Feature` values before mapping anything — a new id decoded by guess is exactly this entry repeating. That needs a writer change of its own |
 > | **O5** | `batches = 0`, or `evaluations/batch` far from 1 | the hook is not seeing what we think it sees | **stop.** Neither fix is safe: `evaluations/batch ≠ 1` falsifies item 3's premise outright and the FG factor is wrong by that factor, so that is the defect to chase first |
 >
+> ### THE x4 LEG, AND WHAT IT DID AND DID NOT SETTLE — 2026-08-16
+>
+> **The named rival is dead.** Read at x4, the overlay shows `DLSS 268 | FPS 67`,
+> `272 | 68` and `260 | 65` across three instants. "Application frames" predicted the
+> second field at ~65; "displayed divided by a fixed 2" predicted ~130. It reads 65-68.
+> The prediction was written before the screenshots and it discriminated.
+>
+> Ratio against ratio, which needs no span and no shared window: ours
+> `presents / batch` = 4.0000, the overlay's `DLSS / FPS` = 4.0000. At x2 both read
+> 2.0000. Two instruments agreeing on a dimensionless quantity across two multipliers.
+>
+> **A SECOND CONCLUSION WAS DRAWN AND THEN WITHDRAWN, and the withdrawal is the useful
+> part.** All five readings are EXACT integer ratios, which requires the true ratio to
+> fall inside about +-1% every time. That looked like proof the overlay DERIVES one field
+> from the other, because our own capture had measured an achieved factor of 1.84 rather
+> than 2.00 — so the real factor seemed to vary while the overlay never did.
+>
+> **The 1.84 was ALT-TAB.** The operator switched away from the game during that capture.
+> Frame generation stops while the title is unfocused, so the window mixed intervals at
+> 2.00 with intervals near 1.00 and averaged 1.84. With that explained, the achieved factor
+> is exactly N whenever the game has focus — and an INDEPENDENT counter would then also read
+> exact integers every time. The evidence for "it derives" evaporates with its premise.
+>
+> **So the position is: "independent count" and "correct derivation" both survive, and no
+> instrument available here can separate them** — each produces the true application rate
+> whenever frame generation meets its configured multiplier, which is always, when focused.
+> The premise that a drained Streamline batch equals an application frame is therefore
+> CORROBORATED ACROSS TWO MULTIPLIERS AND NOT PROVEN.
+>
+> **The instrument that would settle it is already named in this repository.** PresentMon
+> 2.x's `FrameType` classifies each present as application or generated from ETW, by a
+> mechanism that divides by nothing. `15_ROADMAP` item 7 and `03_METRICS` rung 2 both
+> pre-committed it, which is why they exist. That is the next measurement, not another
+> reading of a present-hook overlay.
+>
+> ### AND THE ALT-TAB EXPOSED A REAL DEFECT, which is the finding with code attached
+>
+> `FgWindow` has a uniformity guard built for exactly this — split the window into buckets,
+> refuse a factor when one bucket departs from the whole, because "averaging across a
+> settings change is the classic way benchmark numbers become meaningless"
+> (`03_METRICS`:133). **It cannot see this case.** `BucketsOf` sums `fgEvaluations`, which
+> is zero on every record on this route, so every bucket is identical and the check passes
+> vacuously. The 1.84 run is the proof: a real session where the number a consumer would
+> publish was wrong by 8% and nothing in the report said so.
+>
+> **Consequences, and they are prerequisites rather than nice-to-haves.** If
+> `presents / batch` is ever published as `fg_factor`, it needs a uniformity guard OF ITS
+> OWN, keyed on the per-bucket `presents / batch` rather than on `fgEvaluations`. And a
+> capture whose validity depends on the window being uniform should be able to say when it
+> was not: focus loss is observable in-process, and an unfocused interval is not a
+> measurement of the title's performance in any case.
+
+> ### THE REPLACEMENT ORACLE DOES NOT SETTLE IT EITHER — corrected 2026-08-16, before it landed
+>
+> **A draft of this entry claimed the application-frame premise was measured. It was wrong on
+> three counts and is recorded here rather than quietly deleted, because the draft read
+> exactly like a result.** Steam's overlay, during a ×2 capture, showed `DLSS 162 | FPS 81`
+> against a capture whose own numbers imply 161.7 and 80.8 — "0.2% on both".
+>
+> 1. **THE TWO AGREEMENTS ARE ONE, BY ALGEBRA.** `presents / batch` was 2.0000 exactly and
+>    the overlay's own ratio is 162/81 = 2.0000 exactly, so `batches ÷ 81` and
+>    `presents ÷ 162` are forced to the same residual — both −0.182%, to three digits. Two
+>    independent checks essentially never do that. This is the defect `SlCensus.cs` was
+>    corrected for **the same day** — one quantity read twice and cited as two witnesses —
+>    reproduced in prose hours later. Fixing the code did not fix the habit.
+> 2. **THE SURVIVING COMPARISON IS CIRCULAR.** The span was derived FROM `Displayed FPS`, so
+>    `presents / span` is `Displayed FPS` restated. It compares our present count against
+>    another present count. No step in the arithmetic touches an application frame.
+> 3. **THE RIVAL HYPOTHESIS PREDICTS THE SAME NUMBER.** If the overlay's `FPS` field is
+>    *displayed ÷ 2* rather than a count of application frames, then at ×2 the two are
+>    numerically identical. The pre-registered prediction separated "application frames" from
+>    "displayed frames" and never enumerated this one, so it was not a discriminating test —
+>    and calling the result pre-registered borrowed credibility the design did not have.
+>
+> **And the oracle is not what the draft called it.** Steam's overlay is not "the game's own
+> frame counter" and shares more with us than the draft claimed: `17_HOOK_ENGINE` §Coexistence
+> records that RTSS and the Steam overlay **also hook D3D presentation in-process**. Which
+> layer it counts at is unmeasured, and this title's present path has at least two — with the
+> interposer engaged the swapchain the title holds is not an instance of the class whose
+> vtable we patch (§H5). If Steam counts at the interposer's input, "FPS 81" is a present
+> count one hook over, and equating it with an application frame is the same unverified step
+> relocated.
+>
+> **THE DISCRIMINATING TEST, and it costs one screenshot.** Read the same overlay at **×4**:
+> "application frames" predicts the `FPS` field reads ≈ 65 while "displayed ÷ fixed 2"
+> predicts ≈ 130 — a factor of two apart. Then read it with **frame generation OFF**, where a
+> genuine application counter converges with the displayed one and a fixed halving does not.
+> **Compare RATIOS, not rates:** our `presents / batch` against the overlay's `DLSS / FPS`.
+> Both are dimensionless and each is internal to one instrument, so neither needs a span —
+> which also sidesteps the window defect below.
+>
+> **A code gap this exposed.** `FgWindow.Seconds` is computed and never printed, so the span
+> over the window the batches were actually counted in cannot be read off a report at all.
+> The draft reconstructed it from `Displayed FPS`, which spans a DIFFERENT window —
+> `MeasuredFacts` runs from record 0 while `FgWindow` starts after the lazy-install prefix —
+> and the resulting rate moves across 78.6–83 on window choice alone, ten times the residual
+> the draft quoted. Print it unconditionally beside the other FG counts.
+
 > ### THE PRE-COMMITTED ORACLE IS RETIRED, BY ITS OWN RULE — measured 2026-08-16
 >
-> `fl-baseline-probe --pid <game> --dir <game>ind` against a running Cyberpunk 2077
+> `fl-baseline-probe --pid <game> --dir "<game-dir>/bin/x64"` against a running Cyberpunk 2077
 > with frame generation ON at ×2 reports **all seven capabilities `loaded`** — `dlss`,
 > `dlss_g`, `dlss_rr`, `streamline`, `fsr`, `xess` **and `xefg`**.
 >

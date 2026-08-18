@@ -1296,6 +1296,20 @@ into a real title and the process survives it (§7).
   **A batch is "a present that drained a Streamline evaluation", NOT "an application
   frame"** — the two coincide here only because Ray Reconstruction happens to be evaluated
   once per application frame on this title, and no independent oracle has confirmed that.
+- **THE APPLICATION-FRAME PREMISE IS STILL NOT MEASURED — a draft of this bullet said it was,
+  and was corrected before it landed, 2026-08-16.** Steam's overlay read `DLSS 162 | FPS 81`
+  during a ×2 capture whose own figures imply 161.7 and 80.8. That is **one** agreement, not
+  two: `presents/batch` was 2.0000 exactly and 162/81 is 2.0000 exactly, so both residuals are
+  forced to −0.182%. The surviving comparison is circular (the span was derived from
+  `Displayed FPS`, so `presents/span` restates it), and the rival reading — that the overlay's
+  `FPS` field is *displayed ÷ 2* rather than an application-frame count — predicts the identical
+  number at ×2. Steam's overlay is also **not** an independent instrument: `17_HOOK_ENGINE`
+  §Coexistence records that it hooks D3D presentation in-process too.
+  **The discriminating run is ×4** (application frames ⇒ ≈65, fixed halving ⇒ ≈130) plus an
+  FG-off leg where a genuine counter converges with displayed and a halving does not, comparing
+  RATIOS — our `presents/batch` against the overlay's `DLSS/FPS` — so neither side needs a span.
+  §S30 carries the full correction.
+
   **`fl-baseline-probe` was run on 2026-08-16 and is RETIRED as an FG-engagement oracle by
   its own pre-committed falsifier**: against the running title with FG on at ×2 it reports
   all seven capabilities `loaded`, including `dlss_g` **and** `xefg` — two mutually exclusive
