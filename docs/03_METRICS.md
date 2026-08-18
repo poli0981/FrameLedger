@@ -97,6 +97,24 @@ F_disp  = presents observed by the hook
 F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the source)
 ```
 
+> **MEASURED 2026-08-15, AND IT CHANGES WHAT THIS SECTION CAN PROMISE.** On the one title
+> measured — Cyberpunk 2077, SL 2.7.1 — `slEvaluateFeature(kFeatureDLSS_G)` is **never
+> called**: 0 evaluations across ~14,000 Streamline batches at four frame-generation
+> settings, while frame generation was demonstrably active. DLSS-G on Streamline 2.x is not
+> driven through the feature-evaluation entry point, so `Σ fgEvaluations` is 0 and
+> `fg_factor` is correctly `N/A` rather than wrong. `presents / batch` — presents per
+> Streamline evaluation drained — reads 1.000 / 2.000 / 4.000 against that title's own
+> off / ×2 / ×4, but a batch is **not** an application frame: they coincide only because Ray
+> Reconstruction is evaluated once per application frame there, which no independent oracle
+> has confirmed. **Do not promote that proxy to `fg_factor` without attaching the premise.**
+> `docs/HANDOFF.md` item 3 carries the routes to a real producer.
+>
+> **This also leaves §RT/PT/RR without a settled denominator.** `rt_frame_pct`,
+> `rays_per_pixel` and the `≥ 5% of frames` gate are per-APPLICATION-frame quantities, and
+> dividing them by presents dilutes each by the frame-generation factor — at ×4 a title that
+> path-traces every application frame reports 25%. Whoever writes the RT hooks must choose a
+> denominator and state it here.
+
 `fgEvaluations` is recorded per present by the NGX/Streamline/FFX/XeSS FG hooks
 (`17_HOOK_ENGINE` §Upscaling / frame generation). `fg_factor = F_disp / F_app`.
 

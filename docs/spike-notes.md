@@ -1280,7 +1280,24 @@ into a real title and the process survives it (§7).
 
 ## 9 · Frame generation
 
-- Rung 1 (API / `fgEvaluations`) vs Tier-2 ETW `FrameType`:
+- **Rung 1 (API / `fgEvaluations`) vs Tier-2 ETW `FrameType`: NOT RUN, and rung 1 does not
+  produce a number to compare.** Measured 2026-08-15 on Cyberpunk 2077 (SL 2.7.1):
+  `slEvaluateFeature(kFeatureDLSS_G)` is **never called** — 0 across ~14,000 Streamline
+  batches at four frame-generation settings — so `fgEvaluations` is 0 on every record and
+  there is nothing for ETW to be compared against. The comparison `15_ROADMAP` item 7 asks
+  for is blocked on a PRODUCER, not on tooling.
+- **What DID move with the setting is `presents / batch`, and it is a PROXY.** Five 40 s
+  captures, one title, one GPU, D3D12, Ray Reconstruction on: **off → 1.000, ×2 → 2.000,
+  ×4 → 4.000** (×4 three times independently, one identified swapchain and 0 gaps/0 dropped
+  in every run). Application frame rate falls 85.3 → 70.9 → 63.1 as the multiplier rises,
+  which is the direction frame-generation overhead predicts, and 70.9 × 2.06 = 146
+  reproduces the ×2 displayed figure. So the extra presents are real, they are visible to
+  our present hook, and their count tracks the configured multiplier.
+  **A batch is "a present that drained a Streamline evaluation", NOT "an application
+  frame"** — the two coincide here only because Ray Reconstruction happens to be evaluated
+  once per application frame on this title, and no independent oracle has confirmed that.
+  `fl-baseline-probe` at the three settings and the game's own frame counter are both
+  pre-committed in §S30 and both **unrun**.
 - Can PresentMon 2.x `FrameType` see driver-level FG / AFMF (§M1):
 - AFMF on this machine: **untested — RTX 5080, AMD driver-side feature**
 

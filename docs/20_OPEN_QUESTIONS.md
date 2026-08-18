@@ -75,7 +75,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S23-2** | 🚫 **owner only — no PR can close it** | `Rules / validate` is **not** a required status check on `main`. **Re-verified against the live branch protection 2026-08-05**, not repeated from the entry: `required_status_checks.contexts` is exactly `["check", "analyze (csharp, none)", "analyze (cpp, manual)"]` (`strict: true`, `enforce_admins: true`, `required_linear_history: true`). The `validate` job is path-filtered and `pull_request`-only, so a red removal check does not block the merge button. **The gate that exists to make the anti-cheat blocklist un-removable is advisory.** This is a branch-protection setting |
 
 | **S29** | 🔴 **open, new 2026-08-05 — five of seven closed** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work. **Sharpened 2026-08-06:** fixing §S19(b) alone would still gate nothing, because `build.ps1`'s `-SkipIntegration` applies `--filter 'Category!=Integration'` and excludes the class *before* the guard is ever asked. Two independent mechanisms produce one absence, and `ci.yml` must drop the switch too; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ❓ the **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is untouched and is item 6's to settle — but its second half's PREMISE was stale and is corrected in place: layout v3 put `rtTier` and `hooksInstalledMask` in `FlWriterState`, and neither has a producer, so **`Yes` is unreachable as well as `No`**; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
-| **S30** | ❓ **open, new 2026-08-15** | The record names the WRONG upscaler on a real title. Cyberpunk 2077, 10,169 presents: every one of the 2,461 params-carrying records decoded to `UNKNOWN` while the title was running DLSS. Honest — the writer never says `NONE` — and not the answer exit criterion 1 asks for. The first defect a real-title run has produced. Item 3's to fix, because it restructures the same `g_slSeen` drain |
+| **S30** | ✅ **closed 2026-08-15** | Answered on the title that raised it: with Ray Reconstruction on, Cyberpunk 2077 evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once**, so RR was doing the upscaling and the decode had no arm for it. Evidence rather than inference: `renderW/H` are published only on a frame that drained an evaluation and read 1485×835 = 0.58 × 2560×1440, so the scaling-input tag arrives ON the RR evaluation. Two further defects fell out — the pre-committed decision table had two holes, and the fix contaminated the census that found it (it derived the id from the decoded byte) |
 
 ~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
 exit criterion 2, not seven, and the undercount came from reading only the ❓ rows.**
@@ -2532,6 +2532,53 @@ not let anyone "simplify" it back to an inline install on the grounds that the
 probe never showed a deadlock.
 
 ### H5 ◐ · Proxy swapchains defeat the dummy-vtable assumption
+
+> ### NARROWED, NOT CLOSED — five real-title captures, 2026-08-15
+>
+> **What is now measured.** Cyberpunk 2077, SL 2.7.1, RTX 5080, D3D12, 2560×1440, DLSS
+> Balanced, Ray Reconstruction on. Five 40 s captures at four frame-generation settings,
+> Overlay payload hash-verified against the just-built DLL before each run:
+> **off → `presents/batch` 1.000 · ×2 → 2.000 · ×4 → 4.000** (×4 three times independently).
+> Every run: one identified swapchain, one segment, 0 gaps, 0 dropped.
+>
+> **What that settles.** The presents a multi-frame-generation configuration adds are
+> **visible to a hook on `dxgi.dll`'s shared class vtable**. The ratio tracks the configured
+> MULTIPLIER, not merely the on/off state — which a two-point sweep could not have shown,
+> and which is why §S30's oracle paragraph pre-committed three points. `fg_factor`
+> structurally 1.0 on every Streamline title, the outcome this entry exists to fear, does
+> **not** occur here.
+>
+> **What it does NOT settle, and the distinctions are load-bearing:**
+>
+> - **Case 3 is narrowed, not answered.** Nothing went missing *in aggregate*, but these
+>   runs cannot separate "the interposer forwards through the chain we already see" from
+>   "the interposer presents on its own chain that our shared-vtable patch also catches".
+>   One identified stream in every run is what makes the second reading unlikely rather than
+>   excluded.
+> - **Case 2 is made WORSE by this result, not resolved by it.** If three of every four
+>   presents at ×4 originate in the vendor's swapchain, then ~75% of records carry
+>   `syncInterval` / `presentFlags` that **no application call produced** — and `dllmain.cpp`
+>   sets `FL_MEASURED_PRESENT_ARGS` on every one of them unconditionally, as "the one thing a
+>   DXGI present hook always has". Nothing has compared observed present args against what
+>   the title passed. Any consumer of those two fields inherits this.
+> - **`presents/batch` is a PROXY and its denominator is unverified.** A batch is "a present
+>   that drained a Streamline evaluation". It equals an application frame here only because
+>   Ray Reconstruction is evaluated once per application frame on this title, which no
+>   independent oracle has confirmed — `fl-baseline-probe` at the three settings and the
+>   game's own frame counter are both pre-committed in §S30 and both **unrun**.
+> - **Scope.** One title, one SL build, one GPU, D3D12, RR **on**, MFG only. Says nothing
+>   about RR-off, about other SL 2.x builds, about SL 1.x titles (refused before any hook is
+>   installed), or about XeFG and FSR3-FG.
+>
+> **A separate finding from the same runs, which belongs to HANDOFF item 3 rather than
+> here:** `slEvaluateFeature(kFeatureDLSS_G)` is **never called** — 0 across ~14,000 batches.
+> `UNDECODED` is also 0, and that zero is now meaningful rather than merely observed: the
+> injected `--hold-presenting-upscaled-unknown` case asserts the bucket reads non-zero for an
+> id outside the decoded set, proven red. So a vendored `kFeatureDLSS_G` constant not matching
+> the runtime id is excluded, and the honest statement is that the id does not reach the
+> hooked export. **Where frame generation IS driven from was not measured** — an absence at
+> one export of one module does not locate a mechanism, and the NGX tier
+> (`NVSDK_NGX_D3D12_EvaluateFeature`, seven exporting modules) is hooked nowhere.
 
 **Partly answered, and the news is better than expected.** `hook-harness
 --probe-proxy` builds a real forwarding `IDXGISwapChain` wrapper — what

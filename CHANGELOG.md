@@ -17,6 +17,42 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Changed
+
+- **The ledger now records what five real-title captures actually established, and HANDOFF
+  item 3 is struck because its premise is false.** `slEvaluateFeature(kFeatureDLSS_G)` is
+  never called by Cyberpunk 2077 — 0 across ~14,000 Streamline batches at four
+  frame-generation settings, while frame generation was demonstrably active — so the
+  2026-08-14 owner ruling to count evaluations directly is correct arithmetic on a route the
+  vendor does not use. The counter, its drain, its consumer and its fixtures are all in and
+  gated; there is nothing to count. The open question is no longer "build a counter" but
+  "what is the in-policy producer for DLSS-G on Streamline 2.x", and item 3 now lists the
+  candidate routes without choosing one.
+- **§H5 is NARROWED, not closed, and the wording is deliberate.** `presents / batch` reads
+  1.000 / 2.000 / 4.000 against the title's own off / ×2 / ×4 (×4 three times), one
+  identified swapchain and 0 gaps in every run — so generated presents ARE visible to a hook
+  on the shared `dxgi.dll` vtable and the count tracks the MULTIPLIER, which a two-point
+  sweep could not have shown. Recorded as still open: case 3 is narrowed rather than
+  answered; **case 2 is made worse** — at ×4 roughly 75% of records carry `syncInterval` /
+  `presentFlags` no application call produced, and the writer claims
+  `FL_MEASURED_PRESENT_ARGS` on all of them; the proxy's denominator is unverified, because a
+  batch equals an application frame only if Ray Reconstruction is evaluated once per frame,
+  which no independent oracle has confirmed.
+- **`03_METRICS` §Frame Generation and §RT/PT/RR both carry the consequence.** `F_app =
+  Σ fgEvaluations` was written when the counter was expected to have a producer; the section
+  now states that on the measured route it yields zero and that `presents / batch` must not
+  be promoted to `fg_factor` without its premise attached. And RT's per-application-frame
+  quantities — `rt_frame_pct`, `rays_per_pixel`, the 5% gate — are left **without a settled
+  denominator**, which is now the first thing HANDOFF item 4 has to decide rather than
+  something it inherits.
+- `17_HOOK_ENGINE`'s FG row stays ✅ and says it counts zero on the measured route — built,
+  honest, and yielding nothing is three different facts from unbuilt.
+- `15_ROADMAP` item 7's ETW comparison is struck as blocked on a producer rather than on
+  tooling, and `spike-notes` §9 — three empty bullets since the file was written, and the
+  section named after this item — carries the five-capture table.
+- §S30 closed in §S24 with the two defects it produced on the way out: the pre-committed
+  decision table had two holes, and the fix contaminated the census that found it.
+
 ### Fixed
 
 - **§S30 is ANSWERED, and the answer is that Ray Reconstruction was doing the upscaling all
