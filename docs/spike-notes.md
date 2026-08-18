@@ -1296,8 +1296,13 @@ into a real title and the process survives it (§7).
   **A batch is "a present that drained a Streamline evaluation", NOT "an application
   frame"** — the two coincide here only because Ray Reconstruction happens to be evaluated
   once per application frame on this title, and no independent oracle has confirmed that.
-  `fl-baseline-probe` at the three settings and the game's own frame counter are both
-  pre-committed in §S30 and both **unrun**.
+  **`fl-baseline-probe` was run on 2026-08-16 and is RETIRED as an FG-engagement oracle by
+  its own pre-committed falsifier**: against the running title with FG on at ×2 it reports
+  all seven capabilities `loaded`, including `dlss_g` **and** `xefg` — two mutually exclusive
+  frame-generation implementations — so `loaded` means "mapped", not "engaged", and one run
+  settled it without needing the FG-off leg. Its real job, the static/loaded baseline for
+  item 4, is unaffected. **The game's own frame counter is the only remaining candidate**
+  and is still unrun.
 - Can PresentMon 2.x `FrameType` see driver-level FG / AFMF (§M1):
 - AFMF on this machine: **untested — RTX 5080, AMD driver-side feature**
 

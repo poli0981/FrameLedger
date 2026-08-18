@@ -591,6 +591,30 @@ a wrong answer into a confident wrong answer.
 > | **O4** | `UNDECODED > 0` on the batches that decoded `UNKNOWN` | an id we do not map is arriving, and may be the super-resolution one under another name | **neither, yet.** Print the raw `sl::Feature` values before mapping anything — a new id decoded by guess is exactly this entry repeating. That needs a writer change of its own |
 > | **O5** | `batches = 0`, or `evaluations/batch` far from 1 | the hook is not seeing what we think it sees | **stop.** Neither fix is safe: `evaluations/batch ≠ 1` falsifies item 3's premise outright and the FG factor is wrong by that factor, so that is the defect to chase first |
 >
+> ### THE PRE-COMMITTED ORACLE IS RETIRED, BY ITS OWN RULE — measured 2026-08-16
+>
+> `fl-baseline-probe --pid <game> --dir <game>ind` against a running Cyberpunk 2077
+> with frame generation ON at ×2 reports **all seven capabilities `loaded`** — `dlss`,
+> `dlss_g`, `dlss_rr`, `streamline`, `fsr`, `xess` **and `xefg`**.
+>
+> **That falsifies it as an FG-engagement oracle in ONE run, without needing the FG-off leg
+> the falsifier asked for.** `dlss_g` watches `nvngx_dlssg.dll` / `sl.dlss_g.dll` and `xefg`
+> watches `libxess_fg.dll` (`rules/detection-rules.json`) — two **mutually exclusive**
+> frame-generation implementations. A title cannot be generating frames with both, and both
+> read `loaded`. So `loaded` means "mapped into the address space", which is exactly what the
+> probe's own header claims and nothing more; §S30 hoped it would stand in for engagement and
+> it cannot, in any configuration.
+>
+> **The probe is not at fault and its real job is unaffected**: it is the static/loaded
+> baseline `15_ROADMAP` item 4 compares against, and it answered that correctly. What is
+> retired is the use §S30 pre-committed it for.
+>
+> **So the app-frame premise still has no independent oracle**, and the one remaining
+> candidate is the game's own frame counter beside a capture — the other half of
+> `docs/HANDOFF.md`'s "the game's own settings menu and frame counter". Writing the falsifier
+> down first is what made this a one-command result instead of a temptation: the output reads
+> like confirmation (`dlss_g … loaded`) and is not.
+
 > **The independent oracle, and its own falsifier — also written first.** `fl-baseline-probe`
 > against a **running** Cyberpunk 2077 at MFG ×4, ×2 and off answers "is `nvngx_dlssg.dll`
 > loaded", which is evidence about FG engagement that shares nothing with the writer under
