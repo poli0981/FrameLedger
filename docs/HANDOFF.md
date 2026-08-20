@@ -732,6 +732,27 @@ diagnosis*.
   work that had just landed, in a PR that changed 69 other files — the failure was the
   edit that was never made. `CHANGELOG.md` and §S24 are gated; this file is not, so it
   is the one that needs a deliberate pass at the end of every item.
+- **ONE GAME LAUNCH PER CAPTURE. A capture that ENDS kills the Overlay in that process 65 s
+  later, permanently.** When the capture host exits nothing publishes `guardTicks` any more, the
+  Overlay's watchdog hits `FL_GUARD_TICK_DEADLINE_MS` and calls `StopObserving` — which clears
+  `g_observing` one-way and disables every hook for the life of the process. A second capture
+  against the same running game returns `SupervisionLost` with zero records.
+
+  **This is designed behaviour, not a defect** (`19_SAFETY` §During a session), and it is
+  recorded here because it changes how a measurement sweep has to be planned: §S31's off / ×2 /
+  ×4 comparison needs **three game launches**, not three captures in one. Measured 2026-08-20;
+  the second capture of the session hit it within minutes of the first.
+
+- **A LAUNCHER CAN UPDATE THE GAME BETWEEN THE CONSENT GRANT AND THE CAPTURE, and the refusal
+  then says something false.** Alan Wake 2, 2026-08-20: consent granted at 09:12Z, the executable
+  went from 62,026,752 to 62,304,768 bytes when the title was launched, and the capture refused
+  with `ConsentMissing` — signal *"the per-game consent dialog has not been accepted"*, which the
+  operator had done forty minutes earlier. `HookRequest.FromConsent` is right to null
+  `consentedAt` and right to leave the stored record untouched; the *message* collapses three
+  situations that need three different actions. `Program.WhyConsentMissingAsync` now prints
+  which one it was. **Re-verify the fingerprint after launching a title, before blaming the
+  gate.**
+
 - **`D3D12CreateDevice(WARP)` can fail on a dev box while the real GPU's D3D12 works, and it takes
   two ctests down with it — `fl_d3d12_acquisition` and `fl_guard`'s D3D12 case.** The harness prints
   only `[FAIL] D3D12CreateDevice(WARP)`, which reads like a code regression.
