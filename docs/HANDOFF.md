@@ -58,11 +58,17 @@ has shipped three of those.
 
 > ### Before you start: two things about this machine, neither of them the code
 >
-> 1. **`./build.ps1 check` cannot go fully green here.** `fl_d3d12_acquisition` and
+> 1. ~~**`./build.ps1 check` cannot go fully green here.** `fl_d3d12_acquisition` and
 >    `fl_guard`'s D3D12 case fail because WARP's D3D12 path is broken on this Windows
->    Insider build — measured, persistent across a reboot, and detailed in §Traps. CI runs
->    the same suite on WARP and passes. Use `./build.ps1 managed` for the managed half and
->    read the native failures against that list before treating one as a finding.
+>    Insider build — measured, persistent across a reboot, and detailed in §Traps.~~
+>    **NO LONGER TRUE, measured 2026-08-20: `./build.ps1 check` is fully green here, 20/20
+>    native tests.** `hook-harness --probe-d3d12` succeeds and `D3D12CreateDevice` on the WARP
+>    adapter returns `S_OK`. **Nothing in this repository fixed it** — the machine moved from
+>    Insider build **26300/29639** to **29648**, and `d3d10warp.dll` / `D3D12Core.dll` are both
+>    `10.0.29648.1000`, so the Insider-build regression §Traps describes was fixed upstream.
+>    Recorded with both build numbers because "it works now" without them is the same
+>    unfalsifiable claim as the untested remedy §Traps already records. **Check it on your own
+>    build before planning around either state.**
 > 2. **The managed suite is green and was stabilised the hard way.** Ten consecutive full
 >    runs at the time of writing. Five assertions in `ShmDrainIntegrationTests` /
 >    `CaptureHostEndToEndTests` had budgets sized on the harness's measured rate or read a
@@ -371,17 +377,27 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > a correct derivation). **The next measurement is PresentMon 2.x `FrameType`**, which
 > classifies each present from ETW and divides by nothing.
 >
-> **And a prerequisite with code attached, before `presents / batch` is published anywhere:**
+> ~~**And a prerequisite with code attached, before `presents / batch` is published anywhere:**
 > `FgWindow`'s uniformity guard keys on `fgEvaluations`, which is zero on this route, so it
 > passes vacuously and cannot see a window that mixed frame-generation states. Measured: an
 > alt-tab mid-capture produced 1.84 instead of 2.00 — an 8% error with no diagnostic. A
 > published `presents / batch` needs its own per-bucket guard, and the report should be able
-> to say when the window was not uniform.
+> to say when the window was not uniform.~~ — **BUILT.** `FgWindow.BatchRefusal` is the
+> per-bucket `presents / batch` check, `SessionReport` prints its verdict on the line under the
+> ratio, and the drain tick samples foreground ownership so the report can name an alt-tab as
+> the cause. **The sequencing consequence, which is what belongs here:** the proxy is no longer
+> the unguarded number in the report, so a route decision below can be taken on measurement
+> rather than under time pressure to stop publishing something unsafe. Status is in
+> `CHANGELOG.md`; the reasoning is in `03_METRICS` §Frame Generation and `04_CAPTURE`
+> §Ring draining.
 
-> **Two cheap measurements would sharpen it and neither has been run**, both pre-committed in
-> §S30: `fl-baseline-probe` against the running title at ×4 / ×2 / off — with its own written
-> falsifier, that it is retired as an FG oracle if it reports `nvngx_dlssg.dll` LOADED with FG
-> off — and the game's own frame counter beside a capture.
+> **One cheap measurement would sharpen it and has not been run**: the game's own frame counter
+> beside a capture, pre-committed in §S30. **The other one HAS been run and is retired** —
+> `fl-baseline-probe` at ×4 / ×2 / off reported all seven capabilities `loaded`, including two
+> mutually exclusive frame-generation implementations, so its own written falsifier fired in one
+> run. This bullet claimed both were unrun while the block above it said three oracles had
+> fallen; a file whose whole subject is staleness contradicted itself inside one entry, which is
+> recorded rather than quietly repaired.
 
 
 > **§H5 case 3 is MEASURED as of 2026-08-15, and the answer is half of what the entry below
@@ -689,8 +705,20 @@ diagnosis*.
   > the system log has no display errors since boot. It reads as an Insider-build regression in
   > WARP's **D3D12** path, and it is persistent.
 
+  > **AND IT STOPPED REPRODUCING, measured 2026-08-20 — which does not retire the trap, it dates
+  > it.** `hook-harness --probe-d3d12` passes and `./build.ps1 check` is fully green here, 20/20
+  > native tests. **No change in this repository caused that**: the machine moved from Insider
+  > build **26300/29639** to **29648**, and `d3d10warp.dll` / `D3D12Core.dll` are both
+  > `10.0.29648.1000`. So the fix is upstream and the window was 2026-08-06 → some point before
+  > 2026-08-20.
+  >
+  > Both dates are recorded because the useful fact is not "it works now" — it is that **this
+  > dependency broke and healed under the machine without anyone touching the code**, twice
+  > giving a native suite a colour that said nothing about `main`. Do not delete this entry when
+  > it is green; check which state your build is in.
+
   **What that does and does not mean for the project.** CI (`windows-latest`, not an Insider build,
-  no GPU) runs the same suite on WARP and passes, so `main` is not broken and no code change is
+  no GPU) runs the same suite on WARP and passes, so `main` was never broken and no code change was
   indicated. What it does mean is that **the native suite has a hard dependency on WARP D3D12 that a
   dev box can lose on its own**, and that a red `fl_d3d12_acquisition` is not evidence about the
   code until the two adapters have been probed separately. That probe is ~40 lines of P/Invoke and

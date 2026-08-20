@@ -148,7 +148,7 @@ internal static class Program
                 // Null means the pid could not be PINNED — already gone, protected, or another user's.
                 // The loop refuses rather than proceeding to inject into an identity it cannot hold.
                 HeldProcessHandle? handle = HeldProcessHandle.TryOpen(pid);
-                return handle is null ? null : new ProcessTargetLiveness(handle);
+                return handle is null ? null : new ProcessTargetLiveness(handle, pid);
             },
             pid =>
             {
@@ -207,6 +207,7 @@ internal static class Program
         HostConsole.Line($"  guard ticks published: {result.GuardTicksPublished}");
         HostConsole.Line($"  records: {result.Records.Count} ({dominant.Count} on the dominant stream), " +
                           $"{segments.Count} segment(s), gaps {result.TotalGaps}, dropped {result.TotalDropped}");
+        HostConsole.Line(FocusNote(result));
 
         // WHICH HOOKS THE WRITER ACTUALLY INSTALLED, and it is not cosmetic.
         //
@@ -239,5 +240,45 @@ internal static class Program
         }
 
         HostConsole.Line(SessionReport.Render(facts));
+    }
+
+    /// <summary>
+    /// Whether the operator was actually watching the game, and it has three answers.
+    /// </summary>
+    /// <remarks>
+    /// <b>Zero foreground ticks is NOT "you alt-tabbed".</b> A target owning no top-level
+    /// window is unfocused on every tick of every run — <c>hook-harness</c> presents to a
+    /// composition swapchain and has none — so reporting that as focus loss would fire on every
+    /// integration run and teach the reader to ignore the line. Collapsing the two is how a
+    /// diagnostic becomes noise, and this repository has the same shape recorded for
+    /// <c>rtTier</c> and <c>upscalerQuality</c>: could-not-look and looked-and-found-nothing are
+    /// different states and must stay so.
+    /// </remarks>
+    private static string FocusNote(CaptureResult result)
+    {
+        if (result.DrainTicks == 0)
+        {
+            return "  focus: no drain tick ran, so nothing sampled it";
+        }
+
+        if (result.ForegroundTicks == 0)
+        {
+            return $"  focus: the target never owned the foreground window across {result.DrainTicks} drain "
+                   + "tick(s) — it owns no top-level window we can see, so focus says nothing about this "
+                   + "session (this is the normal answer for a headless target)";
+        }
+
+        if (result.ForegroundTicks == result.DrainTicks)
+        {
+            return $"  focus: foreground on all {result.DrainTicks} drain tick(s)";
+        }
+
+        // THE 1.84 CASE. Frame generation stops while a title is unfocused, so a window spanning
+        // the switch averages two configurations. FgWindow.BatchRefusal is what refuses the
+        // number; this line is what tells the operator why, without which the refusal reads as a
+        // tool defect rather than as a capture that needs re-running.
+        return $"  focus: NOT FOREGROUND for {result.DrainTicks - result.ForegroundTicks} of "
+               + $"{result.DrainTicks} drain tick(s) — frame generation stops while a title is unfocused, "
+               + "so any ratio over this window averages a configuration that never existed";
     }
 }

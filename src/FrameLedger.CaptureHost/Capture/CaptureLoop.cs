@@ -157,7 +157,8 @@ internal sealed class CaptureLoop(
         var supervisor = new GuardSupervisor(guard);
         var records = new List<FlFrameRecord>();
         var gaps = new List<ulong>();
-        SessionEndReason end = await SuperviseAsync(pid, alive, sink, supervisor, records, gaps, ct)
+        var focus = new FocusTally();
+        SessionEndReason end = await SuperviseAsync(pid, alive, sink, supervisor, records, gaps, focus, ct)
             .ConfigureAwait(false);
 
         return new CaptureResult
@@ -171,6 +172,8 @@ internal sealed class CaptureLoop(
             GuardTicksPublished = supervisor.CompletedEvaluations,
             TotalDropped = sink.TotalDropped,
             TotalGaps = sink.TotalGaps,
+            DrainTicks = focus.Ticks,
+            ForegroundTicks = focus.Foreground,
         };
     }
 
@@ -209,7 +212,8 @@ internal sealed class CaptureLoop(
     /// </para>
     /// </remarks>
     private async Task<SessionEndReason> SuperviseAsync(int pid, ITargetLiveness alive, ICaptureSink sink,
-        GuardSupervisor supervisor, List<FlFrameRecord> records, IList<ulong> gaps, CancellationToken ct)
+        GuardSupervisor supervisor, List<FlFrameRecord> records, IList<ulong> gaps, FocusTally focus,
+        CancellationToken ct)
     {
         var buffer = new FlFrameRecord[512];
 
@@ -226,6 +230,7 @@ internal sealed class CaptureLoop(
         Exception? faulted = null;
         while (mayContinue)
         {
+            focus.Sample(alive.IsForeground);
             DrainInto(sink, buffer, gaps, records);
 
             end = SessionEndClassifier.Classify(

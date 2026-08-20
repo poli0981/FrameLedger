@@ -107,6 +107,59 @@ internal static class SessionReport
     /// <summary>
     /// The numbers a verification run reads, printed whether or not a factor was published.
     /// </summary>
+    private static void AppendFgDiagnostics(StringBuilder sb, FgWindow? w)
+    {
+        if (w is null || w.Presents == 0)
+        {
+            return;
+        }
+
+        // streams= AND unidentified= ARE PRINTED UNCONDITIONALLY, because a refusal that never
+        // fires says nothing and the reader cannot tell silence from cleanliness. On a title
+        // whose frame generation is driven off this route the zero-count refusal wins, so the
+        // attribution refusals never speak — and presents/batch, which IS printed, is only
+        // meaningful over one stream. Print the provenance beside the ratio or the ratio is a
+        // number with an unnamed denominator.
+        //
+        // span= LIKEWISE, and it was computed and never printed. §S30's draft had to
+        // reconstruct it from Displayed FPS — a DIFFERENT window, since MeasuredFacts runs from
+        // record 0 while this one starts after the lazy-install prefix — and the resulting rate
+        // moved across 78.6-83 on window choice alone, ten times the residual that draft quoted.
+        sb.Append("    FG counts: presents=").Append(Count(w.Presents))
+          .Append(" batches=").Append(Count(w.Batches))
+          .Append(" evaluations=").Append(Count(w.Evaluations))
+          .Append(" streams=").Append(Count(w.Streams))
+          .Append(" unidentified=").Append(Count(w.Unidentified))
+          .Append(" span=").Append(Num(w.Seconds > 0 ? w.Seconds : null)).Append('s')
+          .Append("  presents/batch=").Append(Num(w.PresentsPerBatch))
+          .Append("  evaluations/batch=").AppendLine(Num(w.EvaluationsPerBatch));
+
+        AppendProxyVerdict(sb, w);
+        AppendFgAnomalies(sb, w);
+    }
+
+    /// <summary>
+    /// The proxy's own uniformity verdict, on the line under the proxy, always.
+    /// </summary>
+    /// <remarks>
+    /// <b>A number printed without its guard is a number a reader will take.</b>
+    /// <c>presents/batch</c> above is the sharpest figure this report produces and the one a
+    /// verification run reads — and until now nothing checked whether the window it averages
+    /// was one configuration. <c>FgWindow.BucketFactors</c> could not: it divides by
+    /// <c>Σ fgEvaluations</c>, zero on this route, so every bucket matched and the check passed
+    /// vacuously. Measured 2026-08-16, an alt-tab mid-capture produced 1.84 against a title
+    /// configured for ×2 and the report said nothing at all.
+    /// </remarks>
+    private static void AppendProxyVerdict(StringBuilder sb, FgWindow w)
+    {
+        sb.Append("    presents/batch is a PROXY — a batch is a drained Streamline evaluation, "
+                  + "NOT an application frame: ");
+        sb.AppendLine(w.BatchRefusal is null
+            ? "the window is uniform across every bucket, so the ratio describes one configuration"
+            : "NOT READABLE — " + w.BatchRefusal);
+    }
+
+    /// <summary>The three things worth saying only when they happened.</summary>
     /// <remarks>
     /// <para>
     /// <b><c>EvaluationsPerBatch</c> is the premise under test, and it needs no oracle.</b>
@@ -125,27 +178,8 @@ internal static class SessionReport
     /// Naming one of them here is how the item gets routed down the wrong branch.
     /// </para>
     /// </remarks>
-    private static void AppendFgDiagnostics(StringBuilder sb, FgWindow? w)
+    private static void AppendFgAnomalies(StringBuilder sb, FgWindow w)
     {
-        if (w is null || w.Presents == 0)
-        {
-            return;
-        }
-
-        // streams= AND unidentified= ARE PRINTED UNCONDITIONALLY, because a refusal that never
-        // fires says nothing and the reader cannot tell silence from cleanliness. On a title
-        // whose frame generation is driven off this route the zero-count refusal wins, so the
-        // attribution refusals never speak — and presents/batch, which IS printed, is only
-        // meaningful over one stream. Print the provenance beside the ratio or the ratio is a
-        // number with an unnamed denominator.
-        sb.Append("    FG counts: presents=").Append(Count(w.Presents))
-          .Append(" batches=").Append(Count(w.Batches))
-          .Append(" evaluations=").Append(Count(w.Evaluations))
-          .Append(" streams=").Append(Count(w.Streams))
-          .Append(" unidentified=").Append(Count(w.Unidentified))
-          .Append("  presents/batch=").Append(Num(w.Batches > 0 ? w.Presents / (double)w.Batches : null))
-          .Append("  evaluations/batch=").AppendLine(Num(w.EvaluationsPerBatch));
-
         // GATED ON HAVING COUNTED SOMETHING, and the first version was not — which a real
         // title caught within minutes. With Σ = 0 the quotient is 0, "0 evaluations per
         // batch" trivially differs from 1, and the line fired claiming the premise was
