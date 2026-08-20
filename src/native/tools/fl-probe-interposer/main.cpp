@@ -4,13 +4,15 @@
 // WHY THIS EXISTS, and why it runs in OUR OWN PROCESS.
 //
 // docs/03_METRICS.md §Counting native vs displayed defines F_disp as "presents
-// observed by the hook" and F_app as "presents - sum(fgEvaluations)". Both rest on
-// one unverified assumption: that the object a game calls Present on is an
-// instance of the class whose shared dxgi.dll vtable we patched. If a Streamline
-// title's swapchain is a DIFFERENT class, a real-vtable hook sees nothing, F_disp
-// == F_app, and fg_factor is STRUCTURALLY 1.0 -- the same failure the
-// GetFrameStatistics rung was deleted for (03_METRICS "not conservative; silently
-// wrong"), landing on the exact metric CLAUDE.md rule 6 exists to protect.
+// observed by the hook" and F_app as "sum(fgEvaluations)" -- the 2026-08-14 owner
+// ruling; this comment carried the pre-ruling subtraction until the producer
+// landed. Both rest on one unverified assumption: that the object a game calls
+// Present on is an instance of the class whose shared dxgi.dll vtable we patched.
+// If a Streamline title's GENERATED presents go out through a different class, our
+// present count collapses to the application frames alone, presents == sum, and
+// fg_factor is STRUCTURALLY 1.0 -- the same failure the GetFrameStatistics rung was
+// deleted for (03_METRICS "not conservative; silently wrong"), landing on the exact
+// metric CLAUDE.md rule 6 exists to protect.
 //
 // hook-harness cannot answer it. Its --probe-proxy builds OUR OWN forwarding
 // wrapper, which is the easy case by construction; §H5 lists the interposer as

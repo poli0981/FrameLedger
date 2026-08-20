@@ -64,7 +64,7 @@ public sealed partial class MeasuredFactsTests
         facts.Upscaler.Should().BeNull("no upscaler hook ran, and `none` would be a measured negative");
         facts.FgMode.Should().BeNull("03_METRICS' ladder rung 4 says `none`, which here would be a lie");
         facts.FgFactor.Should().BeNull("1.0 is CLAUDE.md rule 6's forbidden number");
-        facts.NativeFps.Should().BeNull("F_app = presents − Σ fgEvaluations needs a hook that counted");
+        facts.NativeFps.Should().BeNull("F_app = Σ fgEvaluations needs a hook that counted");
         facts.UpscaleRatio.Should().BeNull("renderW/H are 0 and the ratio would divide by zero");
         facts.RayTracing.Should().Be(Tri.NotApplicable);
         facts.RayReconstruction.Should().Be(Tri.NotApplicable);
@@ -137,6 +137,70 @@ public sealed partial class MeasuredFactsTests
         text.Should().Contain("Native FPS").And.Contain("Displayed FPS").And.Contain("x4 FG");
         text.Should().Contain("evaluations/batch").And.Contain("histogram");
         text.Should().Contain("frame generation: DlssG");
+    }
+
+    /// <summary>The shape the one measured route produces: batches drain, evaluations never do.</summary>
+    private static List<FlFrameRecord> BatchStream(int appFrames, int k, ref ulong qpc)
+    {
+        List<FlFrameRecord> stream = [];
+        long step = Stopwatch.Frequency / 240;
+        for (int f = 0; f < appFrames; f++)
+        {
+            for (int p = 0; p < k; p++)
+            {
+                stream.Add(new FlFrameRecord
+                {
+                    Qpc = qpc,
+                    SwapchainId = 1,
+                    MeasuredMask = (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs
+                                            | FlMeasured.Fg | FlMeasured.FgCounts),
+                    FgMode = (byte)FlFgMode.Unknown,
+                    FeatureFlags = (byte)(p == 0 ? FlFeatureFlags.RayReconstructionObserved : FlFeatureFlags.None),
+                });
+                qpc += (ulong)step;
+            }
+        }
+
+        return stream;
+    }
+
+    private static readonly FlWriterState _streamlineWriter = new()
+    {
+        HooksInstalledMask = (uint)(FlHookFamily.Present | FlHookFamily.UpscalerIdentity
+                                    | FlHookFamily.FgEvaluations),
+    };
+
+    private static string RenderOf(List<FlFrameRecord> stream) => SessionReport.Render(MeasuredFacts.From(
+        stream, _streamlineWriter, Stopwatch.Frequency, 0, 0, FgWindow.From(stream, Stopwatch.Frequency)));
+
+    [Fact]
+    public void ThePROXYIsNeverPrintedWithoutItsVerdictOrItsSpan()
+    {
+        // presents/batch is the sharpest number this report produces and the one a real-title run
+        // reads — and it was printed with NOTHING behind it, because the only uniformity check
+        // divides by Σ fgEvaluations, which is zero on this exact route. span= was computed and
+        // never printed at all, so §S30's draft reconstructed it from a DIFFERENT window and got a
+        // rate that moved across 78.6-83 on window choice alone.
+        ulong qpc = 1_000_000;
+        string text = RenderOf(BatchStream(appFrames: 40, k: 4, ref qpc));
+
+        text.Should().Contain("presents/batch=4").And.Contain("span=");
+        text.Should().Contain("is a PROXY", "the reader must not be able to take the number without the label");
+        text.Should().Contain("uniform across every bucket");
+        text.Should().NotContain("NOT READABLE", "this window is one configuration throughout");
+    }
+
+    [Fact]
+    public void AnAltTabbedWindowRendersTheProxyAsNOTREADABLE()
+    {
+        // The 1.84 case, end to end through the renderer: ×2 for most of the capture, then frame
+        // generation stops while the title is unfocused. The averaged ratio describes neither half.
+        ulong qpc = 1_000_000;
+        List<FlFrameRecord> stream = [.. BatchStream(96, 2, ref qpc), .. BatchStream(32, 1, ref qpc)];
+
+        string text = RenderOf(stream);
+
+        text.Should().Contain("NOT READABLE").And.Contain("presents-per-batch ratio changed");
     }
 
     [Fact]

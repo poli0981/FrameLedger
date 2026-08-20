@@ -27,4 +27,21 @@ internal sealed record CaptureResult
     public long TotalDropped { get; init; }
 
     public long TotalGaps { get; init; }
+
+    /// <summary>Drain ticks the loop completed — the denominator for <see cref="ForegroundTicks"/>.</summary>
+    public long DrainTicks { get; init; }
+
+    /// <summary>
+    /// Drain ticks on which the target owned the foreground window.
+    /// </summary>
+    /// <remarks>
+    /// <b>Zero and "fewer than <see cref="DrainTicks"/>" are different findings and the report
+    /// must not merge them.</b> Zero means the target owned no top-level window we could ever
+    /// see — <c>hook-harness</c> presents to a composition swapchain and has none — so focus
+    /// says nothing about that session. A count between the two means the operator switched
+    /// away, which stops frame generation and mixes two states into one window: measured
+    /// 2026-08-16, that produced an achieved <c>presents / batch</c> of 1.84 against a title
+    /// configured for ×2.
+    /// </remarks>
+    public long ForegroundTicks { get; init; }
 }

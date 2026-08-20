@@ -3,9 +3,13 @@
 //
 // WHY A DECOY IS THE POINT OF THIS FIXTURE. docs/HANDOFF.md item 2 says module
 // scoping matters because a name-resolved hook double-counts, and the whole
-// argument is arithmetic: 03_METRICS computes F_app = presents - sum(fgEvaluations),
-// so counting one logical evaluation twice deflates Native FPS and inflates
-// fg_factor -- CLAUDE.md rule 6's forbidden number, reached by addition.
+// argument is arithmetic: 03_METRICS computes F_app = sum(fgEvaluations) with
+// fg_factor = presents / F_app (owner ruling 2026-08-14; this comment carried the
+// pre-ruling subtraction until the producer landed), so counting one logical
+// evaluation twice INFLATES Native FPS and DEFLATES fg_factor -- reporting a title
+// as generating fewer frames than it does. Either direction is the same class of
+// defect: a number reached by arithmetic rather than by measurement, which is what
+// CLAUDE.md rule 6 exists to forbid.
 //
 // Without a second exporter in the process, "we resolve module-scoped" is
 // unfalsifiable: a name-only resolver and a module-scoped one behave
