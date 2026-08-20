@@ -109,6 +109,17 @@ F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the 
 > has confirmed. **Do not promote that proxy to `fg_factor` without attaching the premise.**
 > `docs/HANDOFF.md` item 3 carries the routes to a real producer.
 >
+> **The proxy is PRINTED, and it now has a guard of its own — which the factor's could not be.**
+> `FgWindow.BucketFactors` splits the window into buckets and refuses a factor when one bucket
+> departs from the whole; it divides by `Σ fgEvaluations`, **zero on every record on this
+> route**, so every bucket matched, the check passed vacuously, and `RefusalFor` returned at the
+> data-gap clause before uniformity was ever considered. Measured 2026-08-16: an alt-tab
+> mid-capture produced an achieved `presents / batch` of **1.84** against a title configured for
+> ×2 — wrong by 8%, with nothing in the report saying so. `FgWindow.BatchRefusal` is the
+> per-bucket `presents / batch` check §S30 named as a prerequisite, and `SessionReport` prints
+> its verdict on the line under the ratio so the number cannot be read without it. A guard keyed
+> on a quantity that is zero on the route that runs is not a guard.
+>
 > **This also leaves §RT/PT/RR without a settled denominator.** `rt_frame_pct`,
 > `rays_per_pixel` and the `≥ 5% of frames` gate are per-APPLICATION-frame quantities, and
 > dividing them by presents dilutes each by the frame-generation factor — at ×4 a title that

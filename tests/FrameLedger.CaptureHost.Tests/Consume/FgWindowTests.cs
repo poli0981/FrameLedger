@@ -48,6 +48,22 @@ public sealed class FgWindowTests
         return stream;
     }
 
+    /// <summary>Two segments back to back, on one monotonic clock across the join.</summary>
+    private static List<FlFrameRecord> Concat(List<FlFrameRecord> first, List<FlFrameRecord> second)
+    {
+        List<FlFrameRecord> all = [.. first];
+        ulong qpc = all[^1].Qpc;
+        foreach (FlFrameRecord r in second)
+        {
+            FlFrameRecord copy = r;
+            qpc += (ulong)_step;
+            copy.Qpc = qpc;
+            all.Add(copy);
+        }
+
+        return all;
+    }
+
     [Fact]
     public void AFactorIsPublishedWhenEveryRefusalPasses()
     {
@@ -194,6 +210,99 @@ public sealed class FgWindowTests
 
         w.Factor.Should().BeNull();
         w.Refusal.Should().Contain("below the 64");
+    }
+
+    [Fact]
+    public void AnAltTabMidCaptureIsCAUGHTByTheBatchGUARDWhileTheFactORGuardCannotSEEIt()
+    {
+        // THE 1.84 CASE, AND IT IS THE ONE THAT ACTUALLY HAPPENED. Cyberpunk 2077 at ×2,
+        // 2026-08-16: the operator switched away mid-capture, frame generation stopped while the
+        // title was unfocused, and the window averaged intervals at 2.00 with intervals near
+        // 1.00. The report published nothing about it.
+        //
+        // On this route fgEvaluations is ZERO on every record — kFeatureDLSS_G is never
+        // evaluated — so BucketFactors divides by zero everywhere and RefusalFor returns at the
+        // data-gap clause long before uniformity is considered. The factor-side guard is
+        // therefore not merely quiet, it is structurally unreachable, and the number a reader
+        // takes away is presents/batch, which until now had nothing behind it at all.
+        List<FlFrameRecord> stream = Concat(
+            FgStream(appFrames: 96, k: 2, evalsPerFrame: 0),
+            FgStream(appFrames: 32, k: 1, evalsPerFrame: 0));
+
+        FgWindow w = FgWindow.From(stream, Stopwatch.Frequency);
+
+        w.PresentsPerBatch.Should().BeApproximately(1.75, 0.01,
+            "this is the averaged number the report prints, and it describes neither half");
+
+        // The factor-side refusal names the DATA GAP and says nothing about the state change —
+        // which is the defect, stated as an assertion rather than as a comment.
+        w.Refusal.Should().Contain("no frame-generation evaluation was counted");
+        w.Refusal.Should().NotContain("changed during",
+            "the factor guard keys on fgEvaluations, which is zero here, so it cannot see this");
+
+        w.BatchRefusal.Should().NotBeNull().And.Contain("presents-per-batch ratio changed");
+    }
+
+    [Fact]
+    public void AUniformWindowPUBLISHESTheProxyEvenThoughNoEvaluationWasCounted()
+    {
+        // THE GREEN HALF, and without it the guard above is indistinguishable from one that
+        // refuses everything. This is the ordinary Cyberpunk shape: ×4 throughout, zero
+        // evaluations counted, one stream, focused for the whole run. The factor is still
+        // refused — nothing counted an application frame — and the PROXY is readable, which is
+        // the distinction the report has to be able to draw.
+        FgWindow w = FgWindow.From(FgStream(appFrames: 40, k: 4, evalsPerFrame: 0), Stopwatch.Frequency);
+
+        w.Factor.Should().BeNull("no evaluation was counted, so fg_factor stays N/A");
+        w.PresentsPerBatch.Should().BeApproximately(4.0, 0.01);
+        w.BatchRefusal.Should().BeNull("every bucket agrees, so the ratio describes one configuration");
+    }
+
+    [Fact]
+    public void AWindowTooShortToBucketRefusesTheProxyToo()
+    {
+        // Publishing a ratio whose uniformity was never checked is the same claim as publishing
+        // one that failed the check — the rule the factor already lives under, applied to the
+        // proxy that is printed beside it.
+        FgWindow w = FgWindow.From(FgStream(appFrames: 8, k: 4, evalsPerFrame: 0), Stopwatch.Frequency);
+
+        w.PresentsPerBatch.Should().BeApproximately(4.0, 0.01, "the number exists");
+        w.BatchRefusal.Should().NotBeNull().And.Contain("below the 64");
+    }
+
+    [Fact]
+    public void TheProxyRefusesOnTheSameATTRIBUTIONFactsTheFactorDoes()
+    {
+        // g_slSeen is ONE PROCESS-WIDE WORD. A batch belonging to the game's frame can be
+        // drained by a UI swapchain's present, so presents/batch over two streams has a
+        // denominator nobody can name — exactly the reason the factor refuses, and it does not
+        // stop applying because the numerator changed.
+        List<FlFrameRecord> stream = [.. FgStream(appFrames: 40, k: 4, evalsPerFrame: 0)];
+        FlFrameRecord ui = stream[^1];
+        ui.SwapchainId = 2;
+        ui.Qpc += (ulong)_step;
+        stream.Add(ui);
+
+        FgWindow w = FgWindow.From(stream, Stopwatch.Frequency);
+
+        w.BatchRefusal.Should().NotBeNull().And.Contain("swapchains presented in the window");
+    }
+
+    [Fact]
+    public void NoBatchAtAllIsNotARatioOfZero()
+    {
+        // A present-only writer drains nothing, so there is no ratio — not 0, and not 1.0.
+        FgWindow w = FgWindow.From(
+            FgStream(appFrames: 40, k: 4, evalsPerFrame: 0).Select(r =>
+            {
+                r.FeatureFlags = (byte)FlFeatureFlags.None;
+                return r;
+            }).ToList(),
+            Stopwatch.Frequency);
+
+        w.Batches.Should().Be(0);
+        w.PresentsPerBatch.Should().BeNull();
+        w.BatchRefusal.Should().NotBeNull().And.Contain("no present drained a Streamline batch");
     }
 
     [Fact]
