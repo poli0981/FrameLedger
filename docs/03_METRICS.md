@@ -72,9 +72,11 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 > and its own help says it *"requires application and/or driver instrumentation using
 > Intel-PresentMon provider"*. So `FrameType` is a report of events an application or
 > a graphics driver chose to emit through Intel's provider — **not** a classification
-> of any present from first principles. Intel's own frame generation instruments it;
-> whether NVIDIA's DLSS-G driver does is **unmeasured**, and it decides whether this
-> rung exists at all on the titles P0 actually needs.
+> of any present from first principles. **Which vendors instrument it is unmeasured —
+> including Intel's own.** It is Intel's provider and Intel ships XeFG, so the obvious
+> reading is that XeFG is covered; that reading is not a measurement, and this block
+> exists precisely because the rung was written as though availability were settled.
+> The one that decides P0 is NVIDIA's DLSS-G driver, and it is unmeasured too.
 >
 > **The parser must therefore report a capability loss rather than fall through to
 > rung 4.** §Inputs already says so about a missing `FrameType` column, and the same
