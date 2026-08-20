@@ -289,7 +289,12 @@ internal sealed record MeasuredFacts
             return false;
         }
 
-        return mask.HasFlag(FlMeasured.Rt) || (FlRtFlags)r.RtFlags == FlRtFlags.None;
+        // BOTH RT FIELDS, not just the flags. dispatchRaysVolume has no in-band sentinel — 0 is a
+        // real measurement of a frame that recorded no dispatch — so only the mask bit can say
+        // whether anyone looked, exactly as with fgEvaluations. A writer that summed a volume
+        // without claiming the measurement is contradicting itself, and it is the shape a drain
+        // that cleared one word and not the other would produce.
+        return mask.HasFlag(FlMeasured.Rt) || ((FlRtFlags)r.RtFlags == FlRtFlags.None && r.DispatchRaysVolume == 0);
     }
 
     /// <summary>Which frame-generation technology ran, or null. NEVER the string "none".</summary>

@@ -771,9 +771,126 @@ swapchain, so the vtable premise is not in question for them.
 
 ## 6 · RT detection
 
-- `DispatchRays` counting:
-- `BuildRaytracingAccelerationStructure` on an **inline `RayQuery`** title — the
-  specific regression the old design got wrong:
+### ✅ The pre-flight, before a single hook was written — 2026-08-20
+
+`hook-harness --probe-d3d12-vtable` (ctest `fl_d3d12_vtable_indices`) and
+`--probe-dxr` (ctest `fl_dxr_probe`), on this machine: Windows 11 Insider 29648,
+RTX 5080, MSVC 14.51.
+
+**Adapters, and all three can ray-trace.**
+
+| Adapter | D3D12 | `RaytracingTier` |
+|---|---|---|
+| NVIDIA GeForce RTX 5080 | yes | **12** (`TIER_1_1`) |
+| Microsoft Basic Render Driver | yes | **12** |
+| WARP (software) | yes | **12** |
+
+So `HANDOFF` item 4's *"check first whether WARP on the CI runners supports DXR"*
+is answered **yes on this machine's WARP**, which means a DXR fixture is not
+condemned to a GPU box. CI still has to answer for its own `d3d10warp.dll`; the
+tier is a property of that binary, and `fl_dxr_probe` prints it on every run.
+
+**Slot indices, proved by behaviour on BOTH list types.** Slot 72 is
+`BuildRaytracingAccelerationStructure` and slot 76 is `DispatchRays`: patched,
+called by name through the interface, detour ran, slots restored and the restore
+asserted. 60 consecutive runs of each probe, zero failures.
+
+### 🔴 `Reset()` moves `DispatchRays` into the vendor driver, and the first version of the hook never fired
+
+**THE FIRST THREE ANSWERS WERE MEASURED ON THE WRONG OBJECT, and two of them were
+wrong because of it.** The probe originally read the vtable off a **freshly
+created** command list and compared vtable ARRAYS. A game's list is Reset every
+frame, and the Overlay patches the FUNCTION a slot points at rather than the slot
+— so both choices measured something no hook depends on. Corrected here rather
+than quietly re-run: the wrong answers are the useful part.
+
+| Question | measured on a **reset** list, comparing **functions** |
+|---|---|
+| two DIRECT lists, one device | **same functions** — one inline patch covers every list. Their vtable ARRAYS differ (per-object after Reset), which is why a *slot* patch would have to be repeated and a *function* patch does not |
+| a command allocator (the control) | different, as it must be |
+| DIRECT vs COMPUTE | **same functions** — slot 72 `D3D12Core.dll` in both, slot 76 `nvwgf2umx.dll` in both. One detour per method covers both list types |
+| a WARP list vs a hardware list | **DIFFERENT** — slot 76 is `nvwgf2umx.dll` on the RTX 5080 and `D3D12Core.dll` on WARP |
+| a fresh list vs a reset list | **DIFFERENT** — slot 76 moves from `D3D12Core.dll` to `nvwgf2umx.dll`; slot 72 stays in `D3D12Core.dll` |
+
+**The failure this produced, before the fix.** The Overlay read its targets off an
+unreset throwaway list, so it hooked `D3D12Core.dll`'s `DispatchRays` — a function
+no title on this GPU ever calls, because the first `Reset` hands the method to the
+driver. The hook installed, published `FL_HOOK_RT_DISPATCH`, and never fired. The
+injected fixture caught it exactly: `withAsBuild = 60`, **`withDispatch = 0`**,
+`hooks = RT_DISPATCH | RT_AS_BUILD` — a mask bit with nothing behind it, which is
+the honesty failure the whole entitlement machinery exists to prevent.
+
+**Why one hook worked and the other did not, which is what made it hard to read.**
+`BuildRaytracingAccelerationStructure` stays in `D3D12Core.dll` across the swap, so
+the AS-build hook fired from the first run. A pair where one half works reads as a
+bug in the other half's *detour*, not in the *acquisition* both share.
+
+**The fix is one call**: put the throwaway list through the same lifecycle a game's
+list goes through — `Close()`, `Reset()` — before reading its vtable. `--probe-dxr`
+Q5 now prints the module on each side of the Reset, so a runtime that stops
+swapping, or starts swapping the other slot, says so rather than being discovered
+by a silent zero on a real title.
+
+**And Q4 stops being permissive.** With the correction, a WARP list and a hardware
+list resolve `DispatchRays` to *different* functions, so a throwaway-**device**
+acquisition would silently miss every call on an NVIDIA GPU. The Overlay takes its
+targets off a list created on the **game's own device** — which was already the
+design, for the unrelated reason that this machine lost WARP's D3D12 path to an
+Insider build for a fortnight (§Traps), and now has a second reason that is about
+correctness rather than availability.
+
+**Bundles are not a further case**, and this is a documented API constraint rather
+than something measured here: `D3D12_COMMAND_LIST_TYPE_BUNDLE` does not permit
+`DispatchRays`. Stated as an inherited claim so the next reader knows which of
+these lines came from a run.
+
+### ✅ Both hooks, proved by injection — 2026-08-20
+
+`ctest fl_guard`, the case *"the injected Overlay records ray-tracing work, and an
+AS-build-only title is not a negative"*. Two harness modes that differ by **one
+recorded call**, sharing their acceleration structure, state object, swapchain and
+loop, so any difference in the record is attributable to that call:
+
+| Mode | records | `FL_MEASURED_RT` | `AsBuildObserved` | `DispatchObserved` | `dispatchRaysVolume` |
+|---|---|---|---|---|---|
+| `--hold-presenting-dxr` | 60 | every one | 60 | ≥ 8 | exact multiple of 64×32×1 |
+| `--hold-presenting-rayquery` | 60 | every one | 60 | **0** | **0** |
+
+The rayquery arm is what makes `03_METRICS:226` falsifiable instead of a sentence:
+a writer with only the `DispatchRays` hook sees **nothing** there, and its silence
+is indistinguishable from a real negative — `rtTier` is 12, the mask bit is set,
+evidence is zero, and the `No` branch fires about a title that ray-traces every
+frame. **It does not run a RayQuery shader**, and does not need to: the claim under
+test is "AS-build catches a title `DispatchRays` misses", and the absence of a
+dispatch is what tests it.
+
+`DispatchRays` also needs a **bound raytracing state object** to be RECORDED at
+all: measured 2026-08-20, it access-violates inside D3D12Core with no state object
+set, with a well-formed shader table and with a zeroed one alike. That is why the
+fixture carries a 1.2 KB DXIL raygen library (`dxr_raygen.hlsl`, compiled by hand
+and checked in with its command line).
+
+### ✅ Both hooks against four real titles' own settings menus — 2026-08-20
+
+§8 carries the five captures in full. What belongs here is the RT half:
+
+- **`Yes` twice, `No` twice, every verdict agreeing with the game's own menu.** Cyberpunk with
+  path tracing on and Wukong at RT High both read `Yes`; Rune Factory, whose menu has no
+  ray-tracing option, and Cyberpunk with every RT option switched off both read **`No`** — the
+  branch that had never been reachable in this project.
+- **`rt_frame_pct` reads 25.0% at ×4 on two titles**, which is the falsifier `03_METRICS`
+  §RT/PT/RR pre-committed. It did not fire.
+- **`faults = 0` on every run**, with both detours on the render thread of titles running at up
+  to ~950 presents/second.
+- **The dispatch extent is exact.** Alan Wake 2: `4,913,280` rays per RT-active present, and
+  `3 × 1706 × 960` is `4,913,280` — three rays per render pixel, against a render resolution
+  the menu states outright.
+
+### Still open in §6
+- The same measurements on an **AMD or Intel** GPU. Every vendor-specific result
+  above is one driver's: `nvwgf2umx.dll` takes `DispatchRays` and leaves
+  `BuildRaytracingAccelerationStructure` alone, and nothing says another UMD splits
+  them the same way — or leaves either in `D3D12Core`:
 - Recorded-vs-executed semantics and counter concurrency (§H6):
 
 ## 7 · First real injection *(requires the guard, §1)*
@@ -1030,6 +1147,78 @@ to prove themselves.
 |---|---|---|---|---|---|---|
 | **Cyberpunk 2077** (2026-08-15) | ❌ `Unknown` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ⬜ not measured | ⬜ not measured | **1 of 5** |
 | **Cyberpunk 2077** (2026-08-15, later, after §S30) | ✅ `Dlss` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ◐ on, factor not measurable on this route | ⬜ not measured | **2 of 5** |
+| **Cyberpunk 2077** (2026-08-20, PT on · RR on · MFG ×4 · Balanced) | ✅ `Dlss` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ◐ on, `presents/batch` = 4.00 as a PROXY | ✅ **`Yes`** | **3 of 5** |
+| **Alan Wake 2** (2026-08-20, RR on · PT ultra · FG 4X *set but reportedly not applying*) | ✅ `Dlss` | ⬜ `0xFF` | ⬜ no local tag; **1706×960 corroborated arithmetically, see below** | ❓ `presents/batch` = 1.00 — unexplained | ✅ **`Yes`** | **2 of 5** |
+| **Black Myth: Wukong** (2026-08-20, RT High · FG ×4 · Balanced) | ⬜ `Unknown` — *coverage short, not the title's* | ⬜ | ⬜ no local tag | ◐ `presents / RT-active` = **4.0000** as a PROXY | ✅ **`Yes`** | **2 of 5** |
+| **Rune Factory: Guardians of Azuma** (2026-08-20, no RT option · FG ×6 via NVIDIA App · DLAA) | ⬜ `Unknown` | ⬜ | ⬜ no local tag | ⬜ nothing observed | ✅ **`No`** | **1 of 5** |
+| **Cyberpunk 2077** (2026-08-20, **all RT off** · RR off · MFG ×4 · Balanced) | ✅ `Dlss` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ◐ `presents/batch` = 4.00 as a PROXY | ✅ **`No`** | **3 of 5** |
+
+> ### ✅ FIVE CAPTURES ACROSS FOUR TITLES — 2026-08-20, and the RT tri-state is complete
+>
+> Every run: 40 s, one identified swapchain, one segment, **0 gaps, 0 dropped**, foreground on
+> all 369 drain ticks, `status=Ready`, `layoutVersion=3`, `rtTier=12`, `apiMask=0x4` (D3D12),
+> and **`faults=0`** — including a title that pushed **37,823 presents through the hook in 39
+> seconds** (~950/s) without a drop. All six hook families installed on every title. The
+> Overlay payload was hash-verified against the just-built DLL before each run.
+>
+> | Run | records | batches | Streamline ids seen | asBuild / dispatch | `rt_frame_pct` | Displayed FPS |
+> |---|---|---|---|---|---|---|
+> | Cyberpunk, PT on | 10,603 | 2,578 | `DLSS_RR` 2578 | 2,561 / 2,567 | 24.2% (**25.0%** of the claiming window) | 264.93 |
+> | Alan Wake 2 | 900 | 875 | `DLSS_RR` 875 | 869 / 871 | 96.8% | 22.5 |
+> | Wukong | 5,956 | **0** | **none at all** | 1,437 / 1,441 | 24.2% (**25.0%**) | 148.89 |
+> | Rune Factory | 37,823 | **0** | **none at all** | **0 / 0** | **0.0%** | 946.44 |
+> | Cyberpunk, all RT off | 17,456 | 4,242 | **`kFeatureDLSS` 4242** | **0 / 0** | **0.0%** | 436.28 |
+>
+> **1 · The tri-state is complete, and `No` is correct twice for two different reasons.**
+> `Yes` on Cyberpunk (path tracing) and Wukong (RT High); `No` on Rune Factory, whose settings
+> menu has no ray-tracing option at all, **and** on Cyberpunk with every RT option switched off
+> — a title that *can* ray-trace and is not doing so, which is the harder and more valuable
+> case. Both negatives satisfy all three conjuncts `03_METRICS` requires: `rtTier` 12,
+> `RtAsBuild` installed, and zero evidence across 36,575 and 16,871 claiming records.
+>
+> **2 · `slEvaluateFeature` IS NOT A GENERAL ROUTE, and this generalises HANDOFF item 3 from
+> one title to four.** Two of the four titles never call it *at all* — Wukong with both
+> `sl.interposer.dll` and `sl.dlss_g.dll` loaded and DLSS-G demonstrably running, and Rune
+> Factory likewise. The other two call it only for Ray Reconstruction. **`kFeatureDLSS_G` is
+> zero on every run**, so item 3's counter has nothing to count on any of them.
+>
+> **3 · §S30's closure survived a test in the REVERSE direction, which it never had.** It
+> concluded that Ray Reconstruction *replaces* the super-resolution pass rather than running
+> beside it, from one configuration. Turn RR off on the same title, same machine, one setting
+> changed: the census flips from `DLSS_RR` 2578 / `DLSS` 0 to **`DLSS` 4242 / `DLSS_RR` 0**.
+> This is also the **first observation of `kFeatureDLSS` anywhere in this project**, and the
+> local-tag extent arrives on that evaluation exactly as it did on the RR one — the same
+> `1485×835`.
+>
+> **4 · A SECOND FG proxy, and it covers what the first cannot.** On Wukong there are no
+> Streamline batches, so `presents/batch` is unreadable — and `presents ÷ RT-active presents`
+> reads **5,764 / 1,441 = 4.0000 exactly** against a title configured for ×4. It carries the
+> *same* unverified premise as `presents/batch` (that the work is recorded once per application
+> frame), so it is a proxy and not a producer. What it adds is coverage: the two are readable
+> on disjoint sets of titles, and on the one run where both were available they agreed.
+>
+> **5 · The #87 falsifier did not fire, on two independent titles.** It pre-committed that
+> `rt_frame_pct` must read ≈25% at ×4 and not ≈100%. Cyberpunk: 25.0%. Wukong: 25.0% — and
+> Wukong reached it through the RT evidence alone, with no Streamline batches involved.
+>
+> **6 · Alan Wake 2 is the outlier and is NOT explained.** `presents/batch` = 1.00 and
+> `rt_frame_pct` = 96.8%, i.e. every present carried an application frame's work, against a
+> menu set to FG 4X. Two readings fit every number equally: generated presents not reaching the
+> vtable we patch (§H5 case 3), or frame generation simply not running. **The operator reported
+> that this title would not apply its settings**, which is evidence for the second and is why
+> it is not written up as §H5 case 3. The discriminating run — the same scene with FG off — was
+> not taken.
+>
+> **7 · One arithmetic result worth keeping on its own.** Alan Wake 2's dispatch volume is
+> `4,279,466,880 / 871 = 4,913,280` rays per RT-active present, and `3 × 1706 × 960 =
+> 4,913,280` **exactly** — three rays per pixel of the render resolution the game's own menu
+> states. The params hook reported nothing on that title, so the render resolution was
+> confirmed by a completely different route from the one meant to measure it.
+>
+> **8 · `FL_MEASURED_UPSCALER_PARAMS` produced nothing on three of the four titles.** Only
+> Cyberpunk tags scaling inputs locally. §2b's local-tag route is narrower than that entry
+> assumed, and the honest failure mode held: the writer published *nothing* rather than
+> something wrong.
 
 **The first row, and it is one row.** Read the legend before the marks: ✅ measured and
 correct against the title's own settings; ❌ measured and **wrong**; ⬜ honestly absent — no
@@ -1309,6 +1498,20 @@ into a real title and the process survives it (§7).
   FG-off leg where a genuine counter converges with displayed and a halving does not, comparing
   RATIOS — our `presents/batch` against the overlay's `DLSS/FPS` — so neither side needs a span.
   §S30 carries the full correction.
+
+  > **GENERALISED FROM ONE TITLE TO FOUR — 2026-08-20, §8.** The bullet above rests on
+  > Cyberpunk. Four titles, five captures: **`kFeatureDLSS_G` is zero on every one**, and two of
+  > the four never call `slEvaluateFeature` *at all* — Black Myth: Wukong with both
+  > `sl.interposer.dll` and `sl.dlss_g.dll` loaded and DLSS-G demonstrably running, and Rune
+  > Factory: Guardians of Azuma. So this is not "DLSS-G avoids that export"; on half the titles
+  > measured, **nothing** goes through it. `slEvaluateFeature` is a route some titles use for
+  > some features, not the Streamline entry point.
+  >
+  > **`presents / RT-active presents` is a second proxy and covers the gap.** Wukong has no
+  > batches at all, so `presents/batch` is unreadable — and `5,764 / 1,441 = 4.0000` exactly,
+  > against a title configured for ×4. Same unverified premise, disjoint coverage; on the one
+  > run where both proxies were readable they agreed. Neither is a producer, and §S31's
+  > measurement is still what decides whether either may be published.
 
   **`fl-baseline-probe` was run on 2026-08-16 and is RETIRED as an FG-engagement oracle by
   its own pre-committed falsifier**: against the running title with FG on at ×2 it reports

@@ -356,6 +356,25 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > application frame on this title, which no independent oracle has confirmed. Shipping
 > `presents/batch` as `fg_factor` would be shipping that unverified premise as a measurement.
 >
+> **THE PREMISE IS NOW FOUR TITLES WIDE, NOT ONE — 2026-08-20, `spike-notes` §8.** Everything
+> above rests on Cyberpunk. Five captures across four titles say something stronger and
+> different: **`kFeatureDLSS_G` is zero on every one**, and two of the four never call
+> `slEvaluateFeature` *at all* — Black Myth: Wukong, with `sl.interposer.dll` and
+> `sl.dlss_g.dll` both loaded and DLSS-G demonstrably running, and Rune Factory: Guardians of
+> Azuma. So the finding is not "DLSS-G avoids that export". On half the titles measured,
+> **nothing** goes through it, and `upscaler` correctly reads `Unknown` — *a hook ran and could
+> not identify what it saw*, which is the first time that distinction has mattered outside a
+> fixture.
+>
+> **Two consequences for the routes below.** Any producer reached *via* `slEvaluateFeature`
+> inherits that coverage hole, so it cannot be the whole answer. And `presents / batch` is
+> unreadable on those two titles — where a **second proxy**, `presents ÷ RT-active presents`,
+> read **5,764 / 1,441 = 4.0000 exactly** against a ×4 setting. It carries the *same* unverified
+> premise (work recorded once per application frame), so it is a proxy and not a producer; what
+> it adds is coverage, on a disjoint set of titles. On the one run where both were readable they
+> agreed. **Whichever producer is chosen has to work on a title that speaks no Streamline
+> features at all.**
+>
 > **So the open question is no longer "build a counter". It is: what is the in-policy
 > producer for DLSS-G on Streamline 2.x?** Candidate routes, none costed and none chosen:
 > hooking the interposer's swapchain proxy; `slGetFeatureFunction` + `slDLSSGGetState`
@@ -517,6 +536,35 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > Whichever is chosen, say so in `03_METRICS` in the same PR. Do not leave the thresholds
 > reading as though the denominator were settled.
 
+### ~~4. Ray tracing~~ — BUILT 2026-08-20, and the trap it hit is the one to carry forward
+
+**Do not start here.** `FL_MEASURED_RT` has a producer, `rtFlags` carries real evidence, and the
+tri-state's `Yes` and `No` are both reachable for the first time. Status is in `CHANGELOG.md` and
+`spike-notes` §6. What belongs here is **the trap**, because it generalises past ray tracing:
+
+> **A COMMAND LIST'S vtable IS NOT THE ONE YOU READ OFF A FRESH ONE.** The first `Reset()`
+> replaces it with a **per-object** vtable in which the vendor driver has taken methods over.
+> Measured on an RTX 5080: `DispatchRays` moves from `D3D12Core.dll` into `nvwgf2umx.dll`, while
+> `BuildRaytracingAccelerationStructure` stays put. Every game resets its lists every frame, so
+> the addresses in an unreset list's vtable are ones no title ever calls for the moved methods.
+>
+> **The first version of the hook did exactly that.** It installed, published
+> `FL_HOOK_RT_DISPATCH`, and never fired — `withDispatch = 0` beside `hooks = RT_DISPATCH |
+> RT_AS_BUILD`, a mask bit with nothing behind it. And because the OTHER hook worked, it read as
+> a bug in the dispatch detour rather than in the acquisition they share.
+>
+> **The rule: put a throwaway object through the same lifecycle the game's objects go through,
+> or it is not a sample of them.** §H5 says the same thing about swapchains one layer up. The
+> fix was one call; finding it took an injected fixture, because no probe that reads a fresh
+> object can see it.
+>
+> **And every vendor-specific result here is ONE DRIVER'S.** Nothing says an AMD or Intel UMD
+> splits the two methods the same way, or leaves either in `D3D12Core`. `--probe-dxr` Q5 prints
+> the module on each side of the Reset so the next machine answers for itself.
+
+<details>
+<summary>The original entry, kept for the reasoning it carries</summary>
+
 ### 4. Ray tracing — §S29(f) is ruled, and the cheapest conjunct has landed
 
 > **The RayQuery contradiction is settled, 2026-08-14 (owner).** AS-build activity proves
@@ -537,9 +585,6 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > published an affirmative negative by simply copying the vendor value. **Assume the next
 > vendor enum has the same shape**, and resolve it at the writer, where the two states are
 > still distinguishable.
-
-<details>
-<summary>The original entry, kept for the reasoning it carries</summary>
 
 ### 4. Ray tracing, including the path dispatch counting misses
 
@@ -712,6 +757,27 @@ diagnosis*.
   work that had just landed, in a PR that changed 69 other files — the failure was the
   edit that was never made. `CHANGELOG.md` and §S24 are gated; this file is not, so it
   is the one that needs a deliberate pass at the end of every item.
+- **ONE GAME LAUNCH PER CAPTURE. A capture that ENDS kills the Overlay in that process 65 s
+  later, permanently.** When the capture host exits nothing publishes `guardTicks` any more, the
+  Overlay's watchdog hits `FL_GUARD_TICK_DEADLINE_MS` and calls `StopObserving` — which clears
+  `g_observing` one-way and disables every hook for the life of the process. A second capture
+  against the same running game returns `SupervisionLost` with zero records.
+
+  **This is designed behaviour, not a defect** (`19_SAFETY` §During a session), and it is
+  recorded here because it changes how a measurement sweep has to be planned: §S31's off / ×2 /
+  ×4 comparison needs **three game launches**, not three captures in one. Measured 2026-08-20;
+  the second capture of the session hit it within minutes of the first.
+
+- **A LAUNCHER CAN UPDATE THE GAME BETWEEN THE CONSENT GRANT AND THE CAPTURE, and the refusal
+  then says something false.** Alan Wake 2, 2026-08-20: consent granted at 09:12Z, the executable
+  went from 62,026,752 to 62,304,768 bytes when the title was launched, and the capture refused
+  with `ConsentMissing` — signal *"the per-game consent dialog has not been accepted"*, which the
+  operator had done forty minutes earlier. `HookRequest.FromConsent` is right to null
+  `consentedAt` and right to leave the stored record untouched; the *message* collapses three
+  situations that need three different actions. `Program.WhyConsentMissingAsync` now prints
+  which one it was. **Re-verify the fingerprint after launching a title, before blaming the
+  gate.**
+
 - **`D3D12CreateDevice(WARP)` can fail on a dev box while the real GPU's D3D12 works, and it takes
   two ctests down with it — `fl_d3d12_acquisition` and `fl_guard`'s D3D12 case.** The harness prints
   only `[FAIL] D3D12CreateDevice(WARP)`, which reads like a code regression.

@@ -280,6 +280,45 @@ Tri-state `Yes | No | N/A` per session with `source` (`measured | manual | inher
 
 Derived extras (Tier 1): `rays_per_pixel` (mean dispatch volume ÷ output pixels), `rt_frame_pct` (share of frames with RT activity), `rt_pso_count`.
 
+> **The denominator, decided 2026-08-20 with the PR that wrote the hooks, because
+> `§Counting native vs displayed` left it open and the hooks could not land without one.**
+>
+> **`rt_frame_pct` is a share of PRESENTS, and it says so.** Under frame generation that
+> dilutes it by the FG factor — at ×4 a title that ray-traces every application frame reports
+> ~25%. **The tri-state is unaffected**, and that is the whole reason this choice is safe: the
+> `Yes` gate is *≥ 5% of frames*, and 25% clears it by a factor of five. The number that is
+> diluted is the reported percentage, not the verdict, and the label carries its unit.
+>
+> **`rays_per_pixel` is taken over the RT-ACTIVE presents, not over all of them**, and is
+> therefore undiluted: the writer drains its accumulator at every present, so a frame's whole
+> dispatch volume lands on one present, and generated presents contribute zero volume and are
+> not in the denominator. This needs **no application-frame count** — which is fortunate,
+> because `HANDOFF` item 3 could not produce one.
+>
+> **The falsifier, written before the run rather than after it:** on a ×4 capture,
+> `rt_frame_pct` should read ≈ 25% and not ≈ 100%. If it reads ≈ 100%, generated presents ARE
+> carrying recorded work, the premise above is wrong, and `rays_per_pixel` over RT-active
+> presents is wrong with it. Record the number and say so rather than reinterpreting it.
+>
+> **The unit is RECORDED, not executed** (§H6). Both hooks sit on command-list methods, so
+> they count work *recorded* between two presents — possibly on several threads, possibly
+> re-executed, possibly never executed at all. Aggregates derived from them inherit that word.
+> The concurrency model is relaxed atomics written by any recording thread and drained once
+> per present with `exchange(0)`, the same shape `g_slSeen` already uses.
+>
+> **`dispatchRaysVolume` saturates at `UINT32_MAX` rather than wrapping**, because it is the
+> NUMERATOR of `rays_per_pixel` and a wrapped value under-reports exactly the titles the
+> path-tracing heuristic exists to recognise. A consumer seeing the ceiling must refuse to
+> publish `rays_per_pixel` rather than divide by a floor. This is the mirror of
+> `fgEvaluations`' 255, which saturates for the opposite reason — that one is a denominator.
+>
+> **And `FL_MEASURED_RT` says a hook family was live, not that all three of its fields have
+> producers.** Which of `rtFlags`, `dispatchRaysVolume` and `maxTraceRecursionDepth` may be
+> read comes from `hooksInstalledMask`, exactly as `FL_MEASURED_UPSCALER` and
+> `FL_MEASURED_UPSCALER_PARAMS` split the upscaler's identity from its parameters. As of
+> 2026-08-20 `maxTraceRecursionDepth` has no producer: `CreateStateObject` is a separate PR,
+> and `pt_confidence` reads it, which is one of the reasons Path Tracing is still `N/A`.
+
 ## Per-process VRAM (Tier 1)
 
 `vramUsedMb` from `IDXGIAdapter3::QueryVideoMemoryInfo(LOCAL)` inside the game = **this game's** usage and budget. **MiB, truncating, and it must use the same divisor as `vramBudgetMb`** — the two are compared, and mismatched rounding would put a systematic bias into `budget_exceeded_pct`. Residual: a flip within 1 MiB of the budget, 0.004% of a 24 GiB card. Stored as its own series and clearly labelled apart from the adapter-wide figure from `18_GPU_VENDOR_APIS`. Aggregates: avg, max, and `budget_exceeded_pct` (share of samples where `CurrentUsage > Budget`, i.e. the driver was likely evicting — a genuinely useful stutter explanation).

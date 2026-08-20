@@ -17,6 +17,53 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Changed
+
+- **Five real-title captures across four titles, and the RT tri-state is complete** —
+  `spike-notes` §6 and §8 carry the numbers; §8's per-title table was empty and now has five
+  rows. Every run: 40 s, one swapchain, one segment, **0 gaps, 0 dropped**, `faults=0`, all six
+  hook families installed, payload hash-verified against the just-built DLL first.
+
+  **`Yes` twice and `No` twice, every verdict agreeing with the game's own settings menu.**
+  Cyberpunk 2077 with path tracing on and Black Myth: Wukong at RT High read `Yes`; Rune
+  Factory: Guardians of Azuma, whose menu has no ray-tracing option, **and Cyberpunk with every
+  RT option switched off** read `No` — the branch that had never been reachable. The second is
+  the harder case: a title that *can* ray-trace and is not doing so. Both negatives satisfy all
+  three conjuncts (`rtTier` 12, `RtAsBuild` installed, zero evidence over 36,575 and 16,871
+  claiming records).
+
+  **The #87 falsifier did not fire, on two independent titles.** `rt_frame_pct` reads **25.0%**
+  of the claiming window at ×4 on Cyberpunk and on Wukong — and Wukong got there through the RT
+  evidence alone, with no Streamline batches involved at all.
+
+  **HANDOFF item 3's premise generalises from one title to four, and gets stronger.**
+  `kFeatureDLSS_G` is zero on every run, and **two of the four titles never call
+  `slEvaluateFeature` at all** — Wukong with `sl.interposer.dll` and `sl.dlss_g.dll` both loaded
+  and DLSS-G demonstrably running, and Rune Factory. So it is not that DLSS-G avoids that
+  export; on half the titles measured nothing goes through it, and `upscaler` correctly reads
+  `Unknown` — *a hook ran and could not identify what it saw* — the first time that distinction
+  has mattered outside a fixture.
+
+  **§S30's closure survived a test in the reverse direction it never had.** It concluded that
+  Ray Reconstruction *replaces* the super-resolution pass, from one configuration. Turning RR
+  off on the same title flips the census from `DLSS_RR` 2578 / `DLSS` 0 to **`DLSS` 4242 /
+  `DLSS_RR` 0**, which is also the **first observation of `kFeatureDLSS` anywhere in this
+  project**, and the local-tag extent arrives on that evaluation exactly as it did on the RR
+  one — the same 1485×835.
+
+  **A second FG proxy, covering what the first cannot.** `presents ÷ RT-active presents` read
+  **5,764 / 1,441 = 4.0000 exactly** on Wukong, where `presents/batch` is unreadable. Same
+  unverified premise, disjoint coverage, still a proxy and not a producer.
+
+  **Two honest absences and one unexplained result.** `FL_MEASURED_UPSCALER_PARAMS` produced
+  nothing on three of four titles — §2b's local-tag route is narrower than that entry assumed,
+  and the writer published nothing rather than something wrong. And **Alan Wake 2 is not
+  explained**: `presents/batch` = 1.00 with `rt_frame_pct` = 96.8% against a menu set to FG 4X
+  fits both "generated presents miss our vtable" (§H5 case 3) and "frame generation was not
+  running". The operator reported that title would not apply its settings, which is evidence for
+  the second, and is why it is **not** written up as §H5 case 3. The discriminating run was not
+  taken.
+
 ### Added
 
 - **`tools/frametype-oracle.ps1`, and §S31 with its decision table written BEFORE the run.**
@@ -40,6 +87,92 @@ GitHub release body, so a missing section will mean an empty release note.
   The ladder now says so, and adds the consequence: a `FrameType` column that classifies
   nothing is an **absence**, so rung 0 turns it into `N/A` rather than rung 4 turning it into
   `none`.
+- **Ray tracing has a producer, and the RT tri-state's `Yes` and `No` are reachable for the
+  first time.** `ID3D12GraphicsCommandList4::DispatchRays` and
+  `::BuildRaytracingAccelerationStructure` are detoured, `rtFlags` and `dispatchRaysVolume`
+  are drained per present with `exchange(0)` beside `g_slSeen`'s, and `FL_MEASURED_RT` is set
+  whenever either family is live. `rtTier` and `hooksInstalledMask` already had producers, so
+  all three conjuncts of `03_METRICS`' `No` branch are now live. §S29(f) is closed on both of
+  its halves, and CLAUDE.md rule 7 is amended per the 2026-08-14 owner ruling: `N/A` applies to
+  *naming the technique as RayQuery*, not to whether rays are being traced.
+
+  **Both hooks, because one of them alone is a trap.** A writer with only `DispatchRays` sees
+  nothing on an inline-RayQuery title, and its silence is indistinguishable from a real
+  negative. The injected fixture pair makes that falsifiable rather than a sentence in a
+  document: two harness modes differing by **one recorded call**, sharing their acceleration
+  structure, state object, swapchain and loop — `--hold-presenting-dxr` yields dispatch
+  evidence and an exact multiple of the fixture's own 64×32×1 volume, `--hold-presenting-rayquery`
+  yields AS-build evidence and **zero** dispatch evidence.
+
+- **`fl_rt_accum.h`** — the dispatch-volume arithmetic in a header, with its identities as
+  `static_assert`s and its behaviour in `ctest fl_dxr_inputs`, the same split `fl_sl_seen.h`
+  uses. **The assertions found a real wrap bug before it ever ran**: `AddedTo(cur, add)` with
+  `add` near `UINT64_MAX` — which the saturating product returns for a hostile descriptor —
+  overflowed the 64-bit sum and wrapped to a small number that passed the ceiling check. They
+  also corrected the justification written above them: two `uint32`s multiply *within* a
+  `uint64`, and it is the third dimension that overflows.
+
+### Fixed
+
+- **The ray-tracing hook installed, published its family bit, and never fired — and the reason
+  generalises past ray tracing.** A command list's first `Reset()` replaces its class vtable
+  with a **per-object** one in which the vendor driver has taken methods over: measured on an
+  RTX 5080, `DispatchRays` moves from `D3D12Core.dll` into `nvwgf2umx.dll` while
+  `BuildRaytracingAccelerationStructure` stays put. Every game resets its lists every frame, so
+  the addresses in an unreset throwaway's vtable are ones no title ever calls for the moved
+  methods. The injected fixture caught it exactly — `withDispatch = 0` beside
+  `hooks = RT_DISPATCH | RT_AS_BUILD`, a mask bit with nothing behind it — and because the
+  *other* hook worked it read as a bug in the dispatch detour rather than in the acquisition
+  they share. **The rule: put a throwaway object through the same lifecycle the game's objects
+  go through, or it is not a sample of them.** The fix is one call.
+
+- **Two of #86's five pre-flight answers were wrong, and this corrects them.** That probe read
+  vtables off **freshly created** lists and compared vtable ARRAYS — neither of which is what a
+  hook depends on, since a game's list is Reset and the Overlay patches the FUNCTION a slot
+  points at. Corrected, measuring reset lists and comparing functions: **Q3** is now *DIRECT and
+  COMPUTE resolve to the SAME functions*, so one detour per method covers both list types
+  (#86 said they did not share and the hook must patch two vtables); **Q4** is now *a WARP list
+  and a hardware list resolve to DIFFERENT functions*, so a throwaway-device acquisition would
+  silently miss every call (#86 said they shared and one would have worked). A new Q5 prints the
+  module on each side of the `Reset` so the next machine answers for itself rather than
+  inheriting one driver's behaviour.
+
+- **`IsHonest` did not cover `dispatchRaysVolume`**, on either side of the mirror. A volume set
+  with `FL_MEASURED_RT` clear is a writer contradicting itself and is the shape a drain that
+  cleared one word and not the other would produce; 0 is a real measurement, so only the mask
+  bit can tell the two apart. Added to `MeasuredFacts.IsHonest` and to its native twin.
+
+- **The Overlay's "NOT SET, deliberately" list had gone stale three entries deep**, in a comment
+  block whose whole subject is which measurements have no producer. It still described
+  `FL_MEASURED_UPSCALER_PARAMS` as having "no source in this writer" after `Hook_SlSetTag` gave
+  it one. Rewritten to what is actually absent — PSO, VRAM, latency, HDR — with the staleness
+  itself recorded.
+
+- **HANDOFF item 4's pre-flight, run before a single ray-tracing hook was written — and it found
+  the defect the hook would have shipped.** `fl_d3d12_vtable.h` records the two
+  `ID3D12GraphicsCommandList4` slots (72 `BuildRaytracingAccelerationStructure`, 76
+  `DispatchRays`), one header and two consumers, and `ctest fl_d3d12_vtable_indices` proves each
+  by **behaviour on both list types** rather than by the COM ABI's say-so. `ctest fl_dxr_probe`
+  answers four questions the hook design must not guess at, and prints an unanswerable one as
+  unanswered rather than as a pass.
+
+  **DIRECT and COMPUTE command lists do NOT share a vtable.** A hook patching only the DIRECT
+  class would have missed every AS build and every `DispatchRays` recorded on a compute list —
+  and async BLAS builds on a compute queue are ordinary practice. The mask bit would still be
+  set and the evidence would be absent, so `03_METRICS`' `No` branch would have published a
+  **confident `Ray Tracing: No` about a title that ray-traces every frame**, with all three of
+  its conjuncts satisfied and none of them watching this direction. The two vtables hold the
+  *same function pointers*, so the fix is a patch applied twice or one inline patch on the
+  shared target; what is now excluded is patching one and stopping.
+
+  Also measured: **WARP reports `RaytracingTier` 12 here**, so a DXR fixture is not condemned to
+  a GPU box — item 4's "check first whether WARP supports DXR" is answered for this machine, and
+  the probe prints the tier on every run so CI answers for itself. And a WARP list and a
+  hardware list **do** share a vtable, so a throwaway-device acquisition would have worked; the
+  design still takes the vtable off the game's own device, because this machine lost WARP's
+  D3D12 path to an Insider build for a fortnight and a design that needs no WARP cannot be taken
+  down by one. `spike-notes.md` §6 carries the numbers, `17_HOOK_ENGINE` §Ray tracing the
+  constraint.
 
 - **`presents / batch` gets a guard of its own, because the one it had could not fail.**
   `FgWindow.BucketFactors` splits the window into eight buckets and refuses a factor when one
@@ -67,6 +200,10 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Fixed
 
+- **`hook-harness/CMakeLists.txt` still carried the pre-2026-08-14 subtraction** in the comment
+  justifying module-scoped resolution — a fifth site for the formula `fl_shm.h` retracts. The
+  argument survives the correction with its polarity flipped: an inflated count now inflates
+  Native FPS and deflates `fg_factor`.
 - **Ray Reconstruction answered `N/A` on every frame-generating title, and the reason was a
   consumer bug rather than a coverage gap.** `MeasuredFacts.RayReconstructionOf` required
   `FL_FEAT_RAY_RECONSTRUCTION_OBSERVED` on **every** record in the stream, while the writer sets
