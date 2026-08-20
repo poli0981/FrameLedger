@@ -22,6 +22,11 @@
 //   --probe-frames   what COUNTS as a frame, against GetLastPresentCount
 //   --probe-d3d12    the D3D12 acquisition path: device -> command queue ->
 //                        swapchain, headless
+//   --probe-d3d12-vtable  ID3D12GraphicsCommandList4's ray-tracing slots, proved
+//                        by behaviour. Needs D3D12, not DXR
+//   --probe-dxr      HANDOFF item 4's four pre-flight questions: is there a DXR
+//                        adapter, do two lists share a vtable, do DIRECT and
+//                        COMPUTE share one, does WARP share with hardware
 //   --present N      present N frames
 //   --hold N         present, then stay alive N seconds. Exists so the harness
 //                    can be an INJECTION TARGET: a target that has already
@@ -64,6 +69,7 @@
 #include <cstring>
 #include <vector>
 
+#include "fl_d3d12_vtable.h"
 #include "fl_dxgi_vtable.h"
 #include "fl_hook_inventory.h"
 #include "fl_sl_inputs.h"
@@ -683,6 +689,411 @@ bool ProbeD3D12Acquisition() {
     queue->Release();
     dev->Release();
     return counted && loaded;
+}
+
+// ---------------------------------------------------------------------------
+// D3D12 command-list vtable slots, and the DXR pre-flight (docs/HANDOFF.md item 4).
+//
+// Everything the ray-tracing hooks rest on is an assumption until it is measured,
+// and this project's record on vtable assumptions is `ctest fl_vtable_indices`
+// proving a fact about dxgi.dll instead of about FrameLedger.Overlay (§S29(b)).
+// So these run BEFORE the hooks are written, and their acceptance is four printed
+// answers rather than four passing asserts.
+// ---------------------------------------------------------------------------
+
+using fl::d3d12::kBuildRaytracingAccelerationStructureIndex;
+using fl::d3d12::kDispatchRaysIndex;
+
+std::atomic<int> g_dispatchRaysHits{0};
+std::atomic<int> g_asBuildHits{0};
+
+// THESE DELIBERATELY DO NOT FORWARD, and that is a safety property rather than a
+// shortcut. Forwarding would call the real method with a zeroed descriptor on a
+// list with no ray-tracing state object set, which is exactly what happens if a
+// slot index is WRONG -- i.e. in the one case this fixture exists to detect. The
+// detour swallowing the call bounds the blast radius of its own failure, and the
+// list is never passed to ExecuteCommandLists, so nothing reaches the GPU either
+// way. Proving the index needs only that our stub ran.
+void STDMETHODCALLTYPE StubDispatchRays(ID3D12GraphicsCommandList4*, const D3D12_DISPATCH_RAYS_DESC*) {
+    g_dispatchRaysHits.fetch_add(1, std::memory_order_relaxed);
+}
+
+void STDMETHODCALLTYPE StubBuildAs(ID3D12GraphicsCommandList4*,
+                                   const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC*, UINT,
+                                   const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC*) {
+    g_asBuildHits.fetch_add(1, std::memory_order_relaxed);
+}
+
+struct ListBits {
+    ID3D12CommandAllocator*     alloc = nullptr;
+    ID3D12GraphicsCommandList*  list = nullptr;
+    ID3D12GraphicsCommandList4* list4 = nullptr;
+
+    void Release() {
+        if (list4 != nullptr) {
+            list4->Release();
+            list4 = nullptr;
+        }
+        if (list != nullptr) {
+            list->Release();
+            list = nullptr;
+        }
+        if (alloc != nullptr) {
+            alloc->Release();
+            alloc = nullptr;
+        }
+    }
+};
+
+// A command list of `type`, upgraded to ID3D12GraphicsCommandList4.
+//
+// The QI is the part that can legitimately fail: ID3D12GraphicsCommandList4 is a
+// RUNTIME interface (Windows 10 1809+), not a device capability, so it succeeds on
+// an adapter with no ray-tracing support at all -- which is why the slot probe and
+// the capability probe are separate questions.
+bool MakeList(ID3D12Device* dev, D3D12_COMMAND_LIST_TYPE type, ListBits& out) {
+    if (FAILED(dev->CreateCommandAllocator(type, __uuidof(ID3D12CommandAllocator),
+                                           reinterpret_cast<void**>(&out.alloc)))) {
+        return false;
+    }
+    if (FAILED(dev->CreateCommandList(0, type, out.alloc, nullptr, __uuidof(ID3D12GraphicsCommandList),
+                                      reinterpret_cast<void**>(&out.list)))) {
+        return false;
+    }
+    return SUCCEEDED(
+        out.list->QueryInterface(__uuidof(ID3D12GraphicsCommandList4), reinterpret_cast<void**>(&out.list4)));
+}
+
+// A device on `adapter` (null = the default adapter), with its raytracing tier.
+//
+// A FAILED CheckFeatureSupport reports tier 0, which is D3D12's own
+// NOT_SUPPORTED -- fine HERE, because this is a probe and prints the tier it read.
+// The Overlay must NOT do that: fl_shm.h's FlRtTier keeps "could not ask" and
+// "asked, and this device cannot" apart precisely because the vendor enum's zero
+// collides with our own.
+ID3D12Device* MakeDevice(IDXGIAdapter* adapter, unsigned& tierOut) {
+    ID3D12Device* dev = nullptr;
+    if (FAILED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device),
+                                 reinterpret_cast<void**>(&dev)))) {
+        return nullptr;
+    }
+    D3D12_FEATURE_DATA_D3D12_OPTIONS5 options{};
+    tierOut = SUCCEEDED(dev->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options, sizeof(options)))
+                  ? static_cast<unsigned>(options.RaytracingTier)
+                  : 0u;
+    return dev;
+}
+
+// The first adapter that reports DXR, WARP included, and it PRINTS which one.
+//
+// Not "always WARP", and the difference is not academic: this machine's WARP
+// D3D12 path was broken for a fortnight by a Windows Insider build, which took
+// two ctests down with it and told the reader nothing about the code
+// (docs/HANDOFF.md §Traps). A fixture that can only ever run on CI is a fixture
+// that cannot be developed against. Whichever adapter answers, the choice is on
+// stdout so a result is never read against the wrong hardware.
+ID3D12Device* BestDxrDevice(unsigned& tierOut, bool& isWarpOut) {
+    IDXGIFactory4* factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory4), reinterpret_cast<void**>(&factory)))) {
+        return nullptr;
+    }
+
+    ID3D12Device* chosen = nullptr;
+    tierOut = 0;
+    isWarpOut = false;
+
+    IDXGIAdapter1* adapter = nullptr;
+    for (UINT i = 0; factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+        DXGI_ADAPTER_DESC1 desc{};
+        adapter->GetDesc1(&desc);
+        unsigned      tier = 0;
+        ID3D12Device* dev = MakeDevice(adapter, tier);
+        std::printf("  adapter %u: %-40ls d3d12=%s raytracingTier=%u\n", i, desc.Description,
+                    dev != nullptr ? "yes" : "no ", tier);
+        if (dev != nullptr && chosen == nullptr && tier >= static_cast<unsigned>(D3D12_RAYTRACING_TIER_1_0)) {
+            chosen = dev;
+            tierOut = tier;
+            isWarpOut = (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+        } else if (dev != nullptr) {
+            dev->Release();
+        }
+        adapter->Release();
+    }
+
+    IDXGIAdapter* warp = nullptr;
+    if (SUCCEEDED(factory->EnumWarpAdapter(__uuidof(IDXGIAdapter), reinterpret_cast<void**>(&warp)))) {
+        unsigned      tier = 0;
+        ID3D12Device* dev = MakeDevice(warp, tier);
+        std::printf("  adapter W: %-40s d3d12=%s raytracingTier=%u\n", "WARP (software)",
+                    dev != nullptr ? "yes" : "no ", tier);
+        if (dev != nullptr && chosen == nullptr && tier >= static_cast<unsigned>(D3D12_RAYTRACING_TIER_1_0)) {
+            chosen = dev;
+            tierOut = tier;
+            isWarpOut = true;
+        } else if (dev != nullptr) {
+            dev->Release();
+        }
+        warp->Release();
+    }
+
+    factory->Release();
+    return chosen;
+}
+
+// Any D3D12 device at all, and it prints nothing.
+//
+// The slot probe does not need DXR: ID3D12GraphicsCommandList4 is a runtime
+// interface, so its vtable has the ray-tracing slots on a device that cannot
+// trace a ray. Separating this from BestDxrDevice is what keeps the slot fixture
+// runnable on a machine with no ray-tracing hardware, and keeps the adapter table
+// from being printed twice in one run.
+ID3D12Device* AnyD3D12Device(bool& isWarpOut) {
+    unsigned tier = 0;
+    isWarpOut = false;
+    ID3D12Device* dev = MakeDevice(nullptr, tier);
+    if (dev != nullptr) {
+        return dev;
+    }
+
+    IDXGIFactory4* factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory4), reinterpret_cast<void**>(&factory)))) {
+        return nullptr;
+    }
+    IDXGIAdapter* warpAdapter = nullptr;
+    if (FAILED(factory->EnumWarpAdapter(__uuidof(IDXGIAdapter), reinterpret_cast<void**>(&warpAdapter)))) {
+        factory->Release();
+        return nullptr;
+    }
+    dev = MakeDevice(warpAdapter, tier);
+    isWarpOut = dev != nullptr;
+    warpAdapter->Release();
+    factory->Release();
+    return dev;
+}
+
+// Slot identity on ONE list's vtable, proved the same way §H4 proves the DXGI
+// ones: patch, call the method BY NAME through the interface, and see whether the
+// detour ran. An address printed beside a slot number says where, not which.
+bool ProveSlotsOn(ListBits& bits, const char* listType) {
+    void**                   vtbl = VtableOf(bits.list4);
+    MEMORY_BASIC_INFORMATION mbi{};
+    const bool inImage = VirtualQuery(vtbl[kDispatchRaysIndex], &mbi, sizeof(mbi)) != 0 && (mbi.Type == MEM_IMAGE);
+    std::printf("  %s vtable %p: slot %u -> %p, slot %u -> %p (in a mapped image: %s)\n", listType,
+                reinterpret_cast<void*>(vtbl), kBuildRaytracingAccelerationStructureIndex,
+                vtbl[kBuildRaytracingAccelerationStructureIndex], kDispatchRaysIndex, vtbl[kDispatchRaysIndex],
+                inImage ? "yes" : "no");
+
+    void* origDispatch = nullptr;
+    void* origBuild = nullptr;
+    if (!PatchSlot(vtbl, kDispatchRaysIndex, reinterpret_cast<void*>(&StubDispatchRays), &origDispatch) ||
+        !PatchSlot(vtbl, kBuildRaytracingAccelerationStructureIndex, reinterpret_cast<void*>(&StubBuildAs),
+                   &origBuild)) {
+        Check(false, "VirtualProtect + patch both command-list slots");
+        return false;
+    }
+
+    const int                dispatchBefore = g_dispatchRaysHits.load(std::memory_order_relaxed);
+    D3D12_DISPATCH_RAYS_DESC rays{};
+    bits.list4->DispatchRays(&rays);
+    const bool dispatched = g_dispatchRaysHits.load(std::memory_order_relaxed) == dispatchBefore + 1;
+
+    const int                                          buildBefore = g_asBuildHits.load(std::memory_order_relaxed);
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build{};
+    bits.list4->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
+    const bool built = g_asBuildHits.load(std::memory_order_relaxed) == buildBefore + 1;
+
+    // Restore FIRST, then report. A failed Check must not leave the SHARED class
+    // vtable detoured: every command list of that type in the process would keep
+    // our stub, and the next probe would measure it and call it a result.
+    void* dummy = nullptr;
+    PatchSlot(vtbl, kDispatchRaysIndex, origDispatch, &dummy);
+    PatchSlot(vtbl, kBuildRaytracingAccelerationStructureIndex, origBuild, &dummy);
+
+    std::printf("  on a %s list:\n", listType);
+    Check(dispatched, "    slot 76 IS ID3D12GraphicsCommandList4::DispatchRays");
+    Check(built, "    slot 72 IS ID3D12GraphicsCommandList4::BuildRaytracingAccelerationStructure");
+    Check(vtbl[kDispatchRaysIndex] == origDispatch && vtbl[kBuildRaytracingAccelerationStructureIndex] == origBuild,
+          "    both slots hold their original entries again");
+    return dispatched && built;
+}
+
+// BOTH LIST TYPES, and that is not belt-and-braces.
+//
+// --probe-dxr MEASURED that DIRECT and COMPUTE command lists do NOT share a
+// vtable, so proving the indices on a DIRECT list establishes nothing about the
+// COMPUTE one by observation. The COM ABI says the two must agree -- same
+// interface, same declaration order -- and "the ABI says so" is exactly the
+// confidence this fixture exists to replace with a measurement. It costs one more
+// command list, and item 4's hook has to patch both vtables anyway.
+bool ProbeD3D12VtableIndices() {
+    std::printf("\n[d3d12-vtable] ID3D12GraphicsCommandList4 slot identity, proved by behaviour\n");
+
+    bool          warp = false;
+    ID3D12Device* dev = AnyD3D12Device(warp);
+    if (dev == nullptr) {
+        Check(false, "a D3D12 device on any adapter — nothing here can run without one");
+        return false;
+    }
+    std::printf("  device: %s adapter\n", warp ? "WARP (software)" : "hardware");
+
+    bool     ok = true;
+    ListBits direct{};
+    if (MakeList(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, direct)) {
+        ok = ProveSlotsOn(direct, "DIRECT") && ok;
+    } else {
+        Check(false, "a DIRECT command list upgraded to ID3D12GraphicsCommandList4");
+        ok = false;
+    }
+    direct.Release();
+
+    ListBits compute{};
+    if (MakeList(dev, D3D12_COMMAND_LIST_TYPE_COMPUTE, compute)) {
+        ok = ProveSlotsOn(compute, "COMPUTE") && ok;
+    } else {
+        Check(false, "a COMPUTE command list upgraded to ID3D12GraphicsCommandList4");
+        ok = false;
+    }
+    compute.Release();
+    dev->Release();
+    return ok;
+}
+
+// Q4: does a command list from one KIND of adapter share a vtable with one from
+// the other? It is the question that decides whether the Overlay could take the
+// vtable off a throwaway device instead of the game's own.
+//
+// The answer does not change the design either way -- 17_HOOK_ENGINE takes it off
+// a list created on the GAME'S device, which needs no cross-device promise at all.
+// What it changes is how much that decision was buying, and whether a future
+// shortcut is available or forbidden.
+void ProbeDxrCrossDevice(bool chosenIsWarp, const ListBits& chosenList) {
+    IDXGIFactory4* factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory4), reinterpret_cast<void**>(&factory)))) {
+        std::printf("  Q4 UNANSWERED: no DXGI factory.\n");
+        return;
+    }
+
+    unsigned      tier = 0;
+    ID3D12Device* other = nullptr;
+    if (chosenIsWarp) {
+        IDXGIAdapter1* adapter = nullptr;
+        for (UINT i = 0; other == nullptr && factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+            DXGI_ADAPTER_DESC1 desc{};
+            adapter->GetDesc1(&desc);
+            if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
+                other = MakeDevice(adapter, tier);
+            }
+            adapter->Release();
+        }
+    } else {
+        IDXGIAdapter* warpAdapter = nullptr;
+        if (SUCCEEDED(factory->EnumWarpAdapter(__uuidof(IDXGIAdapter), reinterpret_cast<void**>(&warpAdapter)))) {
+            other = MakeDevice(warpAdapter, tier);
+            warpAdapter->Release();
+        }
+    }
+    factory->Release();
+
+    if (other == nullptr) {
+        // A HOSTED CI RUNNER WITH NO GPU IS IN EXACTLY THIS STATE, and it must not
+        // read as an answer. Nothing was compared.
+        std::printf("  Q4 UNANSWERED: no %s adapter on this machine to compare against.\n",
+                    chosenIsWarp ? "hardware" : "software");
+        return;
+    }
+
+    ListBits otherList{};
+    if (MakeList(other, D3D12_COMMAND_LIST_TYPE_DIRECT, otherList)) {
+        const bool same = VtableOf(chosenList.list4) == VtableOf(otherList.list4);
+        std::printf("  Q4 %s: lists from a %s device and a %s device %s a vtable\n", same ? "SHARED" : "SEPARATE",
+                    chosenIsWarp ? "WARP" : "hardware", chosenIsWarp ? "hardware" : "WARP",
+                    same ? "SHARE" : "do NOT share");
+        std::printf("      A throwaway-device acquisition would therefore %s.\n",
+                    same ? "have worked" : "SILENTLY MISS EVERY CALL — which is why the shipped hook does not use one");
+    } else {
+        std::printf("  Q4 UNANSWERED: could not build a command list on the other device.\n");
+    }
+    otherList.Release();
+    other->Release();
+}
+
+// The four questions item 4 must not guess at.
+//
+// Question 1 decides whether a DXR fixture can run here AT ALL; questions 2-4
+// decide how many vtables the hook has to patch and whether it may take them off
+// a throwaway device. A "skip" here is a printed unanswered question, never a
+// pass -- HANDOFF item 4 says so in as many words about the WARP case.
+//
+// Q2-Q4 DO NOT NEED RAY TRACING and run whatever Q1 says, because
+// ID3D12GraphicsCommandList4 is a runtime interface rather than a device
+// capability. Gating them on Q1 would leave a machine without DXR running a
+// fixture that asserts nothing at all and reports success — which is the shape
+// this repository keeps recording as a gate that cannot fail.
+bool ProbeDxr() {
+    std::printf("\n[dxr] pre-flight — four questions, answered or explicitly not\n");
+
+    unsigned      dxrTier = 0;
+    bool          dxrIsWarp = false;
+    ID3D12Device* dxr = BestDxrDevice(dxrTier, dxrIsWarp);
+    if (dxr != nullptr) {
+        std::printf("  Q1 YES: raytracingTier=%u on the %s adapter (chosen)\n", dxrTier,
+                    dxrIsWarp ? "WARP" : "hardware");
+    } else {
+        std::printf("  Q1 NO: no adapter here reports D3D12_RAYTRACING_TIER_1_0 or better, so a DXR\n");
+        std::printf("      fixture cannot run on this machine. That is an ANSWER, not a skip and not coverage.\n");
+    }
+
+    bool          warp = dxrIsWarp;
+    ID3D12Device* dev = dxr;
+    if (dev == nullptr) {
+        dev = AnyD3D12Device(warp);
+    }
+    if (dev == nullptr) {
+        Check(false, "a D3D12 device on any adapter — Q2 to Q4 cannot be asked without one");
+        return false;
+    }
+
+    ListBits   a{};
+    ListBits   b{};
+    ListBits   compute{};
+    const bool madeA = MakeList(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, a);
+    const bool madeB = MakeList(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, b);
+    const bool madeCompute = MakeList(dev, D3D12_COMMAND_LIST_TYPE_COMPUTE, compute);
+
+    if (madeA && madeB) {
+        const bool shared = VtableOf(a.list4) == VtableOf(b.list4);
+        Check(shared, "Q2: two DIRECT lists from ONE device share a vtable — one patch sees every list");
+        // THE CONTROL, and without it Q2 is satisfied by a machine on which every
+        // COM object happens to sit at the same address. A different interface on
+        // the same device must NOT share, exactly as fl_vtable_identity_control
+        // asserts for DXGI.
+        Check(VtableOf(a.alloc) != VtableOf(a.list4),
+              "Q2 control: a command ALLOCATOR does not share the command list's vtable");
+    } else {
+        Check(false, "Q2: two DIRECT command lists");
+    }
+
+    if (madeA && madeCompute) {
+        const bool same = VtableOf(a.list4) == VtableOf(compute.list4);
+        std::printf("  Q3 %s: DIRECT and COMPUTE lists %s a vtable\n", same ? "ONE" : "TWO",
+                    same ? "SHARE" : "do NOT share");
+        std::printf("      Consequence for item 4: the hook patches %s.\n",
+                    same ? "one vtable" : "TWO vtables, or it misses every AS build recorded on a compute list");
+    } else {
+        std::printf("  Q3 UNANSWERED: could not create both a DIRECT and a COMPUTE list.\n");
+    }
+
+    if (madeA) {
+        ProbeDxrCrossDevice(warp, a);
+    } else {
+        std::printf("  Q4 UNANSWERED: no command list on the chosen device to compare.\n");
+    }
+
+    a.Release();
+    b.Release();
+    compute.Release();
+    dev->Release();
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1384,6 +1795,12 @@ int main(int argc, char** argv) {
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-d3d12") == 0) {
             ok = ProbeD3D12Acquisition() && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-d3d12-vtable") == 0) {
+            ok = ProbeD3D12VtableIndices() && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-dxr") == 0) {
+            ok = ProbeDxr() && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-vtable") == 0) {
             ok = ProbeH4_VtableIndices(g) && ok;

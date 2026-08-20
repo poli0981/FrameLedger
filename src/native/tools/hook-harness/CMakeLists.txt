@@ -51,15 +51,42 @@ add_test(NAME fl_frame_identity COMMAND hook-harness --probe-frames)
 add_test(NAME fl_d3d12_acquisition COMMAND hook-harness --probe-d3d12)
 add_test(NAME fl_proxy_swapchain COMMAND hook-harness --probe-proxy)
 
+# HANDOFF item 4's pre-flight, and it runs BEFORE the ray-tracing hooks are
+# written rather than beside them.
+#
+# fl_d3d12_vtable_indices is the fl_vtable_indices argument one interface over:
+# the slot numbers are derivable from the COM inheritance chain, and derivable is
+# exactly the confidence this project distrusts. It patches each slot, calls the
+# method BY NAME, and checks the detour ran. It needs D3D12 and NOT ray tracing --
+# ID3D12GraphicsCommandList4 is a runtime interface, so its vtable carries the
+# ray-tracing slots on an adapter that cannot trace a ray.
+add_test(NAME fl_d3d12_vtable_indices COMMAND hook-harness --probe-d3d12-vtable)
+
+# fl_dxr_probe answers four questions the hook design must not guess at: whether
+# any adapter here reports DXR at all; whether two command lists from one device
+# share a vtable (with the CONTROL that a different interface does not); whether
+# DIRECT and COMPUTE lists share one, which decides whether the hook patches one
+# vtable or two; and whether a WARP list shares with a hardware list, which is what
+# a throwaway-device acquisition would have rested on.
+#
+# An unanswerable question PRINTS as unanswered and never as a pass -- a hosted CI
+# runner has no hardware adapter, so Q4 is genuinely unanswerable there, and
+# HANDOFF item 4 is explicit that a skip reported as coverage is the failure to
+# avoid. Q2 to Q4 assert regardless of Q1, so a machine with no ray tracing still
+# runs a fixture that can go red.
+add_test(NAME fl_dxr_probe COMMAND hook-harness --probe-dxr)
+
 # MODULE-SCOPED RESOLUTION, with a decoy module exporting the same symbol name.
 #
 # docs/HANDOFF.md item 2's whole argument for scoping is arithmetic — a
-# name-resolved hook counts one logical evaluation more than once, and
-# 03_METRICS derives F_app by SUBTRACTING that count, so it lands on fg_factor,
-# the number CLAUDE.md rule 6 exists to protect. Without a second exporter in the
-# process that property is unfalsifiable: a name-only resolver and a
-# module-scoped one behave identically and every test passes. The decoy is what
-# makes them distinguishable.
+# name-resolved hook counts one logical evaluation more than once, and 03_METRICS
+# sets F_app = sum(fgEvaluations) with fg_factor = presents / F_app (owner ruling
+# 2026-08-14; this comment carried the pre-ruling subtraction), so an inflated
+# count inflates Native FPS and deflates fg_factor — the number CLAUDE.md rule 6
+# exists to protect, reached by arithmetic rather than by measurement. Without a
+# second exporter in the process that property is unfalsifiable: a name-only
+# resolver and a module-scoped one behave identically and every test passes. The
+# decoy is what makes them distinguishable.
 add_test(NAME fl_upscaler_resolve COMMAND hook-harness --probe-upscaler-resolve)
 
 # Its own ctest, and its own PROCESS, which is the point. Both fixtures are named

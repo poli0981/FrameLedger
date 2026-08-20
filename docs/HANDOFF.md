@@ -476,6 +476,26 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > Whichever is chosen, say so in `03_METRICS` in the same PR. Do not leave the thresholds
 > reading as though the denominator were settled.
 
+> **THE PRE-FLIGHT IS RUN, 2026-08-20, and it found the defect the hook would have shipped.**
+> `ctest fl_d3d12_vtable_indices` and `ctest fl_dxr_probe` exist and answer four questions
+> `spike-notes` §6 now records in full. The three that change what gets built:
+>
+> - **DIRECT and COMPUTE command lists do NOT share a vtable.** A hook patching only the DIRECT
+>   one misses every AS build and every `DispatchRays` recorded on a compute list — and async
+>   BLAS builds on a compute queue are ordinary. The mask bit would still be set, so the session
+>   would publish a confident `Ray Tracing: No` about a title that ray-traces every frame. **Patch
+>   both, or state in the PR why one is enough.** The two vtables hold the *same function
+>   pointers*, so a single inline patch is the alternative; pick one deliberately.
+> - **WARP reports `RaytracingTier` 12 here**, so a DXR fixture is not condemned to a GPU box —
+>   item 4's "check first whether WARP supports DXR" is answered for this machine. CI still
+>   answers for its own `d3d10warp.dll`, and `fl_dxr_probe` prints the tier every run.
+> - **A WARP list and a hardware list DO share a vtable**, so a throwaway-device acquisition would
+>   have worked. Take it off the game's own device anyway: this machine lost WARP's D3D12 path to
+>   an Insider build for a fortnight, and a design that needs no WARP cannot be taken down by one.
+>
+> Slot 72 is `BuildRaytracingAccelerationStructure` and slot 76 is `DispatchRays`, proved by
+> behaviour on **both** list types rather than by the COM ABI's say-so.
+
 ### 4. Ray tracing — §S29(f) is ruled, and the cheapest conjunct has landed
 
 > **The RayQuery contradiction is settled, 2026-08-14 (owner).** AS-build activity proves
