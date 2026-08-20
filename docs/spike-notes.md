@@ -771,7 +771,70 @@ swapchain, so the vtable premise is not in question for them.
 
 ## 6 · RT detection
 
-- `DispatchRays` counting:
+### ✅ The pre-flight, before a single hook was written — 2026-08-20
+
+`hook-harness --probe-d3d12-vtable` (ctest `fl_d3d12_vtable_indices`) and
+`--probe-dxr` (ctest `fl_dxr_probe`), on this machine: Windows 11 Insider 29648,
+RTX 5080, MSVC 14.51.
+
+**Adapters, and all three can ray-trace.**
+
+| Adapter | D3D12 | `RaytracingTier` |
+|---|---|---|
+| NVIDIA GeForce RTX 5080 | yes | **12** (`TIER_1_1`) |
+| Microsoft Basic Render Driver | yes | **12** |
+| WARP (software) | yes | **12** |
+
+So `HANDOFF` item 4's *"check first whether WARP on the CI runners supports DXR"*
+is answered **yes on this machine's WARP**, which means a DXR fixture is not
+condemned to a GPU box. CI still has to answer for its own `d3d10warp.dll`; the
+tier is a property of that binary, and `fl_dxr_probe` prints it on every run.
+
+**Slot indices, proved by behaviour on BOTH list types.** Slot 72 is
+`BuildRaytracingAccelerationStructure` and slot 76 is `DispatchRays`: patched,
+called by name through the interface, detour ran, slots restored and the restore
+asserted. 60 consecutive runs of each probe, zero failures.
+
+### 🔴 DIRECT and COMPUTE command lists do NOT share a vtable — and this would have shipped a silent wrong answer
+
+| Object | vtable |
+|---|---|
+| two DIRECT lists, one device | **the same** — one patch sees every DIRECT list |
+| a command allocator (the control) | different, as it must be |
+| a COMPUTE list | **a DIFFERENT vtable** (`…C7BDA0` against DIRECT's `…C7B820`) |
+| a WARP list vs a hardware list | **the same** |
+
+A hook that patched only the DIRECT list's vtable would have **missed every AS
+build and every `DispatchRays` recorded on a compute list** — and asynchronous
+BLAS builds on a compute queue are ordinary practice. `03_METRICS`' `No` branch
+requires the AS-build hook to have been *installed*, and it would have been: the
+mask bit would be set, the evidence absent, and the session would publish a
+confident `Ray Tracing: No` about a title that ray-traces every frame. That is
+the exact failure the `No` branch's three conjuncts exist to prevent, arriving
+from a direction none of them watches.
+
+**And the second half of the measurement changes what the fix costs.** The two
+vtables are different arrays holding the **same function pointers** — slot 72 is
+`…B97AE0` and slot 76 is `…B9A0B0` in both. So D3D12Core has two classes over one
+implementation: a vtable-entry patch must be applied twice (two acquisitions, one
+detour, no double counting, since one recorded call still passes through one
+slot), while a single inline patch on the shared target would catch both. Item 4
+picks one and says why; what it may not do is patch one vtable and call it done.
+
+**Bundles are not a third case**, and this is a documented API constraint rather
+than something measured here: `D3D12_COMMAND_LIST_TYPE_BUNDLE` does not permit
+`DispatchRays`. Stated as an inherited claim so the next reader knows which of
+these lines came from a run.
+
+**Q4 has a consequence worth stating even though it is permissive.** WARP and
+hardware lists sharing a vtable means a throwaway-device acquisition *would* have
+worked. The Overlay still takes the vtable off a list created on the **game's own
+device**, because this machine's WARP D3D12 path was broken for a fortnight by an
+Insider build (§Traps) — a design that needs no WARP cannot be taken down by one.
+
+### Still open in §6
+
+- `DispatchRays` counting against a title's own settings menu:
 - `BuildRaytracingAccelerationStructure` on an **inline `RayQuery`** title — the
   specific regression the old design got wrong:
 - Recorded-vs-executed semantics and counter concurrency (§H6):

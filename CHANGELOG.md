@@ -19,6 +19,32 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **HANDOFF item 4's pre-flight, run before a single ray-tracing hook was written — and it found
+  the defect the hook would have shipped.** `fl_d3d12_vtable.h` records the two
+  `ID3D12GraphicsCommandList4` slots (72 `BuildRaytracingAccelerationStructure`, 76
+  `DispatchRays`), one header and two consumers, and `ctest fl_d3d12_vtable_indices` proves each
+  by **behaviour on both list types** rather than by the COM ABI's say-so. `ctest fl_dxr_probe`
+  answers four questions the hook design must not guess at, and prints an unanswerable one as
+  unanswered rather than as a pass.
+
+  **DIRECT and COMPUTE command lists do NOT share a vtable.** A hook patching only the DIRECT
+  class would have missed every AS build and every `DispatchRays` recorded on a compute list —
+  and async BLAS builds on a compute queue are ordinary practice. The mask bit would still be
+  set and the evidence would be absent, so `03_METRICS`' `No` branch would have published a
+  **confident `Ray Tracing: No` about a title that ray-traces every frame**, with all three of
+  its conjuncts satisfied and none of them watching this direction. The two vtables hold the
+  *same function pointers*, so the fix is a patch applied twice or one inline patch on the
+  shared target; what is now excluded is patching one and stopping.
+
+  Also measured: **WARP reports `RaytracingTier` 12 here**, so a DXR fixture is not condemned to
+  a GPU box — item 4's "check first whether WARP supports DXR" is answered for this machine, and
+  the probe prints the tier on every run so CI answers for itself. And a WARP list and a
+  hardware list **do** share a vtable, so a throwaway-device acquisition would have worked; the
+  design still takes the vtable off the game's own device, because this machine lost WARP's
+  D3D12 path to an Insider build for a fortnight and a design that needs no WARP cannot be taken
+  down by one. `spike-notes.md` §6 carries the numbers, `17_HOOK_ENGINE` §Ray tracing the
+  constraint.
+
 - **`presents / batch` gets a guard of its own, because the one it had could not fail.**
   `FgWindow.BucketFactors` splits the window into eight buckets and refuses a factor when one
   departs from the whole — and it divides by `Σ fgEvaluations`, which is **zero on every record**
@@ -45,6 +71,10 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Fixed
 
+- **`hook-harness/CMakeLists.txt` still carried the pre-2026-08-14 subtraction** in the comment
+  justifying module-scoped resolution — a fifth site for the formula `fl_shm.h` retracts. The
+  argument survives the correction with its polarity flipped: an inflated count now inflates
+  Native FPS and deflates `fg_factor`.
 - **Ray Reconstruction answered `N/A` on every frame-generating title, and the reason was a
   consumer bug rather than a coverage gap.** `MeasuredFacts.RayReconstructionOf` required
   `FL_FEAT_RAY_RECONSTRUCTION_OBSERVED` on **every** record in the stream, while the writer sets

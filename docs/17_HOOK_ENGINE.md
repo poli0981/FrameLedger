@@ -239,6 +239,16 @@ So:
 | `ID3D12GraphicsCommandList4::BuildRaytracingAccelerationStructure` | AS build/update activity — **catches inline RayQuery too**, which `DispatchRays` alone misses |
 | Vulkan `vkCmdTraceRaysKHR`, `vkCmdBuildAccelerationStructuresKHR` | Same, via layer |
 
+> **Measured 2026-08-20, before any of these were written, and it is a constraint rather than a note** (`spike-notes.md` §6, ctest `fl_dxr_probe`). **A DIRECT command list and a COMPUTE command list do NOT share a vtable.** One patch on the DIRECT class therefore misses every AS build and every `DispatchRays` recorded on a compute list — and async BLAS builds on a compute queue are ordinary practice. The mask bit would still be set and the evidence would be absent, so `03_METRICS`' `No` branch would publish a **confident negative about a title that ray-traces every frame**: all three of its conjuncts hold, and none of them watches this direction.
+>
+> The two vtables hold the **same function pointers** — D3D12Core is two classes over one implementation — so the choice is a vtable-entry patch applied twice (one detour, no double counting, since a recorded call still passes through exactly one slot) or a single inline patch on the shared target. Either is defensible; patching one vtable and stopping is not. Bundles are not a third case: `D3D12_COMMAND_LIST_TYPE_BUNDLE` does not permit `DispatchRays`, which is a documented API constraint and not something measured here.
+>
+> **Where the vtable comes from.** A command list created on the **game's own `ID3D12Device5`** — the device `ResolveApi` already receives from `IDXGISwapChain::GetDevice`, an object we legitimately own (CLAUDE.md rule 4) — and released immediately, exactly as `InstallPresentHooks` releases its dummy swapchain. Not a throwaway WARP device, even though the probe measured that a WARP list and a hardware list *do* share a vtable and one would have worked: this machine lost WARP's D3D12 path to a Windows Insider build for a fortnight (`HANDOFF` §Traps), and a design that needs no WARP cannot be taken down by one.
+>
+> Slot numbers live in `fl_d3d12_vtable.h`, one header and two consumers, and `ctest fl_d3d12_vtable_indices` proves each by **behaviour** on both list types — the §S29(b) rule applied to a second interface.
+>
+> **These are vtable hooks, so `FL_HOOK_INVENTORY` does not cover them and neither does `tools/hookinventory-check.ps1`.** No vendor symbol is resolved by name, so Pass A has no row to check and Pass B's stray-literal sweep is silent. Anyone reading §Hook inventory as "every hook we install is in that table" needs to know the other kind exists and that `fl_d3d12_vtable_indices` is its gate.
+
 ### Pipeline / stutter attribution
 | Hook | Yields |
 |---|---|
