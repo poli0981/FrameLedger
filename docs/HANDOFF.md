@@ -368,8 +368,27 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > pre-committed falsifier: it reports two mutually exclusive FG implementations both
 > "loaded"), the x2 overlay reading (one agreement counted twice, by algebra), and the x4
 > overlay reading (kills the fixed-divisor rival, cannot separate an independent count from
-> a correct derivation). **The next measurement is PresentMon 2.x `FrameType`**, which
-> classifies each present from ETW and divides by nothing.
+> a correct derivation). ~~**The next measurement is PresentMon 2.x `FrameType`**, which
+> classifies each present from ETW and divides by nothing.~~
+>
+> **THE ROUTE IS CHOSEN AND THE MEASUREMENT IS NOW OWNER-ONLY, 2026-08-20.** The decision
+> below is taken: **measure before hooking.** `§S31` carries the decision table, written
+> before the run and with two of its six rows retiring PresentMon outright;
+> `tools/frametype-oracle.ps1` produces the input as two dimensionless ratios. What belongs
+> here is the sequencing consequence — **the run needs the owner, for two reasons neither of
+> which is the code:**
+>
+> 1. **The console binary will not start a trace session unelevated on this machine.** Exit 6;
+>    the account is in neither Administrators nor Performance Log Users, and the running
+>    `PresentMonSharedService` does not help because the console starts its own session.
+> 2. **`--track_frame_type` is a BETA option that needs the VENDOR to instrument Intel's
+>    provider**, by its own help text. So "classifies each present from ETW and divides by
+>    nothing" is true of the mechanism and is **not** a promise that the mechanism is available
+>    on a DLSS-G title. It may be as unavailable as `fl-baseline-probe` turned out to be, and
+>    §S31 says so in the row that would retire it.
+>
+> **Do not build an FG hook before that run.** Every candidate route below costs more than the
+> measurement does, and two of §S31's rows change which of them is even worth costing.
 >
 > **And a prerequisite with code attached, before `presents / batch` is published anywhere:**
 > `FgWindow`'s uniformity guard keys on `fgEvaluations`, which is zero on this route, so it
@@ -378,10 +397,19 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > published `presents / batch` needs its own per-bucket guard, and the report should be able
 > to say when the window was not uniform.
 
-> **Two cheap measurements would sharpen it and neither has been run**, both pre-committed in
-> §S30: `fl-baseline-probe` against the running title at ×4 / ×2 / off — with its own written
-> falsifier, that it is retired as an FG oracle if it reports `nvngx_dlssg.dll` LOADED with FG
-> off — and the game's own frame counter beside a capture.
+> **One cheap measurement would sharpen it and has not been run**: the game's own frame
+> counter beside a capture, pre-committed in §S30. **The other one HAS been run and is
+> retired** — `fl-baseline-probe` at ×4 / ×2 / off reported all seven capabilities `loaded`,
+> including two mutually exclusive frame-generation implementations, so its own written
+> falsifier fired in one run. This bullet claimed both were unrun while the block above it
+> said three oracles had fallen; a file whose whole subject is staleness contradicted itself
+> inside one entry, which is recorded rather than quietly repaired.
+>
+> **And the owner's list for the §S31 run, in the order it has to happen:** elevate (or join
+> `Performance Log Users`) → capture Cyberpunk 2077 at off / ×2 / ×4 with
+> `--v2_metrics --track_frame_type` → run `tools/frametype-oracle.ps1 -Csv … -Report …` →
+> land on a §S31 row. **Three settings, not two:** §S30 already burned a draft on the ×2 leg,
+> which cannot discriminate because "displayed ÷ a fixed 2" predicts the same number there.
 
 
 > **§H5 case 3 is MEASURED as of 2026-08-15, and the answer is half of what the entry below

@@ -1346,10 +1346,75 @@ into a real title and the process survives it (§7).
 
 ## 11 · PresentMon / Tier 2 *(§M2, §M6)*
 
-- Console binary obtained, version, pinned hash:
-- Runs unelevated:
-- 2.x column set over stdout:
-- Performance Log Users sufficient without admin:
+### ◐ Measured 2026-08-20 — the binary is here, and it will not run for us
+
+- **Console binary obtained, version, pinned hash: ✅**
+  `C:\Program Files\Intel\PresentMon\PresentMonConsoleApplication\PresentMon-2.5.1-x64.exe`,
+  **956,768 bytes**, SHA256
+  `9BEC3083069F58F911E6A512F4806DB51A27BD096103087BC1D05EF54C80A191`.
+  Version **2.5.1**, read from its own `--help` banner.
+
+  > **It carries NO VERSIONINFO at all** — `FileVersion`, `ProductVersion` and
+  > `CompanyName` are all empty. So "pin the version" has to mean **pin the hash
+  > and the filename**; there is nothing in the file for a `versioninfo-check`-style
+  > gate to read. Worth stating because this repository requires exactly that
+  > metadata of everything it builds (`19_SAFETY`, `tools/versioninfo-check.ps1`),
+  > and a bundled third-party binary that lacks it is a packaging fact, not a
+  > detail.
+
+- **Runs unelevated: 🔴 NO, on this machine.** Measured against
+  `hook-harness --hold-presenting`, current user `DESKTOP-NUHVIDP\Anon`:
+
+  ```
+  error: failed to start trace session: access denied.
+         PresentMon requires either administrative privileges or to be run by a
+         user in the "Performance Log Users" user group.
+  ```
+
+  Exit code **6**, no CSV written. The account is in `BUILTIN\Users`,
+  `docker-users` and `Authenticated Users` — **not** an administrator, and **not**
+  in `Performance Log Users` (`S-1-5-32-559`), so the refusal is exactly what it
+  says rather than something subtler.
+
+- **Performance Log Users sufficient without admin: ❓ UNMEASURED**, and it stays
+  that way here. Adding an account to a local group is a system settings change and
+  it needs administrative rights of its own; it is the owner's to do, not a session's.
+
+- **The shared service is running and it does NOT help the console.**
+  `PresentMonSharedService` is `Running` / `Automatic`, `StartName = LocalSystem`,
+  from `C:\Program Files\Intel\PresentMonSharedService\PresentMonService.exe`. The
+  console binary still starts its **own** trace session and still fails. So §M6's
+  "or the PresentMon Service" half is not answered by the service merely being
+  installed — the console does not talk to it. Whether `PresentMon.exe` (the
+  Application, a GUI) does is unmeasured and would not produce a CSV anyway.
+
+- **2.x column set over stdout: ❓ UNMEASURED.** No session, no CSV, no header. This
+  is the input `tools/frametype-oracle.ps1` parses, so **that parser has never seen
+  a real PresentMon CSV** — it resolves columns by name and refuses loudly on
+  anything it does not recognise, and its decision table is the only thing standing
+  behind it. Said plainly rather than left for the next reader to assume.
+
+### 🔴 `--track_frame_type` is a BETA option that needs the VENDOR to cooperate
+
+This is the finding, and it lands on a pre-committed oracle. `PresentMon 2.5.1
+--help`, verbatim, under **Beta Options**:
+
+> `--track_frame_type`  Track the type of each displayed frame; **requires
+> application and/or driver instrumentation using Intel-PresentMon provider.**
+
+So `FrameType` is **not** a general ETW classification of any present. It is a
+report of events the application or the graphics driver chose to emit through
+Intel's provider. `03_METRICS` rung 2 says *"PresentMon 2.x `FrameType` column
+reports generated frames directly"* and §S30 called it *"a mechanism that divides
+by nothing"* — both are true of the mechanism and neither is a promise that the
+mechanism is **available** on an NVIDIA DLSS-G title. Whether NVIDIA's driver
+instruments that provider is the make-or-break question and is unmeasured.
+
+**The falsifier is written before the run** (§S31): if a DLSS-G capture comes back
+with no `FrameType` column, or with every row spelled `Application` while frame
+generation was demonstrably on, PresentMon is retired as the application-frame
+oracle for NVIDIA frame generation **in that same row** — exactly as
+`fl-baseline-probe` was, rather than being re-run until it answers.
 
 ## 12 · The gate's own inputs — §S21 and §S20 *(2026-08-04)*
 

@@ -17,7 +17,51 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Added
+
+- **`tools/frametype-oracle.ps1`, and §S31 with its decision table written BEFORE the run.**
+  HANDOFF item 3's producer decision needs one measurement: is a drained Streamline batch an
+  application frame? Three oracles have already fallen, so the mapping from measurement to
+  action is committed first, in the file that owns the item — the discipline §S30 used,
+  including the part where its table turned out to have holes and was kept unchanged anyway.
+  Two of §S31's six rows **retire** PresentMon outright. The tool compares **two dimensionless
+  ratios** — PresentMon's `displayed / application` against our `presents / batch` — because
+  §S30's own correction records that comparing *rates* needs a shared span, and the span is
+  where the previous draft went circular. Its `-SelfTest` runs in `build.ps1 check`.
+
+### Fixed
+
+- **`03_METRICS`' frame-generation ladder presented rung 2 as unconditional, and it is not.**
+  Measured 2026-08-20: `--track_frame_type` is a **beta** option in PresentMon 2.5.1 whose own
+  help says it *"requires application and/or driver instrumentation using Intel-PresentMon
+  provider"*. So `FrameType` reports events a vendor chose to emit rather than classifying any
+  present from first principles, and whether NVIDIA's DLSS-G driver instruments Intel's
+  provider is unmeasured — which decides whether the rung exists at all on the titles P0 needs.
+  The ladder now says so, and adds the consequence: a `FrameType` column that classifies
+  nothing is an **absence**, so rung 0 turns it into `N/A` rather than rung 4 turning it into
+  `none`.
+
 ### Changed
+
+- **`spike-notes` §11 is filled, and the news is bad in a useful way.** PresentMon **2.5.1**
+  is present and pinned by hash (956,768 bytes, SHA256 `9BEC…A191`) — **it carries no
+  VERSIONINFO at all**, so pinning can only mean hash plus filename, which is worth stating in
+  a repository that requires that metadata of everything it builds. It does **not** run
+  unelevated here: exit 6, and the account is in neither Administrators nor Performance Log
+  Users. `PresentMonSharedService` is installed and running as LocalSystem and **does not
+  help** — the console starts its own trace session — which answers half of §M6 in the
+  direction nobody expected. The 2.x column set is therefore still unmeasured, and
+  `tools/frametype-oracle.ps1` **has never seen a real PresentMon CSV**: it resolves columns by
+  name, prints the whole `FrameType` vocabulary rather than assuming one, and refuses loudly
+  instead of guessing. Said plainly rather than left for the next reader to assume.
+
+- **XeFG and FSR3-FG identity is deferred with a written rationale (§H11)**, which is what
+  HANDOFF item 3 asked for instead of a guess. `libxess_fg.dll` and `ffx_fsr3_x64.dll` export
+  nameable entry points; the newer `amd_fidelityfx_framegeneration_dx12.dll` (3.1.5, three
+  installed titles) exports only five generic `ffx*` names, so identity lives in a struct field
+  and hand-declaring a vendor ABI from observation is the #71 defect class with another
+  vendor's name on it. The licence checklist has not been run on either SDK either. **The cost
+  is coverage, not correctness**: such a title reports `FL_FG_UNKNOWN`, never `NONE`.
 
 - **The ledger now records what five real-title captures actually established, and HANDOFF
   item 3 is struck because its premise is false.** `slEvaluateFeature(kFeatureDLSS_G)` is
