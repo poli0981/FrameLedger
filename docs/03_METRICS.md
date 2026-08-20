@@ -216,6 +216,21 @@ Tri-state `Yes | No | N/A` per session with `source` (`measured | manual | inher
 **Honest limits, documented in the UI tooltip:**
 
 - Hooking `BuildRaytracingAccelerationStructure` is what makes **inline ray tracing (DXR 1.1 `RayQuery`)** detectable at all — those shaders never call `DispatchRays`, so dispatch counting alone would report `No` for a game that is very much ray tracing. AS-build activity catches both paths. This is why both hooks exist.
+- **Ray Reconstruction is decided over the presents that DRAINED a Streamline batch, not over
+  every present, and the difference was the whole answer on a frame-generating title.** The
+  writer sets `FL_FEAT_RAY_RECONSTRUCTION_OBSERVED` under `seen != 0` — deliberately, so an
+  NGX-direct title running DLSS-RR does not collect a fabricated `No` — which at ×4 is roughly
+  one present in four. A consumer that required the bit on *every* record was therefore asking
+  for something that cannot hold above ×1, and reported `N/A` about a title that answered the
+  question 2,523 times out of 2,523. The population is the batch-carrying presents: none of them
+  ⇒ `N/A` (nothing looked, and the lazy-install prefix drops out with it), any of them carrying
+  the fact bit ⇒ `Yes`, batches with none ⇒ `No`. **This is also the one RR negative that may be
+  aggregated**, for the same reason `FL_UPSCALER_NONE` is: a hook ran and saw the alternative.
+- **The row above says NGX and the producer is Streamline-only.** `nvngx_dlssd.dll` is a
+  *static hint* (`05_DETECTION`) and never a runtime fact; the NGX runtime route is licence-
+  blocked (`18_GPU_VENDOR_APIS` §Checklist step 3 forbids vendoring the RTX SDKs headers **and**
+  forbids re-declaring them), so an NGX-direct title yields no batch at all and `N/A` is the
+  true answer there rather than a coverage excuse.
 - **Why `rtTier` has a third state, recorded because the two-state version was written down
   first and was wrong.** `D3D12_RAYTRACING_TIER_NOT_SUPPORTED` is **0**, and `rtTier`'s 0
   already meant *not queried* — so a writer that stored the vendor enum verbatim would have

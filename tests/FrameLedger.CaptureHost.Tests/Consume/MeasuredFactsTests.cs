@@ -214,6 +214,98 @@ public sealed partial class MeasuredFactsTests
         MeasuredFacts.From(unmasked, _presentOnly, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(Tri.NotApplicable);
     }
 
+    /// <summary>
+    /// The writer's real shape: only the present that DRAINED a batch carries featureFlags.
+    /// </summary>
+    /// <remarks>
+    /// <c>dllmain.cpp</c> sets <c>RayReconstructionObserved</c> under <c>seen != 0</c>, so at ×4
+    /// roughly one present in four carries it — measured 24% on the Cyberpunk stream. Reproducing
+    /// that here is the whole point: a fixture where every record carries the bit is a fixture in
+    /// which the defect cannot appear.
+    /// </remarks>
+    private static List<FlFrameRecord> RrStream(int appFrames, int k, FlFeatureFlags onBatch,
+        ulong startQpc = 1_000_000)
+    {
+        List<FlFrameRecord> stream = [];
+        ulong qpc = startQpc;
+        long step = Stopwatch.Frequency / 240;
+        for (int f = 0; f < appFrames; f++)
+        {
+            for (int p = 0; p < k; p++)
+            {
+                stream.Add(new FlFrameRecord
+                {
+                    Qpc = qpc,
+                    SwapchainId = 1,
+                    MeasuredMask = (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs | FlMeasured.Upscaler),
+                    Upscaler = (byte)(p == 0 ? FlUpscaler.Dlss : FlUpscaler.Unknown),
+                    FeatureFlags = (byte)(p == 0 ? onBatch : FlFeatureFlags.None),
+                });
+                qpc += (ulong)step;
+            }
+        }
+
+        return stream;
+    }
+
+    private static readonly FlWriterState _identityWriter =
+        new() { HooksInstalledMask = (uint)(FlHookFamily.Present | FlHookFamily.UpscalerIdentity) };
+
+    [Fact]
+    public void RayReconstructionIsANSWEREDOnAFrameGeneratingTitle()
+    {
+        // THE DEFECT THIS PINS. The verdict demanded RayReconstructionObserved on EVERY record while
+        // the writer sets it only on the present that drained a batch — one in four at ×4. So the
+        // condition could not hold at any multiplier above 1, and the answer was decided by the
+        // frame-generation setting rather than by whether Ray Reconstruction ran. Cyberpunk 2077 ran
+        // kFeatureDLSS_RR on 2,523 of 2,523 batches and this reported N/A.
+        var facts = MeasuredFacts.From(
+            RrStream(40, 4, FlFeatureFlags.RayReconstructionObserved | FlFeatureFlags.RayReconstruction),
+            _identityWriter, Stopwatch.Frequency, 0, 0);
+
+        facts.RayReconstruction.Should().Be(Tri.Yes);
+        facts.HonestyViolations.Should().Be(0, "the fixture must be a record set the writer could produce");
+    }
+
+    [Fact]
+    public void BatchesWithNoRayReconstructionAreNoRatherThanNA()
+    {
+        // THE BRANCH THAT WAS UNREACHABLE, and without it the case above passes for a renderer that
+        // answers Yes to everything. A Streamline title running DLSS super-resolution and NOT Ray
+        // Reconstruction produces batches that carry OBSERVED and never the fact bit — which is a
+        // measured negative, and the one thing 03_METRICS' RR row allows to be aggregated as one.
+        MeasuredFacts.From(RrStream(40, 4, FlFeatureFlags.RayReconstructionObserved),
+            _identityWriter, Stopwatch.Frequency, 0, 0)
+            .RayReconstruction.Should().Be(Tri.No);
+    }
+
+    [Fact]
+    public void NoBatchObservedIsNAAndNeverNo()
+    {
+        // The direction that must NOT move. An NGX-direct title running DLSS-RR every frame drains
+        // no Streamline batch at all, so nothing observed it — and `No` there would be a fabricated
+        // negative about a title that is very much running it. The install prefix is the same shape
+        // and now drops out for free rather than forcing the whole session to N/A.
+        MeasuredFacts.From(RrStream(40, 4, FlFeatureFlags.None),
+            _identityWriter, Stopwatch.Frequency, 0, 0)
+            .RayReconstruction.Should().Be(Tri.NotApplicable);
+    }
+
+    [Fact]
+    public void TheINSTALLPrefixDoesNotDecideTheWholeSessionsRayReconstruction()
+    {
+        // Feature hooks install lazily on a 1 Hz watchdog, so the first second of every session
+        // predates them and those records carry no featureFlags at all. Under the old `All` rule a
+        // single such record forced N/A over a session that answered the question 160 times.
+        List<FlFrameRecord> cold = RrStream(10, 4, FlFeatureFlags.None);
+        List<FlFrameRecord> warm = RrStream(40, 4,
+            FlFeatureFlags.RayReconstructionObserved | FlFeatureFlags.RayReconstruction,
+            startQpc: cold[^1].Qpc + 1_000);
+
+        MeasuredFacts.From([.. cold, .. warm], _identityWriter, Stopwatch.Frequency, 0, 0)
+            .RayReconstruction.Should().Be(Tri.Yes);
+    }
+
     [Fact]
     public void TheRetiredUpscalerValueIsNeverDecodedAsRayReconstruction()
     {

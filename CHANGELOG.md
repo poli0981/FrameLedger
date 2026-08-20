@@ -17,6 +17,26 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ray Reconstruction answered `N/A` on every frame-generating title, and the reason was a
+  consumer bug rather than a coverage gap.** `MeasuredFacts.RayReconstructionOf` required
+  `FL_FEAT_RAY_RECONSTRUCTION_OBSERVED` on **every** record in the stream, while the writer sets
+  that bit only on the present that drained a Streamline batch — roughly one in four at ×4,
+  measured 24% on the Cyberpunk 2077 stream. A condition that cannot hold above ×1 meant the
+  verdict was decided by the frame-generation setting rather than by whether Ray Reconstruction
+  ran: the title evaluated `kFeatureDLSS_RR` on 2,523 of 2,523 batches and this reported `N/A`.
+  The population is now the batch-carrying presents — none ⇒ `N/A`, any carrying the fact bit ⇒
+  `Yes`, batches with none ⇒ `No`, the branch that was unreachable. The lazy-install prefix drops
+  out for free instead of forcing `N/A` over a whole session.
+
+  The comment this replaces reasoned that the alternative would publish a whole-session verdict
+  from a single frame and that fixing it needed the application-frame unit HANDOFF item 3 would
+  introduce. Both halves were wrong — the natural population is thousands of batches, not one
+  frame, and it needs no application-frame unit, which is fortunate because item 3 could not
+  produce one. Proven both ways: restoring the `All` rule turns the three positive cases red and
+  leaves `NoBatchObservedIsNAAndNeverNo` green, so the fix is not "answer `Yes` to everything".
+
 ### Changed
 
 - **The ledger now records what five real-title captures actually established, and HANDOFF
