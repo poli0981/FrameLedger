@@ -63,9 +63,32 @@ toward the session's data-quality warnings.
 This is the metric the rewrite exists for. Resolution ladder, highest confidence first; the winning rung is stored in `fg_source`:
 
 1. **`api` (authoritative).** An NGX `FrameGeneration` feature (or Streamline `DLSS_G`, or an FFX frame-interpolation context, or `xess_fg`) was **created and evaluated this frame** → FG is on, and we know *which* technology by name, from the vendor's own API call. This is a fact, not an inference.
-2. **`etw`** (Tier 2). PresentMon 2.x `FrameType` column reports generated frames directly.
+2. **`etw`** (Tier 2). PresentMon 2.x `FrameType` column reports generated frames directly — **when the vendor emits the events it reads.** See the block below; this rung is conditional, not universal.
 3. **`cadence`** (last resort, both tiers). Sustained `Displayed/Native ≥ 1.5` → `Detected (unknown)`.
 4. Otherwise `fg_mode = none`, factor `—`.
+
+> **RUNG 2 IS CONDITIONAL ON THE VENDOR, measured 2026-08-20, and this list read as
+> though it were not.** `--track_frame_type` is a **beta** option in PresentMon 2.5.1
+> and its own help says it *"requires application and/or driver instrumentation using
+> Intel-PresentMon provider"*. So `FrameType` is a report of events an application or
+> a graphics driver chose to emit through Intel's provider — **not** a classification
+> of any present from first principles. **Which vendors instrument it is unmeasured —
+> including Intel's own.** It is Intel's provider and Intel ships XeFG, so the obvious
+> reading is that XeFG is covered; that reading is not a measurement, and this block
+> exists precisely because the rung was written as though availability were settled.
+> The one that decides P0 is NVIDIA's DLSS-G driver, and it is unmeasured too.
+>
+> **The parser must therefore report a capability loss rather than fall through to
+> rung 4.** §Inputs already says so about a missing `FrameType` column, and the same
+> now applies to a column that is present and classifies nothing: every row spelled
+> `Application` while frame generation is on is an ABSENCE, and rung 0 turns an
+> absence into `N/A`. A rung-4 `none` there would be the affirmative negative this
+> whole ladder exists to prevent, reached from a new direction.
+>
+> §S31 carries the pre-committed decision table, including the two rows that retire
+> the rung outright. `tools/frametype-oracle.ps1` is what produces the input, and
+> also the reason `spike-notes` §11 now records that the console binary will not run
+> unelevated on the dev box at all.
 
 > **Rung 0, added 2026-08-06, and it has to come before rung 4 or rung 4 is a lie.** If
 > `FL_MEASURED_FG` is clear the answer is **`N/A`**, not `none`: no hook capable of answering

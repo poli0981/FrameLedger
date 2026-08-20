@@ -414,6 +414,21 @@ function Invoke-ProjectGates {
         Skip-Gate 'changelog-check' 'tools/changelog-check.ps1 not implemented yet'
     }
 
+    # THE ONLY THING STANDING BEHIND AN UNVALIDATED PARSER. tools/frametype-oracle.ps1
+    # has never been fed a real PresentMon CSV -- the console binary will not start a
+    # trace session on the dev box without elevation (spike-notes §11) -- so its column
+    # set and FrameType vocabulary are assumptions. Its decision table is what makes
+    # the assumptions FAIL LOUDLY instead of quietly, and a table nobody runs is a
+    # comment. Self-test only: there is no CSV to check in the gate.
+    Write-Step 'frametype-oracle'
+    $oracleTool = Join-Path $repo 'tools/frametype-oracle.ps1'
+    if (Test-Path $oracleTool) {
+        Invoke-Checked 'frametype-oracle (self-test)' { & $oracleTool -SelfTest }
+    }
+    else {
+        Skip-Gate 'frametype-oracle' 'tools/frametype-oracle.ps1 not implemented yet'
+    }
+
     Write-Step 'resx-audit'
     $resxTool = Join-Path $repo 'tools/resx-audit'
     if (Test-Path $resxTool) {
