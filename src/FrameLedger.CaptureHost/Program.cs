@@ -137,39 +137,18 @@ internal static class Program
         // compared by file id. There is no way to name a different one, which is the point.
         string payload = Path.Combine(AppContext.BaseDirectory, "FrameLedger.Overlay.dll");
 
-        var guard = new NativeAntiCheatGuard();
-        var loop = new CaptureLoop(
-            store,
-            new HookedCaptureGate(guard),
-            guard,
-            new TargetResolver(),
-            pid =>
-            {
-                // Null means the pid could not be PINNED — already gone, protected, or another user's.
-                // The loop refuses rather than proceeding to inject into an identity it cannot hold.
-                HeldProcessHandle? handle = HeldProcessHandle.TryOpen(pid);
-                return handle is null ? null : new ProcessTargetLiveness(handle, pid);
-            },
-            pid =>
-            {
-                ShmRingReader? reader = ShmRingReader.TryAttach(pid, NativeAntiCheatGuard.BuildId(),
-                    out ShmAttachRefusal refusal);
-                return (reader is null ? null : new ShmCaptureSink(reader), refusal);
-            },
-            new CaptureOptions
-            {
-                // Zero keeps the product behaviour: run until the target exits. A positive
-                // --seconds is an operator taking a bounded measurement, and CaptureLoop
-                // already honoured MaxDuration -- nothing could set it.
-                MaxDuration = seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero,
-            });
-
-        CaptureResult result = await loop.RunAsync(normalised, observed, payload).ConfigureAwait(false);
+        CaptureResult result = await BuildLoop(store, seconds)
+            .RunAsync(normalised, observed, payload).ConfigureAwait(false);
 
         HostConsole.Line($"session: {result.Reason}");
         if (result.Verdict.Reason != Domain.AntiCheat.AntiCheatRefusalReason.Allow)
         {
             HostConsole.Line($"  verdict: {result.Verdict.Reason} {result.Verdict.Family} {result.Verdict.Signal}");
+        }
+
+        if (result.Reason == SessionEndReason.RefusedConsentMissing)
+        {
+            HostConsole.Line(await WhyConsentMissingAsync(store, normalised, observed).ConfigureAwait(false));
         }
 
         if (result.Records.Count > 0)
@@ -220,6 +199,8 @@ internal static class Program
         int withParams = dominant.Count(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.UpscalerParams));
         HostConsole.Line($"  hooks installed: {(FlHookFamily)result.WriterState.HooksInstalledMask}" +
                           $"   apiMask=0x{result.WriterState.ApiMask:X}   rtTier={result.WriterState.RtTier}");
+
+        HostConsole.Line(WriterNote(result));
         HostConsole.Line($"  records carrying Upscaler={withUpscaler}/{dominant.Count}  " +
                           $"UpscalerParams={withParams}/{dominant.Count}  " +
                           $"(a value below the total means the hook came up mid-session, not that it never did)");
@@ -227,6 +208,7 @@ internal static class Program
         // WHICH FEATURE IDS ACTUALLY ARRIVED. §S30's "print them first", and the input to the
         // decision table pre-committed in 20_OPEN_QUESTIONS before this run happens.
         HostConsole.Line(SlCensus.From(dominant).Describe());
+        HostConsole.Line(RtCensus(dominant));
 
         // The RAW values, so a real-title run can be checked against the game's own settings.
         // Grouped rather than sampled: one record could be a transient, and what a verification
@@ -240,6 +222,158 @@ internal static class Program
         }
 
         HostConsole.Line(SessionReport.Render(facts));
+    }
+
+    /// <summary>The loop and its four collaborators, wired the only way this host allows.</summary>
+    private static CaptureLoop BuildLoop(FileGameConsentStore store, int seconds)
+    {
+        var guard = new NativeAntiCheatGuard();
+        return new CaptureLoop(
+            store,
+            new HookedCaptureGate(guard),
+            guard,
+            new TargetResolver(),
+            pid =>
+            {
+                // Null means the pid could not be PINNED — already gone, protected, or another user's.
+                // The loop refuses rather than proceeding to inject into an identity it cannot hold.
+                HeldProcessHandle? handle = HeldProcessHandle.TryOpen(pid);
+                return handle is null ? null : new ProcessTargetLiveness(handle, pid);
+            },
+            pid =>
+            {
+                ShmRingReader? reader = ShmRingReader.TryAttach(pid, NativeAntiCheatGuard.BuildId(),
+                    out ShmAttachRefusal refusal);
+                return (reader is null ? null : new ShmCaptureSink(reader), refusal);
+            },
+            new CaptureOptions
+            {
+                // Zero keeps the product behaviour: run until the target exits. A positive
+                // --seconds is an operator taking a bounded measurement, and CaptureLoop
+                // already honoured MaxDuration -- nothing could set it.
+                MaxDuration = seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero,
+            });
+    }
+
+    /// <summary>
+    /// Which of the three "consent missing" situations this actually was.
+    /// </summary>
+    /// <remarks>
+    /// <b>The refusal signal says "the per-game consent dialog has not been accepted", and on a
+    /// real title that sentence was false.</b> Alan Wake 2, 2026-08-20: consent had been granted
+    /// forty minutes earlier, and the launcher updated the executable underneath it — 62,026,752
+    /// bytes became 62,304,768. <c>HookRequest.FromConsent</c> correctly nulls
+    /// <c>consentedAt</c> on a fingerprint mismatch and correctly leaves the stored record alone
+    /// (<c>19_SAFETY</c>: a block is not a withdrawal of consent), but the operator is then told
+    /// they never consented.
+    /// <para>
+    /// Three situations, three different things to do: consent for the first time; enable a game
+    /// that has a record but is switched off; or check that an update was legitimate and consent
+    /// again. Collapsing them is the same defect <c>fl_shm.h</c> spends a section on for
+    /// "could not look" against "looked and found nothing", and it cost a diagnosis here — the
+    /// cause was only reachable by reading the store and stat-ing the file by hand.
+    /// </para>
+    /// <para>
+    /// Reported rather than fixed at the source: giving <c>AntiCheatRefusalReason</c> a fourth
+    /// member changes a vocabulary <c>fl_guard.h</c>, <c>19_SAFETY</c> and the guard ABI all
+    /// share, which is a specification change and not a diagnostic one.
+    /// </para>
+    /// </remarks>
+    private static async Task<string> WhyConsentMissingAsync(
+        FileGameConsentStore store, string normalisedExePath, ExecutableFingerprint? observed)
+    {
+        GameConsentRecord record = await store.FindAsync(normalisedExePath).ConfigureAwait(false);
+        if (!record.IsFromStore)
+        {
+            return "  cause: no record for this executable — consent has never been given for it";
+        }
+
+        if (!record.HookEnabled)
+        {
+            return "  cause: a record exists and hooking is DISABLED for it";
+        }
+
+        if (observed is { } now && !record.Fingerprint.Matches(now))
+        {
+            return "  cause: THE EXECUTABLE CHANGED SINCE CONSENT — you did consent, to a different build.\n"
+                   + $"    consented: size={record.Fingerprint.SizeBytes} mtime={record.Fingerprint.MtimeUnixMs}\n"
+                   + $"    on disk  : size={now.SizeBytes} mtime={now.MtimeUnixMs}\n"
+                   + "    The stored record is deliberately untouched (19_SAFETY: a block is not a withdrawal of\n"
+                   + "    consent). Check the update was one you expected, then grant consent again.";
+        }
+
+        return "  cause: the record is present, enabled and matching — so the refusal came from elsewhere";
+    }
+
+    /// <summary>
+    /// The two numbers that separate "nothing happened" from "something went wrong".
+    /// </summary>
+    /// <remarks>
+    /// <b>Neither was printed anywhere, and the first real-title run of the ray-tracing hooks
+    /// was unreadable without them.</b> A capture that drains almost nothing has at least
+    /// three causes with identical reports — the present hook was never called, every present
+    /// was an occlusion probe the writer correctly drops (§S26), or a hook body faulted and the
+    /// fault policy went dormant. <c>faultCount</c> and <c>status</c> are what tell them apart,
+    /// and a 40 s capture that returned ONE record is what made their absence a defect rather
+    /// than an omission.
+    /// </remarks>
+    private static string WriterNote(CaptureResult result) =>
+        $"  writer: status={(FlStatus)result.WriterState.Status} faults={result.WriterState.FaultCount} " +
+        $"layoutVersion={result.Handshake.LayoutVersion} attach={result.AttachRefusal}";
+
+    /// <summary>
+    /// The RT evidence counts, so the falsifier this PR pre-registered can be READ.
+    /// </summary>
+    /// <remarks>
+    /// <b>Without this line the falsifier is unfalsifiable, which is the defect it exists to
+    /// avoid.</b> The ray-tracing PR committed, before any real-title run, that
+    /// <c>rt_frame_pct</c> should read ≈ 25% at ×4 and not ≈ 100% — the test of whether
+    /// generated presents carry recorded RT work, and therefore of whether
+    /// <c>rays_per_pixel</c> may be taken over RT-active presents at all
+    /// (<c>03_METRICS</c> §RT/PT/RR). <c>MeasuredFacts.RayTracingOf</c> counts exactly that
+    /// evidence and then publishes only the tri-state, so the number was computed and thrown
+    /// away — the same shape as <c>FgWindow.Seconds</c> being computed and never printed, which
+    /// cost §S30 a reconstructed span and a wrong residual.
+    /// </remarks>
+    private static string RtCensus(IReadOnlyList<FlFrameRecord> stream)
+    {
+        int claimed = stream.Count(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Rt));
+        int asBuild = stream.Count(r => ((FlRtFlags)r.RtFlags).HasFlag(FlRtFlags.AsBuildObserved));
+        int dispatch = stream.Count(r => ((FlRtFlags)r.RtFlags).HasFlag(FlRtFlags.DispatchObserved));
+        int either = stream.Count(r => ((FlRtFlags)r.RtFlags & (FlRtFlags.AsBuildObserved | FlRtFlags.DispatchObserved))
+                                       != FlRtFlags.None);
+        long volume = stream.Sum(r => (long)r.DispatchRaysVolume);
+
+        // OVER THE CLAIMING WINDOW, not over every record, and the difference is the whole
+        // reading. The RT hooks install on a watchdog tick, so the first second of a session
+        // predates them and those records can carry no evidence by construction. Measured
+        // 2026-08-20 on Cyberpunk at ×4: 24.2% of all records and 25.0% of the claiming
+        // window — and 25.0% is the number the pre-registered falsifier is stated against.
+        // Dividing by the whole stream dilutes it by the install prefix and would have had a
+        // reader inferring the real figure instead of reading it.
+        int claimStart = RecordWindow.ClaimedSuffixStart(
+            stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Rt));
+        int claimed2 = stream.Count - claimStart;
+        double pct = claimed2 > 0 ? either * 100.0 / claimed2 : 0.0;
+        double pctAll = stream.Count > 0 ? either * 100.0 / stream.Count : 0.0;
+
+        // rays_per_pixel over the RT-ACTIVE presents, which is the denominator 03_METRICS
+        // chose: the accumulator drains every present, so a frame's whole volume lands on one
+        // present and the generated ones contribute nothing to either side of the ratio.
+        var active = stream.Where(r => r.DispatchRaysVolume > 0).ToList();
+        double perPixel = 0.0;
+        if (active.Count > 0)
+        {
+            double pixels = active.Average(r => (double)r.OutputW * r.OutputH);
+            if (pixels > 0)
+            {
+                perPixel = active.Average(r => (double)r.DispatchRaysVolume) / pixels;
+            }
+        }
+
+        return $"  RT census: measured={claimed}/{stream.Count}  asBuild={asBuild}  dispatch={dispatch}  "
+               + $"rt_frame_pct={pct:0.0}% of the claiming window ({pctAll:0.0}% of all)  volume={volume}  "
+               + $"rays_per_pixel={perPixel:0.###} (over {active.Count} RT-active present(s))";
     }
 
     /// <summary>

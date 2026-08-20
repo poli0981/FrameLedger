@@ -41,9 +41,11 @@
 
 #include <cstdio>
 #include <cstring>
+#include <fl_d3d12_vtable.h>
 #include <fl_dxgi_vtable.h>
 #include <fl_hook_inventory.h>
 #include <fl_ring.h>
+#include <fl_rt_accum.h>
 #include <fl_shm.h>
 #include <fl_sl_inputs.h>
 #include <fl_sl_seen.h>
@@ -322,6 +324,36 @@ void PublishRtTier(ID3D12Device* device) noexcept {
     slot.store(tier, std::memory_order_relaxed);
 }
 
+// The game's D3D12 device, published once, so the WATCHDOG can reach it.
+//
+// It lives here beside PublishRtTier because this is the only place in the Overlay
+// where the game's device is reachable at all: DXGI hands it to ResolveApi for a
+// swapchain we were called on. The ray-tracing installer needs a live device to
+// create a throwaway command list and read its vtable, and it runs on the watchdog
+// thread, which has no swapchain of its own.
+//
+// AddRef'd and NEVER RELEASED, for the reason fl_hook_inventory.h's ResolveScoped
+// gives about the module reference it takes: MinHook writes its patch into
+// D3D12Core's code and keeps the hook in its own table, and MH_DisableHook(ALL) --
+// which is the SAFETY STOP -- must not run against a torn-down implementation.
+// One refcount on an object the game owns and keeps alive anyway, visible to
+// anyone inspecting our references, hiding nothing.
+std::atomic<void*> g_d3d12Device{nullptr};
+
+void PublishD3D12Device(ID3D12Device* device) noexcept {
+    if (device == nullptr) {
+        return;
+    }
+    // AddRef BEFORE the exchange. Publishing first would expose a pointer the
+    // watchdog could load in the window before we owned a reference to it.
+    device->AddRef();
+    void* expected = nullptr;
+    if (!g_d3d12Device.compare_exchange_strong(expected, device, std::memory_order_acq_rel,
+                                               std::memory_order_relaxed)) {
+        device->Release();    // an earlier swapchain got here first; one device is all we need
+    }
+}
+
 // Which API this swapchain belongs to, asked of the swapchain itself.
 //
 // One hook sees every swapchain in the process, and a D3D11 title and a D3D12
@@ -359,6 +391,10 @@ uint8_t ResolveApi(IDXGISwapChain* sc) noexcept {
     if (SUCCEEDED(dev->QueryInterface(__uuidof(ID3D12Device), reinterpret_cast<void**>(&d12))) && d12 != nullptr) {
         api = FL_API_D3D12;
         PublishRtTier(d12);
+        // The ONE place the game's D3D12 device is reachable from. The ray-tracing
+        // installer needs a live device to read a command list's vtable off, and it
+        // runs on the watchdog thread, which has no swapchain of its own.
+        PublishD3D12Device(d12);
         d12->Release();
     } else if (SUCCEEDED(dev->QueryInterface(__uuidof(ID3D12CommandQueue), reinterpret_cast<void**>(&queue))) &&
                queue != nullptr) {
@@ -830,6 +866,108 @@ sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const s
     return g_origSlEvaluateFeature(feature, frame, inputs, numInputs, cmdBuffer);
 }
 
+// ---------------------------------------------------------------------------
+// Ray tracing (docs/HANDOFF.md item 4, 03_METRICS §RT/PT/RR).
+//
+// TWO DETOURS, BOTH OF THEM, and that is 03_METRICS:226 rather than thoroughness.
+// A writer with only DispatchRays sees NOTHING on an inline-RayQuery title, and
+// its silence is indistinguishable from a real negative -- which is how a
+// confident `Ray Tracing: No` gets published about a title that ray-traces every
+// frame. The AS-build hook is what makes RayQuery visible at all.
+//
+// RECORDED, NOT EXECUTED (§H6). Both methods record into a command list, possibly
+// on many threads, possibly re-executed, possibly never executed. The unit these
+// counters carry is therefore "recorded between the previous present and this
+// one", and 03_METRICS §Accuracy budget says so where the numbers are defined.
+// The concurrency model is the one g_slSeen already proves: relaxed atomics
+// written by any recording thread, drained once per present with exchange(0).
+// ---------------------------------------------------------------------------
+
+// Evidence since the last present. Bits, drained with the volume below.
+std::atomic<uint32_t> g_rtFlags{0};
+
+// Sum of W*H*D over the DispatchRays calls recorded since the last present.
+//
+// SATURATES AT UINT32_MAX RATHER THAN WRAPPING, and this is the same rule
+// fgEvaluations' 255 carries for the opposite reason. A wrapped volume reads LOW
+// and is the NUMERATOR of rays_per_pixel, so a wrap under-reports the one input
+// the path-tracing heuristic actually reads. 03_METRICS' consumer must refuse to
+// publish rays_per_pixel on a saturated record rather than divide a floor.
+std::atomic<uint32_t> g_rtDispatchVolume{0};
+
+// One latch per family, because 03_METRICS' `No` branch reads RtAsBuild
+// SPECIFICALLY -- not "some RT hook ran". A single latch would let a
+// DispatchRays-only writer satisfy the conjunct the whole branch rests on.
+std::atomic<uint32_t> g_rtDispatchLive{0};
+std::atomic<uint32_t> g_rtAsBuildLive{0};
+
+using PFN_DispatchRays = void(STDMETHODCALLTYPE*)(ID3D12GraphicsCommandList4*, const D3D12_DISPATCH_RAYS_DESC*);
+using PFN_BuildRtAs = void(STDMETHODCALLTYPE*)(ID3D12GraphicsCommandList4*,
+                                               const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC*, UINT,
+                                               const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC*);
+
+PFN_DispatchRays g_origDispatchRays = nullptr;
+PFN_BuildRtAs    g_origBuildRtAs = nullptr;
+
+// The compare-exchange loop, and NO ARITHMETIC OF ITS OWN.
+//
+// fl_rtaccum::AddedTo is a pure function in a header, with its identities as
+// static_asserts and its shapes driven by hook-harness --probe-dxr-inputs. The
+// same split fl_sl_seen.h uses, for the same reason: the maths here is where the
+// silent failure lives, and a loop is where a test cannot reach.
+void AddSaturating(std::atomic<uint32_t>& slot, uint64_t add) noexcept {
+    uint32_t cur = slot.load(std::memory_order_relaxed);
+    for (;;) {
+        const uint32_t next = fl::rtaccum::AddedTo(cur, add);
+        if (cur == next || slot.compare_exchange_weak(cur, next, std::memory_order_relaxed)) {
+            return;
+        }
+    }
+}
+
+// THE FLAG IS SET BEFORE THE DESC IS READ, deliberately. A null or malformed desc
+// still means the title recorded a ray dispatch; only the VOLUME is unknown.
+// Returning early without the bit would turn "we could not size it" into "no ray
+// tracing happened", which is the affirmative negative layout v3 exists to stop.
+void NoteDispatchRays(const D3D12_DISPATCH_RAYS_DESC* desc) noexcept {
+    g_rtFlags.fetch_or(static_cast<uint32_t>(FL_RT_DISPATCH_OBSERVED), std::memory_order_relaxed);
+    if (desc == nullptr) {
+        return;
+    }
+    AddSaturating(g_rtDispatchVolume, fl::rtaccum::VolumeOf(desc->Width, desc->Height, desc->Depth));
+}
+
+// NO DEREFERENCE AT ALL, and that is the point of this one. What 03_METRICS needs
+// from an AS build is that it HAPPENED -- that is what makes inline RayQuery
+// visible, since those shaders never call DispatchRays. Reading the desc would
+// buy nothing and would put a caller-filled pointer walk on a second hot path.
+void NoteBuildRtAs() noexcept {
+    g_rtFlags.fetch_or(static_cast<uint32_t>(FL_RT_AS_BUILD_OBSERVED), std::memory_order_relaxed);
+}
+
+void STDMETHODCALLTYPE Hook_DispatchRays(ID3D12GraphicsCommandList4* list, const D3D12_DISPATCH_RAYS_DESC* desc) {
+    FL_HOOK_GUARD({
+        if (MayObserve()) {
+            NoteDispatchRays(desc);
+        }
+    })
+    // ALWAYS exactly once, on every path including the fault path, and never
+    // inside the __try: a fault in the game's own DispatchRays must not be
+    // attributed to us.
+    g_origDispatchRays(list, desc);
+}
+
+void STDMETHODCALLTYPE Hook_BuildRtAs(ID3D12GraphicsCommandList4*                               list,
+                                      const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC* desc, UINT numPostbuild,
+                                      const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC* postbuild) {
+    FL_HOOK_GUARD({
+        if (MayObserve()) {
+            NoteBuildRtAs();
+        }
+    })
+    g_origBuildRtAs(list, desc, numPostbuild, postbuild);
+}
+
 // Installed from the watchdog the first time the module appears, so a title that
 // loads Streamline lazily is still caught without a LoadLibrary hook (§S6 stays
 // separable, exactly as docs/HANDOFF.md item 2 requires).
@@ -846,6 +984,45 @@ sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const s
 // slSetTag would have been detoured by the slEvaluateFeature body, which reads
 // argument 1 as a feature id. Same class of defect as the SL1 ABI break (#71),
 // reached from the other direction.
+// Patch ONE address, and close the install-after-stop window.
+//
+// STOPPING IS ONE-WAY, and the check below is what keeps it so. StopObserving can
+// run between a caller's g_observing check and here, and MH_DisableHook(MH_ALL_HOOKS)
+// would then have run BEFORE this hook existed -- leaving a hook patched in after
+// we promised the Agent there were none. Nothing false would be recorded (every
+// body consults MayObserve), but legal/DISCLAIMER.md §2 promises the part inside
+// the game stops, and a hook installed after the stop is not that.
+//
+// FACTORED OUT OF InstallRow ON PURPOSE, and the reason has now happened twice.
+// It was first inline in the single installer, so a second lazy installer that
+// forgot it would reopen the window silently; the ray-tracing installer IS that
+// second one, and it cannot reuse InstallRow because its targets come from a
+// VTABLE rather than from a name. Sharing this is what keeps the window closed in
+// one place rather than in two that can drift.
+bool PatchTarget(void* target, void* detour, void** original) noexcept {
+    if (target == nullptr) {
+        return false;
+    }
+    if (MH_CreateHook(target, detour, original) != MH_OK || MH_EnableHook(target) != MH_OK) {
+        return false;
+    }
+    if (g_observing.load(std::memory_order_acquire) == 0) {
+        MH_DisableHook(target);
+        return false;
+    }
+    return true;
+}
+
+// Publish the family bit and latch. Separate from PatchTarget because a hook that
+// spans several targets must not claim its family until every one of them is in.
+void PublishHookFamily(uint32_t family, std::atomic<uint32_t>& live) noexcept {
+    if (g_state != nullptr) {
+        std::atomic_ref<uint32_t> hooks{g_state->hooksInstalledMask};
+        hooks.fetch_or(family, std::memory_order_relaxed);
+    }
+    live.store(1, std::memory_order_release);
+}
+
 bool InstallRow(const wchar_t* module, const char* symbol, uint32_t family, void* detour, void** original,
                 std::atomic<uint32_t>& live) noexcept {
     if (live.load(std::memory_order_acquire) != 0) {
@@ -859,30 +1036,11 @@ bool InstallRow(const wchar_t* module, const char* symbol, uint32_t family, void
         return false;
     }
 
-    if (MH_CreateHook(target, detour, original) != MH_OK || MH_EnableHook(target) != MH_OK) {
+    if (!PatchTarget(target, detour, original)) {
         return false;
     }
 
-    // STOPPING IS ONE-WAY, and this closes the window that would have broken it.
-    // StopObserving can run between the caller's g_observing check and here, and
-    // MH_DisableHook(MH_ALL_HOOKS) would then have run BEFORE this hook existed
-    // -- leaving a hook patched in after we promised the Agent there were none.
-    // Nothing false would be recorded (the body consults MayObserve), but
-    // legal/DISCLAIMER.md §2 promises the part inside the game stops, and a hook
-    // installed after the stop is not that.
-    //
-    // FACTORED HERE ON PURPOSE. It used to be inline in the single installer, so
-    // a second lazy installer that forgot it would reopen the window silently.
-    if (g_observing.load(std::memory_order_acquire) == 0) {
-        MH_DisableHook(target);
-        return false;
-    }
-
-    if (g_state != nullptr) {
-        std::atomic_ref<uint32_t> hooks{g_state->hooksInstalledMask};
-        hooks.fetch_or(family, std::memory_order_relaxed);
-    }
-    live.store(1, std::memory_order_release);
+    PublishHookFamily(family, live);
     return true;
 }
 
@@ -914,6 +1072,160 @@ bool InstallUpscalerHooks() noexcept {
     FL_HOOK_INVENTORY(FL_INSTALL_ROW)
 #undef FL_INSTALL_ROW
     return any;
+}
+
+// ---------------------------------------------------------------------------
+// Installing the ray-tracing hooks.
+//
+// WHY THIS IS NOT AN FL_HOOK_INVENTORY ROW. That table is (module, exported
+// symbol) and tools/hookinventory-check.ps1 checks each row against measured
+// export data. These are COM vtable slots: no name is resolved, so Pass A has no
+// row to check and Pass B's stray-literal sweep is silent. The corresponding gate
+// is `ctest fl_d3d12_vtable_indices`, which proves both slots BY BEHAVIOUR on both
+// list types. 17_HOOK_ENGINE §Ray tracing records the asymmetry so nobody reads
+// §Hook inventory as "every hook we install is in that table".
+//
+// THE VTABLE COMES OFF A LIST CREATED ON THE GAME'S OWN DEVICE. ResolveApi
+// already receives that device from IDXGISwapChain::GetDevice on a swapchain we
+// were called on -- an object we legitimately own (CLAUDE.md rule 4) -- and
+// PublishRtTier already argues that on the record. A throwaway WARP device would
+// also have worked (measured 2026-08-20: a WARP list and a hardware list share a
+// vtable), and is still not used: this machine lost WARP's D3D12 path to a
+// Windows Insider build for a fortnight, and a design that needs no WARP cannot
+// be taken down by one.
+//
+// ON THE WATCHDOG, NOT THE PRESENT PATH. D3D12 device methods are free-threaded,
+// so creating a throwaway allocator and list off it is legal from this thread; and
+// keeping installation on the thread that already installs the Streamline rows
+// means ONE install-after-stop window rather than two.
+// ---------------------------------------------------------------------------
+
+// A throwaway command list of `type`, upgraded to ID3D12GraphicsCommandList4.
+//
+// The QI is the part that legitimately fails: ID3D12GraphicsCommandList4 arrived
+// in Windows 10 1809, and on an older runtime there is no ray-tracing surface to
+// hook. That is an answer -- FL_MEASURED_RT stays clear and the session says N/A.
+ID3D12GraphicsCommandList4* MakeThrowawayList(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type,
+                                              ID3D12CommandAllocator**    allocOut,
+                                              ID3D12GraphicsCommandList** listOut) noexcept {
+    if (FAILED(device->CreateCommandAllocator(type, __uuidof(ID3D12CommandAllocator),
+                                              reinterpret_cast<void**>(allocOut)))) {
+        return nullptr;
+    }
+    if (FAILED(device->CreateCommandList(0, type, *allocOut, nullptr, __uuidof(ID3D12GraphicsCommandList),
+                                         reinterpret_cast<void**>(listOut)))) {
+        return nullptr;
+    }
+    ID3D12GraphicsCommandList4* list4 = nullptr;
+    if (FAILED((*listOut)->QueryInterface(__uuidof(ID3D12GraphicsCommandList4), reinterpret_cast<void**>(&list4)))) {
+        return nullptr;
+    }
+
+    // THE RESET IS LOAD-BEARING, AND IT WAS MEASURED THE HARD WAY.
+    //
+    // A freshly created command list carries D3D12Core.dll's own class vtable. The
+    // FIRST Reset replaces it with a PER-OBJECT vtable in which the vendor driver
+    // has taken methods over -- measured 2026-08-20 on an RTX 5080: DispatchRays
+    // moves from D3D12Core.dll to nvwgf2umx.dll, while
+    // BuildRaytracingAccelerationStructure stays in D3D12Core.
+    //
+    // Every game resets its command lists every frame, so the addresses in an
+    // UNRESET list's vtable are ones no title ever calls for the moved methods. A
+    // hook installed from those is live, publishes its family bit, and NEVER FIRES
+    // -- which the injected fixture caught as `withDispatch = 0` sitting beside
+    // `hooks = RT_DISPATCH | RT_AS_BUILD`, a mask bit with nothing behind it.
+    //
+    // So the throwaway has to go through the same lifecycle the game's lists do, or
+    // it is not a sample of them. §H5's lesson at a different layer: the object you
+    // read is not necessarily the object the title uses.
+    if (FAILED(list4->Close()) || FAILED((*allocOut)->Reset()) || FAILED(list4->Reset(*allocOut, nullptr))) {
+        list4->Release();
+        return nullptr;
+    }
+    return list4;
+}
+
+void ReleaseIf(IUnknown* p) noexcept {
+    if (p != nullptr) {
+        p->Release();
+    }
+}
+
+// Both list types, both slots, and a REFUSAL where the measurement stops holding.
+//
+// MEASURED 2026-08-20 (ctest fl_dxr_probe): a DIRECT and a COMPUTE command list
+// have DIFFERENT vtables holding the SAME function pointers. So one MinHook patch
+// per method covers both list types -- and a hook that patched only the DIRECT
+// vtable would have missed every AS build recorded on a compute list, which async
+// BLAS building makes ordinary. The mask bit would still be set and the evidence
+// absent, so 03_METRICS' `No` branch would publish a confident negative about a
+// title that ray-traces every frame.
+//
+// IF A FUTURE RUNTIME SPLITS THEM, WE REFUSE. One g_orig* cannot serve two
+// implementations: forwarding one's detour through the other's trampoline calls
+// the wrong function inside the game. Two detours and two trampolines would be the
+// fix, and building that for a case no measurement has produced is how untested
+// code reaches a hot path. Degrading to N/A is the safe direction; guessing is not.
+bool InstallRtHooks() noexcept {
+    if (g_rtDispatchLive.load(std::memory_order_acquire) != 0 && g_rtAsBuildLive.load(std::memory_order_acquire) != 0) {
+        return true;
+    }
+    auto* device = static_cast<ID3D12Device*>(g_d3d12Device.load(std::memory_order_acquire));
+    if (device == nullptr) {
+        return false;    // no D3D12 swapchain has presented yet. An answer, and it retries.
+    }
+
+    ID3D12CommandAllocator*     directAlloc = nullptr;
+    ID3D12GraphicsCommandList*  directList = nullptr;
+    ID3D12CommandAllocator*     computeAlloc = nullptr;
+    ID3D12GraphicsCommandList*  computeList = nullptr;
+    ID3D12GraphicsCommandList4* direct4 =
+        MakeThrowawayList(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &directAlloc, &directList);
+    ID3D12GraphicsCommandList4* compute4 =
+        MakeThrowawayList(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, &computeAlloc, &computeList);
+
+    bool installed = false;
+    if (direct4 != nullptr && compute4 != nullptr) {
+        // BOTH ARE REQUIRED, not just whichever succeeded. With one list we could
+        // not compare the two vtables, and hooking on the strength of a measurement
+        // taken on another machine is the assumption this whole path replaces. The
+        // watchdog retries every second, so a transient failure costs a tick.
+        void* const* directVtbl = *reinterpret_cast<void* const* const*>(direct4);
+        void* const* computeVtbl = *reinterpret_cast<void* const* const*>(compute4);
+
+        const bool dispatchAgrees =
+            directVtbl[fl::d3d12::kDispatchRaysIndex] == computeVtbl[fl::d3d12::kDispatchRaysIndex];
+        const bool buildAgrees = directVtbl[fl::d3d12::kBuildRaytracingAccelerationStructureIndex] ==
+                                 computeVtbl[fl::d3d12::kBuildRaytracingAccelerationStructureIndex];
+
+        if (dispatchAgrees && g_rtDispatchLive.load(std::memory_order_acquire) == 0 &&
+            PatchTarget(directVtbl[fl::d3d12::kDispatchRaysIndex], reinterpret_cast<void*>(&Hook_DispatchRays),
+                        reinterpret_cast<void**>(&g_origDispatchRays))) {
+            PublishHookFamily(static_cast<uint32_t>(fl::FL_HOOK_RT_DISPATCH), g_rtDispatchLive);
+            installed = true;
+        }
+        if (buildAgrees && g_rtAsBuildLive.load(std::memory_order_acquire) == 0 &&
+            PatchTarget(directVtbl[fl::d3d12::kBuildRaytracingAccelerationStructureIndex],
+                        reinterpret_cast<void*>(&Hook_BuildRtAs), reinterpret_cast<void**>(&g_origBuildRtAs))) {
+            PublishHookFamily(static_cast<uint32_t>(fl::FL_HOOK_RT_AS_BUILD), g_rtAsBuildLive);
+            installed = true;
+        }
+    }
+
+    // Closed before release: a command list left recording holds its allocator.
+    if (directList != nullptr) {
+        directList->Close();
+    }
+    if (computeList != nullptr) {
+        computeList->Close();
+    }
+    ReleaseIf(direct4);
+    ReleaseIf(compute4);
+    ReleaseIf(directList);
+    ReleaseIf(computeList);
+    ReleaseIf(directAlloc);
+    ReleaseIf(computeAlloc);
+    return installed;
 }
 
 // The watchdog. Runs whether or not the game presents, which is the reason it
@@ -953,6 +1265,12 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
         // install-attempted flag would give the module exactly one chance, at a
         // moment chosen by our sleep rather than by the game.
         InstallUpscalerHooks();
+
+        // The ray-tracing hooks, on the same vehicle and for a related reason: the
+        // device only becomes available when a D3D12 swapchain first presents, which
+        // is a moment chosen by the game rather than by our init. It RETRIES and
+        // latches only on success, exactly as the upscaler installer does.
+        InstallRtHooks();
 
         // Supervision loss. guardTicks counts COMPLETED guard evaluations, not
         // seconds, so a stalled guard loop stops it advancing even while the
@@ -1258,29 +1576,63 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     // NOT SET, deliberately, and each absence is a producer that does not exist
     // yet rather than an oversight:
     //
-    //   FL_MEASURED_UPSCALER_PARAMS -- upscalerQuality, upscalerSharpness and
-    //     renderW/H have no source in this writer. 17_HOOK_ENGINE recommends
-    //     hooking NVSDK_NGX_Parameter_SetUI for them, and that route is CLOSED:
-    //     the NGX SDK is the proprietary RTX SDKs Licence, which
-    //     18_GPU_VENDOR_APIS §Checklist step 3 forbids vendoring AND forbids
-    //     working around by re-declaring. The in-policy route is Streamline's own
-    //     slSetTag extents, and it lands with the PR that consumes sl_dlss.h.
-    //     upscalerQuality has no in-band "not measured" sentinel -- 0 is NGX
-    //     MaxPerf, a real preset -- so this bit is the ONLY thing standing
-    //     between an unhooked writer and "DLSS Performance" as a measurement.
+    //   FL_MEASURED_PSO      -- psoCreatedThisFrame needs the pipeline-creation
+    //                           hooks (17_HOOK_ENGINE §Pipeline). Without them
+    //                           03_METRICS' `PSO stutter %` has no input, and
+    //                           FlWriterState.rasterPsoCreated -- kept as the
+    //                           cheapest pt_confidence proxy -- stays 0.
+    //   FL_MEASURED_VRAM     -- IDXGIAdapter3::QueryVideoMemoryInfo, and §H10 has
+    //                           not settled whether it is sampled from a thread of
+    //                           ours or every N presents.
+    //   FL_MEASURED_LATENCY  -- Reflex.
+    //   FL_MEASURED_HDR      -- SetColorSpace1, which is unhooked.
     //
-    //   (FL_MEASURED_FG and FL_MEASURED_FG_COUNTS were listed here as absences and
-    //   now have a producer, above. §H5 case 3 -- whether DLSS-G's GENERATED
-    //   presents reach the vtable we patch -- is STILL OPEN, and this writer does
-    //   not assume either answer: it counts what it sees and the ratio is what a
-    //   real-title run has to move.)
+    // THIS LIST HAD GONE STALE THREE ENTRIES DEEP, which is worth a line because
+    // the whole file's register is comments that outlive their subject.
+    // FL_MEASURED_UPSCALER_PARAMS was described here as having "no source in this
+    // writer" after Hook_SlSetTag and the inputs walk gave it one; FL_MEASURED_FG
+    // and FL_MEASURED_FG_COUNTS were already noted as corrected in place; and
+    // FL_MEASURED_RT joins them below in this same commit. A comment naming an
+    // absence is a claim, and claims here go stale by not being touched.
+    //
+    // §H5 case 3 -- whether DLSS-G's GENERATED presents reach the vtable we patch
+    // -- is STILL OPEN, and this writer does not assume either answer: it counts
+    // what it sees and the ratio is what a real-title run has to move.
 
-    // rtFlags = 0 is now the honest value, not a claim. Layout v3 flipped the
-    // polarity: every bit means "we OBSERVED this", so zero says "no RT evidence
-    // seen" and FL_MEASURED_RT -- which this writer does not set -- is what says
-    // whether anyone looked. v2 needed an explicit FL_RT_NOT_MEASURED here
-    // because zero meant a measured absence; that bit is retired.
-    rec.rtFlags = 0u;
+    // --- Ray tracing, RECORDED between the previous present and this one -------
+    //
+    // GATED ON THE DETOURS BEING LIVE, not on having observed anything -- the same
+    // rule the frame-generation block above follows, and for the same reason. A
+    // frame that recorded no ray-tracing work still gets the bit and a zero
+    // rtFlags, because that IS a measurement of that frame; dropping it would leave
+    // only the RT-active frames and turn rt_frame_pct into 100% on every title.
+    //
+    // EITHER family entitles the mask bit, and neither is enough for a `No`.
+    // 03_METRICS' negative branch reads RtAsBuild SPECIFICALLY, because a writer
+    // with only DispatchRays sees nothing on an inline-RayQuery title -- so the two
+    // latches stay separate and the consumer decides, rather than this writer
+    // pre-collapsing them.
+    //
+    // exchange(0) BESIDE g_slSeen's, and for the identical reason: a read without
+    // a clear latches, so one dispatch would report ray tracing forever, including
+    // after the user turned it off mid-session.
+    //
+    // maxTraceRecursionDepth, rtStateObjectsCreated, rasterPsoCreated and
+    // FL_HOOK_RT_PSO are STILL UNPRODUCED and left at their honest zeros: they need
+    // ID3D12Device5::CreateStateObject, which is a separate PR. 03_METRICS'
+    // path-tracing heuristic reads two of them, which is why PathTracing stays N/A
+    // -- as CLAUDE.md rule 7 requires of it in any case.
+    if (g_rtDispatchLive.load(std::memory_order_relaxed) != 0 || g_rtAsBuildLive.load(std::memory_order_relaxed) != 0) {
+        rec.rtFlags = static_cast<uint8_t>(g_rtFlags.exchange(0, std::memory_order_acq_rel));
+        rec.dispatchRaysVolume = g_rtDispatchVolume.exchange(0, std::memory_order_acq_rel);
+        rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_RT);
+    }
+
+    // With no RT hook live, rtFlags stays 0 and that is the honest value rather
+    // than a claim. Layout v3 flipped the polarity: every bit means "we OBSERVED
+    // this", so zero says "no RT evidence seen" and FL_MEASURED_RT is what says
+    // whether anyone looked. v2 needed an explicit FL_RT_NOT_MEASURED here because
+    // zero meant a measured absence; that bit is retired.
 
     // Likewise upscaler/fgMode/colorSpace: FL_*_NOT_REPORTED is 0 in v3, so the
     // value-initialisation above already says "nobody looked" instead of

@@ -27,6 +27,9 @@ target_compile_definitions(hook-harness PRIVATE
     # the assertion cannot hold different numbers.
     FL_TAGGED_RENDER_W=${FL_TAGGED_RENDER_W}
     FL_TAGGED_RENDER_H=${FL_TAGGED_RENDER_H}
+    FL_DXR_DISPATCH_W=${FL_DXR_DISPATCH_W}
+    FL_DXR_DISPATCH_H=${FL_DXR_DISPATCH_H}
+    FL_DXR_DISPATCH_D=${FL_DXR_DISPATCH_D}
 )
 add_dependencies(hook-harness fl_stub_sl_interposer fl_stub_sl_common fl_stub_sl_interposer_v1)
 
@@ -75,6 +78,15 @@ add_test(NAME fl_d3d12_vtable_indices COMMAND hook-harness --probe-d3d12-vtable)
 # avoid. Q2 to Q4 assert regardless of Q1, so a machine with no ray tracing still
 # runs a fixture that can go red.
 add_test(NAME fl_dxr_probe COMMAND hook-harness --probe-dxr)
+
+# dispatchRaysVolume's arithmetic, against the shapes a caller can send. A unit
+# probe rather than an injected case, exactly as fl_sl_inputs is: the hazard is a
+# WRAPPED PRODUCT rather than a crash, a game fixture could only approximate these
+# extents, and the accumulator's saturation is a property of a SEQUENCE of adds
+# that no single expression states. The identities themselves are static_asserts
+# in fl_rt_accum.h, checked in every TU that includes it, so this deliberately
+# does not re-prove them at runtime.
+add_test(NAME fl_dxr_inputs COMMAND hook-harness --probe-dxr-inputs)
 
 # MODULE-SCOPED RESOLUTION, with a decoy module exporting the same symbol name.
 #

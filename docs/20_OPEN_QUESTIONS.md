@@ -74,7 +74,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S23-6** | ◐ **partly closed** | `license-check` now binds `THIRD_PARTY_NOTICES` bidirectionally — the first real gate over anything in `legal/`. The **accuracy blocks remain hand-maintained prose that nothing verifies**, and `DISCLAIMER.md`'s went stale a second time on 2026-08-05 |
 | **S23-2** | 🚫 **owner only — no PR can close it** | `Rules / validate` is **not** a required status check on `main`. **Re-verified against the live branch protection 2026-08-05**, not repeated from the entry: `required_status_checks.contexts` is exactly `["check", "analyze (csharp, none)", "analyze (cpp, manual)"]` (`strict: true`, `enforce_admins: true`, `required_linear_history: true`). The `validate` job is path-filtered and `pull_request`-only, so a red removal check does not block the merge button. **The gate that exists to make the anti-cheat blocklist un-removable is advisory.** This is a branch-protection setting |
 
-| **S29** | 🔴 **open, new 2026-08-05 — five of seven closed** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work. **Sharpened 2026-08-06:** fixing §S19(b) alone would still gate nothing, because `build.ps1`'s `-SkipIntegration` applies `--filter 'Category!=Integration'` and excludes the class *before* the guard is ever asked. Two independent mechanisms produce one absence, and `ci.yml` must drop the switch too; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ❓ the **normative contradiction** between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is untouched and is item 6's to settle — but its second half's PREMISE was stale and is corrected in place: layout v3 put `rtTier` and `hooksInstalledMask` in `FlWriterState`, and neither has a producer, so **`Yes` is unreachable as well as `No`**; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
+| **S29** | 🔴 **open, new 2026-08-05 — five ✅ and two ◐, counted off the glyphs below on 2026-08-20** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work. **Sharpened 2026-08-06:** fixing §S19(b) alone would still gate nothing, because `build.ps1`'s `-SkipIntegration` applies `--filter 'Category!=Integration'` and excludes the class *before* the guard is ever asked. Two independent mechanisms produce one absence, and `ci.yml` must drop the switch too; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ✅ **closed 2026-08-20**: the normative contradiction between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is settled the way the entry proposed — AS-build activity proves ray tracing is happening, *naming the technique* is what needs a DXIL scan — and rule 7 is amended in the PR that wrote the hooks. Its second half closes with it: `FL_MEASURED_RT` now has a producer (both command-list detours, installed off the game's own device), so all three conjuncts of the `No` branch are live and **`Yes` and `No` are both reachable for the first time**, proved by injection in both directions; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
 | **S30** | ✅ **closed 2026-08-15** | Answered on the title that raised it: with Ray Reconstruction on, Cyberpunk 2077 evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once**, so RR was doing the upscaling and the decode had no arm for it. Evidence rather than inference: `renderW/H` are published only on a frame that drained an evaluation and read 1485×835 = 0.58 × 2560×1440, so the scaling-input tag arrives ON the RR evaluation. Two further defects fell out — the pre-committed decision table had two holes, and the fix contaminated the census that found it (it derived the id from the decoded byte) |
 
 ~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
@@ -444,6 +444,29 @@ reach `Yes` or `N/A` and never `No`.**~~
 > The RayQuery half of this entry is **untouched and still open**: it is a normative
 > contradiction between CLAUDE.md rule 7 and `03_METRICS`, and it is item 6's to settle
 > before the hook is written.
+
+> ### ✅ (f) IS CLOSED — 2026-08-20, ruled 2026-08-14 by the owner and now implemented
+>
+> **The reconciliation this entry proposed is the ruling.** AS-build activity proves ray
+> tracing is happening ⇒ `RT = Yes`; *classifying the technique as RayQuery* is what needs a
+> DXIL scan and stays `N/A`. CLAUDE.md rule 7 is amended to say so, in the PR that wrote the
+> hooks, so the two documents no longer read in opposite directions. `03_METRICS:128` and
+> `README:14` both stand unchanged, which is the outcome the entry expected.
+>
+> **The second half is closed by the same PR, and the closure is a measurement rather than a
+> restatement.** `FL_MEASURED_RT` has a producer:
+> `ID3D12GraphicsCommandList4::BuildRaytracingAccelerationStructure` and `::DispatchRays`,
+> installed lazily off a command list created on the game's own device, with `rtFlags` and
+> `dispatchRaysVolume` drained per present. `rtTier` and `hooksInstalledMask` already had
+> producers, so **all three conjuncts of the `No` branch are live and `Yes` and `No` are both
+> reachable for the first time**. Proved by injection, both directions: a fixture that builds
+> acceleration structures and dispatches, and one that builds and never dispatches — the
+> second is what makes the AS-build hook's whole justification falsifiable.
+>
+> **What is still `N/A` on purpose**: naming the technique, and path tracing, whose heuristic
+> needs `maxTraceRecursionDepth` and `rtStateObjectsCreated` — both still unproduced, because
+> `ID3D12Device5::CreateStateObject` is a separate PR. `MeasuredFacts.PathTracing` stays a
+> fixed `Tri.NotApplicable`, which rule 7 requires of it in any case.
 
 **(g) ✅ The present-only writer claimed the one thing it may claim — unconditionally — closed 2026-08-05.**
 
