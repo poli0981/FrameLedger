@@ -111,6 +111,13 @@ What the Agent checks **before** asking the guard is the thing the native side s
   > rules carries the five refusals and why `layoutVersion == 0` means *retry*
   > rather than *restart the game*.
 - Drain every 100 ms: read `writeIndex` (acquire), copy new records, validate `seq` before/after each (skip torn), advance the read index. Protocol in `07_IPC` §Protocol rules.
+- **Each drain tick also samples whether the target owns the foreground window**, and the session carries the pair `(drainTicks, foregroundTicks)`. Frame generation stops while a title is unfocused, so a window spanning an alt-tab averages two configurations — measured 2026-08-16 on Cyberpunk 2077, where that produced an achieved `presents / batch` of 1.84 against a title configured for ×2, an 8% error with no diagnostic anywhere.
+
+  > **Out of process, not in the hook, and §S30 suggested the opposite.** That entry says "focus loss is observable in-process"; it is, and doing it there would cost a syscall on the present path or a second cached flag for no gain. `GetForegroundWindow` + `GetWindowThreadProcessId` at the existing 10 Hz tick costs nothing, reads nothing belonging to the target, and needs no record byte.
+  >
+  > **The PAIR, because zero is not a finding.** A process owning no top-level window at all — `hook-harness` presents to a composition swapchain and has none — is unfocused on every tick of every run. Reporting that as focus loss would fire on every integration run and teach the reader to ignore the line, which is the could-not-look/looked-and-found-nothing collision `FlRtTier` and `upscalerQuality` already exist to avoid.
+  >
+  > **It is attribution, never the guard.** What refuses a mixed window is `FgWindow.BatchRefusal`, computed from the records alone, so a caller that never wires focus still cannot publish an averaged ratio. Focus is what lets the report name the cause.
 - **Dropped records are computed here, not read from the header.** The Overlay has no reader index and cannot know whether a slot it overwrites was consumed. The Agent owns the read index, so it owns the accounting: when `writeIndex - readIndex > capacity`, add the excess to the session's data-quality counter and resume at `writeIndex - capacity`. A non-zero value means the Agent stalled for over ~16 s — log it, surface it as a session warning, never silently accept it.
 
   > **That sentence is true only because the read index is seeded from the writer at

@@ -67,6 +67,20 @@ internal sealed record FgWindow
     /// <summary>Per-bucket factors, in time order. Empty when the window is too short to bucket.</summary>
     public required IReadOnlyList<double> BucketFactors { get; init; }
 
+    /// <summary>Per-bucket <c>presents / batches</c>, in time order. Same slicing as
+    /// <see cref="BucketFactors"/>, a different weight.</summary>
+    /// <remarks>
+    /// <b>THIS EXISTS BECAUSE THE OTHER ONE CANNOT SEE THE CASE THAT OCCURRED.</b>
+    /// <see cref="BucketFactors"/> divides by <c>Σ fgEvaluations</c>, which is <b>zero on every
+    /// record</b> on the one route a real title has been measured on — so every bucket is
+    /// identical, <see cref="NonUniform"/> passes vacuously, and a window that mixed two
+    /// frame-generation states looks clean. Measured 2026-08-16: an alt-tab mid-capture on
+    /// Cyberpunk 2077 produced an achieved <c>presents / batch</c> of 1.84 against a title
+    /// configured for ×2, an 8% error with no diagnostic anywhere in the report. A guard keyed
+    /// on a quantity that is zero on the route that runs is not a guard.
+    /// </remarks>
+    public required IReadOnlyList<double> BatchFactors { get; init; }
+
     /// <summary>Why no factor may be published, or null when one may.</summary>
     public required string? Refusal { get; init; }
 
@@ -102,6 +116,33 @@ internal sealed record FgWindow
     /// </para>
     /// </remarks>
     public double? EvaluationsPerBatch => Batches > 0 ? Evaluations / (double)Batches : null;
+
+    /// <summary>
+    /// Presents per drained Streamline batch — a <b>PROXY</b>, and never
+    /// <see cref="Factor"/>.
+    /// </summary>
+    /// <remarks>
+    /// A batch is "a present that drained a Streamline evaluation", <b>not</b> an application
+    /// frame. On the one title measured the two coincide only because Ray Reconstruction
+    /// happens to be evaluated once per application frame there, which no independent oracle
+    /// has confirmed. So this number is printed, named, and guarded by
+    /// <see cref="BatchRefusal"/>; it is never published as <c>fg_factor</c>, and
+    /// <see cref="Factor"/> stays keyed on counted evaluations.
+    /// </remarks>
+    public double? PresentsPerBatch => Batches > 0 ? Presents / (double)Batches : null;
+
+    /// <summary>
+    /// Why <see cref="PresentsPerBatch"/> may not be read as one configuration's number, or
+    /// null when it may.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="Refusal"/> because the two answer different questions and, on
+    /// the route that actually runs, <see cref="Refusal"/> is <b>always</b> non-null — it stops
+    /// at "no frame-generation evaluation was counted" before uniformity is ever considered. A
+    /// reader who took that as the last word would then read the proxy beneath it with nothing
+    /// standing behind it at all.
+    /// </remarks>
+    public string? BatchRefusal => RefusalForBatches(this);
 
     /// <summary>Buckets the window is split into for the FG-state uniformity check.</summary>
     private const int _buckets = 8;
@@ -139,8 +180,19 @@ internal sealed record FgWindow
         Saturated = 0,
         Histogram = [],
         BucketFactors = [],
+        BatchFactors = [],
         Refusal = refusal,
     };
+
+    /// <summary>Σ fgEvaluations, the weight <see cref="BucketFactors"/> divides by.</summary>
+    private static long EvaluationWeight(FlFrameRecord r) => r.FgEvaluations;
+
+    /// <summary>
+    /// 1 on a present that drained a non-empty Streamline word, the weight
+    /// <see cref="BatchFactors"/> divides by.
+    /// </summary>
+    private static long BatchWeight(FlFrameRecord r) =>
+        ((FlFeatureFlags)r.FeatureFlags).HasFlag(FlFeatureFlags.RayReconstructionObserved) ? 1L : 0L;
 
     private static FgWindow Tally(IReadOnlyList<FlFrameRecord> all, int start, long qpcFrequency)
     {
@@ -191,21 +243,26 @@ internal sealed record FgWindow
             Streams = streams.Count,
             Saturated = saturated,
             Histogram = histogram,
-            BucketFactors = BucketsOf(all, start),
+            BucketFactors = BucketsOf(all, start, EvaluationWeight),
+            BatchFactors = BucketsOf(all, start, BatchWeight),
             Refusal = null,
         };
     }
 
-    /// <summary>Per-bucket factors in time order, or empty when the window is too short.</summary>
+    /// <summary>
+    /// Per-bucket <c>presents ÷ weight</c> in time order, or empty when the window is too
+    /// short. One slicing, two weights.
+    /// </summary>
     /// <remarks>
     /// <c>03_METRICS:133</c> — "averaging across a settings change is the classic way
     /// benchmark numbers become meaningless" — stated there for upscaling and true here for
     /// a reason with an arithmetic consequence: a session that runs half at ×4 and half with
     /// frame generation off yields a whole-window factor ABOVE the physically achievable 4,
-    /// and <c>NativeFps</c> inherits the error. An FG-off bucket has no evaluations at all,
-    /// so its factor is infinite and the uniformity check below cannot miss it.
+    /// and <c>NativeFps</c> inherits the error. A bucket with no weight at all is infinite,
+    /// so the uniformity check below cannot miss it.
     /// </remarks>
-    private static List<double> BucketsOf(IReadOnlyList<FlFrameRecord> all, int start)
+    private static List<double> BucketsOf(IReadOnlyList<FlFrameRecord> all, int start,
+        Func<FlFrameRecord, long> weight)
     {
         int n = all.Count - start;
         if (n < _buckets * _minPerBucket)
@@ -221,7 +278,7 @@ internal sealed record FgWindow
             long sigma = 0;
             for (int i = lo; i < hi; i++)
             {
-                sigma += all[i].FgEvaluations;
+                sigma += weight(all[i]);
             }
 
             factors.Add(sigma > 0 ? (hi - lo) / (double)sigma : double.PositiveInfinity);
@@ -268,26 +325,67 @@ internal sealed record FgWindow
                    + "and treating it as 'no frame generation' is how fg_factor becomes 1.0";
         }
 
-        return NonUniform(w);
+        return NonUniform(w.BucketFactors, w.Presents / (double)w.Evaluations, w.Presents,
+                          "the frame-generation state");
     }
 
-    private static string? NonUniform(FgWindow w)
+    /// <summary>The first reason <see cref="PresentsPerBatch"/> may not be read, or null.</summary>
+    /// <remarks>
+    /// <b>The proxy needs its own guard because <see cref="RefusalFor"/>'s never reaches it.</b>
+    /// On the route measured, <c>Evaluations</c> is 0, so that method returns at the data-gap
+    /// clause and uniformity is never assessed — while <c>presents/batch</c> is printed anyway
+    /// and is the number a verification run actually reads. §S30 states the consequence as a
+    /// prerequisite: "if <c>presents / batch</c> is ever published as <c>fg_factor</c>, it needs
+    /// a uniformity guard OF ITS OWN, keyed on the per-bucket <c>presents / batch</c> rather
+    /// than on <c>fgEvaluations</c>".
+    /// </remarks>
+    private static string? RefusalForBatches(FgWindow w)
     {
-        if (w.BucketFactors.Count == 0)
+        if (w.Batches == 0)
         {
-            return $"the window holds {w.Presents} record(s), below the {_buckets * _minPerBucket} needed to "
-                   + "check whether the frame-generation state changed during it";
+            return "no present drained a Streamline batch, so there is no ratio to read";
         }
 
-        double overall = w.Presents / (double)w.Evaluations;
-        for (int b = 0; b < w.BucketFactors.Count; b++)
+        // The same two attribution facts the factor refuses on, for the same reason: one
+        // process-wide drain word means a batch belonging to one stream can be consumed by
+        // another stream's present, and the ratio then has a denominator nobody can name.
+        if (w.Unidentified > 0)
         {
-            double f = w.BucketFactors[b];
+            return $"{w.Unidentified} record(s) carry swapchainId 0, so the presents cannot be attributed";
+        }
+
+        if (w.Streams > 1)
+        {
+            return $"{w.Streams} swapchains presented in the window; g_slSeen is one process-wide word, "
+                   + "so a batch belonging to one stream can be drained by another's present";
+        }
+
+        return NonUniform(w.BatchFactors, w.Presents / (double)w.Batches, w.Presents,
+                          "the presents-per-batch ratio");
+    }
+
+    /// <summary>Does any bucket depart from the whole by more than the tolerance?</summary>
+    /// <remarks>
+    /// A window too short to bucket refuses too: publishing a number whose uniformity was
+    /// never checked is the same claim as publishing one that failed the check.
+    /// </remarks>
+    private static string? NonUniform(IReadOnlyList<double> buckets, double overall, int presents,
+        string subject)
+    {
+        if (buckets.Count == 0)
+        {
+            return $"the window holds {presents} record(s), below the {_buckets * _minPerBucket} needed to "
+                   + $"check whether {subject} changed during it";
+        }
+
+        for (int b = 0; b < buckets.Count; b++)
+        {
+            double f = buckets[b];
             if (double.IsInfinity(f) || Math.Abs(f - overall) > overall * _bucketTolerance)
             {
-                return "the frame-generation state changed during the session — bucket "
-                       + $"{b + 1} of {w.BucketFactors.Count} measures {Fmt(f)} against {Fmt(overall)} overall, "
-                       + "and a session-level factor would describe a configuration that never existed";
+                return $"{subject} changed during the session — bucket "
+                       + $"{b + 1} of {buckets.Count} measures {Fmt(f)} against {Fmt(overall)} overall, "
+                       + "and a session-level number would describe a configuration that never existed";
             }
         }
 

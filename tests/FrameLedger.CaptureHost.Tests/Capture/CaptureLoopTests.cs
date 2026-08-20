@@ -146,7 +146,23 @@ public sealed class CaptureLoopTests : IDisposable
 
     private sealed class FakeLiveness : ITargetLiveness
     {
+        private int _foregroundSamples = int.MaxValue;
+
         public bool HasExited { get; set; }
+
+        /// <summary>How many samples answer true before focus is lost. Default: every one.</summary>
+        public int ForegroundFor
+        {
+            get => _foregroundSamples;
+            set => _foregroundSamples = value;
+        }
+
+        /// <summary>
+        /// Consumed per read, so a test can put the switch at a known tick rather than at a
+        /// known time — the loop's cadence is a wall clock and must not be an input to an
+        /// assertion.
+        /// </summary>
+        public bool IsForeground => _foregroundSamples-- > 0;
 
         public void Dispose()
         {
@@ -358,6 +374,30 @@ public sealed class CaptureLoopTests : IDisposable
 
         r.Reason.Should().Be(SessionEndReason.TargetExited);
         sink.State.Status.Should().Be((uint)FlStatus.Ready, "the mapping never said the target had gone");
+    }
+
+    [Fact]
+    public async Task TheLoopCountsWhetherTheOperatorWasWATCHINGTheGame()
+    {
+        // Frame generation stops while a title is unfocused, so a window spanning an alt-tab
+        // averages two configurations: measured 2026-08-16, that turned a ×2 capture into an
+        // achieved presents/batch of 1.84. FgWindow.BatchRefusal is what REFUSES such a window
+        // from the records; these two counts are what let the report name the cause.
+        //
+        // BOTH NUMBERS OR NEITHER. "Unfocused for 40 ticks" is a finding only if the target ever
+        // held the foreground — a windowless target, which hook-harness is, answers false on
+        // every tick of every run and means nothing by it.
+        var guard = new CountingGuard();
+        using var sink = new FakeSink(recordsToServe: 10);
+        using var alive = new FakeLiveness { ForegroundFor = 1 };
+        CaptureLoop loop = Loop(await StoreWithAsync(), guard, sink, alive);
+
+        CaptureResult r = await loop.RunAsync(_exe, Fingerprint, "payload.dll", TestContext.Current.CancellationToken);
+
+        r.DrainTicks.Should().BeGreaterThan(1, "the loop ran more than one tick inside its own duration");
+        r.ForegroundTicks.Should().Be(1,
+            "the fake yields focus after one sample, so the count is about the SAMPLE and not about "
+            + "how fast this machine happened to run the loop");
     }
 
     [Fact]

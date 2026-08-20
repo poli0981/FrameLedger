@@ -514,9 +514,25 @@ public struct FlFrameRecord
     public byte UpscalerSharpness;
 
     /// <summary>
-    /// FG feature evaluations this frame. <c>F_app = presents − Σ fgEvaluations</c>. A byte: DLSS-G is
-    /// 1 and multi-frame generation is 3 at ×4, so saturating at 255 would mean 256× frame generation.
+    /// FG feature evaluations drained by this present. <c>F_app = Σ fgEvaluations</c> and
+    /// <c>fg_factor = presents / Σ</c>.
     /// </summary>
+    /// <remarks>
+    /// <b>This said <c>F_app = presents − Σ</c> and "3 at ×4" until the producer was written, and
+    /// both halves were wrong.</b> The subtraction needs the count to be of GENERATED frames, and
+    /// nothing can produce that in policy: <c>slEvaluateFeature(kFeatureDLSS_G)</c> fires once per
+    /// APPLICATION frame and yields N−1 generated ones, where N lives in <c>sl::DLSSGOptions</c> —
+    /// set out of band through the route <c>HANDOFF</c> §2b refused on five grounds. Owner ruling
+    /// 2026-08-14: count the evaluations themselves, which needs no multiplier and no vendor
+    /// header. So the value is 1 per application frame at every multiplier, not 3 at ×4, and the
+    /// two forms differ by a factor of four on the one real title measured.
+    /// <para>
+    /// A byte, saturating at 255 rather than wrapping: a wrapped count reads LOW and is the
+    /// DENOMINATOR here, so it would inflate the factor without bound. No configuration evaluates
+    /// frame generation 255 times between two presents, so a consumer seeing 255 must refuse to
+    /// publish a factor rather than divide by a floor.
+    /// </para>
+    /// </remarks>
     public byte FgEvaluations;
 
     /// <summary>
