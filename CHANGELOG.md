@@ -17,6 +17,53 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Changed
+
+- **Five real-title captures across four titles, and the RT tri-state is complete** —
+  `spike-notes` §6 and §8 carry the numbers; §8's per-title table was empty and now has five
+  rows. Every run: 40 s, one swapchain, one segment, **0 gaps, 0 dropped**, `faults=0`, all six
+  hook families installed, payload hash-verified against the just-built DLL first.
+
+  **`Yes` twice and `No` twice, every verdict agreeing with the game's own settings menu.**
+  Cyberpunk 2077 with path tracing on and Black Myth: Wukong at RT High read `Yes`; Rune
+  Factory: Guardians of Azuma, whose menu has no ray-tracing option, **and Cyberpunk with every
+  RT option switched off** read `No` — the branch that had never been reachable. The second is
+  the harder case: a title that *can* ray-trace and is not doing so. Both negatives satisfy all
+  three conjuncts (`rtTier` 12, `RtAsBuild` installed, zero evidence over 36,575 and 16,871
+  claiming records).
+
+  **The #87 falsifier did not fire, on two independent titles.** `rt_frame_pct` reads **25.0%**
+  of the claiming window at ×4 on Cyberpunk and on Wukong — and Wukong got there through the RT
+  evidence alone, with no Streamline batches involved at all.
+
+  **HANDOFF item 3's premise generalises from one title to four, and gets stronger.**
+  `kFeatureDLSS_G` is zero on every run, and **two of the four titles never call
+  `slEvaluateFeature` at all** — Wukong with `sl.interposer.dll` and `sl.dlss_g.dll` both loaded
+  and DLSS-G demonstrably running, and Rune Factory. So it is not that DLSS-G avoids that
+  export; on half the titles measured nothing goes through it, and `upscaler` correctly reads
+  `Unknown` — *a hook ran and could not identify what it saw* — the first time that distinction
+  has mattered outside a fixture.
+
+  **§S30's closure survived a test in the reverse direction it never had.** It concluded that
+  Ray Reconstruction *replaces* the super-resolution pass, from one configuration. Turning RR
+  off on the same title flips the census from `DLSS_RR` 2578 / `DLSS` 0 to **`DLSS` 4242 /
+  `DLSS_RR` 0**, which is also the **first observation of `kFeatureDLSS` anywhere in this
+  project**, and the local-tag extent arrives on that evaluation exactly as it did on the RR
+  one — the same 1485×835.
+
+  **A second FG proxy, covering what the first cannot.** `presents ÷ RT-active presents` read
+  **5,764 / 1,441 = 4.0000 exactly** on Wukong, where `presents/batch` is unreadable. Same
+  unverified premise, disjoint coverage, still a proxy and not a producer.
+
+  **Two honest absences and one unexplained result.** `FL_MEASURED_UPSCALER_PARAMS` produced
+  nothing on three of four titles — §2b's local-tag route is narrower than that entry assumed,
+  and the writer published nothing rather than something wrong. And **Alan Wake 2 is not
+  explained**: `presents/batch` = 1.00 with `rt_frame_pct` = 96.8% against a menu set to FG 4X
+  fits both "generated presents miss our vtable" (§H5 case 3) and "frame generation was not
+  running". The operator reported that title would not apply its settings, which is evidence for
+  the second, and is why it is **not** written up as §H5 case 3. The discriminating run was not
+  taken.
+
 ### Added
 
 - **Ray tracing has a producer, and the RT tri-state's `Yes` and `No` are reachable for the

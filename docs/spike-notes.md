@@ -870,9 +870,23 @@ set, with a well-formed shader table and with a zeroed one alike. That is why th
 fixture carries a 1.2 KB DXIL raygen library (`dxr_raygen.hlsl`, compiled by hand
 and checked in with its command line).
 
-### Still open in §6
+### ✅ Both hooks against four real titles' own settings menus — 2026-08-20
 
-- `DispatchRays` counting against a title's own settings menu, on a real title:
+§8 carries the five captures in full. What belongs here is the RT half:
+
+- **`Yes` twice, `No` twice, every verdict agreeing with the game's own menu.** Cyberpunk with
+  path tracing on and Wukong at RT High both read `Yes`; Rune Factory, whose menu has no
+  ray-tracing option, and Cyberpunk with every RT option switched off both read **`No`** — the
+  branch that had never been reachable in this project.
+- **`rt_frame_pct` reads 25.0% at ×4 on two titles**, which is the falsifier `03_METRICS`
+  §RT/PT/RR pre-committed. It did not fire.
+- **`faults = 0` on every run**, with both detours on the render thread of titles running at up
+  to ~950 presents/second.
+- **The dispatch extent is exact.** Alan Wake 2: `4,913,280` rays per RT-active present, and
+  `3 × 1706 × 960` is `4,913,280` — three rays per render pixel, against a render resolution
+  the menu states outright.
+
+### Still open in §6
 - The same measurements on an **AMD or Intel** GPU. Every vendor-specific result
   above is one driver's: `nvwgf2umx.dll` takes `DispatchRays` and leaves
   `BuildRaytracingAccelerationStructure` alone, and nothing says another UMD splits
@@ -1133,6 +1147,78 @@ to prove themselves.
 |---|---|---|---|---|---|---|
 | **Cyberpunk 2077** (2026-08-15) | ❌ `Unknown` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ⬜ not measured | ⬜ not measured | **1 of 5** |
 | **Cyberpunk 2077** (2026-08-15, later, after §S30) | ✅ `Dlss` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ◐ on, factor not measurable on this route | ⬜ not measured | **2 of 5** |
+| **Cyberpunk 2077** (2026-08-20, PT on · RR on · MFG ×4 · Balanced) | ✅ `Dlss` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ◐ on, `presents/batch` = 4.00 as a PROXY | ✅ **`Yes`** | **3 of 5** |
+| **Alan Wake 2** (2026-08-20, RR on · PT ultra · FG 4X *set but reportedly not applying*) | ✅ `Dlss` | ⬜ `0xFF` | ⬜ no local tag; **1706×960 corroborated arithmetically, see below** | ❓ `presents/batch` = 1.00 — unexplained | ✅ **`Yes`** | **2 of 5** |
+| **Black Myth: Wukong** (2026-08-20, RT High · FG ×4 · Balanced) | ⬜ `Unknown` — *coverage short, not the title's* | ⬜ | ⬜ no local tag | ◐ `presents / RT-active` = **4.0000** as a PROXY | ✅ **`Yes`** | **2 of 5** |
+| **Rune Factory: Guardians of Azuma** (2026-08-20, no RT option · FG ×6 via NVIDIA App · DLAA) | ⬜ `Unknown` | ⬜ | ⬜ no local tag | ⬜ nothing observed | ✅ **`No`** | **1 of 5** |
+| **Cyberpunk 2077** (2026-08-20, **all RT off** · RR off · MFG ×4 · Balanced) | ✅ `Dlss` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ◐ `presents/batch` = 4.00 as a PROXY | ✅ **`No`** | **3 of 5** |
+
+> ### ✅ FIVE CAPTURES ACROSS FOUR TITLES — 2026-08-20, and the RT tri-state is complete
+>
+> Every run: 40 s, one identified swapchain, one segment, **0 gaps, 0 dropped**, foreground on
+> all 369 drain ticks, `status=Ready`, `layoutVersion=3`, `rtTier=12`, `apiMask=0x4` (D3D12),
+> and **`faults=0`** — including a title that pushed **37,823 presents through the hook in 39
+> seconds** (~950/s) without a drop. All six hook families installed on every title. The
+> Overlay payload was hash-verified against the just-built DLL before each run.
+>
+> | Run | records | batches | Streamline ids seen | asBuild / dispatch | `rt_frame_pct` | Displayed FPS |
+> |---|---|---|---|---|---|---|
+> | Cyberpunk, PT on | 10,603 | 2,578 | `DLSS_RR` 2578 | 2,561 / 2,567 | 24.2% (**25.0%** of the claiming window) | 264.93 |
+> | Alan Wake 2 | 900 | 875 | `DLSS_RR` 875 | 869 / 871 | 96.8% | 22.5 |
+> | Wukong | 5,956 | **0** | **none at all** | 1,437 / 1,441 | 24.2% (**25.0%**) | 148.89 |
+> | Rune Factory | 37,823 | **0** | **none at all** | **0 / 0** | **0.0%** | 946.44 |
+> | Cyberpunk, all RT off | 17,456 | 4,242 | **`kFeatureDLSS` 4242** | **0 / 0** | **0.0%** | 436.28 |
+>
+> **1 · The tri-state is complete, and `No` is correct twice for two different reasons.**
+> `Yes` on Cyberpunk (path tracing) and Wukong (RT High); `No` on Rune Factory, whose settings
+> menu has no ray-tracing option at all, **and** on Cyberpunk with every RT option switched off
+> — a title that *can* ray-trace and is not doing so, which is the harder and more valuable
+> case. Both negatives satisfy all three conjuncts `03_METRICS` requires: `rtTier` 12,
+> `RtAsBuild` installed, and zero evidence across 36,575 and 16,871 claiming records.
+>
+> **2 · `slEvaluateFeature` IS NOT A GENERAL ROUTE, and this generalises HANDOFF item 3 from
+> one title to four.** Two of the four titles never call it *at all* — Wukong with both
+> `sl.interposer.dll` and `sl.dlss_g.dll` loaded and DLSS-G demonstrably running, and Rune
+> Factory likewise. The other two call it only for Ray Reconstruction. **`kFeatureDLSS_G` is
+> zero on every run**, so item 3's counter has nothing to count on any of them.
+>
+> **3 · §S30's closure survived a test in the REVERSE direction, which it never had.** It
+> concluded that Ray Reconstruction *replaces* the super-resolution pass rather than running
+> beside it, from one configuration. Turn RR off on the same title, same machine, one setting
+> changed: the census flips from `DLSS_RR` 2578 / `DLSS` 0 to **`DLSS` 4242 / `DLSS_RR` 0**.
+> This is also the **first observation of `kFeatureDLSS` anywhere in this project**, and the
+> local-tag extent arrives on that evaluation exactly as it did on the RR one — the same
+> `1485×835`.
+>
+> **4 · A SECOND FG proxy, and it covers what the first cannot.** On Wukong there are no
+> Streamline batches, so `presents/batch` is unreadable — and `presents ÷ RT-active presents`
+> reads **5,764 / 1,441 = 4.0000 exactly** against a title configured for ×4. It carries the
+> *same* unverified premise as `presents/batch` (that the work is recorded once per application
+> frame), so it is a proxy and not a producer. What it adds is coverage: the two are readable
+> on disjoint sets of titles, and on the one run where both were available they agreed.
+>
+> **5 · The #87 falsifier did not fire, on two independent titles.** It pre-committed that
+> `rt_frame_pct` must read ≈25% at ×4 and not ≈100%. Cyberpunk: 25.0%. Wukong: 25.0% — and
+> Wukong reached it through the RT evidence alone, with no Streamline batches involved.
+>
+> **6 · Alan Wake 2 is the outlier and is NOT explained.** `presents/batch` = 1.00 and
+> `rt_frame_pct` = 96.8%, i.e. every present carried an application frame's work, against a
+> menu set to FG 4X. Two readings fit every number equally: generated presents not reaching the
+> vtable we patch (§H5 case 3), or frame generation simply not running. **The operator reported
+> that this title would not apply its settings**, which is evidence for the second and is why
+> it is not written up as §H5 case 3. The discriminating run — the same scene with FG off — was
+> not taken.
+>
+> **7 · One arithmetic result worth keeping on its own.** Alan Wake 2's dispatch volume is
+> `4,279,466,880 / 871 = 4,913,280` rays per RT-active present, and `3 × 1706 × 960 =
+> 4,913,280` **exactly** — three rays per pixel of the render resolution the game's own menu
+> states. The params hook reported nothing on that title, so the render resolution was
+> confirmed by a completely different route from the one meant to measure it.
+>
+> **8 · `FL_MEASURED_UPSCALER_PARAMS` produced nothing on three of the four titles.** Only
+> Cyberpunk tags scaling inputs locally. §2b's local-tag route is narrower than that entry
+> assumed, and the honest failure mode held: the writer published *nothing* rather than
+> something wrong.
 
 **The first row, and it is one row.** Read the legend before the marks: ✅ measured and
 correct against the title's own settings; ❌ measured and **wrong**; ⬜ honestly absent — no
@@ -1412,6 +1498,20 @@ into a real title and the process survives it (§7).
   FG-off leg where a genuine counter converges with displayed and a halving does not, comparing
   RATIOS — our `presents/batch` against the overlay's `DLSS/FPS` — so neither side needs a span.
   §S30 carries the full correction.
+
+  > **GENERALISED FROM ONE TITLE TO FOUR — 2026-08-20, §8.** The bullet above rests on
+  > Cyberpunk. Four titles, five captures: **`kFeatureDLSS_G` is zero on every one**, and two of
+  > the four never call `slEvaluateFeature` *at all* — Black Myth: Wukong with both
+  > `sl.interposer.dll` and `sl.dlss_g.dll` loaded and DLSS-G demonstrably running, and Rune
+  > Factory: Guardians of Azuma. So this is not "DLSS-G avoids that export"; on half the titles
+  > measured, **nothing** goes through it. `slEvaluateFeature` is a route some titles use for
+  > some features, not the Streamline entry point.
+  >
+  > **`presents / RT-active presents` is a second proxy and covers the gap.** Wukong has no
+  > batches at all, so `presents/batch` is unreadable — and `5,764 / 1,441 = 4.0000` exactly,
+  > against a title configured for ×4. Same unverified premise, disjoint coverage; on the one
+  > run where both proxies were readable they agreed. Neither is a producer, and §S31's
+  > measurement is still what decides whether either may be published.
 
   **`fl-baseline-probe` was run on 2026-08-16 and is RETIRED as an FG-engagement oracle by
   its own pre-committed falsifier**: against the running title with FG on at ×2 it reports

@@ -356,6 +356,25 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > application frame on this title, which no independent oracle has confirmed. Shipping
 > `presents/batch` as `fg_factor` would be shipping that unverified premise as a measurement.
 >
+> **THE PREMISE IS NOW FOUR TITLES WIDE, NOT ONE — 2026-08-20, `spike-notes` §8.** Everything
+> above rests on Cyberpunk. Five captures across four titles say something stronger and
+> different: **`kFeatureDLSS_G` is zero on every one**, and two of the four never call
+> `slEvaluateFeature` *at all* — Black Myth: Wukong, with `sl.interposer.dll` and
+> `sl.dlss_g.dll` both loaded and DLSS-G demonstrably running, and Rune Factory: Guardians of
+> Azuma. So the finding is not "DLSS-G avoids that export". On half the titles measured,
+> **nothing** goes through it, and `upscaler` correctly reads `Unknown` — *a hook ran and could
+> not identify what it saw*, which is the first time that distinction has mattered outside a
+> fixture.
+>
+> **Two consequences for the routes below.** Any producer reached *via* `slEvaluateFeature`
+> inherits that coverage hole, so it cannot be the whole answer. And `presents / batch` is
+> unreadable on those two titles — where a **second proxy**, `presents ÷ RT-active presents`,
+> read **5,764 / 1,441 = 4.0000 exactly** against a ×4 setting. It carries the *same* unverified
+> premise (work recorded once per application frame), so it is a proxy and not a producer; what
+> it adds is coverage, on a disjoint set of titles. On the one run where both were readable they
+> agreed. **Whichever producer is chosen has to work on a title that speaks no Streamline
+> features at all.**
+>
 > **So the open question is no longer "build a counter". It is: what is the in-policy
 > producer for DLSS-G on Streamline 2.x?** Candidate routes, none costed and none chosen:
 > hooking the interposer's swapchain proxy; `slGetFeatureFunction` + `slDLSSGGetState`
