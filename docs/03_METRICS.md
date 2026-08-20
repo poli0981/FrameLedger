@@ -132,6 +132,17 @@ F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the 
 > has confirmed. **Do not promote that proxy to `fg_factor` without attaching the premise.**
 > `docs/HANDOFF.md` item 3 carries the routes to a real producer.
 >
+> **The proxy is PRINTED, and it now has a guard of its own — which the factor's could not be.**
+> `FgWindow.BucketFactors` splits the window into buckets and refuses a factor when one bucket
+> departs from the whole; it divides by `Σ fgEvaluations`, **zero on every record on this
+> route**, so every bucket matched, the check passed vacuously, and `RefusalFor` returned at the
+> data-gap clause before uniformity was ever considered. Measured 2026-08-16: an alt-tab
+> mid-capture produced an achieved `presents / batch` of **1.84** against a title configured for
+> ×2 — wrong by 8%, with nothing in the report saying so. `FgWindow.BatchRefusal` is the
+> per-bucket `presents / batch` check §S30 named as a prerequisite, and `SessionReport` prints
+> its verdict on the line under the ratio so the number cannot be read without it. A guard keyed
+> on a quantity that is zero on the route that runs is not a guard.
+>
 > **This also leaves §RT/PT/RR without a settled denominator.** `rt_frame_pct`,
 > `rays_per_pixel` and the `≥ 5% of frames` gate are per-APPLICATION-frame quantities, and
 > dividing them by presents dilutes each by the frame-generation factor — at ×4 a title that
@@ -239,6 +250,21 @@ Tri-state `Yes | No | N/A` per session with `source` (`measured | manual | inher
 **Honest limits, documented in the UI tooltip:**
 
 - Hooking `BuildRaytracingAccelerationStructure` is what makes **inline ray tracing (DXR 1.1 `RayQuery`)** detectable at all — those shaders never call `DispatchRays`, so dispatch counting alone would report `No` for a game that is very much ray tracing. AS-build activity catches both paths. This is why both hooks exist.
+- **Ray Reconstruction is decided over the presents that DRAINED a Streamline batch, not over
+  every present, and the difference was the whole answer on a frame-generating title.** The
+  writer sets `FL_FEAT_RAY_RECONSTRUCTION_OBSERVED` under `seen != 0` — deliberately, so an
+  NGX-direct title running DLSS-RR does not collect a fabricated `No` — which at ×4 is roughly
+  one present in four. A consumer that required the bit on *every* record was therefore asking
+  for something that cannot hold above ×1, and reported `N/A` about a title that answered the
+  question 2,523 times out of 2,523. The population is the batch-carrying presents: none of them
+  ⇒ `N/A` (nothing looked, and the lazy-install prefix drops out with it), any of them carrying
+  the fact bit ⇒ `Yes`, batches with none ⇒ `No`. **This is also the one RR negative that may be
+  aggregated**, for the same reason `FL_UPSCALER_NONE` is: a hook ran and saw the alternative.
+- **The row above says NGX and the producer is Streamline-only.** `nvngx_dlssd.dll` is a
+  *static hint* (`05_DETECTION`) and never a runtime fact; the NGX runtime route is licence-
+  blocked (`18_GPU_VENDOR_APIS` §Checklist step 3 forbids vendoring the RTX SDKs headers **and**
+  forbids re-declaring them), so an NGX-direct title yields no batch at all and `N/A` is the
+  true answer there rather than a coverage excuse.
 - **Why `rtTier` has a third state, recorded because the two-state version was written down
   first and was wrong.** `D3D12_RAYTRACING_TIER_NOT_SUPPORTED` is **0**, and `rtTier`'s 0
   already meant *not queried* — so a writer that stored the vendor enum verbatim would have

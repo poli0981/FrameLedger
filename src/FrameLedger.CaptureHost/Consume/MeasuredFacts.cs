@@ -425,22 +425,46 @@ internal sealed record MeasuredFacts
         // sets RayReconstructionObserved under `seen != 0`, deliberately, so an NGX-direct title running
         // DLSS-RR does not get a fabricated `No`. Under frame generation that bit is intermittent by
         // construction — on the Cyberpunk stream one Streamline batch spans ~4 presents, so ~24% of
-        // records carry it — and the maximal claiming suffix is then ONE record. Feeding that to the
-        // `Any` below would publish a whole-session Yes/No from a single frame, which is worse than the
-        // N/A this returns today.
+        // records carry it.
         //
-        // So the honest state is: RR is N/A on every frame-generating title, for a reason that is not
-        // the install window and is not fixed by sweeping it. Fixing it needs the application-frame
-        // unit that HANDOFF item 3 introduces; until then this stays as it is, and says so.
-        if (stream.Count == 0
-            || !stream.All(r => ((FlFeatureFlags)r.FeatureFlags).HasFlag(FlFeatureFlags.RayReconstructionObserved)))
+        // THE POPULATION IS THE PRESENTS THAT DRAINED A BATCH, NOT EVERY RECORD, and requiring it on
+        // every record is what made this N/A on every frame-generating title. Demanding a bit the
+        // writer only ever sets on one present in N is a condition that cannot hold at N > 1, so the
+        // answer was decided by the frame-generation setting rather than by whether Ray Reconstruction
+        // ran. An earlier note here reasoned that the alternative was a whole-session verdict from a
+        // single frame and that fixing it needed the application-frame unit HANDOFF item 3 would
+        // introduce. Both halves were wrong: the natural population for "did RR run" is the presents
+        // that carry a Streamline observation at all, which on the Cyberpunk stream is 2,461 batches
+        // rather than one frame, and it needs no application-frame unit — which is fortunate, because
+        // item 3 could not produce one.
+        //
+        // The three answers this now yields:
+        //
+        //   no present carries OBSERVED  -> N/A. Nothing looked, including the whole install prefix,
+        //                                   which drops out for free instead of forcing N/A.
+        //   some batch carried RR        -> Yes.
+        //   batches, and none carried RR -> No, and this is the branch that was unreachable.
+        //
+        // `Any` rather than `All` for Yes is the pre-existing semantics and is kept: a title that turns
+        // RR off mid-session still ran it, and splitting that belongs to 03_METRICS §Upscaling's
+        // segment list rather than to a session-level tri-state.
+        bool observedAny = false;
+        foreach (FlFrameRecord r in stream)
         {
-            return Tri.NotApplicable;
+            var flags = (FlFeatureFlags)r.FeatureFlags;
+            if (!flags.HasFlag(FlFeatureFlags.RayReconstructionObserved))
+            {
+                continue;
+            }
+
+            observedAny = true;
+            if (flags.HasFlag(FlFeatureFlags.RayReconstruction))
+            {
+                return Tri.Yes;
+            }
         }
 
-        return stream.Any(r => ((FlFeatureFlags)r.FeatureFlags).HasFlag(FlFeatureFlags.RayReconstruction))
-            ? Tri.Yes
-            : Tri.No;
+        return observedAny ? Tri.No : Tri.NotApplicable;
     }
 
     private static Tri HdrOf(IReadOnlyList<FlFrameRecord> stream)

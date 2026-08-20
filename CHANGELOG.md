@@ -41,6 +41,69 @@ GitHub release body, so a missing section will mean an empty release note.
   nothing is an **absence**, so rung 0 turns it into `N/A` rather than rung 4 turning it into
   `none`.
 
+- **`presents / batch` gets a guard of its own, because the one it had could not fail.**
+  `FgWindow.BucketFactors` splits the window into eight buckets and refuses a factor when one
+  departs from the whole — and it divides by `Σ fgEvaluations`, which is **zero on every record**
+  on the one route a real title has been measured on. So every bucket matched, the check passed
+  vacuously, and `RefusalFor` returned at the data-gap clause before uniformity was ever
+  considered, while `presents / batch` was printed underneath with nothing behind it. Measured
+  2026-08-16: an alt-tab mid-capture produced an achieved ratio of **1.84** against a title
+  configured for ×2 — wrong by 8%, and the report said nothing. `FgWindow.BatchRefusal` is the
+  per-bucket `presents / batch` check §S30 named as a prerequisite, `FgWindow.PresentsPerBatch`
+  moves the arithmetic out of the renderer, and `SessionReport` prints the verdict on the line
+  under the ratio so the number cannot be read without it. Proven both ways: a canary returning
+  `null` from the check turns the two uniformity cases red and leaves the uniform case and the
+  attribution refusals green.
+- **The capture host samples whether the operator was actually watching the game**, once per
+  10 Hz drain tick, and the session carries the pair `(DrainTicks, ForegroundTicks)`.
+  Out of process — `ForegroundWindowProbe` in `Infrastructure`, two documented Win32 calls — so
+  it costs the hook path nothing, reads nothing belonging to the target, and needs no record
+  byte; §S30 suggested doing it in-process and that would have bought nothing. **The pair,
+  because zero is not a finding:** a target owning no top-level window is unfocused on every
+  tick of every run, which is what `hook-harness` does, so collapsing "never had focus" into
+  "lost focus" would fire on every integration run. It is attribution and never the guard —
+  `BatchRefusal` refuses a mixed window from the records alone, so a caller that never wires
+  focus still cannot publish an averaged ratio.
+
+### Fixed
+
+- **Ray Reconstruction answered `N/A` on every frame-generating title, and the reason was a
+  consumer bug rather than a coverage gap.** `MeasuredFacts.RayReconstructionOf` required
+  `FL_FEAT_RAY_RECONSTRUCTION_OBSERVED` on **every** record in the stream, while the writer sets
+  that bit only on the present that drained a Streamline batch — roughly one in four at ×4,
+  measured 24% on the Cyberpunk 2077 stream. A condition that cannot hold above ×1 meant the
+  verdict was decided by the frame-generation setting rather than by whether Ray Reconstruction
+  ran: the title evaluated `kFeatureDLSS_RR` on 2,523 of 2,523 batches and this reported `N/A`.
+  The population is now the batch-carrying presents — none ⇒ `N/A`, any carrying the fact bit ⇒
+  `Yes`, batches with none ⇒ `No`, the branch that was unreachable. The lazy-install prefix drops
+  out for free instead of forcing `N/A` over a whole session.
+
+  The comment this replaces reasoned that the alternative would publish a whole-session verdict
+  from a single frame and that fixing it needed the application-frame unit HANDOFF item 3 would
+  introduce. Both halves were wrong — the natural population is thousands of batches, not one
+  frame, and it needs no application-frame unit, which is fortunate because item 3 could not
+  produce one. Proven both ways: restoring the `All` rule turns the three positive cases red and
+  leaves `NoBatchObservedIsNAAndNeverNo` green, so the fix is not "answer `Yes` to everything".
+- **Four comments still carried the pre-2026-08-14 subtraction `F_app = presents − Σ
+  fgEvaluations`**, which `fl_shm.h` explicitly retracts — `ShmLayout.cs`, `MeasuredFactsTests`,
+  `stub_sl_common.cpp` and `fl-probe-interposer`. The mirror's doc comment also said the count is
+  "3 at ×4"; it is 1 per application frame at every multiplier, and the two forms differ by a
+  factor of four on the one real title measured. The decoy stub's arithmetic argument was
+  reversed by the same correction: an inflated count now INFLATES Native FPS and DEFLATES
+  `fg_factor` rather than the other way round.
+- **`docs/HANDOFF.md` item 3 contradicted itself inside one entry** — one block recorded that
+  three oracles had been tried and fallen, and a later bullet said neither of the two cheap
+  measurements had been run. `fl-baseline-probe` was run on 2026-08-16 and retired by its own
+  pre-committed falsifier; only the game's own frame counter is still unrun.
+- **`docs/HANDOFF.md`'s "`./build.ps1 check` cannot go fully green here" is no longer true**, and
+  it was the first thing a new session read. Measured 2026-08-20: the gate is fully green on the
+  dev box, 20/20 native tests, and `hook-harness --probe-d3d12` succeeds. Nothing in this
+  repository fixed it — the machine moved from Insider build 26300/29639 to **29648**, with
+  `d3d10warp.dll` and `D3D12Core.dll` both at `10.0.29648.1000`, so the WARP D3D12 regression was
+  fixed upstream. The trap entry is dated rather than deleted: the durable fact is that this
+  dependency broke and healed under the machine without a code change, twice giving the native
+  suite a colour that said nothing about `main`.
+
 ### Changed
 
 - **`spike-notes` §11 is filled, and the news is bad in a useful way.** PresentMon **2.5.1**

@@ -64,7 +64,7 @@ public sealed partial class MeasuredFactsTests
         facts.Upscaler.Should().BeNull("no upscaler hook ran, and `none` would be a measured negative");
         facts.FgMode.Should().BeNull("03_METRICS' ladder rung 4 says `none`, which here would be a lie");
         facts.FgFactor.Should().BeNull("1.0 is CLAUDE.md rule 6's forbidden number");
-        facts.NativeFps.Should().BeNull("F_app = presents − Σ fgEvaluations needs a hook that counted");
+        facts.NativeFps.Should().BeNull("F_app = Σ fgEvaluations needs a hook that counted");
         facts.UpscaleRatio.Should().BeNull("renderW/H are 0 and the ratio would divide by zero");
         facts.RayTracing.Should().Be(Tri.NotApplicable);
         facts.RayReconstruction.Should().Be(Tri.NotApplicable);
@@ -137,6 +137,70 @@ public sealed partial class MeasuredFactsTests
         text.Should().Contain("Native FPS").And.Contain("Displayed FPS").And.Contain("x4 FG");
         text.Should().Contain("evaluations/batch").And.Contain("histogram");
         text.Should().Contain("frame generation: DlssG");
+    }
+
+    /// <summary>The shape the one measured route produces: batches drain, evaluations never do.</summary>
+    private static List<FlFrameRecord> BatchStream(int appFrames, int k, ref ulong qpc)
+    {
+        List<FlFrameRecord> stream = [];
+        long step = Stopwatch.Frequency / 240;
+        for (int f = 0; f < appFrames; f++)
+        {
+            for (int p = 0; p < k; p++)
+            {
+                stream.Add(new FlFrameRecord
+                {
+                    Qpc = qpc,
+                    SwapchainId = 1,
+                    MeasuredMask = (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs
+                                            | FlMeasured.Fg | FlMeasured.FgCounts),
+                    FgMode = (byte)FlFgMode.Unknown,
+                    FeatureFlags = (byte)(p == 0 ? FlFeatureFlags.RayReconstructionObserved : FlFeatureFlags.None),
+                });
+                qpc += (ulong)step;
+            }
+        }
+
+        return stream;
+    }
+
+    private static readonly FlWriterState _streamlineWriter = new()
+    {
+        HooksInstalledMask = (uint)(FlHookFamily.Present | FlHookFamily.UpscalerIdentity
+                                    | FlHookFamily.FgEvaluations),
+    };
+
+    private static string RenderOf(List<FlFrameRecord> stream) => SessionReport.Render(MeasuredFacts.From(
+        stream, _streamlineWriter, Stopwatch.Frequency, 0, 0, FgWindow.From(stream, Stopwatch.Frequency)));
+
+    [Fact]
+    public void ThePROXYIsNeverPrintedWithoutItsVerdictOrItsSpan()
+    {
+        // presents/batch is the sharpest number this report produces and the one a real-title run
+        // reads — and it was printed with NOTHING behind it, because the only uniformity check
+        // divides by Σ fgEvaluations, which is zero on this exact route. span= was computed and
+        // never printed at all, so §S30's draft reconstructed it from a DIFFERENT window and got a
+        // rate that moved across 78.6-83 on window choice alone.
+        ulong qpc = 1_000_000;
+        string text = RenderOf(BatchStream(appFrames: 40, k: 4, ref qpc));
+
+        text.Should().Contain("presents/batch=4").And.Contain("span=");
+        text.Should().Contain("is a PROXY", "the reader must not be able to take the number without the label");
+        text.Should().Contain("uniform across every bucket");
+        text.Should().NotContain("NOT READABLE", "this window is one configuration throughout");
+    }
+
+    [Fact]
+    public void AnAltTabbedWindowRendersTheProxyAsNOTREADABLE()
+    {
+        // The 1.84 case, end to end through the renderer: ×2 for most of the capture, then frame
+        // generation stops while the title is unfocused. The averaged ratio describes neither half.
+        ulong qpc = 1_000_000;
+        List<FlFrameRecord> stream = [.. BatchStream(96, 2, ref qpc), .. BatchStream(32, 1, ref qpc)];
+
+        string text = RenderOf(stream);
+
+        text.Should().Contain("NOT READABLE").And.Contain("presents-per-batch ratio changed");
     }
 
     [Fact]
@@ -212,6 +276,98 @@ public sealed partial class MeasuredFactsTests
             return r;
         })];
         MeasuredFacts.From(unmasked, _presentOnly, Stopwatch.Frequency, 0, 0).RayTracing.Should().Be(Tri.NotApplicable);
+    }
+
+    /// <summary>
+    /// The writer's real shape: only the present that DRAINED a batch carries featureFlags.
+    /// </summary>
+    /// <remarks>
+    /// <c>dllmain.cpp</c> sets <c>RayReconstructionObserved</c> under <c>seen != 0</c>, so at ×4
+    /// roughly one present in four carries it — measured 24% on the Cyberpunk stream. Reproducing
+    /// that here is the whole point: a fixture where every record carries the bit is a fixture in
+    /// which the defect cannot appear.
+    /// </remarks>
+    private static List<FlFrameRecord> RrStream(int appFrames, int k, FlFeatureFlags onBatch,
+        ulong startQpc = 1_000_000)
+    {
+        List<FlFrameRecord> stream = [];
+        ulong qpc = startQpc;
+        long step = Stopwatch.Frequency / 240;
+        for (int f = 0; f < appFrames; f++)
+        {
+            for (int p = 0; p < k; p++)
+            {
+                stream.Add(new FlFrameRecord
+                {
+                    Qpc = qpc,
+                    SwapchainId = 1,
+                    MeasuredMask = (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs | FlMeasured.Upscaler),
+                    Upscaler = (byte)(p == 0 ? FlUpscaler.Dlss : FlUpscaler.Unknown),
+                    FeatureFlags = (byte)(p == 0 ? onBatch : FlFeatureFlags.None),
+                });
+                qpc += (ulong)step;
+            }
+        }
+
+        return stream;
+    }
+
+    private static readonly FlWriterState _identityWriter =
+        new() { HooksInstalledMask = (uint)(FlHookFamily.Present | FlHookFamily.UpscalerIdentity) };
+
+    [Fact]
+    public void RayReconstructionIsANSWEREDOnAFrameGeneratingTitle()
+    {
+        // THE DEFECT THIS PINS. The verdict demanded RayReconstructionObserved on EVERY record while
+        // the writer sets it only on the present that drained a batch — one in four at ×4. So the
+        // condition could not hold at any multiplier above 1, and the answer was decided by the
+        // frame-generation setting rather than by whether Ray Reconstruction ran. Cyberpunk 2077 ran
+        // kFeatureDLSS_RR on 2,523 of 2,523 batches and this reported N/A.
+        var facts = MeasuredFacts.From(
+            RrStream(40, 4, FlFeatureFlags.RayReconstructionObserved | FlFeatureFlags.RayReconstruction),
+            _identityWriter, Stopwatch.Frequency, 0, 0);
+
+        facts.RayReconstruction.Should().Be(Tri.Yes);
+        facts.HonestyViolations.Should().Be(0, "the fixture must be a record set the writer could produce");
+    }
+
+    [Fact]
+    public void BatchesWithNoRayReconstructionAreNoRatherThanNA()
+    {
+        // THE BRANCH THAT WAS UNREACHABLE, and without it the case above passes for a renderer that
+        // answers Yes to everything. A Streamline title running DLSS super-resolution and NOT Ray
+        // Reconstruction produces batches that carry OBSERVED and never the fact bit — which is a
+        // measured negative, and the one thing 03_METRICS' RR row allows to be aggregated as one.
+        MeasuredFacts.From(RrStream(40, 4, FlFeatureFlags.RayReconstructionObserved),
+            _identityWriter, Stopwatch.Frequency, 0, 0)
+            .RayReconstruction.Should().Be(Tri.No);
+    }
+
+    [Fact]
+    public void NoBatchObservedIsNAAndNeverNo()
+    {
+        // The direction that must NOT move. An NGX-direct title running DLSS-RR every frame drains
+        // no Streamline batch at all, so nothing observed it — and `No` there would be a fabricated
+        // negative about a title that is very much running it. The install prefix is the same shape
+        // and now drops out for free rather than forcing the whole session to N/A.
+        MeasuredFacts.From(RrStream(40, 4, FlFeatureFlags.None),
+            _identityWriter, Stopwatch.Frequency, 0, 0)
+            .RayReconstruction.Should().Be(Tri.NotApplicable);
+    }
+
+    [Fact]
+    public void TheINSTALLPrefixDoesNotDecideTheWholeSessionsRayReconstruction()
+    {
+        // Feature hooks install lazily on a 1 Hz watchdog, so the first second of every session
+        // predates them and those records carry no featureFlags at all. Under the old `All` rule a
+        // single such record forced N/A over a session that answered the question 160 times.
+        List<FlFrameRecord> cold = RrStream(10, 4, FlFeatureFlags.None);
+        List<FlFrameRecord> warm = RrStream(40, 4,
+            FlFeatureFlags.RayReconstructionObserved | FlFeatureFlags.RayReconstruction,
+            startQpc: cold[^1].Qpc + 1_000);
+
+        MeasuredFacts.From([.. cold, .. warm], _identityWriter, Stopwatch.Frequency, 0, 0)
+            .RayReconstruction.Should().Be(Tri.Yes);
     }
 
     [Fact]

@@ -14,4 +14,17 @@ namespace FrameLedger.CaptureHost.Capture;
 internal interface ITargetLiveness : IDisposable
 {
     bool HasExited { get; }
+
+    /// <summary>
+    /// Does the target own the foreground window at this instant?
+    /// </summary>
+    /// <remarks>
+    /// Sampled once per drain tick so the report can say when the operator switched away —
+    /// frame generation stops while a title is unfocused, and the resulting window mixes two
+    /// states. <b>False on every tick does NOT mean "unfocused"</b>: a process owning no
+    /// top-level window at all answers false forever, which is exactly what
+    /// <c>hook-harness</c> does. The loop counts the trues and lets the report tell the two
+    /// apart; <c>ForegroundWindowProbe</c> carries the reasoning.
+    /// </remarks>
+    bool IsForeground { get; }
 }
