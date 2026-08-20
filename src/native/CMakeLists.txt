@@ -47,6 +47,15 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(FL_TAGGED_RENDER_W 1280)
 set(FL_TAGGED_RENDER_H 720)
 
+# The ray dispatch extent hook-harness records, and that guard_test asserts the
+# Overlay summed into dispatchRaysVolume. Same rule as the two above: 64*32*1 =
+# 2048 rays per DispatchRays, and neither side may hold its own copy of it -- an
+# assertion that recomputes the fixture's arithmetic from a second literal is a
+# test of nothing.
+set(FL_DXR_DISPATCH_W 64)
+set(FL_DXR_DISPATCH_H 32)
+set(FL_DXR_DISPATCH_D 1)
+
 set(FL_VER_MAJOR ${PROJECT_VERSION_MAJOR})
 set(FL_VER_MINOR ${PROJECT_VERSION_MINOR})
 set(FL_VER_PATCH ${PROJECT_VERSION_PATCH})

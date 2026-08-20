@@ -795,48 +795,88 @@ tier is a property of that binary, and `fl_dxr_probe` prints it on every run.
 called by name through the interface, detour ran, slots restored and the restore
 asserted. 60 consecutive runs of each probe, zero failures.
 
-### 🔴 DIRECT and COMPUTE command lists do NOT share a vtable — and this would have shipped a silent wrong answer
+### 🔴 `Reset()` moves `DispatchRays` into the vendor driver, and the first version of the hook never fired
 
-| Object | vtable |
+**THE FIRST THREE ANSWERS WERE MEASURED ON THE WRONG OBJECT, and two of them were
+wrong because of it.** The probe originally read the vtable off a **freshly
+created** command list and compared vtable ARRAYS. A game's list is Reset every
+frame, and the Overlay patches the FUNCTION a slot points at rather than the slot
+— so both choices measured something no hook depends on. Corrected here rather
+than quietly re-run: the wrong answers are the useful part.
+
+| Question | measured on a **reset** list, comparing **functions** |
 |---|---|
-| two DIRECT lists, one device | **the same** — one patch sees every DIRECT list |
+| two DIRECT lists, one device | **same functions** — one inline patch covers every list. Their vtable ARRAYS differ (per-object after Reset), which is why a *slot* patch would have to be repeated and a *function* patch does not |
 | a command allocator (the control) | different, as it must be |
-| a COMPUTE list | **a DIFFERENT vtable** (`…C7BDA0` against DIRECT's `…C7B820`) |
-| a WARP list vs a hardware list | **the same** |
+| DIRECT vs COMPUTE | **same functions** — slot 72 `D3D12Core.dll` in both, slot 76 `nvwgf2umx.dll` in both. One detour per method covers both list types |
+| a WARP list vs a hardware list | **DIFFERENT** — slot 76 is `nvwgf2umx.dll` on the RTX 5080 and `D3D12Core.dll` on WARP |
+| a fresh list vs a reset list | **DIFFERENT** — slot 76 moves from `D3D12Core.dll` to `nvwgf2umx.dll`; slot 72 stays in `D3D12Core.dll` |
 
-A hook that patched only the DIRECT list's vtable would have **missed every AS
-build and every `DispatchRays` recorded on a compute list** — and asynchronous
-BLAS builds on a compute queue are ordinary practice. `03_METRICS`' `No` branch
-requires the AS-build hook to have been *installed*, and it would have been: the
-mask bit would be set, the evidence absent, and the session would publish a
-confident `Ray Tracing: No` about a title that ray-traces every frame. That is
-the exact failure the `No` branch's three conjuncts exist to prevent, arriving
-from a direction none of them watches.
+**The failure this produced, before the fix.** The Overlay read its targets off an
+unreset throwaway list, so it hooked `D3D12Core.dll`'s `DispatchRays` — a function
+no title on this GPU ever calls, because the first `Reset` hands the method to the
+driver. The hook installed, published `FL_HOOK_RT_DISPATCH`, and never fired. The
+injected fixture caught it exactly: `withAsBuild = 60`, **`withDispatch = 0`**,
+`hooks = RT_DISPATCH | RT_AS_BUILD` — a mask bit with nothing behind it, which is
+the honesty failure the whole entitlement machinery exists to prevent.
 
-**And the second half of the measurement changes what the fix costs.** The two
-vtables are different arrays holding the **same function pointers** — slot 72 is
-`…B97AE0` and slot 76 is `…B9A0B0` in both. So D3D12Core has two classes over one
-implementation: a vtable-entry patch must be applied twice (two acquisitions, one
-detour, no double counting, since one recorded call still passes through one
-slot), while a single inline patch on the shared target would catch both. Item 4
-picks one and says why; what it may not do is patch one vtable and call it done.
+**Why one hook worked and the other did not, which is what made it hard to read.**
+`BuildRaytracingAccelerationStructure` stays in `D3D12Core.dll` across the swap, so
+the AS-build hook fired from the first run. A pair where one half works reads as a
+bug in the other half's *detour*, not in the *acquisition* both share.
 
-**Bundles are not a third case**, and this is a documented API constraint rather
+**The fix is one call**: put the throwaway list through the same lifecycle a game's
+list goes through — `Close()`, `Reset()` — before reading its vtable. `--probe-dxr`
+Q5 now prints the module on each side of the Reset, so a runtime that stops
+swapping, or starts swapping the other slot, says so rather than being discovered
+by a silent zero on a real title.
+
+**And Q4 stops being permissive.** With the correction, a WARP list and a hardware
+list resolve `DispatchRays` to *different* functions, so a throwaway-**device**
+acquisition would silently miss every call on an NVIDIA GPU. The Overlay takes its
+targets off a list created on the **game's own device** — which was already the
+design, for the unrelated reason that this machine lost WARP's D3D12 path to an
+Insider build for a fortnight (§Traps), and now has a second reason that is about
+correctness rather than availability.
+
+**Bundles are not a further case**, and this is a documented API constraint rather
 than something measured here: `D3D12_COMMAND_LIST_TYPE_BUNDLE` does not permit
 `DispatchRays`. Stated as an inherited claim so the next reader knows which of
 these lines came from a run.
 
-**Q4 has a consequence worth stating even though it is permissive.** WARP and
-hardware lists sharing a vtable means a throwaway-device acquisition *would* have
-worked. The Overlay still takes the vtable off a list created on the **game's own
-device**, because this machine's WARP D3D12 path was broken for a fortnight by an
-Insider build (§Traps) — a design that needs no WARP cannot be taken down by one.
+### ✅ Both hooks, proved by injection — 2026-08-20
+
+`ctest fl_guard`, the case *"the injected Overlay records ray-tracing work, and an
+AS-build-only title is not a negative"*. Two harness modes that differ by **one
+recorded call**, sharing their acceleration structure, state object, swapchain and
+loop, so any difference in the record is attributable to that call:
+
+| Mode | records | `FL_MEASURED_RT` | `AsBuildObserved` | `DispatchObserved` | `dispatchRaysVolume` |
+|---|---|---|---|---|---|
+| `--hold-presenting-dxr` | 60 | every one | 60 | ≥ 8 | exact multiple of 64×32×1 |
+| `--hold-presenting-rayquery` | 60 | every one | 60 | **0** | **0** |
+
+The rayquery arm is what makes `03_METRICS:226` falsifiable instead of a sentence:
+a writer with only the `DispatchRays` hook sees **nothing** there, and its silence
+is indistinguishable from a real negative — `rtTier` is 12, the mask bit is set,
+evidence is zero, and the `No` branch fires about a title that ray-traces every
+frame. **It does not run a RayQuery shader**, and does not need to: the claim under
+test is "AS-build catches a title `DispatchRays` misses", and the absence of a
+dispatch is what tests it.
+
+`DispatchRays` also needs a **bound raytracing state object** to be RECORDED at
+all: measured 2026-08-20, it access-violates inside D3D12Core with no state object
+set, with a well-formed shader table and with a zeroed one alike. That is why the
+fixture carries a 1.2 KB DXIL raygen library (`dxr_raygen.hlsl`, compiled by hand
+and checked in with its command line).
 
 ### Still open in §6
 
-- `DispatchRays` counting against a title's own settings menu:
-- `BuildRaytracingAccelerationStructure` on an **inline `RayQuery`** title — the
-  specific regression the old design got wrong:
+- `DispatchRays` counting against a title's own settings menu, on a real title:
+- The same measurements on an **AMD or Intel** GPU. Every vendor-specific result
+  above is one driver's: `nvwgf2umx.dll` takes `DispatchRays` and leaves
+  `BuildRaytracingAccelerationStructure` alone, and nothing says another UMD splits
+  them the same way — or leaves either in `D3D12Core`:
 - Recorded-vs-executed semantics and counter concurrency (§H6):
 
 ## 7 · First real injection *(requires the guard, §1)*

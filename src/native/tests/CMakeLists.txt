@@ -91,6 +91,9 @@ target_compile_definitions(fl_guard_test PRIVATE
     # number under test is how a test starts proving something else.
     FL_TAGGED_RENDER_W=${FL_TAGGED_RENDER_W}
     FL_TAGGED_RENDER_H=${FL_TAGGED_RENDER_H}
+    FL_DXR_DISPATCH_W=${FL_DXR_DISPATCH_W}
+    FL_DXR_DISPATCH_H=${FL_DXR_DISPATCH_H}
+    FL_DXR_DISPATCH_D=${FL_DXR_DISPATCH_D}
     FL_OVERLAY_DLL=L"${FL_STAGED_OVERLAY}"
     # The un-staged original, so a test can prove the check discriminates on
     # DIRECTORY rather than on filename: same bytes, same name, wrong place.

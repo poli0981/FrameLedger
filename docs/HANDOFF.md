@@ -476,25 +476,34 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > Whichever is chosen, say so in `03_METRICS` in the same PR. Do not leave the thresholds
 > reading as though the denominator were settled.
 
-> **THE PRE-FLIGHT IS RUN, 2026-08-20, and it found the defect the hook would have shipped.**
-> `ctest fl_d3d12_vtable_indices` and `ctest fl_dxr_probe` exist and answer four questions
-> `spike-notes` §6 now records in full. The three that change what gets built:
+### ~~4. Ray tracing~~ — BUILT 2026-08-20, and the trap it hit is the one to carry forward
+
+**Do not start here.** `FL_MEASURED_RT` has a producer, `rtFlags` carries real evidence, and the
+tri-state's `Yes` and `No` are both reachable for the first time. Status is in `CHANGELOG.md` and
+`spike-notes` §6. What belongs here is **the trap**, because it generalises past ray tracing:
+
+> **A COMMAND LIST'S vtable IS NOT THE ONE YOU READ OFF A FRESH ONE.** The first `Reset()`
+> replaces it with a **per-object** vtable in which the vendor driver has taken methods over.
+> Measured on an RTX 5080: `DispatchRays` moves from `D3D12Core.dll` into `nvwgf2umx.dll`, while
+> `BuildRaytracingAccelerationStructure` stays put. Every game resets its lists every frame, so
+> the addresses in an unreset list's vtable are ones no title ever calls for the moved methods.
 >
-> - **DIRECT and COMPUTE command lists do NOT share a vtable.** A hook patching only the DIRECT
->   one misses every AS build and every `DispatchRays` recorded on a compute list — and async
->   BLAS builds on a compute queue are ordinary. The mask bit would still be set, so the session
->   would publish a confident `Ray Tracing: No` about a title that ray-traces every frame. **Patch
->   both, or state in the PR why one is enough.** The two vtables hold the *same function
->   pointers*, so a single inline patch is the alternative; pick one deliberately.
-> - **WARP reports `RaytracingTier` 12 here**, so a DXR fixture is not condemned to a GPU box —
->   item 4's "check first whether WARP supports DXR" is answered for this machine. CI still
->   answers for its own `d3d10warp.dll`, and `fl_dxr_probe` prints the tier every run.
-> - **A WARP list and a hardware list DO share a vtable**, so a throwaway-device acquisition would
->   have worked. Take it off the game's own device anyway: this machine lost WARP's D3D12 path to
->   an Insider build for a fortnight, and a design that needs no WARP cannot be taken down by one.
+> **The first version of the hook did exactly that.** It installed, published
+> `FL_HOOK_RT_DISPATCH`, and never fired — `withDispatch = 0` beside `hooks = RT_DISPATCH |
+> RT_AS_BUILD`, a mask bit with nothing behind it. And because the OTHER hook worked, it read as
+> a bug in the dispatch detour rather than in the acquisition they share.
 >
-> Slot 72 is `BuildRaytracingAccelerationStructure` and slot 76 is `DispatchRays`, proved by
-> behaviour on **both** list types rather than by the COM ABI's say-so.
+> **The rule: put a throwaway object through the same lifecycle the game's objects go through,
+> or it is not a sample of them.** §H5 says the same thing about swapchains one layer up. The
+> fix was one call; finding it took an injected fixture, because no probe that reads a fresh
+> object can see it.
+>
+> **And every vendor-specific result here is ONE DRIVER'S.** Nothing says an AMD or Intel UMD
+> splits the two methods the same way, or leaves either in `D3D12Core`. `--probe-dxr` Q5 prints
+> the module on each side of the Reset so the next machine answers for itself.
+
+<details>
+<summary>The original entry, kept for the reasoning it carries</summary>
 
 ### 4. Ray tracing — §S29(f) is ruled, and the cheapest conjunct has landed
 
@@ -516,9 +525,6 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > published an affirmative negative by simply copying the vendor value. **Assume the next
 > vendor enum has the same shape**, and resolve it at the writer, where the two states are
 > still distinguishable.
-
-<details>
-<summary>The original entry, kept for the reasoning it carries</summary>
 
 ### 4. Ray tracing, including the path dispatch counting misses
 

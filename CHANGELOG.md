@@ -19,6 +19,67 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **Ray tracing has a producer, and the RT tri-state's `Yes` and `No` are reachable for the
+  first time.** `ID3D12GraphicsCommandList4::DispatchRays` and
+  `::BuildRaytracingAccelerationStructure` are detoured, `rtFlags` and `dispatchRaysVolume`
+  are drained per present with `exchange(0)` beside `g_slSeen`'s, and `FL_MEASURED_RT` is set
+  whenever either family is live. `rtTier` and `hooksInstalledMask` already had producers, so
+  all three conjuncts of `03_METRICS`' `No` branch are now live. §S29(f) is closed on both of
+  its halves, and CLAUDE.md rule 7 is amended per the 2026-08-14 owner ruling: `N/A` applies to
+  *naming the technique as RayQuery*, not to whether rays are being traced.
+
+  **Both hooks, because one of them alone is a trap.** A writer with only `DispatchRays` sees
+  nothing on an inline-RayQuery title, and its silence is indistinguishable from a real
+  negative. The injected fixture pair makes that falsifiable rather than a sentence in a
+  document: two harness modes differing by **one recorded call**, sharing their acceleration
+  structure, state object, swapchain and loop — `--hold-presenting-dxr` yields dispatch
+  evidence and an exact multiple of the fixture's own 64×32×1 volume, `--hold-presenting-rayquery`
+  yields AS-build evidence and **zero** dispatch evidence.
+
+- **`fl_rt_accum.h`** — the dispatch-volume arithmetic in a header, with its identities as
+  `static_assert`s and its behaviour in `ctest fl_dxr_inputs`, the same split `fl_sl_seen.h`
+  uses. **The assertions found a real wrap bug before it ever ran**: `AddedTo(cur, add)` with
+  `add` near `UINT64_MAX` — which the saturating product returns for a hostile descriptor —
+  overflowed the 64-bit sum and wrapped to a small number that passed the ceiling check. They
+  also corrected the justification written above them: two `uint32`s multiply *within* a
+  `uint64`, and it is the third dimension that overflows.
+
+### Fixed
+
+- **The ray-tracing hook installed, published its family bit, and never fired — and the reason
+  generalises past ray tracing.** A command list's first `Reset()` replaces its class vtable
+  with a **per-object** one in which the vendor driver has taken methods over: measured on an
+  RTX 5080, `DispatchRays` moves from `D3D12Core.dll` into `nvwgf2umx.dll` while
+  `BuildRaytracingAccelerationStructure` stays put. Every game resets its lists every frame, so
+  the addresses in an unreset throwaway's vtable are ones no title ever calls for the moved
+  methods. The injected fixture caught it exactly — `withDispatch = 0` beside
+  `hooks = RT_DISPATCH | RT_AS_BUILD`, a mask bit with nothing behind it — and because the
+  *other* hook worked it read as a bug in the dispatch detour rather than in the acquisition
+  they share. **The rule: put a throwaway object through the same lifecycle the game's objects
+  go through, or it is not a sample of them.** The fix is one call.
+
+- **Two of #86's five pre-flight answers were wrong, and this corrects them.** That probe read
+  vtables off **freshly created** lists and compared vtable ARRAYS — neither of which is what a
+  hook depends on, since a game's list is Reset and the Overlay patches the FUNCTION a slot
+  points at. Corrected, measuring reset lists and comparing functions: **Q3** is now *DIRECT and
+  COMPUTE resolve to the SAME functions*, so one detour per method covers both list types
+  (#86 said they did not share and the hook must patch two vtables); **Q4** is now *a WARP list
+  and a hardware list resolve to DIFFERENT functions*, so a throwaway-device acquisition would
+  silently miss every call (#86 said they shared and one would have worked). A new Q5 prints the
+  module on each side of the `Reset` so the next machine answers for itself rather than
+  inheriting one driver's behaviour.
+
+- **`IsHonest` did not cover `dispatchRaysVolume`**, on either side of the mirror. A volume set
+  with `FL_MEASURED_RT` clear is a writer contradicting itself and is the shape a drain that
+  cleared one word and not the other would produce; 0 is a real measurement, so only the mask
+  bit can tell the two apart. Added to `MeasuredFacts.IsHonest` and to its native twin.
+
+- **The Overlay's "NOT SET, deliberately" list had gone stale three entries deep**, in a comment
+  block whose whole subject is which measurements have no producer. It still described
+  `FL_MEASURED_UPSCALER_PARAMS` as having "no source in this writer" after `Hook_SlSetTag` gave
+  it one. Rewritten to what is actually absent — PSO, VRAM, latency, HDR — with the staleness
+  itself recorded.
+
 - **HANDOFF item 4's pre-flight, run before a single ray-tracing hook was written — and it found
   the defect the hook would have shipped.** `fl_d3d12_vtable.h` records the two
   `ID3D12GraphicsCommandList4` slots (72 `BuildRaytracingAccelerationStructure`, 76

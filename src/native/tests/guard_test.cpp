@@ -1231,7 +1231,11 @@ bool IsHonest(const fl::FlFrameRecord& r, uint16_t entitled) noexcept {
     if ((entitled & fl::FL_MEASURED_UPSCALER) == 0u && r.featureFlags != 0u) {
         return false;
     }
-    return (r.measuredMask & fl::FL_MEASURED_RT) != 0u || r.rtFlags == 0u;
+    // BOTH RT FIELDS, not just the flags. dispatchRaysVolume has no in-band sentinel --
+    // 0 is a real measurement of a frame that recorded no dispatch -- so only the mask
+    // bit can say whether anyone looked, exactly as with fgEvaluations. Kept in step
+    // with the managed twin in MeasuredFacts.IsHonest, which nothing gates.
+    return (r.measuredMask & fl::FL_MEASURED_RT) != 0u || (r.rtFlags == 0u && r.dispatchRaysVolume == 0u);
 }
 
 }    // namespace
@@ -3193,4 +3197,185 @@ TEST_CASE("frame-generation evaluations are COUNTED, and the count tracks the fi
         CAPTURE(obs.withLocalTagExtent);
         CHECK(obs.withLocalTagExtent >= 8u);
     }
+}
+
+namespace {
+
+struct RtObservation {
+    std::size_t   drained = 0;
+    std::size_t   withAsBuild = 0;
+    std::size_t   withDispatch = 0;
+    std::uint64_t volume = 0;
+    std::uint32_t hooks = 0;
+    std::uint32_t faults = 0;
+    std::uint32_t rtTier = 0;
+    bool          everyRecordClaimsRt = true;
+    bool          volumeOnlyWithDispatchBit = true;
+};
+
+// Inject into a target that RECORDS ray-tracing work, and drain a post-install
+// window.
+//
+// ONE HELPER, TWO MODES, for the reason ObserveFg gives: two hand-written cases
+// let one of them acquire a tolerance the other does not have, and the pair stops
+// discriminating the moment they differ. The modes differ by exactly one recorded
+// call -- the fixture shares its acceleration structure, its state object, its
+// swapchain and its loop -- so a difference in the record is attributable to that
+// call and to nothing else.
+bool ObserveRt(const wchar_t* mode, RtObservation& out) {
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --present-interval-ms 4 " + mode + L" 14";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    if (!CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                        &child.pi)) {
+        return false;
+    }
+    Sleep(800);
+    if (WaitForSingleObject(child.pi.hProcess, 0) != WAIT_TIMEOUT) {
+        return false;
+    }
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    if (!GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed()) {
+        return false;
+    }
+
+    wchar_t name[128]{};
+    if (_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) <= 0) {
+        return false;
+    }
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    if (mapping == nullptr) {
+        return false;
+    }
+    const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    if (base == nullptr) {
+        CloseHandle(mapping);
+        return false;
+    }
+
+    const auto* st =
+        reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+
+    // POLLED, never read once. The RT hooks install on a WATCHDOG tick, and the
+    // watchdog cannot install them until a D3D12 swapchain has presented at least
+    // once -- that is when ResolveApi first reaches the device. So READY does not
+    // imply these hooks exist, and a single read would race the mechanism under
+    // test (HANDOFF section Traps).
+    bool ok =
+        st->status == fl::FL_STATUS_READY && WaitForHookFamily(st, static_cast<uint32_t>(fl::FL_HOOK_RT_AS_BUILD));
+    if (ok) {
+        fl::RingReader rd;
+        ok = rd.Init(base, FL_SHM_DEFAULT_CAPACITY);
+        if (ok) {
+            DiscardBacklog(rd);
+            const std::vector<fl::FlFrameRecord> all = DrainAtLeast(rd, 60, 9000);
+            out.drained = all.size();
+            for (const auto& r : all) {
+                if ((r.measuredMask & fl::FL_MEASURED_RT) == 0u) {
+                    out.everyRecordClaimsRt = false;
+                }
+                if ((r.rtFlags & fl::FL_RT_AS_BUILD_OBSERVED) != 0u) {
+                    ++out.withAsBuild;
+                }
+                if ((r.rtFlags & fl::FL_RT_DISPATCH_OBSERVED) != 0u) {
+                    ++out.withDispatch;
+                } else if (r.dispatchRaysVolume != 0u) {
+                    // A volume with no dispatch bit is the writer contradicting
+                    // itself, and it is the shape a drain that cleared one word and
+                    // not the other would produce.
+                    out.volumeOnlyWithDispatchBit = false;
+                }
+                out.volume += r.dispatchRaysVolume;
+            }
+        }
+    }
+    out.hooks = st->hooksInstalledMask;
+    out.faults = st->faultCount;
+    out.rtTier = st->rtTier;
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+    return ok;
+}
+
+}    // namespace
+
+TEST_CASE("the injected Overlay records ray-tracing work, and an AS-build-only title is not a negative",
+          "[guard][inject][shm][rt]") {
+    // TWO FIXTURES, ONE EXPRESSION, and the SECOND one is what makes 03_METRICS:226
+    // falsifiable rather than a sentence in a document.
+    //
+    // The rayquery arm records acceleration-structure builds and never dispatches --
+    // the observable signature of an inline-RayQuery title. A writer with only the
+    // DispatchRays hook sees NOTHING there, and its silence is indistinguishable
+    // from a real negative: rtTier is at or above CAPABLE_MIN, the mask bit is set,
+    // evidence is zero, and 03_METRICS' No branch fires about a title that
+    // ray-traces every frame. Only the AS-build hook separates the two, and only
+    // this pair proves that it does.
+    //
+    // It does NOT run a RayQuery shader, and saying so matters: no shader is
+    // compiled and none is needed, because the claim under test is "AS-build catches
+    // a title DispatchRays misses" and the ABSENCE of a dispatch is what tests it.
+
+    RtObservation dxr;
+    REQUIRE(ObserveRt(L"--hold-presenting-dxr", dxr));
+
+    CAPTURE(dxr.drained, dxr.withAsBuild, dxr.withDispatch, dxr.volume, dxr.hooks, dxr.rtTier);
+
+    CHECK(dxr.faults == 0u);
+    CHECK(dxr.rtTier >= static_cast<std::uint32_t>(fl::FL_RT_TIER_CAPABLE_MIN));
+
+    // BOTH FAMILIES, separately. 03_METRICS' No branch reads RtAsBuild
+    // specifically, so a compound bit would let a DispatchRays-only writer satisfy
+    // the conjunct the whole branch rests on.
+    CHECK((dxr.hooks & static_cast<std::uint32_t>(fl::FL_HOOK_RT_DISPATCH)) != 0u);
+    CHECK((dxr.hooks & static_cast<std::uint32_t>(fl::FL_HOOK_RT_AS_BUILD)) != 0u);
+
+    // EVERY record claims it, including the ones that saw nothing. A writer that set
+    // the bit only on RT-active presents would leave a consumer computing
+    // rt_frame_pct over a population of exactly the frames that had evidence, i.e.
+    // 100% on every title.
+    CHECK(dxr.everyRecordClaimsRt);
+    CHECK(dxr.withAsBuild >= 8u);
+    CHECK(dxr.withDispatch >= 8u);
+    CHECK(dxr.volumeOnlyWithDispatchBit);
+
+    // THE FIXTURE'S OWN ARITHMETIC, from the shared CMake constants rather than a
+    // second copy of the numbers. One dispatch of W*H*D rays per recorded frame, so
+    // the total must be an exact multiple of it -- a writer that summed something
+    // else, or that dropped the depth, lands off the lattice.
+    const std::uint64_t perDispatch =
+        static_cast<std::uint64_t>(FL_DXR_DISPATCH_W) * FL_DXR_DISPATCH_H * FL_DXR_DISPATCH_D;
+    CHECK(perDispatch == 2048u);
+    CHECK(dxr.volume >= perDispatch * dxr.withDispatch);
+    CHECK(dxr.volume % perDispatch == 0u);
+
+    RtObservation rayquery;
+    REQUIRE(ObserveRt(L"--hold-presenting-rayquery", rayquery));
+
+    CAPTURE(rayquery.drained, rayquery.withAsBuild, rayquery.withDispatch, rayquery.volume);
+
+    CHECK(rayquery.faults == 0u);
+    CHECK(rayquery.everyRecordClaimsRt);
+    CHECK(rayquery.withAsBuild >= 8u);
+
+    // THE DISCRIMINATING ASSERTION. Same fixture, same device, same loop, one call
+    // removed -- and the evidence the AS-build hook produces survives while the
+    // dispatch evidence is gone entirely. Without this the case above passes for a
+    // writer that sets both bits from either detour.
+    CHECK(rayquery.withDispatch == 0u);
+    CHECK(rayquery.volume == 0u);
 }

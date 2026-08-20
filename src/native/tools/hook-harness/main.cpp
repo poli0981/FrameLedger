@@ -69,9 +69,11 @@
 #include <cstring>
 #include <vector>
 
+#include "dxr_raygen_dxil.h"
 #include "fl_d3d12_vtable.h"
 #include "fl_dxgi_vtable.h"
 #include "fl_hook_inventory.h"
+#include "fl_rt_accum.h"
 #include "fl_sl_inputs.h"
 #include "fl_sl_seen.h"
 #include "proxy_swapchain.h"
@@ -724,6 +726,25 @@ void STDMETHODCALLTYPE StubBuildAs(ID3D12GraphicsCommandList4*,
     g_asBuildHits.fetch_add(1, std::memory_order_relaxed);
 }
 
+void ReleaseIf(IUnknown* p) {
+    if (p != nullptr) {
+        p->Release();
+    }
+}
+
+// Which module a code address belongs to. An address alone says where, not whose.
+const wchar_t* ModuleOf(void* addr) {
+    static wchar_t path[MAX_PATH]{};
+    HMODULE        mod = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(addr), &mod) ||
+        GetModuleFileNameW(mod, path, MAX_PATH) == 0) {
+        return L"<not in a module>";
+    }
+    const wchar_t* slash = wcsrchr(path, L'\\');
+    return slash != nullptr ? slash + 1 : path;
+}
+
 struct ListBits {
     ID3D12CommandAllocator*     alloc = nullptr;
     ID3D12GraphicsCommandList*  list = nullptr;
@@ -751,7 +772,7 @@ struct ListBits {
 // RUNTIME interface (Windows 10 1809+), not a device capability, so it succeeds on
 // an adapter with no ray-tracing support at all -- which is why the slot probe and
 // the capability probe are separate questions.
-bool MakeList(ID3D12Device* dev, D3D12_COMMAND_LIST_TYPE type, ListBits& out) {
+bool MakeList(ID3D12Device* dev, D3D12_COMMAND_LIST_TYPE type, ListBits& out, bool reset = true) {
     if (FAILED(dev->CreateCommandAllocator(type, __uuidof(ID3D12CommandAllocator),
                                            reinterpret_cast<void**>(&out.alloc)))) {
         return false;
@@ -760,8 +781,17 @@ bool MakeList(ID3D12Device* dev, D3D12_COMMAND_LIST_TYPE type, ListBits& out) {
                                       reinterpret_cast<void**>(&out.list)))) {
         return false;
     }
-    return SUCCEEDED(
-        out.list->QueryInterface(__uuidof(ID3D12GraphicsCommandList4), reinterpret_cast<void**>(&out.list4)));
+    if (FAILED(out.list->QueryInterface(__uuidof(ID3D12GraphicsCommandList4), reinterpret_cast<void**>(&out.list4)))) {
+        return false;
+    }
+    // RESET BY DEFAULT, because that is the state a GAME'S command list is in and
+    // the vtable is NOT the same one -- see Q5. A probe that reads an unreset list
+    // measures a vtable no title records through.
+    if (!reset) {
+        return true;
+    }
+    return SUCCEEDED(out.list4->Close()) && SUCCEEDED(out.alloc->Reset()) &&
+           SUCCEEDED(out.list4->Reset(out.alloc, nullptr));
 }
 
 // A device on `adapter` (null = the default adapter), with its raytracing tier.
@@ -958,14 +988,20 @@ bool ProbeD3D12VtableIndices() {
     return ok;
 }
 
-// Q4: does a command list from one KIND of adapter share a vtable with one from
-// the other? It is the question that decides whether the Overlay could take the
-// vtable off a throwaway device instead of the game's own.
-//
-// The answer does not change the design either way -- 17_HOOK_ENGINE takes it off
-// a list created on the GAME'S device, which needs no cross-device promise at all.
-// What it changes is how much that decision was buying, and whether a future
-// shortcut is available or forbidden.
+// The two functions a ray-tracing hook has to reach, off one list.
+struct RtTargets {
+    void* build = nullptr;
+    void* dispatch = nullptr;
+};
+
+RtTargets TargetsOf(const ListBits& bits) {
+    void* const* v = *reinterpret_cast<void* const* const*>(bits.list4);
+    return {v[kBuildRaytracingAccelerationStructureIndex], v[kDispatchRaysIndex]};
+}
+
+// Q4: does a command list from one KIND of adapter resolve to the same FUNCTIONS
+// as one from the other? It decides whether the Overlay could take its targets off
+// a throwaway device instead of the game's own.
 void ProbeDxrCrossDevice(bool chosenIsWarp, const ListBits& chosenList) {
     IDXGIFactory4* factory = nullptr;
     if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory4), reinterpret_cast<void**>(&factory)))) {
@@ -1004,10 +1040,14 @@ void ProbeDxrCrossDevice(bool chosenIsWarp, const ListBits& chosenList) {
 
     ListBits otherList{};
     if (MakeList(other, D3D12_COMMAND_LIST_TYPE_DIRECT, otherList)) {
-        const bool same = VtableOf(chosenList.list4) == VtableOf(otherList.list4);
-        std::printf("  Q4 %s: lists from a %s device and a %s device %s a vtable\n", same ? "SHARED" : "SEPARATE",
+        const RtTargets mine = TargetsOf(chosenList);
+        const RtTargets theirs = TargetsOf(otherList);
+        const bool      same = mine.build == theirs.build && mine.dispatch == theirs.dispatch;
+        std::printf("  Q4 %s: a %s device and a %s device resolve to %s functions\n", same ? "SHARED" : "SEPARATE",
                     chosenIsWarp ? "WARP" : "hardware", chosenIsWarp ? "hardware" : "WARP",
-                    same ? "SHARE" : "do NOT share");
+                    same ? "the SAME" : "DIFFERENT");
+        std::printf("      slot 72 %ls / %ls, slot 76 %ls / %ls\n", ModuleOf(mine.build), ModuleOf(theirs.build),
+                    ModuleOf(mine.dispatch), ModuleOf(theirs.dispatch));
         std::printf("      A throwaway-device acquisition would therefore %s.\n",
                     same ? "have worked" : "SILENTLY MISS EVERY CALL — which is why the shipped hook does not use one");
     } else {
@@ -1015,6 +1055,54 @@ void ProbeDxrCrossDevice(bool chosenIsWarp, const ListBits& chosenList) {
     }
     otherList.Release();
     other->Release();
+}
+
+// Q5: does Reset() change which code the ray-tracing slots point at?
+//
+// THIS QUESTION COST THE MOST AND WAS NOT ON THE ORIGINAL LIST. The first version
+// of the Overlay's installer read its vtable off a freshly created throwaway list,
+// which is what every "create a dummy object, read the vtable" recipe says to do.
+// The hook installed, published its family bit, and NEVER FIRED -- the injected
+// fixture recorded `withDispatch = 0` beside `hooks = RT_DISPATCH | RT_AS_BUILD`,
+// a mask bit with nothing behind it, which is the exact honesty failure the whole
+// entitlement machinery exists to prevent.
+//
+// The reason, measured on an RTX 5080: the FIRST Reset swaps a command list's
+// class vtable for a PER-OBJECT one in which the vendor driver has taken methods
+// over. DispatchRays moves from D3D12Core.dll into nvwgf2umx.dll;
+// BuildRaytracingAccelerationStructure stays where it was, which is why one hook
+// worked and the other did not, and why the failure looked like a bug in the
+// dispatch detour rather than in the acquisition.
+//
+// Every game resets its command lists every frame. So the fix is one call -- put
+// the throwaway through the same lifecycle -- and this probe is what keeps it
+// honest: it prints the module on each side of the Reset, so a runtime that stops
+// swapping, or starts swapping the other slot, says so instead of being discovered
+// by a silent zero on a real title.
+void ProbeDxrResetSwap(ID3D12Device* dev) {
+    ListBits fresh{};
+    ListBits reset{};
+    if (!MakeList(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, fresh, false) ||
+        !MakeList(dev, D3D12_COMMAND_LIST_TYPE_DIRECT, reset, true)) {
+        std::printf("  Q5 UNANSWERED: could not build both a fresh and a reset command list.\n");
+        fresh.Release();
+        reset.Release();
+        return;
+    }
+
+    void* const* freshVtbl = *reinterpret_cast<void* const* const*>(fresh.list4);
+    void* const* resetVtbl = *reinterpret_cast<void* const* const*>(reset.list4);
+    std::printf("  Q5 %s: Reset() %s the vtable\n", freshVtbl == resetVtbl ? "NO" : "YES",
+                freshVtbl == resetVtbl ? "leaves" : "REPLACES");
+    std::printf("      slot 72 fresh=%ls reset=%ls\n", ModuleOf(freshVtbl[kBuildRaytracingAccelerationStructureIndex]),
+                ModuleOf(resetVtbl[kBuildRaytracingAccelerationStructureIndex]));
+    std::printf("      slot 76 fresh=%ls reset=%ls\n", ModuleOf(freshVtbl[kDispatchRaysIndex]),
+                ModuleOf(resetVtbl[kDispatchRaysIndex]));
+    std::printf("      The Overlay reads its targets off a RESET list. A hook taken from the fresh\n");
+    std::printf("      column is live, publishes its family, and never fires on a real title.\n");
+
+    fresh.Release();
+    reset.Release();
 }
 
 // The four questions item 4 must not guess at.
@@ -1061,24 +1149,37 @@ bool ProbeDxr() {
     const bool madeCompute = MakeList(dev, D3D12_COMMAND_LIST_TYPE_COMPUTE, compute);
 
     if (madeA && madeB) {
-        const bool shared = VtableOf(a.list4) == VtableOf(b.list4);
-        Check(shared, "Q2: two DIRECT lists from ONE device share a vtable — one patch sees every list");
+        // FUNCTIONS, NOT VTABLE POINTERS, and the difference is the entire finding.
+        // After Reset every list has its OWN vtable array, so comparing the arrays
+        // answers "would a slot patch cover both" -- which is not what the Overlay
+        // does. It MinHooks the function the slot points AT, so what decides whether
+        // one patch covers every list is whether the ADDRESSES agree.
+        const RtTargets ta = TargetsOf(a);
+        const RtTargets tb = TargetsOf(b);
+        Check(ta.build == tb.build && ta.dispatch == tb.dispatch,
+              "Q2: two DIRECT lists resolve both slots to the SAME functions — one inline patch covers every list");
         // THE CONTROL, and without it Q2 is satisfied by a machine on which every
-        // COM object happens to sit at the same address. A different interface on
-        // the same device must NOT share, exactly as fl_vtable_identity_control
-        // asserts for DXGI.
+        // address happens to coincide. A different interface must not share, exactly
+        // as fl_vtable_identity_control asserts for DXGI.
         Check(VtableOf(a.alloc) != VtableOf(a.list4),
               "Q2 control: a command ALLOCATOR does not share the command list's vtable");
+        std::printf("      per-object vtables: %s — a SLOT patch would have to be repeated per list, which is\n",
+                    VtableOf(a.list4) == VtableOf(b.list4) ? "no" : "YES");
+        std::printf("      why the Overlay patches the function and not the slot.\n");
     } else {
         Check(false, "Q2: two DIRECT command lists");
     }
 
     if (madeA && madeCompute) {
-        const bool same = VtableOf(a.list4) == VtableOf(compute.list4);
-        std::printf("  Q3 %s: DIRECT and COMPUTE lists %s a vtable\n", same ? "ONE" : "TWO",
-                    same ? "SHARE" : "do NOT share");
-        std::printf("      Consequence for item 4: the hook patches %s.\n",
-                    same ? "one vtable" : "TWO vtables, or it misses every AS build recorded on a compute list");
+        const RtTargets ta = TargetsOf(a);
+        const RtTargets tc = TargetsOf(compute);
+        const bool      same = ta.build == tc.build && ta.dispatch == tc.dispatch;
+        std::printf("  Q3 %s: DIRECT and COMPUTE lists resolve to %s functions\n", same ? "ONE" : "TWO",
+                    same ? "the SAME" : "DIFFERENT");
+        std::printf("      slot 72 %ls / %ls, slot 76 %ls / %ls\n", ModuleOf(ta.build), ModuleOf(tc.build),
+                    ModuleOf(ta.dispatch), ModuleOf(tc.dispatch));
+        std::printf("      Consequence: one detour per method %s.\n",
+                    same ? "covers both list types" : "CANNOT serve both — the installer refuses rather than guessing");
     } else {
         std::printf("  Q3 UNANSWERED: could not create both a DIRECT and a COMPUTE list.\n");
     }
@@ -1089,11 +1190,388 @@ bool ProbeDxr() {
         std::printf("  Q4 UNANSWERED: no command list on the chosen device to compare.\n");
     }
 
+    ProbeDxrResetSwap(dev);
+
     a.Release();
     b.Release();
     compute.Release();
     dev->Release();
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// The dispatch-volume arithmetic, against the shapes a caller can actually send.
+//
+// A UNIT PROBE rather than an injected case, exactly as --probe-sl-inputs is: the
+// hazard is a wrapped product, not a crash, and a game fixture could only
+// approximate these extents. Here they are exact and cost microseconds.
+//
+// The header's static_asserts already pin the identities in every TU that
+// includes it, so this deliberately does NOT re-check them -- a runtime loop
+// re-proving a constant expression is a gate that cannot fail. What it covers is
+// the part that is behaviour: that the ACCUMULATION saturates rather than wrapping
+// across a sequence of adds, which is the shape a long capture produces and no
+// single expression states.
+// ---------------------------------------------------------------------------
+bool ProbeDxrInputs() {
+    std::printf("\n[dxr-inputs] dispatchRaysVolume against malformed and extreme extents\n");
+
+    // The fixture's own dispatch, accumulated the way a session accumulates it.
+    uint32_t acc = 0;
+    for (int i = 0; i < 1000; ++i) {
+        acc = fl::rtaccum::AddedTo(acc, fl::rtaccum::VolumeOf(FL_DXR_DISPATCH_W, FL_DXR_DISPATCH_H, FL_DXR_DISPATCH_D));
+    }
+    Check(acc == 1000u * FL_DXR_DISPATCH_W * FL_DXR_DISPATCH_H * FL_DXR_DISPATCH_D,
+          "1000 fixture dispatches accumulate exactly, with no rounding and no drift");
+
+    // A 4K primary-ray dispatch is 8,294,400 rays, so 518 of them overflow a
+    // uint32. THE SEQUENCE IS WHAT MATTERS: each add is individually fine and the
+    // total is not, which is precisely the case a per-add check would miss.
+    uint32_t big = 0;
+    for (int i = 0; i < 4096; ++i) {
+        big = fl::rtaccum::AddedTo(big, fl::rtaccum::VolumeOf(3840u, 2160u, 1u));
+    }
+    Check(big == fl::rtaccum::kVolumeMax, "4096 4K dispatches SATURATE rather than wrapping to a small number");
+
+    // And the direction is one-way: once at the ceiling nothing brings it down.
+    Check(fl::rtaccum::AddedTo(big, fl::rtaccum::VolumeOf(3840u, 2160u, 1u)) == fl::rtaccum::kVolumeMax,
+          "a saturated accumulator stays saturated — a wrap would read LOW, and this value is a NUMERATOR");
+
+    // A hostile descriptor. Not reachable from D3D12's own validation, which is why
+    // it is here: the detour reads these three fields before anything else does.
+    Check(fl::rtaccum::VolumeOf(0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu) == UINT64_MAX,
+          "three UINT_MAX dimensions saturate the 64-bit product instead of wrapping into a plausible number");
+    Check(fl::rtaccum::AddedTo(0u, fl::rtaccum::VolumeOf(0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu)) ==
+              fl::rtaccum::kVolumeMax,
+          "and clamping that into the record's 32 bits lands on the ceiling, not on its low word");
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// The DXR hold modes: a D3D12 target that RECORDS ray-tracing work every frame,
+// so an injected Overlay's RT detours have something to see.
+//
+// TWO MODES, AND THE SECOND ONE IS THE POINT. --hold-presenting-dxr records an
+// acceleration-structure build AND a DispatchRays; --hold-presenting-rayquery
+// records the build and NEVER dispatches. 03_METRICS:226 says a writer with only
+// the DispatchRays hook sees nothing on an inline-RayQuery title and its silence
+// is indistinguishable from a real negative -- and the rayquery mode is what makes
+// that claim falsifiable rather than a sentence in a document.
+//
+// WHAT THE RAYQUERY MODE IS AND IS NOT. It reproduces the OBSERVABLE SIGNATURE of
+// a RayQuery-only title -- acceleration structures built, no DispatchRays ever --
+// and it does not run a RayQuery shader. No shader is compiled and none is needed:
+// the claim under test is "AS-build catches a title DispatchRays misses", and the
+// absence of a dispatch is exactly what tests it. Said out loud because a fixture
+// named `rayquery` that traces no ray would otherwise read as more than it is.
+//
+// NOTHING IS EVER EXECUTED. The command list is recorded and closed, and
+// ExecuteCommandLists is never called, so no work reaches the GPU. What the hooks
+// count is RECORDED work (§H6), which is what the record's unit says.
+// ---------------------------------------------------------------------------
+
+ID3D12Resource* MakeBuffer(ID3D12Device* dev, UINT64 bytes, D3D12_HEAP_TYPE heap, D3D12_RESOURCE_STATES state,
+                           D3D12_RESOURCE_FLAGS flags) {
+    D3D12_HEAP_PROPERTIES hp{};
+    hp.Type = heap;
+    D3D12_RESOURCE_DESC rd{};
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    rd.Width = bytes;
+    rd.Height = 1;
+    rd.DepthOrArraySize = 1;
+    rd.MipLevels = 1;
+    rd.Format = DXGI_FORMAT_UNKNOWN;
+    rd.SampleDesc.Count = 1;
+    rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    rd.Flags = flags;
+    ID3D12Resource* res = nullptr;
+    if (FAILED(dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, state, nullptr, __uuidof(ID3D12Resource),
+                                            reinterpret_cast<void**>(&res)))) {
+        return nullptr;
+    }
+    return res;
+}
+
+struct DxrFixture {
+    ID3D12Device5*              device5 = nullptr;
+    ID3D12CommandAllocator*     alloc = nullptr;
+    ID3D12GraphicsCommandList*  list = nullptr;
+    ID3D12GraphicsCommandList4* list4 = nullptr;
+    ID3D12Resource*             vertices = nullptr;
+    ID3D12Resource*             scratch = nullptr;
+    ID3D12Resource*             result = nullptr;
+    ID3D12RootSignature*        globalRoot = nullptr;
+    ID3D12StateObject*          state = nullptr;
+    ID3D12Resource*             shaderTable = nullptr;
+
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build{};
+    D3D12_RAYTRACING_GEOMETRY_DESC                     geometry{};
+
+    void Release() {
+        ReleaseIf(list4);
+        ReleaseIf(list);
+        ReleaseIf(alloc);
+        ReleaseIf(shaderTable);
+        ReleaseIf(state);
+        ReleaseIf(globalRoot);
+        ReleaseIf(result);
+        ReleaseIf(scratch);
+        ReleaseIf(vertices);
+        ReleaseIf(device5);
+    }
+};
+
+// An EMPTY global root signature. The raygen shader binds nothing, and a
+// raytracing state object still needs one.
+ID3D12RootSignature* MakeEmptyRootSignature(ID3D12Device* dev) {
+    D3D12_ROOT_SIGNATURE_DESC rs{};
+    rs.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    ID3DBlob*     blob = nullptr;
+    ID3DBlob*     err = nullptr;
+    const HRESULT hr = D3D12SerializeRootSignature(&rs, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &err);
+    ReleaseIf(err);
+    if (FAILED(hr) || blob == nullptr) {
+        ReleaseIf(blob);
+        return nullptr;
+    }
+    ID3D12RootSignature* sig = nullptr;
+    dev->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), __uuidof(ID3D12RootSignature),
+                             reinterpret_cast<void**>(&sig));
+    blob->Release();
+    return sig;
+}
+
+// The smallest raytracing pipeline that DispatchRays will record against.
+//
+// MEASURED, NOT PRECAUTIONARY. Without a bound state object DispatchRays
+// access-violates at RECORD time -- with a well-formed shader table and with a
+// zeroed one alike, so it is the state object the runtime dereferences and not the
+// descriptor. That is why this fixture carries a DXIL library at all.
+ID3D12StateObject* MakeRtStateObject(ID3D12Device5* dev5, ID3D12RootSignature* globalRoot) {
+    D3D12_EXPORT_DESC exported{};
+    exported.Name = L"RayGen";
+
+    D3D12_DXIL_LIBRARY_DESC lib{};
+    lib.DXILLibrary.pShaderBytecode = fl::harness::kDxrRayGenDxil;
+    lib.DXILLibrary.BytecodeLength = sizeof(fl::harness::kDxrRayGenDxil);
+    lib.NumExports = 1;
+    lib.pExports = &exported;
+
+    D3D12_RAYTRACING_SHADER_CONFIG shaderConfig{};
+    shaderConfig.MaxPayloadSizeInBytes = 4;
+    shaderConfig.MaxAttributeSizeInBytes = 8;
+
+    D3D12_RAYTRACING_PIPELINE_CONFIG pipelineConfig{};
+    pipelineConfig.MaxTraceRecursionDepth = 1;
+
+    D3D12_GLOBAL_ROOT_SIGNATURE global{};
+    global.pGlobalRootSignature = globalRoot;
+
+    D3D12_STATE_SUBOBJECT subobjects[4]{};
+    subobjects[0].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+    subobjects[0].pDesc = &lib;
+    subobjects[1].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
+    subobjects[1].pDesc = &shaderConfig;
+    subobjects[2].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
+    subobjects[2].pDesc = &pipelineConfig;
+    subobjects[3].Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
+    subobjects[3].pDesc = &global;
+
+    D3D12_STATE_OBJECT_DESC desc{};
+    desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+    desc.NumSubobjects = 4;
+    desc.pSubobjects = subobjects;
+
+    ID3D12StateObject* state = nullptr;
+    if (FAILED(dev5->CreateStateObject(&desc, __uuidof(ID3D12StateObject), reinterpret_cast<void**>(&state)))) {
+        return nullptr;
+    }
+    return state;
+}
+
+// A WELL-FORMED bottom-level build, sized from the runtime's own prebuild info.
+//
+// A zeroed descriptor would have been shorter and is not safe: the recording path
+// reads the inputs, and a malformed one is a fault inside D3D12Core -- past the
+// point where the Overlay's FL_HOOK_GUARD can help, since our detour has already
+// forwarded. Malformed input belongs in --probe-dxr-inputs, where it is aimed at
+// OUR code and never at the runtime's.
+bool BuildDxrFixture(ID3D12Device* dev, DxrFixture& fx) {
+    if (FAILED(dev->QueryInterface(__uuidof(ID3D12Device5), reinterpret_cast<void**>(&fx.device5)))) {
+        return false;
+    }
+
+    // One triangle, in an UPLOAD buffer so it has a real GPU virtual address.
+    const float verts[9] = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+    fx.vertices = MakeBuffer(dev, sizeof(verts), D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ,
+                             D3D12_RESOURCE_FLAG_NONE);
+    if (fx.vertices == nullptr) {
+        return false;
+    }
+    void*       mapped = nullptr;
+    D3D12_RANGE none{0, 0};
+    if (SUCCEEDED(fx.vertices->Map(0, &none, &mapped)) && mapped != nullptr) {
+        std::memcpy(mapped, verts, sizeof(verts));
+        fx.vertices->Unmap(0, nullptr);
+    }
+
+    fx.geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+    fx.geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+    fx.geometry.Triangles.VertexBuffer.StartAddress = fx.vertices->GetGPUVirtualAddress();
+    fx.geometry.Triangles.VertexBuffer.StrideInBytes = 3 * sizeof(float);
+    fx.geometry.Triangles.VertexCount = 3;
+    fx.geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+
+    fx.build.Inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+    fx.build.Inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    fx.build.Inputs.NumDescs = 1;
+    fx.build.Inputs.pGeometryDescs = &fx.geometry;
+
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO info{};
+    fx.device5->GetRaytracingAccelerationStructurePrebuildInfo(&fx.build.Inputs, &info);
+    if (info.ResultDataMaxSizeInBytes == 0 || info.ScratchDataSizeInBytes == 0) {
+        return false;
+    }
+
+    fx.scratch = MakeBuffer(dev, info.ScratchDataSizeInBytes, D3D12_HEAP_TYPE_DEFAULT,
+                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    fx.result =
+        MakeBuffer(dev, info.ResultDataMaxSizeInBytes, D3D12_HEAP_TYPE_DEFAULT,
+                   D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    if (fx.scratch == nullptr || fx.result == nullptr) {
+        return false;
+    }
+    fx.build.ScratchAccelerationStructureData = fx.scratch->GetGPUVirtualAddress();
+    fx.build.DestAccelerationStructureData = fx.result->GetGPUVirtualAddress();
+
+    if (FAILED(dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
+                                           reinterpret_cast<void**>(&fx.alloc))) ||
+        FAILED(dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, fx.alloc, nullptr,
+                                      __uuidof(ID3D12GraphicsCommandList), reinterpret_cast<void**>(&fx.list))) ||
+        FAILED(fx.list->QueryInterface(__uuidof(ID3D12GraphicsCommandList4), reinterpret_cast<void**>(&fx.list4)))) {
+        return false;
+    }
+    fx.list4->Close();
+
+    // The raytracing pipeline and its one-record shader table. Built even for the
+    // rayquery mode, which never dispatches: sharing one setup keeps the two modes
+    // differing in exactly ONE call, which is the property the pair exists to
+    // isolate. A fixture whose two arms differ in five ways proves nothing about
+    // the one that matters.
+    fx.globalRoot = MakeEmptyRootSignature(dev);
+    if (fx.globalRoot == nullptr) {
+        return false;
+    }
+    fx.state = MakeRtStateObject(fx.device5, fx.globalRoot);
+    if (fx.state == nullptr) {
+        return false;
+    }
+
+    ID3D12StateObjectProperties* props = nullptr;
+    if (FAILED(fx.state->QueryInterface(__uuidof(ID3D12StateObjectProperties), reinterpret_cast<void**>(&props)))) {
+        return false;
+    }
+    const void* identifier = props->GetShaderIdentifier(L"RayGen");
+    // A shader-table record must start on a 64-byte boundary; a committed buffer's
+    // GPU virtual address is far more aligned than that.
+    fx.shaderTable = MakeBuffer(dev, D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT, D3D12_HEAP_TYPE_UPLOAD,
+                                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_FLAG_NONE);
+    bool tabled = false;
+    if (identifier != nullptr && fx.shaderTable != nullptr) {
+        void*       slot = nullptr;
+        D3D12_RANGE nothing{0, 0};
+        if (SUCCEEDED(fx.shaderTable->Map(0, &nothing, &slot)) && slot != nullptr) {
+            std::memcpy(slot, identifier, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+            fx.shaderTable->Unmap(0, nullptr);
+            tabled = true;
+        }
+    }
+    props->Release();
+    return tabled;
+}
+
+// One frame's worth of recorded ray-tracing work.
+void RecordDxrFrame(DxrFixture& fx, bool dispatch) {
+    fx.alloc->Reset();
+    fx.list4->Reset(fx.alloc, nullptr);
+    fx.list4->BuildRaytracingAccelerationStructure(&fx.build, 0, nullptr);
+    if (dispatch) {
+        // THE ONE CALL THE TWO MODES DIFFER BY. Everything above and below is
+        // identical, so a difference in what the Overlay records is attributable to
+        // this and to nothing else.
+        fx.list4->SetComputeRootSignature(fx.globalRoot);
+        fx.list4->SetPipelineState1(fx.state);
+        D3D12_DISPATCH_RAYS_DESC rays{};
+        rays.RayGenerationShaderRecord.StartAddress = fx.shaderTable->GetGPUVirtualAddress();
+        rays.RayGenerationShaderRecord.SizeInBytes = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
+        rays.Width = FL_DXR_DISPATCH_W;
+        rays.Height = FL_DXR_DISPATCH_H;
+        rays.Depth = FL_DXR_DISPATCH_D;
+        fx.list4->DispatchRays(&rays);
+    }
+    fx.list4->Close();
+}
+
+bool HoldPresentingDxr(int seconds, bool real, bool dispatch, int presentIntervalMs) {
+    std::printf("\n[dxr-hold] recording %s for %d second(s) [%s]\n",
+                dispatch ? "AS builds AND DispatchRays" : "AS builds ONLY (the RayQuery signature)", seconds,
+                real ? "REAL" : "DXGI_PRESENT_TEST");
+
+    unsigned      tier = 0;
+    bool          warp = false;
+    ID3D12Device* dev = BestDxrDevice(tier, warp);
+    if (dev == nullptr) {
+        Check(false, "a DXR-capable adapter — this fixture cannot run on this machine");
+        return false;
+    }
+
+    IDXGIFactory4*      factory = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    IDXGISwapChain1*    sc = nullptr;
+    DxrFixture          fx{};
+    bool                built = false;
+    if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory4), reinterpret_cast<void**>(&factory)))) {
+        D3D12_COMMAND_QUEUE_DESC qd{};
+        qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        if (SUCCEEDED(dev->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), reinterpret_cast<void**>(&queue)))) {
+            DXGI_SWAP_CHAIN_DESC1 d{};
+            d.Width = 64;
+            d.Height = 64;
+            d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            d.SampleDesc.Count = 1;
+            d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+            d.BufferCount = 2;
+            d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+            d.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+            built = SUCCEEDED(factory->CreateSwapChainForComposition(queue, &d, nullptr, &sc)) && sc != nullptr;
+        }
+    }
+    if (built) {
+        built = BuildDxrFixture(dev, fx);
+        Check(built, "a well-formed bottom-level acceleration structure, sized from the runtime's prebuild info");
+    } else {
+        Check(false, "a D3D12 swapchain for the DXR hold");
+    }
+
+    if (built) {
+        const UINT      flags = real ? 0u : DXGI_PRESENT_TEST;
+        const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
+        std::fflush(stdout);
+        while (GetTickCount64() < until) {
+            RecordDxrFrame(fx, dispatch);
+            sc->Present(0, flags);
+            if (presentIntervalMs > 0) {
+                Sleep(static_cast<DWORD>(presentIntervalMs));
+            }
+        }
+    }
+
+    fx.Release();
+    ReleaseIf(sc);
+    ReleaseIf(queue);
+    ReleaseIf(factory);
+    dev->Release();
+    return built;
 }
 
 // ---------------------------------------------------------------------------
@@ -1801,6 +2279,18 @@ int main(int argc, char** argv) {
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-dxr") == 0) {
             ok = ProbeDxr() && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-dxr-inputs") == 0) {
+            ok = ProbeDxrInputs() && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting-dxr") == 0 && i + 1 < argc) {
+            ok = HoldPresentingDxr(std::atoi(argv[++i]), real, true, presentIntervalMs) && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting-rayquery") == 0 && i + 1 < argc) {
+            // Builds acceleration structures and NEVER dispatches -- the observable
+            // signature of an inline-RayQuery title, which is what makes
+            // 03_METRICS:226's claim about the AS-build hook falsifiable.
+            ok = HoldPresentingDxr(std::atoi(argv[++i]), real, false, presentIntervalMs) && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-vtable") == 0) {
             ok = ProbeH4_VtableIndices(g) && ok;
