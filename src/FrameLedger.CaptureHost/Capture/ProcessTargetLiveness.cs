@@ -24,11 +24,24 @@ namespace FrameLedger.CaptureHost.Capture;
 /// loop must not proceed to inject into a pid whose identity it could not pin.
 /// </para>
 /// </remarks>
-internal sealed class ProcessTargetLiveness(HeldProcessHandle handle) : ITargetLiveness
+internal sealed class ProcessTargetLiveness(HeldProcessHandle handle, int pid) : ITargetLiveness
 {
     private readonly HeldProcessHandle _handle = handle ?? throw new ArgumentNullException(nameof(handle));
 
     public bool HasExited => _handle.HasExited;
+
+    /// <summary>
+    /// Asked of the pid rather than of the held handle, because window ownership is not a
+    /// property this handle's rights can answer.
+    /// </summary>
+    /// <remarks>
+    /// The handle carries <c>SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION</c> and nothing
+    /// more, deliberately, and no widening is wanted for a diagnostic: the recycle hazard the
+    /// handle exists to close does not apply here, because a stale pid answers false and false
+    /// is already the value this cannot distinguish from "no window" — it degrades to the state
+    /// the report is required to treat as uninformative.
+    /// </remarks>
+    public bool IsForeground => ForegroundWindowProbe.IsForeground(pid);
 
     public void Dispose() => _handle.Dispose();
 }
