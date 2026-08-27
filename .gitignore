@@ -80,6 +80,18 @@ _deps/
 # committed or fetched is an open question (docs/20_OPEN_QUESTIONS.md).
 # Ignoring it here would silently prevent committing it.
 
+# /presentmon/ IS ignored, and it is NOT the path above. A hand-downloaded copy
+# of the Intel console binary landed at the repository root on 2026-08-27 --
+# staged for the §S31 run -- untracked and matched by no rule, so `git add -A`
+# would have committed a 956 KB third-party executable at a path no document
+# names, outside legal/THIRD_PARTY_NOTICES.md and carrying no VERSIONINFO.
+#
+# This is not the mistake the note above warns about. That note is about
+# ignoring the CANONICAL path; this ignores a scratch one. The canonical path
+# stays unignored, and whether the binary is committed there or fetched is
+# still open (docs/20_OPEN_QUESTIONS.md §G, PresentMon distribution).
+/presentmon/
+
 # --- Velopack / packaging --------------------------------------------------
 Releases/
 packages/
