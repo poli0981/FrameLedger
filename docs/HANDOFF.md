@@ -437,11 +437,32 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > said three oracles had fallen; a file whose whole subject is staleness contradicted itself
 > inside one entry, which is recorded rather than quietly repaired.
 >
-> **And the owner's list for the §S31 run, in the order it has to happen:** elevate (or join
-> `Performance Log Users`) → capture Cyberpunk 2077 at off / ×2 / ×4 with
-> `--v2_metrics --track_frame_type` → run `tools/frametype-oracle.ps1 -Csv … -Report …` →
-> land on a §S31 row. **Three settings, not two:** §S30 already burned a draft on the ×2 leg,
-> which cannot discriminate because "displayed ÷ a fixed 2" predicts the same number there.
+> ~~**And the owner's list for the §S31 run**~~ — **RUN 2026-08-27. `tools/s31-capture.ps1`
+> drove it, three legs, three game launches, and it landed on row **P2**: `FrameType` present
+> and **every row of all three legs `Application`**, while the two instruments agreed on the
+> present rate to within 0.3% — so PresentMon saw the generated presents and classified none
+> of them as generated.
+>
+> **PRESENTMON IS RETIRED as the application-frame oracle for NVIDIA frame generation.** That
+> is the fourth oracle to fall, after `fl-baseline-probe` and two readings of Steam's overlay.
+>
+> **AND THIS ITEM IS BACK WHERE P1/P2 SAID IT WOULD GO: the hook routes.** What was retired is
+> the *instrument*, not the question. "Is a drained Streamline batch an application frame?" is
+> exactly as open as it was, `presents / batch` still reads 2.00 and 3.99 against a title's own
+> ×2 and ×4 on the same unverified premise, and it is still not publishable as `fg_factor`.
+>
+> **So the decision this entry has been waiting on is now unblocked and unmade.** The candidate
+> routes above are unchanged and none is costed: the interposer's swapchain proxy;
+> `slGetFeatureFunction` + `slDLSSGGetState`; vendoring `sl_dlss_g.h` with its consumer;
+> NGX-direct `nvngx_dlssg`; or shipping `presents/batch` with the premise stated. **The
+> measure-before-hooking rule has been discharged — the measurement was taken and it did not
+> choose a route for us.** Whoever picks this up is choosing without an oracle, and should say
+> so in the PR rather than implying one.
+>
+> Numbers in `spike-notes` §11. Two loose ends recorded there and not here: our own `off` leg
+> drained ZERO batches (Ray Reconstruction was off, so there is nothing to divide), and whether
+> `--track_frame_type` was in effect at all is unmeasured — it changes the reason, not the
+> action.
 
 
 > **§H5 case 3 is MEASURED as of 2026-08-15, and the answer is half of what the entry below

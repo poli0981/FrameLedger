@@ -89,6 +89,30 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 > the rung outright. `tools/frametype-oracle.ps1` is what produces the input, and
 > also the reason `spike-notes` §11 now records that the console binary will not run
 > unelevated on the dev box at all.
+>
+> ### 🔴 MEASURED 2026-08-27, AND THE RUNG IS NARROWED: NVIDIA DLSS-G IS NOT COVERED
+>
+> §S31 ran — three legs, three game launches, Cyberpunk 2077 at off / ×2 / ×4 — and landed
+> on row **P2**. `FrameType` is present and **every row of all three legs reads
+> `Application`**: 1,937 / 6,488 / 10,881 rows, no other value anywhere. Meanwhile the two
+> instruments agree on the present rate to within 0.3% per leg, so PresentMon SAW the
+> generated presents — at ×4 roughly three in four cannot be application frames — and
+> classified all of them as application frames.
+>
+> **So for NVIDIA frame generation this rung yields nothing on this driver and this
+> build.** It is not "unreliable" here; it produces an ABSENCE, and rung 0 turns an
+> absence into `N/A`. A consumer must never reach rung 4 from it.
+>
+> **What is still unmeasured is WHICH vendors it does cover.** Intel's own remains
+> untested despite being the obvious reading — the reading this document was already
+> corrected once for asserting — and AMD is untestable on the only machine that exists
+> (§R5/§R6). The honest scope of rung 2 today is therefore: **no vendor is known to
+> instrument this provider, and one is now known NOT to.**
+>
+> One sub-question does not change the above and is recorded in §S31 rather than here:
+> whether `--track_frame_type` was in effect at all. If the column ships by default the
+> legs measured a default rather than an absence. Either way the rung produced no
+> classification, which is why §S31 landed on P2 without waiting for it.
 
 > **Rung 0, added 2026-08-06, and it has to come before rung 4 or rung 4 is a lie.** If
 > `FL_MEASURED_FG` is clear the answer is **`N/A`**, not `none`: no hook capable of answering
