@@ -517,25 +517,6 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 
 </details>
 
-### 4. Ray tracing — **START HERE**, and item 3 just took away its denominator
-
-> **The dependency you inherited, before anything else.** The plan for this item routed
-> `03_METRICS`' RT thresholds — `≥ 5% of frames`, `rays_per_pixel`, `rt_frame_pct` — through
-> **application frames**, using `Σ fgEvaluations` as the denominator, because dividing by
-> PRESENTS dilutes every one of them by the frame-generation factor: at ×4 a title that
-> path-traces every application frame reports `rt_frame_pct = 25%`, and `rays_per_pixel`
-> lands at a quarter of the truth, below the heuristic's own 1.0 threshold. That decision was
-> taken when `fgEvaluations` was expected to have a producer. **It does not, on the one route
-> measured** (item 3 above). So this item starts with a choice nobody has made:
->
-> - use `presents / batch`-derived application frames, inheriting item 3's unverified premise;
-> - divide by presents and write the dilution into `03_METRICS` as a known, quantified limit;
-> - or accumulate RT evidence to an application-frame boundary **in the writer**, which costs
->   more in the hook and needs the same boundary signal item 3 could not find.
->
-> Whichever is chosen, say so in `03_METRICS` in the same PR. Do not leave the thresholds
-> reading as though the denominator were settled.
-
 ### ~~4. Ray tracing~~ — BUILT 2026-08-20, and the trap it hit is the one to carry forward
 
 **Do not start here.** `FL_MEASURED_RT` has a producer, `rtFlags` carries real evidence, and the
@@ -564,6 +545,36 @@ tri-state's `Yes` and `No` are both reachable for the first time. Status is in `
 
 <details>
 <summary>The original entry, kept for the reasoning it carries</summary>
+
+### 4. Ray tracing — ~~**START HERE**~~, and item 3 just took away its denominator
+
+*(Archived 2026-08-27. The live entry is above; this header's "START HERE" is struck so the
+file does not contain two of them — the same correction item 2b's header carries, and the
+exact class this file exists to prevent. **Its question is also answered.** The denominator was
+chosen on 2026-08-20, in the PR that wrote the hooks: `rt_frame_pct` is a share of PRESENTS with
+the ×FG dilution written down as a known, quantified limit — at ×4 it reads ~25%, against a `Yes`
+gate of ≥ 5%, so the verdict is unaffected and only the reported percentage is diluted — while
+`rays_per_pixel` is taken over RT-ACTIVE presents, is therefore undiluted, and needs no
+application-frame count at all. `03_METRICS` §RT/PT/RR carries the decision and its falsifier,
+which did not fire on two independent titles. Kept rather than deleted for the reasoning it
+carries about why the choice mattered.)*
+
+> **The dependency you inherited, before anything else.** The plan for this item routed
+> `03_METRICS`' RT thresholds — `≥ 5% of frames`, `rays_per_pixel`, `rt_frame_pct` — through
+> **application frames**, using `Σ fgEvaluations` as the denominator, because dividing by
+> PRESENTS dilutes every one of them by the frame-generation factor: at ×4 a title that
+> path-traces every application frame reports `rt_frame_pct = 25%`, and `rays_per_pixel`
+> lands at a quarter of the truth, below the heuristic's own 1.0 threshold. That decision was
+> taken when `fgEvaluations` was expected to have a producer. **It does not, on the one route
+> measured** (item 3 above). So this item starts with a choice nobody has made:
+>
+> - use `presents / batch`-derived application frames, inheriting item 3's unverified premise;
+> - divide by presents and write the dilution into `03_METRICS` as a known, quantified limit;
+> - or accumulate RT evidence to an application-frame boundary **in the writer**, which costs
+>   more in the hook and needs the same boundary signal item 3 could not find.
+>
+> Whichever is chosen, say so in `03_METRICS` in the same PR. Do not leave the thresholds
+> reading as though the denominator were settled.
 
 ### 4. Ray tracing — §S29(f) is ruled, and the cheapest conjunct has landed
 

@@ -49,16 +49,30 @@ This table is the index; the entries remain the authority.
 Added 2026-08-05. **Keep it current in the same PR that changes an item's state**,
 or it becomes the next stale status claim this file exists to record.
 
+> **The glyph legend, and it is the whole point of this table.** Unified 2026-08-27;
+> before that, one disposition wore three marks and the criterion could not be audited
+> by counting them, which is the only thing the table is for.
+>
+> | Mark | Means | Counts against exit criterion 2? |
+> |---|---|---|
+> | ✅ | resolved | no |
+> | 🅓 | deferred, with a written rationale | no — the criterion allows this explicitly |
+> | ◐ | partly closed | **yes** |
+> | ⏳ | open, sequenced behind other work | **yes** |
+> | ❓ | open, disposition undecided | **yes** |
+> | 🔴 | open defect, found by an audit | **yes** |
+> | 🚫 | owner-only — no PR can close it | counted separately, below |
+
 | Item | State | Note |
 |---|---|---|
 | S3, S5, S7, S8, S9, S10, S11, S15, S16, S17, S18, S21, S22 | ✅ **resolved** | Thirteen. Reasoning kept in place rather than deleted |
 | **S25, S26** | ✅ **resolved 2026-08-05** | The two runtime stops unreachable in a non-presenting process; occlusion probes recorded as frames |
 | **S28** | ✅ **resolved 2026-08-05** | The guard's entry points share process-wide statics; a concurrent call cleared the blocklist mid-match and every check fell through to `Allow`. Reproduced by CI, not argued |
 | **S27** | ✅ **resolved, and restated 2026-08-06** | The chokepoint is the anti-cheat gate, not the consent gate. It was closed by *not building* a capture host; item 1 built one, and the ✅ survives on the clause that was always load-bearing — **no injecting entry point on any SHIPPED binary**. `FrameLedger.CaptureHost` is unpublished, and `tools/package-closure-check.ps1` makes that a gate rather than a fact about today's csproj. `HookRequest` is get-only behind one factory, so this entry's own rejected synthesis no longer compiles |
-| S12 | ✅ **deferred, rationale written** | Cautious mode → v1.1; it disabled nothing in v1 |
+| S12 | 🅓 **deferred, rationale written** | Cautious mode → v1.1; it disabled nothing in v1. *(Marked ✅ until 2026-08-27 — same disposition, different glyph.)* |
 | **S1** | 🅓 **deferred, rationale written** | Owner decision 2026-08-05. Deciding input — a title loading a presentation runtime lazily — is not on this machine |
 | **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
-| **S19(b)** | 🔴 **deferred, but now MEASURED** | CI 2026-08-05: the fragment fires on `System.Security.Cryptography.ProtectedData.dll` loaded by a .NET **test host**, i.e. inside a real scan set in the launch-mode arrangement — refusing our own injection. The entry's "plausible and unmeasured" is superseded; the deferral rationale (a `CryptCATAdmin*` PR doing network I/O inside the hard gate, NFR-10) still stands |
+| **S19(b)** | 🅓 **deferred, rationale written — and MEASURED** | CI 2026-08-05: the fragment fires on `System.Security.Cryptography.ProtectedData.dll` loaded by a .NET **test host**, i.e. inside a real scan set in the launch-mode arrangement — refusing our own injection. The entry's "plausible and unmeasured" is superseded; the deferral rationale (a `CryptCATAdmin*` PR doing network I/O inside the hard gate, NFR-10) still stands. *(Marked 🔴 until 2026-08-27. The measurement belongs in this cell, not in the marker — a glyph that means "deferred" and a glyph that means "open defect" cannot be the same one in a table audited by counting.)* |
 | **S14** | ◐ **exe half wired 2026-08-05** | Owner decision 2026-08-05: wire it, empty list, unresolvable identity refuses. The **store-id half is blocked** on the platform metadata extractors and cannot be reached through the guard ABI by design |
 | **S23-1** | ✅ **resolved 2026-08-05** | `FlGuardBuildId` gives the Agent a build id of its own, and `ShmHandshakeValidator` performs the comparison `07_IPC` and `04_CAPTURE` both specify. Every refusal path is driven, including **both ids empty** — the shape the feature shipped in, where `"" == ""` reported `Ok` for every process on the machine |
 | **S23-4** | ✅ **resolved 2026-08-05** | `19_SAFETY` §During a session said "the module scan and the driver scan"; `EvaluateImpl` runs four. Reworded to "every pre-injection check" so it cannot go stale when a check is added, with the two omissions named — `services` is the only tier measured firing on real anti-cheat, and the pre-scan is the only one touching the filesystem |
@@ -85,19 +99,33 @@ The criterion is *"resolved, **or** explicitly deferred with a written rationale
 so ⏳ (open, sequenced) and ◐ (partly closed) are just as open as ❓, and each needs
 either work or a rationale written down:
 
-- ~~**six ❓**~~ ~~three ❓~~ **four ❓** — S6, S19(c), S20 feed half, **S30**. *(S19(a), S19(d)
-  residual and S23-5 resolved 2026-08-05, each by a mechanism rather than by a
-  correction.)*
+- ~~**six ❓**~~ ~~three ❓~~ **four ❓** — S6, S19(c), S20 feed half, ~~**S30**~~ **S31**. *(S19(a),
+  S19(d) residual and S23-5 resolved 2026-08-05, each by a mechanism rather than by a
+  correction. **S30 closed 2026-08-15 and S31 opened 2026-08-20**, and this bullet went on
+  naming S30 until 2026-08-27 — so the total below stayed right by coincidence rather than
+  by count.)*
 - **three ⏳** — S2 part three, S4 signing, S23-3
 - **two ◐** — S14, S23-6
-- **one 🔴** — S29, added by the audit that produced this recount; **five of its
-  seven findings are now closed**, and the residue is (a) the ungated managed drain,
-  (d) the hand-run blast-radius script, and (f) the RayQuery contradiction
+- **one 🔴** — S29, added by the audit that produced this recount; **five of its seven
+  findings are now closed**, and the residue is (a) the ungated managed drain and (d) the
+  hand-run blast-radius script. *(This bullet listed **three** residues beside a count of
+  five — five closed plus three open is eight, out of seven — because (f) closed on
+  2026-08-20 and only the count was updated. The count was right and the list was wrong,
+  which is the same shape as the ❓ bullet above. Corrected 2026-08-27.)*
 - **plus 🚫 S23-2**, which no amount of code will do — the owner has to change a
   branch-protection setting.
 
 ~~**Nine, down from twelve.**~~ **TEN on 2026-08-15**, and it went UP — S30 is a defect a real-title run found, not a doc drift. Keep this list in the same PR that changes a row, or
 the recount becomes the next thing that needs recounting.
+
+> **STILL TEN on 2026-08-20 — and this time nothing moved at all: one out, one in.** S30
+> closed 2026-08-15, S31 opened 2026-08-20, so the total is unchanged while the membership
+> is not. Recorded because the bullets above went on naming S30 for twelve days and the
+> total stayed *right by coincidence*. **A count that is correct while its own list is wrong**
+> is this table's characteristic failure, and it is exactly what the sentence above asks the
+> next author to prevent by moving the list and the count in one PR. Corrected 2026-08-27,
+> in a pass that touched no code — the §Traps entry *"a document can go stale by NOT being
+> touched"* wearing the ledger's own name.
 
 > **A rising count here is the ledger working, not failing.** Every previous movement was downward and came from closing something. This one is upward because the first capture from a real game produced a wrong answer that no fixture had been able to produce — which is the whole reason exit criterion 1 asks for a real title rather than a harness.
 
@@ -148,11 +176,19 @@ the recount becomes the next thing that needs recounting.
 >   environmental failure silently deleted the end-to-end honesty coverage §S29(a) rests
 >   on. See `HANDOFF` §Traps.
 
-**The markers themselves are part of the problem and should be unified.** One
+~~**The markers themselves are part of the problem and should be unified.** One
 disposition — *deferred, with a rationale written* — currently wears three glyphs:
 S12 is `✅ deferred`, S1 and S13(c) are `🅓 deferred`, S19(b) is `🔴 deferred, but
 now MEASURED`. This table exists so the criterion can be audited by *counting
-markers*; three glyphs for one state defeats the only thing it is for.
+markers*; three glyphs for one state defeats the only thing it is for.~~
+
+**Unified 2026-08-27, and struck rather than deleted because the reasoning is the part that
+generalises.** `🅓` is now the single mark for *deferred with a written rationale*: S12 moved
+off `✅` and S19(b) off `🔴`, and the legend under §S24's heading states what every mark means
+and whether it counts against exit criterion 2. **Neither move changes a disposition.**
+S19(b) is as deferred, and as measured, as it was — its measurement lives in its note cell,
+where it always did. What changed is that a marker no longer carries two meanings at once,
+so the count and the glyphs can now disagree only if someone makes them.
 
 ### S26 ✅ · The ring counted occlusion probes as frames — **closed 2026-08-05**
 
@@ -1792,19 +1828,44 @@ admits it has no data for (Ricochet, VAC). Three refuters agreed.
 > to put it in `fl_guard_sources.cpp` instead, rather than drag wintrust and
 > crypt32 into a DLL mapped into every Vulkan process on the machine.
 >
-> And it is **not** a wiring change. `NameSink` is `bool(*)(void*, const char*)`
+> ~~And it is **not** a wiring change. `NameSink` is `bool(*)(void*, const char*)`
 > fed by `GetModuleBaseNameA`, so the evidence the check needs — a module's full
 > path — does not reach the decision point. The signer half requires widening the
 > module seam, which is a new row in the fail-closed matrix, not a call added at
-> `fl_guard.cpp:293`.
+> `fl_guard.cpp:293`.~~
 >
-> **And it must not be placed at `fl_guard.cpp:293`.** `NameSinkFn` latches the
+> ~~**And it must not be placed at `fl_guard.cpp:293`.** `NameSinkFn` latches the
 > FIRST fragment-matching module per process (`!st->sawSuspicious`) and discards
 > every later one. Harmless while any hit refuses; the moment a signer can CLEAR
 > the latched name, a process that loads a trusted fragment-module before an
 > untrusted one returns `Allow` with the second never recorded — a fail-open
 > reachable by load order. The detection half at `fl_guard.cpp:203` has to be
-> restructured, not extended.
+> restructured, not extended.~~
+>
+> > **BOTH COSTS WERE PAID BY §S22(b), AND THIS ENTRY NEVER HEARD — struck 2026-08-27.**
+> > They are the two clauses anyone costing (b) reads first, and both describe work that
+> > has already landed:
+> >
+> > - **The seam is already widened.** `fl_guard.h` declares
+> >   `using ModuleSink = bool (*)(void* ctx, const char* name, const wchar_t* path)`, and
+> >   the module walk takes it. The full path reaches the decision point today; §S22's own
+> >   entry records the change as *"not the size the plan assumed"*.
+> > - **The restructure is already done**, and for this entry's own stated reason. The
+> >   detection half no longer latches-and-skips: `ModuleSinkFn` returns *keep looking*
+> >   after an exemption, and its comment says so in as many words — *"§S19(b) predicted
+> >   exactly this and said the detection half has to be restructured rather than extended.
+> >   This return is that restructure."*
+> >
+> > **What that leaves, and it is smaller than this entry prices:** one new `Sources`
+> > member and one call beside `ModuleIsExempt`, in the same shape and with the same
+> > fail-closed clauses. **The safety argument is unchanged and is the whole of it** — the
+> > new call must return *keep looking* on a trusted module and never *stop*, or the
+> > load-order fail-open the struck paragraph describes is reachable after all. It is still
+> > a new fail-closed matrix row, and still its own PR.
+> >
+> > Struck rather than deleted: what went stale here is a **cost estimate**, and a cost
+> > estimate that survives the work it was written about is how an item stays deferred
+> > after its reason expires.
 
 **(c) `signerField` and `action` are required by the schema and parsed by
 nobody.** Both are `required` in `detection-rules.schema.json`, both carry
