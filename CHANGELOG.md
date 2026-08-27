@@ -66,6 +66,64 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **`fl-probe-signer`, and §S19(b)'s three questions answered before anything is designed.**
+  That entry has been deferred since 2026-08-05 and its own rationale names the next step:
+  *"Build `fl-probe-signer` first, in the shape `fl-probe-guard` established, and answer those
+  three questions with measurements before any design is fixed."* This is that probe
+  (`ctest fl_signer_probe`). **Nothing under `FrameLedger.Injector` changes with it** — reading
+  a row off the table is a separate PR, including the row that says build nothing.
+
+  **The two Q1 results cut opposite ways, which is what makes the work affordable.** The CI
+  blocker — `System.Security.Cryptography.ProtectedData.dll` — is embedded-signed and verifies
+  offline as `O=Microsoft Corporation`, already in the shipped `trustedSigners`, so the embedded
+  half alone would clear that refusal. But `mskeyprotect.dll`, the module §S19(b) was *written
+  about*, returns `TRUST_E_NOSIGNATURE` on the embedded route and `ERROR_SUCCESS` only on the
+  catalog one. The entry predicted exactly that; it is now measured rather than argued, and the
+  expensive `CryptCATAdmin*` half is **not** on the path to the merge gate.
+
+  **§S19(b) also mis-describes the module, and the correction closes the cheapest-looking
+  route.** It calls the blocker "a .NET shared-framework assembly". It is not —
+  `Microsoft.NETCore.App` 10.0.11 does not contain it. It is a NuGet package assembly (6.0.0)
+  reached transitively as `Microsoft.NET.Test.Sdk` → `System.Configuration.ConfigurationManager`
+  → `System.Security.Cryptography.ProtectedData`. So "just drop the package reference" fails:
+  dropping it means dropping the test SDK.
+
+  **Q3 came back neither pass nor fail, and that is the honest answer.** Under
+  `WTD_REVOKE_NONE | WTD_CACHE_ONLY_URL_RETRIEVAL`, `cryptnet.dll` is **newly loaded** — in a
+  census bracketing the offline arm alone. Mapped is not transmitted, and this probe has no
+  packet counter, so it reports the module and refuses to conclude. The discriminating run is the
+  owner's: adapters disabled, same subjects, compare verdicts.
+
+  > **The probe's first version could not have told the two arms apart.** It censused once at
+  > the top and once at the bottom with *both* the offline and the default
+  > `WTD_REVOKE_WHOLECHAIN` calls in between, so `cryptnet.dll` appeared and the delta could not
+  > attribute it — a census spanning both arms of the comparison it exists to discriminate.
+  > Fixed before the recorded run. It read like an answer, which is why it is written down.
+
+  **Q2:** about 3.5 ms per module, and **warm is not cheaper than cold** (3.45 vs 3.54 ms over
+  20 repeats) — there is no amortisation to plan around. Comfortable against the 30 s re-scan
+  only because the scan set is small; a cache *within* one evaluation is admissible, a cache
+  *across* evaluations is a re-scan that did not run.
+
+  **The decision table is honest about what it is.** §S30 and §S31 each pre-committed theirs
+  before the run. This one could not: the probe had to be run to be finished, since its
+  acceptance criterion is that it *prints* answers. The rows are therefore pre-committed only
+  for the legs still **unrun** — CI, and the adapters-disabled run — and the entry says so in
+  its first paragraph rather than borrowing a discipline it did not follow.
+
+  **And a constraint no measurement can lift.** Wiring the signer half makes `trustedSigners` a
+  live allow-widening surface, and the gate over it — `Rules / validate` — is **not** a required
+  status check on `main` (§S23-2). `19_SAFETY` already ruled on this shape: *"the boundary of
+  what the gate looks at is code."* So even a clean result does not authorise the build. Owner
+  decision, recorded in §S19(b).
+
+  Carries a canary: the probe's own unsigned executable must return `TRUST_E_NOSIGNATURE` and
+  yield no organisation, so a green run discriminates rather than merely running —
+  `fl-baseline-probe` was retired by exactly this class of test. The include block is
+  `clang-format`-fenced and says why: `.clang-format`'s `IncludeBlocks: Regroup` sorts
+  `<mscat.h>` ahead of `<wincrypt.h>`, and `mscat.h` uses types `wincrypt.h` declares, so the
+  alphabetical order fails with twenty errors inside the Windows SDK and one in our own code.
+
 - **`tools/frametype-oracle.ps1`, and §S31 with its decision table written BEFORE the run.**
   HANDOFF item 3's producer decision needs one measurement: is a drained Streamline batch an
   application frame? Three oracles have already fallen, so the mapping from measurement to
