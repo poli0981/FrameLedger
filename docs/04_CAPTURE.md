@@ -29,9 +29,22 @@ otherwise                                                    → Tier 3 (duratio
 **Tier 2 is not unconditionally available, and the product must stop implying it
 is.** Controlling an ETW trace session requires the caller to be in
 Administrators or Performance Log Users, and joining the latter itself needs
-admin. Intel's PresentMon console binary re-launches itself elevated when run
+admin. ~~Intel's PresentMon console binary re-launches itself elevated when run
 without rights, which for an Agent driven by a 1 Hz watcher (FR-3.1) means a UAC
-prompt per capture — unacceptable — or outright failure on a standard account.
+prompt per capture — unacceptable — or outright failure on a standard account.~~
+
+> **MEASURED 2026-08-20, and the MECHANISM above is wrong while the CONCLUSION holds**
+> (`spike-notes` §11). PresentMon 2.5.1 does **not** re-launch itself elevated and raises
+> no UAC prompt at all. It exits **6** with *"requires either administrative privileges or
+> to be run by a user in the Performance Log Users user group"* and writes no CSV.
+>
+> So the failure is silent and immediate rather than a prompt — which is the *better* shape
+> for a 1 Hz watcher, and is still **outright failure on a standard account**. Corrected
+> 2026-08-27 rather than deleted, because a reader planning Tier 2 against this paragraph
+> would have budgeted for a UAC-prompt problem that does not exist.
+>
+> The installed `PresentMonSharedService` does not help either — the console starts its
+> **own** trace session — which is half of §M6 answered in the direction nobody expected.
 
 So an unelevated Agent that fails Tier 1 lands on **Tier 3**, not Tier 2. The UI
 must say so at the moment it happens and in the Agent-setup step, rather than

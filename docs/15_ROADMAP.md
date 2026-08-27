@@ -13,6 +13,19 @@ The hook rewrite front-loads risk: almost everything uncertain is in P0/P1. That
 
 Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit criteria pass.
 
+> **Status as of 2026-08-20.** Items **2, 3, 5 and 6 done**; **4 partly**; 0 and 1 partly.
+> Written 2026-08-27, because the block below is dated 2026-08-06 and eleven PRs landed
+> after it — the upscaler identity and params hooks, the frame-generation counter, and both
+> ray-tracing hooks — while this file said none of them had. **What moved:** item 6 is done
+> and item 4 is no longer untouched. **What did not:** item 7 is blocked on §S31, item 8 has
+> no code at all, and exit criterion 1 still reads **3 of 5** at its best (`spike-notes` §8).
+>
+> The 08-06 block below is kept and is now wrong in one specific clause — it says the writer
+> *"records `measuredMask = FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` and nothing
+> else"*. It records upscaler identity, upscaler params, frame-generation counts and ray
+> tracing as well. Struck in place rather than deleted, because *how* this file went stale is
+> the thing it keeps having to record about itself.
+>
 > **Status as of 2026-08-06.** Items **2, 3 and 5 done**; 0 and 1 partly. **The
 > capture path that P2 owns on paper now exists, unshipped**, and is what makes the
 > remaining P0 work purely about hooks: `FrameLedger.CaptureHost` drives
@@ -222,8 +235,24 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
    > defensible claim is **"the baseline cannot answer four of these five
    > questions at all"**. `spike-notes.md` §8 carries the reasoning.
 4. **The accuracy question — the reason this rewrite exists.** On the dev machine (RTX 5080), verify against ≥ 3 real offline titles that hooks recover: NGX/Streamline feature identity, render vs output resolution, quality preset, and DLSS-G activity. Compare against what the item-3 baseline reports. **Quantify the improvement** — this number justifies the whole trade-off and belongs in the README.
+
+   > **◐ The HOOKED half is measured; the COMPARISON is not, and the difference is not
+   > paperwork.** Five captures across four real titles landed 2026-08-20 and every verdict
+   > agrees with the game's own settings menu (`spike-notes` §8's table, empty until then).
+   > **Two things keep this ◐ rather than ✅:**
+   >
+   > - **The baseline side cannot be run.** This item's text says *"compare against what the
+   >   item-3 baseline reports"*, and `StaticGameDetector` has **no runnable vehicle** — every
+   >   construction of it is in `tests/`. So the comparison has one arm. `HANDOFF` item 5
+   >   records this as uncosted; this file had never said it at all.
+   > - **The README sentence does not exist**, and it is the artifact this item is for. It is
+   >   **not a percentage** — item 3 and `spike-notes` §8 already record that the baseline
+   >   cannot answer four of the five questions *at all*, which is the defensible claim.
+   >
+   > An item whose deliverable does not exist may not read ✅ on the strength of the
+   > measurements that were supposed to feed it.
 5. **Vendor SDK reality check. ✅ DONE.** Measured across 34 distinct modules in 162 files from installed titles; `tools/vendor-exports.ps1` regenerates and `docs/vendor-exports.json` is committed. `17_HOOK_ENGINE` §Upscaling is corrected and its caveat discharged. **It needed no feature hooks** — it reads files with `dumpbin` — so the status header above was wrong to group it with 4/6/7. The finding: `sl.common.dll` exports the NGX parameter **accessors**, while the NGX core exports only the **factories**, so NGX-direct titles need a different hook class (`17_HOOK_ENGINE` §The NGX parameter surface splits into two hook classes).
-6. **RT detection.** Harness + a real DXR title: `DispatchRays` counting *and* `BuildRaytracingAccelerationStructure`; verify the AS-build path catches an inline-RayQuery title that dispatch counting misses.
+6. **RT detection.** Harness + a real DXR title: `DispatchRays` counting *and* `BuildRaytracingAccelerationStructure`; verify the AS-build path catches an inline-RayQuery title that dispatch counting misses. **✅ DONE 2026-08-20.** Both detours are on `ID3D12GraphicsCommandList4`, and the discriminating claim is **proved rather than asserted**: `ctest fl_guard`'s two harness arms differ by one recorded call, and `--hold-presenting-rayquery` reports `AsBuildObserved = 60` against `DispatchObserved = **0**` — a writer with only the dispatch hook sees nothing there and its silence is indistinguishable from a real negative (`spike-notes` §6). Four real titles agree with their own settings menus, `Yes` twice and `No` twice. **Carry the trap forward:** a command list's first `Reset()` swaps in a per-object vtable in which the driver has taken `DispatchRays` over, so the first version of this hook installed, published its family bit and never fired — `HANDOFF` §item 4.
 7. **Frame Generation ground truth.** ~~Compare rung 1 (FG feature evaluations per present) against Tier-2 ETW `FrameType` on a DLSS-G title.~~ **BLOCKED ON A PRODUCER, not on tooling, measured 2026-08-15:** `slEvaluateFeature(kFeatureDLSS_G)` is never called by Cyberpunk 2077 (0 across ~14,000 Streamline batches at four FG settings), so rung 1 emits nothing for ETW to be compared against. What DID track the setting is `presents / batch` — 1.000 / 2.000 / 4.000 against off / ×2 / ×4 — but a batch is not an application frame and that premise has no independent oracle. `docs/HANDOFF.md` item 3 carries the candidate producers and the decision nobody has taken; `spike-notes` §9 carries the numbers. ~~rung 2 (`GetFrameStatistics` present delta)~~ was removed as structurally impossible, not merely unreliable (`03_METRICS` §Frame Generation). Driver-level FG (AFMF) is undetectable at Tier 1 in v1; whether PresentMon 2.x `FrameType` sees it at Tier 2 is `20_OPEN_QUESTIONS` §M1 — and is untestable on this dev machine, which has no AMD GPU.
 8. **Telemetry layering.** Fill the `18_GPU_VENDOR_APIS` capability matrix on real hardware:
    - L1 baseline (DXGI + PDH counters) working vendor-neutrally; decide whether the `D3DKMT` perf-data probe is stable enough on Win 10 **and** Win 11 to keep. **🅓 Deferred to Win 11 only, 2026-08-05** — one machine, and it is Win 11. Win 10 22H2 stays a supported floor and is explicitly unmeasured; the deferral holds only for as long as the probe stays non-load-bearing, which `18_GPU_VENDOR_APIS` §L1 now states as the condition rather than as advice.
