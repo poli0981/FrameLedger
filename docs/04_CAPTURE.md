@@ -15,7 +15,7 @@ public interface IFrameSource : IAsyncDisposable
 | Implementation | Tier | Notes |
 |---|---|---|
 | `HookedFrameSource` | 1 | Injects (or relies on the Vulkan layer), maps the ring, drains at 10 Hz |
-| `EtwFrameSource` | 2 | Bundled PresentMon console binary, CSV over stdout — unchanged from the previous design, now a fallback |
+| `EtwFrameSource` | 2 | ~~Bundled~~ PresentMon console binary, CSV over stdout — unchanged from the previous design, now a fallback. **Not bundled** (owner decision 2026-08-27): the console binary is a local test tool, and how a shipped build reaches Tier 2 is undecided — `20_OPEN_QUESTIONS` §G. `EtwFrameSource` is unwritten either way, so nothing depends on this today |
 | `MockFrameSource` | dev | Synthetic frames incl. simulated FG/upscaler/RT records; `FL_MOCK=1` |
 
 Tier selection per launch:

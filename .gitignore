@@ -88,8 +88,12 @@ _deps/
 #
 # This is not the mistake the note above warns about. That note is about
 # ignoring the CANONICAL path; this ignores a scratch one. The canonical path
-# stays unignored, and whether the binary is committed there or fetched is
-# still open (docs/20_OPEN_QUESTIONS.md §G, PresentMon distribution).
+# stays unignored, and it stays empty: the owner decided on 2026-08-27 that the
+# console binary is a LOCAL TEST TOOL -- not committed, not fetched, not
+# redistributed -- and that a release reaches Tier 2 some other way
+# (docs/20_OPEN_QUESTIONS.md §G). The canonical path is left unignored anyway,
+# because that decision can be revisited and an ignore rule is how it would be
+# revisited by accident.
 /presentmon/
 
 # --- Velopack / packaging --------------------------------------------------
