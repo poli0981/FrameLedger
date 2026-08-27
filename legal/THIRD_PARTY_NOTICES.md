@@ -29,7 +29,7 @@ FrameLedger is licensed under **GPL-3.0-only**. It includes or depends on the th
 | Component | Use | License | Notes |
 |---|---|---|---|
 | **MinHook** | Inline function hooking in `FrameLedger.Overlay` | BSD-2-Clause | Vendored and built from source, pinned by commit. Copyright notice must ship in `legal/licenses/` |
-| Intel PresentMon (console binary) | Tier-2 fallback frame timing (ETW) | MIT | **Not yet bundled** — planned as a pinned native binary, SHA-256 verified at build. `assets/` does not exist in this repository and the Tier-2 source is unimplemented. © Intel Corporation |
+| Intel PresentMon (console binary) | Tier-2 fallback frame timing (ETW) | MIT | **Not yet bundled, and no longer planned to be** — owner decision 2026-08-27: it is a **local test tool**, kept on the developer's machine, and the release will reach Tier 2 by a route nobody has chosen yet (`docs/20_OPEN_QUESTIONS.md` §G). `assets/` does not exist in this repository, nothing is redistributed, and the Tier-2 source is unimplemented. This row stays because the decision can be revisited and a licence obligation that appears the day it is would otherwise appear unannounced. © Intel Corporation |
 | Vulkan headers / loader interfaces | `FrameLedger.VkLayer` implicit layer | Apache-2.0 | Khronos headers; layer implemented against the documented loader–layer interface |
 | LibreHardwareMonitorLib | GPU sensors (all vendors) + CPU/motherboard sensors (optional, elevated) | MPL-2.0 | See §GPU telemetry below. Consumed unmodified |
 | WPF UI (`Wpf.Ui`, lepoco) | Fluent UI theme/controls/navigation | MIT | © lepo.co, Leszek Pomianowski and contributors. License copy must ship with the app (MIT requirement) |
@@ -89,7 +89,7 @@ All product names, logos, and brands are property of their respective owners and
 
 - [ ] `legal/licenses/` contains full texts: MIT (per-project copies, **including `nvapi-MIT.txt`**), BSD-2-Clause (MinHook), MPL-2.0, Apache-2.0
 - [ ] About → Third-party tab lists this table with versions filled from `Directory.Packages.props`
-- [ ] PresentMon license + copyright shipped beside the bundled binary
+- [ ] PresentMon license + copyright shipped beside the bundled binary — **not applicable while it is not bundled** (owner decision 2026-08-27). Left unticked rather than deleted: it becomes applicable again the moment any Tier-2 route redistributes an Intel binary, and a deleted checklist item is one nobody re-derives
 - [ ] MPL-2.0 source-availability note points to upstream LibreHardwareMonitor repository
 - [x] LHM checked for MPL-2.0 Exhibit B on any depended-upon file — clear as of 0.9.6 / commit `3d331e33`, 2026-08-02
 - [x] **NVAPI is vendored** (2026-08-05) and all nine headers carry their `SPDX-License-Identifier: MIT` blocks unmodified — asserted file by file, not sampled. `license-check.ps1` enforces that this line and the table agree with the filesystem, **in both directions**: vendoring the material while the table still said "Not yet" failed the build, which is how this row came to be flipped

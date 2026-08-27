@@ -41,7 +41,7 @@ FrameLedger uses the **`poli0981/.github` ops repo** where its templates fit, an
 > `out/app`'s real contents had never been asserted by anything until
 > `tools/package-closure-check.ps1` started walking the reference closure statically. Recorded
 > 2026-08-06 rather than left describing a workflow that does not exist.
-- Build + test (same script, native first) → publish App+Agent self-contained → verify PresentMon SHA-256 → **verify VERSIONINFO present on `FrameLedger.Overlay.dll` and `FrameLedger.VkLayer.dll`** (identifiability is a safety requirement, `19_SAFETY`) → `vpk pack` → generate `SHA256SUMS.txt` → create GitHub Release with Velopack assets + checksums, release notes from `CHANGELOG.md` section.
+- Build + test (same script, native first) → publish App+Agent self-contained → ~~verify PresentMon SHA-256~~ *(retired 2026-08-27 — the console binary is not bundled; owner decision, `20_OPEN_QUESTIONS` §G)* → **verify VERSIONINFO present on `FrameLedger.Overlay.dll` and `FrameLedger.VkLayer.dll`** (identifiability is a safety requirement, `19_SAFETY`) → `vpk pack` → generate `SHA256SUMS.txt` → create GitHub Release with Velopack assets + checksums, release notes from `CHANGELOG.md` section.
 - Optional final step: submit installer hash to VirusTotal and append the report link to release notes (helps unsigned-binary trust).
 - `permissions: contents: write`.
 

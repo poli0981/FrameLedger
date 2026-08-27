@@ -89,7 +89,11 @@ Agent flags: `--serve`, `--console`, `--diag`, `--install-task`, `--uninstall-ta
 
 ## Bundled assets
 
-- `assets/native/PresentMon.exe` (pinned, SHA-256 verified at build) for the Tier-2 fallback — **planned, not present.** `assets/` does not exist, nothing fetches or verifies the binary, and `EtwFrameSource` is unwritten. `20_OPEN_QUESTIONS` §M2 (does the pinned console binary still exist, run unelevated, and emit the 2.x column set?) is unanswered, so this is not merely unpinned — there is nothing to pin yet.
+- ~~`assets/native/PresentMon.exe` (pinned, SHA-256 verified at build) for the Tier-2 fallback~~ — **RETIRED BY OWNER DECISION, 2026-08-27: the console binary is a LOCAL TEST TOOL and is not bundled.** It stays on the developer's machine for the §S31 measurement and for `tools/frametype-oracle.ps1`'s input; the release will reach Tier 2 by a different route, and **which route has not been decided** (`20_OPEN_QUESTIONS` §G). Two consequences worth stating rather than discovering: there is now **no shipping mechanism for Tier 2 at all** — `15_ROADMAP` parks PresentMon Service + API2 in **v2**, and §M2 already recorded that there is no planned fallback if the console is gone — and `README`, `legal/DISCLAIMER.md` and `legal/EULA.md` all describe a Tier 2 that users can reach. Whatever replaces it has to satisfy those three documents or they have to change.
+
+  The struck text is kept because the *reason* it was written is still live. What it said next, and what remains true:
+
+  > **planned, not present.** `assets/` does not exist, nothing fetches or verifies the binary, and `EtwFrameSource` is unwritten. `20_OPEN_QUESTIONS` §M2 (does the pinned console binary still exist, run unelevated, and emit the 2.x column set?) is unanswered, so this is not merely unpinned — there is nothing to pin yet.
 - Vulkan layer manifest, **written** with the installed layer path at install time (Velopack hook) — but **not registered there**. Registration is a separate, later act.
 
 ### The Vulkan layer is not registered at install time
