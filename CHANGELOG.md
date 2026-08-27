@@ -66,6 +66,34 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **`tools/s31-capture.ps1` — the three-leg runbook §S31 needs, and its refusals are the tool.**
+  §S31's measurement is owner-only and every leg costs a GAME LAUNCH: when the capture host
+  exits, nothing publishes `guardTicks`, the Overlay's watchdog hits `FL_GUARD_TICK_DEADLINE_MS`
+  and `StopObserving` clears `g_observing` one-way, so a second capture against the same running
+  title returns `SupervisionLost` with zero records. A mistyped flag therefore costs a relaunch,
+  not a retry — which is why this script refuses before it spends one: not elevated (with the
+  measured exit-6 text and both remedies), PresentMon absent or **not the pinned hash**, the host
+  unbuilt, the game not running, or a leg already collected without `-Force`. It prints the
+  executable's size and last-write per leg, so the launcher-update trap is visible ACROSS legs
+  instead of being blamed on the consent gate.
+
+  **A canary found that three of its own tests were testing nothing.** The fail-closed guard in
+  the hash comparison was removed and all ten cases stayed green — `[string]::Equals` already
+  refuses empty-vs-present, so those cases tested `Equals`, not us. The case the guard actually
+  carries was missing: `Equals('','')` is **true**, which is the shape §S23-1 records, where two
+  empty build ids compared equal and reported `Ok` for every process on the machine. Added as an
+  eleventh case, and the canary now fires on exactly it.
+
+  Wired into `build.ps1 check` as a self-test, following `frametype-oracle` rather than
+  `vklayer-blastradius` — an unrun self-test is the §S29(d) defect this ledger already carries once.
+
+- **`12_BUILD`'s gate list drifted again and is rebuilt against the script.** §R10 predicted this
+  in as many words: the 2026-08-06 alignment was done by hand and nothing derives the list, so it
+  lasted eleven days. Re-counted 2026-08-27 at **18 vs 16** — `hookinventory-check` and
+  `frametype-oracle` had both reached the script and neither reached the list. Now **19 entries
+  against 19 `Write-Step` calls**, in script order. §R10 **stays open**: aligning by hand is what
+  was tried, and the fix is a gate that reads the step names out of `build.ps1`.
+
 - **`tools/frametype-oracle.ps1`, and §S31 with its decision table written BEFORE the run.**
   HANDOFF item 3's producer decision needs one measurement: is a drained Streamline batch an
   application frame? Three oracles have already fallen, so the mapping from measurement to

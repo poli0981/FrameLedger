@@ -178,12 +178,15 @@ document the app displays for acceptance (FR-11) is a defect, not a template.
 8. `tools/rules-validate.ps1` (schema + `anticheat` block sanity — a malformed or empty blocklist is a safety bug)
 9. `tools/versioninfo-check.ps1` — reads the built binary, because what ships is what an anti-cheat vendor sees
 10. `tools/chokepoint-check.ps1` — injection and evasion primitives confined to one file, native **and** managed, plus the `FL_GUARD_TESTABLE` symbol check against the shipped artifacts
-11. **`tools/package-closure-check.ps1`** — both halves: the self-test (5 cases, 4 of which must go RED) **and** a live pass over this repository. It walks the transitive `ProjectReference` closure of the two publish roots below and fails on anything outside the allowlist, naming the reference edge. `FrameLedger.CaptureHost` is an injecting entry point kept out of the package by construction, and `20_OPEN_QUESTIONS` §S27 is closed on exactly that basis
-12. `tools/license-check.ps1` — asserts every vendored third-party has a licence copy in `legal/licenses/`, and that no Intel IGCL / AMD ADLX material has appeared in the tree
-13. `tools/changelog-check.ps1 -SelfTest` — nine cases, five expected RED. The live half needs a pull request's changed-file list and is supplied by `ci.yml`
-14. `tools/resx-audit` — **skipped loudly; it does not exist, and no `.resx` file does either**
-15. **struct-mirror** — reads this run's `.trx` and fails when `ShmLayoutMirrorTests` did not execute, so deleting the mirror test is red as well as breaking it
-16. Placeholder guard — fails if any `{{` token other than `{{RELEASE_DATE}}` survives in `README.md` or `legal/*.md`
+11. **`tools/hookinventory-check.ps1`** — three passes: A resolves every vendor symbol the Overlay names against `docs/vendor-exports.json`, B sweeps for stray literals, C reads the BUILT Overlay's import table and asserts it imports no vendor module. C skips loudly under `-SkipNative`. **Missing from this list until 2026-08-27**
+12. **`tools/package-closure-check.ps1`** — both halves: the self-test (5 cases, 4 of which must go RED) **and** a live pass over this repository. It walks the transitive `ProjectReference` closure of the two publish roots below and fails on anything outside the allowlist, naming the reference edge. `FrameLedger.CaptureHost` is an injecting entry point kept out of the package by construction, and `20_OPEN_QUESTIONS` §S27 is closed on exactly that basis
+13. `tools/license-check.ps1` — asserts every vendored third-party has a licence copy in `legal/licenses/`, and that no Intel IGCL / AMD ADLX material has appeared in the tree
+14. `tools/changelog-check.ps1 -SelfTest` — nine cases, five expected RED. The live half needs a pull request's changed-file list and is supplied by `ci.yml`
+15. `tools/frametype-oracle.ps1 -SelfTest` — twelve cases, both directions. Self-test only: the parser has never seen a real PresentMon CSV (§M2), and its decision table is the only thing standing behind it. **Missing from this list until 2026-08-27**
+16. `tools/s31-capture.ps1 -SelfTest` — eleven cases, both directions, with the fail-closed one proved by canary. Self-test only: the tool itself needs elevation and a running game. Its refusals ARE the tool, because every leg it takes costs a game launch that cannot be retaken
+17. `tools/resx-audit` — **skipped loudly; it does not exist, and no `.resx` file does either**
+18. **struct-mirror** — reads this run's `.trx` and fails when `ShmLayoutMirrorTests` did not execute, so deleting the mirror test is red as well as breaking it
+19. Placeholder guard — fails if any `{{` token other than `{{RELEASE_DATE}}` survives in `README.md` or `legal/*.md`
 
 > **This list was wrong in two ways until 2026-08-06 and both were the same kind of wrong.** Step 6
 > said the struct-mirror check *"does not exist; `build.ps1` declares and skips it loudly"* — while

@@ -429,6 +429,21 @@ function Invoke-ProjectGates {
         Skip-Gate 'frametype-oracle' 'tools/frametype-oracle.ps1 not implemented yet'
     }
 
+    # SAME REASON AS THE GATE ABOVE, one step further out. tools/s31-capture.ps1
+    # drives the three-leg capture the oracle then compares, and every leg it takes
+    # costs a GAME LAUNCH -- the Overlay self-unhooks 65 s after the capture host
+    # exits, so a leg cannot be retaken against the same running title. Its refusals
+    # are therefore the whole tool, and an unrun self-test is the S29(d) defect this
+    # ledger already carries once. Self-test only: it needs elevation and a game.
+    Write-Step 's31-capture'
+    $s31Tool = Join-Path $repo 'tools/s31-capture.ps1'
+    if (Test-Path $s31Tool) {
+        Invoke-Checked 's31-capture (self-test)' { & $s31Tool -SelfTest }
+    }
+    else {
+        Skip-Gate 's31-capture' 'tools/s31-capture.ps1 not implemented yet'
+    }
+
     Write-Step 'resx-audit'
     $resxTool = Join-Path $repo 'tools/resx-audit'
     if (Test-Path $resxTool) {
