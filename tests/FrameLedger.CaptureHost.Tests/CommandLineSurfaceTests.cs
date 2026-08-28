@@ -131,7 +131,23 @@ public sealed class CommandLineSurfaceTests
         text.Should().Contain("may flag or ban accounts");
         text.Should().Contain("CANNOT GUARANTEE IT KNOWS EVERY ANTI-CHEAT");
         text.Should().Contain("terms of service");
-        text.Should().Contain("Tier-2");
+        // THE FOURTH STATEMENT, AND THIS ASSERTION USED TO BE UNABLE TO FAIL FOR IT.
+        // It was `Contain("Tier-2")`. When the ladder collapsed to two rungs on 2026-08-28 the
+        // claim behind that token changed completely -- Tier 2 stopped being a no-injection
+        // MEASUREMENT and became "nothing was measured, and here is why" -- and any rewrite
+        // keeping the literal token would still have passed. A gate that cannot fail for the one
+        // thing that changed is this project's own recurring defect.
+        //
+        // So pin the SUBSTANCE: that declining is stated, and stated in terms of what it yields.
+        text.Should().Contain("N/A", "the fourth statement is what a session yields WITHOUT hooking");
+        text.Should().Contain("Tier 2");
+        text.Should().NotContain("Tier 3", "the ladder has two rungs");
+
+        // The two sentences this text carried until 2026-08-28, both false by then. The first told
+        // an operator that a no-injection mode would capture for them; the second told them the
+        // injection risk was optional, when hooking is now the only frame-time path there is.
+        text.Should().NotContainEquivalentOf("required to measure");
+        text.Should().NotContainEquivalentOf("is the default for anything the guard");
 
         // 19_SAFETY: "Consent and disclaimer wording must say 'within 30 seconds', never 'immediately'."
         //

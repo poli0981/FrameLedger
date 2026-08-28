@@ -30,7 +30,7 @@ By enabling this feature for a game, you confirm that:
 
 (e) the Developer has no ability to reverse a ban, recover lost progress, or intervene with any game publisher on your behalf, and accepts no liability for such outcomes.
 
-A measurement mode requiring no injection is the default. It depends on Windows event tracing and therefore on the Software's agent running with administrator rights; where those rights are unavailable, the Software records only session duration and hardware sensor data, and indicates which mode produced each session.
+The Software records without injecting unless you enable injection for a specific game. In that mode it records only the session's duration and whatever hardware sensor data is available, indicates that mode on the session, and reports unavailable measurements as such rather than estimating them. Neither mode requires the Software's agent to run with administrator rights.
 
 ## 3. Acceptance
 
