@@ -89,7 +89,7 @@ Agent flags: `--serve`, `--console`, `--diag`, `--install-task`, `--uninstall-ta
 
 ## Bundled assets
 
-- ~~`assets/native/PresentMon.exe` (pinned, SHA-256 verified at build) for the Tier-2 fallback~~ — **DROPPED 2026-08-27, and there are no bundled native assets at all.** §S31 measured PresentMon classifying every frame of a ×4 capture as an application frame (row P2); the owner then dropped it outright. It is not bundled, not fetched, not used, and `tools/frametype-oracle.ps1` — the parser that consumed its output — is deleted with it. `assets/` does not exist and now has no reason to. **Tier 2 keeps its place in the design and has no mechanism**: `EtwFrameSource` is unwritten and what it would read is `20_OPEN_QUESTIONS` §G.
+- ~~`assets/native/PresentMon.exe` (pinned, SHA-256 verified at build) for the Tier-2 fallback~~ — **DROPPED 2026-08-27, and there are no bundled native assets at all.** §S31 measured PresentMon classifying every frame of a ×4 capture as an application frame (row P2); the owner then dropped it outright. It is not bundled, not fetched, not used, and `tools/frametype-oracle.ps1` — the parser that consumed its output — is deleted with it. `assets/` does not exist and now has no reason to. **And since 2026-08-28 Tier 2 is not a measurement at all**: the ladder is two rungs, `EtwFrameSource` is deleted from the design, and whether a shipped build ever regains a no-injection measurement is `20_OPEN_QUESTIONS` §G.
 
   The struck text is kept because the *reason* it was written is still live. What it said next, and what remains true:
 

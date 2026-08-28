@@ -2,7 +2,7 @@
 
 The Agent decides *whether* to capture, *how* (tier), starts it, drains data, and finalizes sessions. The in-process mechanics live in `17_HOOK_ENGINE`.
 
-## Frame source abstraction (retained from the ETW design, now with two real implementations)
+## Frame source abstraction (retained from the ETW design — and now with ONE implementation, which is the point)
 
 ```csharp
 public interface IFrameSource : IAsyncDisposable
@@ -15,54 +15,63 @@ public interface IFrameSource : IAsyncDisposable
 | Implementation | Tier | Notes |
 |---|---|---|
 | `HookedFrameSource` | 1 | Injects (or relies on the Vulkan layer), maps the ring, drains at 10 Hz |
-| `EtwFrameSource` | 2 | **No mechanism.** ~~Bundled PresentMon console binary, CSV over stdout~~ — PresentMon was dropped on 2026-08-27 (§S31 row P2, then an owner decision) and nothing replaced it. This row names a PORT WITH NO ADAPTER: `EtwFrameSource` is unwritten, and what it would read is `20_OPEN_QUESTIONS` §G. Do not plan P2 as though writing it were scoped |
+| ~~`EtwFrameSource`~~ | — | **Deleted from the design, 2026-08-28.** Tier 2 is not a frame source: it produces no frames. PresentMon was dropped (§S31 row P2), no mechanism replaced it (§G), and a port with no adapter on a tier that measures nothing is a row that only invites someone to implement it. The interface keeps its shape for `MockFrameSource` and for whatever Vulkan needs |
 | `MockFrameSource` | dev | Synthetic frames incl. simulated FG/upscaler/RT records; `FL_MOCK=1` |
 
 Tier selection per launch:
 
 ```
 hookingEnabledForGame && guardPasses && injectionSucceeds   → Tier 1
-otherwise, if the Agent is elevated (ETW needs it)          → Tier 2   [no implementation — §G]
-otherwise                                                    → Tier 3 (duration + sensors only)
+otherwise                                                    → Tier 2
 ```
 
-**Tier 2 is not unconditionally available, and the product must stop implying it
-is.** Controlling an ETW trace session requires the caller to be in
-Administrators or Performance Log Users, and joining the latter itself needs
-admin. ~~Intel's PresentMon console binary re-launches itself elevated when run
-without rights, which for an Agent driven by a 1 Hz watcher (FR-3.1) means a UAC
-prompt per capture — unacceptable — or outright failure on a standard account.~~
+**Two tiers, and the second one is not a measurement.** Owner decision 2026-08-28,
+and it is the honest shape once PresentMon was dropped (§S31 row P2, then §G):
+there is no no-injection *measurement* mode, so there is nothing for a middle rung
+to hold. What was Tier 3 is now Tier 2.
 
-> **MEASURED 2026-08-20, and the MECHANISM above is wrong while the CONCLUSION holds**
-> (`spike-notes` §11). PresentMon 2.5.1 does **not** re-launch itself elevated and raises
-> no UAC prompt at all. It exits **6** with *"requires either administrative privileges or
-> to be run by a user in the Performance Log Users user group"* and writes no CSV.
+| Tier | Mechanism | Yields |
+|---|---|---|
+| **1** | Injected hooks, or the Vulkan layer | Everything: frame times, FPS and lows, render/output resolution, upscaler + preset, FG, RT/PT evidence, per-process VRAM, PSO stutter, Reflex latency |
+| **2** | None | **Session duration, whatever hardware telemetry this machine can provide, and the REASON there is nothing else.** Every measured field reads `N/A` (FR-4.9) |
+
+**Frame times are Tier-1-only now, and that is a reduction in what this product
+promises.** It is stated here, in `README` §Capture tiers and in `03_METRICS`
+§Accuracy budget rather than in a footnote, because the previous ladder promised
+frame times without injection and a reader who remembers that will otherwise assume
+it still holds.
+
+**The reason is the payload of Tier 2**, not a consolation attached to it. A session
+that records duration and sensors while saying nothing about *why* it measured
+nothing is indistinguishable from a broken capture. `sessions.capture_notes` and the
+`CaptureRefused` / `CaptureDegraded` messages carry it: guard refused (with which
+signal fired), hook failed, hooking not enabled for this game, or a 32-bit target the
+x64 Overlay structurally cannot enter.
+
+> **NO CAPTURE TIER NEEDS AN ELEVATED AGENT ANY MORE, and that closes something.**
+> The elevation requirement came from ETW trace sessions, and this ladder has no ETW
+> rung. `19_SAFETY`, `08_UI` §First-run and the Disclaimer previously had to explain
+> that an unelevated Agent could not reach the fallback; there is nothing to explain.
+> Elevation stays **optional** and unlocks exactly what ADR-9 always said: CPU/board
+> temperatures (LHM + PawnIO) and attaching to games that themselves run elevated.
 >
-> So the failure is silent and immediate rather than a prompt — which is the *better* shape
-> for a 1 Hz watcher, and is still **outright failure on a standard account**. Corrected
-> 2026-08-27 rather than deleted, because a reader planning Tier 2 against this paragraph
-> would have budgeted for a UAC-prompt problem that does not exist.
->
-> The installed `PresentMonSharedService` does not help either — the console starts its
-> **own** trace session — which is half of §M6 answered in the direction nobody expected.
+> ~~Whether a documented one-time "add me to Performance Log Users" setup step, or the
+> PresentMon Service, can restore genuinely elevation-free Tier 2~~ — moot: the
+> question was about reaching a tier that no longer exists. The measurements that
+> killed it are in `spike-notes` §11 and `20_OPEN_QUESTIONS` §M2/§M6, which is where
+> they belong; this file no longer restates them.
 
-So an unelevated Agent that fails Tier 1 lands on **Tier 3**, not Tier 2. The UI
-must say so at the moment it happens and in the Agent-setup step, rather than
-offering "capture without injection instead" and then silently recording nothing
-but duration. `19_SAFETY` §Pre-injection checks, `08_UI` §First-run flow and the
-Disclaimer all state the elevation requirement for the same reason.
-
-Whether a documented one-time "add me to Performance Log Users" setup step, or
-the PresentMon Service (`15_ROADMAP` v2 backlog), can restore genuinely
-elevation-free Tier 2 is `20_OPEN_QUESTIONS` §M6.
-
-The chosen tier is recorded on the session and surfaced in the UI. A Tier-1 attempt that fails **degrades to Tier 2 for the session without interrupting the user's game**, and raises a one-time notification explaining why (users must not lose data fidelity without knowing).
+The chosen tier is recorded on the session and surfaced in the UI. A Tier-1 attempt
+that fails **degrades to Tier 2 for the session without interrupting the user's
+game**, and raises a one-time notification explaining why — users must not lose data
+fidelity without knowing, and under this ladder the loss is total rather than partial,
+which makes the notification more important than it was, not less.
 
 ## Process watcher
 
 - 1 Hz snapshot via `CreateToolhelp32Snapshot` (CsWin32): pid, ppid, exe path (`QueryFullProcessImageName`).
 - Watchlist match on normalized full path (`GetFinalPathNameByHandle` — junctions/symlinks), filename fallback with a stale-path warning badge.
-- Process tree assembled from ppid chains; the **capture target** is the descendant that actually presents. In launch mode we know it; in attach mode we wait for the first ring handshake, or (Tier 2) elect the PID with the most presents in the first 10 s. Re-elect if the presenting PID dies while the tree lives (level-transition relaunches).
+- Process tree assembled from ppid chains; the **capture target** is the descendant that actually presents. In launch mode we know it; in attach mode we wait for the first ring handshake. ~~or (Tier 2) elect the PID with the most presents in the first 10 s~~ — there is no Tier-2 present stream to elect from. Re-elect if the presenting PID dies while the tree lives (level-transition relaunches).
 
 ## Launch mode vs attach mode
 

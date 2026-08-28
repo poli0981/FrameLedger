@@ -58,7 +58,9 @@ internal enum SessionEndReason
     /// </summary>
     /// <remarks>
     /// A protected process, or another user's. <c>19_SAFETY</c> §Elevated / protected
-    /// targets: report "cannot attach" and offer Tier-2; never escalate creatively.
+    /// targets: report "cannot attach" and record the session as Tier-2 with the reason;
+    /// never escalate creatively. (Tier 2 measures nothing — it is the honest record
+    /// of a capture that did not happen, not a lesser measurement.)
     /// Proceeding would mean injecting into a pid that could be recycled out from
     /// under the consent record between here and <c>FlGuardedInject</c>.
     /// </remarks>

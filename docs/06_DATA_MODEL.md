@@ -20,7 +20,7 @@ CREATE TABLE games (
   cover_path TEXT, notes TEXT,
 
   -- hooking state (19_SAFETY)
-  hook_enabled INTEGER NOT NULL DEFAULT 0,     -- 0 = Tier 2 only; default for every new game
+  hook_enabled INTEGER NOT NULL DEFAULT 0,     -- 0 = Tier 2, i.e. nothing measured; default for every new game
   hook_consent_at INTEGER,                     -- per-game informed consent timestamp
   hook_blocked_reason TEXT,                    -- set by the static AC pre-scan; non-null = toggle disabled in UI
   hook_autodisabled_reason TEXT,               -- set after repeated crashes
@@ -110,7 +110,7 @@ CREATE TABLE sessions (
   snapshot_id INTEGER NOT NULL REFERENCES hardware_snapshots(id),
   started_at INTEGER NOT NULL, ended_at INTEGER NOT NULL, duration_s REAL NOT NULL,
 
-  capture_tier INTEGER NOT NULL,               -- 1 = hooked, 2 = etw, 3 = none
+  capture_tier INTEGER NOT NULL,               -- 1 = hooked, 2 = not hooked; CHECK (capture_tier IN (1,2))
   capture_notes TEXT,                          -- why tier degraded, late_attach, etc.
   late_attach INTEGER NOT NULL DEFAULT 0,
   telemetry_source TEXT,                       -- composite descriptor, e.g. 'l1+lhm+nvapi' (18_GPU_VENDOR_APIS)
@@ -152,7 +152,7 @@ CREATE TABLE sessions (
   -- (fl_shm.h: FL_FG_NOT_REPORTED is 0 in v3; MeasuredFacts.FgMode is null, never "none").
   -- Matches hdr_flag/rt_flag/pt_flag/rr_flag beside it, which were already 'na'.
   fg_mode TEXT NOT NULL DEFAULT 'na',
-  fg_source TEXT,                              -- api|etw|cadence|manual
+  fg_source TEXT,                              -- api|cadence|manual (`etw` removed 2026-08-28: no producer, no tier)
   fg_factor REAL,
 
   -- ray tracing (measured at tier 1)
@@ -247,7 +247,7 @@ CREATE TABLE legal_acceptance (doc TEXT PRIMARY KEY, version TEXT NOT NULL, acce
 
 ## Comparison safety
 
-Because Tier-1 and Tier-2 sessions carry different fields, every query that compares sessions **must** filter or group by `capture_tier`. The Compare view refuses to overlay mixed tiers without an explicit "compare across tiers anyway" acknowledgement, and marks the chart accordingly. Likewise `settings_changed_midsession = 1` sessions are excluded from trend lines by default (they average across a settings change and are misleading), with a toggle to include them.
+Because Tier-1 and Tier-2 sessions carry different fields, every query that compares sessions **must** filter or group by `capture_tier`. **Since 2026-08-28 the difference is total rather than partial** — a Tier-2 session has no frame data at all — so a mixed-tier overlay is not a degraded comparison, it is a comparison with nothing on one side. The Compare view refuses to overlay mixed tiers without an explicit "compare across tiers anyway" acknowledgement, and marks the chart accordingly. Likewise `settings_changed_midsession = 1` sessions are excluded from trend lines by default (they average across a settings change and are misleading), with a toggle to include them.
 
 ## Blob encoding
 

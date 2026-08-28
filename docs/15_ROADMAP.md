@@ -302,12 +302,12 @@ CI/CD with the native build; CodeQL (C# + C++); Dependabot; CHANGELOG; README wi
 
 - **In-game overlay** (FR-15): we are already in the process; draw live FPS/frametime/upscaler/RT state. Opt-in per game, off by default. Borderless and fullscreen-flip both handled since we own the swapchain.
 - **PSO stutter deep-dive**: attribute compile stalls to specific pipeline creations with a timeline.
-- Unknown-game suggestion (Tier 2 only — never suggests hooking).
+- ~~Unknown-game suggestion (Tier 2 only — never suggests hooking).~~ **Struck 2026-08-28:** the parenthesis meant "suggest it from passive measurement", and Tier 2 measures nothing. Any such suggestion would now come from static hints alone, which is a different feature with a different confidence story.
 - Per-segment comparison ("before/after I changed DLSS Quality → Balanced, mid-session").
 
 ## v2 backlog
 
-- ~~PresentMon Service + API2 for a richer Tier 2~~ — **struck 2026-08-27**: PresentMon is dropped, so this cannot be the *richer* version of something that is not the baseline any more. What v2 may want is a Tier-2 mechanism at all; **v1 does not have one** (§G)
+- ~~PresentMon Service + API2 for a richer Tier 2~~ — **struck 2026-08-27**, and the shape hardened 2026-08-28: v1's ladder has two rungs and Tier 2 is not a measurement. What v2 may want is **a no-injection measurement at all** — which would restore two things at once: the FG oracle §S31 spent four attempts looking for, and `14_TESTING`'s Tier-1 accuracy cross-check, which is struck for the same reason (§G)
 - **YouTube overlay export**: frametime/FPS graph as transparent PNG sequence for DaVinci Resolve benchmark videos (SkullMute workflow)
 - CapFrameX-compatible CSV import/export
 - Microsoft Store / Game Pass titles (packaged-app injection constraints)

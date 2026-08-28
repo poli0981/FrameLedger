@@ -12,7 +12,7 @@
               SQLite (WAL)  ◄────────────────┤ ├ ShmReader (10 Hz drain)     │
                                              │ ├ VendorTelemetry (NVAPI/…)   │
                                              │ ├ SessionRecorder             │
-                                             │ └ Tier2 EtwSource (fallback)  │
+                                             │   (no Tier-2 source: none exists) │
                                              └───────────▲──────────────────┘
                                           shared memory  │  Local\FrameLedger.Ring.<pid>
                                         (lock-free SPSC) │
@@ -39,15 +39,14 @@
 - **Hooking in-process is the only way to get the facts we care about.** Render resolution vs output resolution, upscaler identity and quality preset, whether frame generation is actually running, whether rays are actually being traced — none of these are observable from outside the process. The previous ETW-only design could only guess from file/module presence, which measured badly against real games.
 - **The DLL does as little as possible.** It records; it does not analyze, log, allocate, or block. All interpretation happens in the Agent. This keeps the game-side risk surface tiny and the overhead near zero.
 - **Shared memory, not pipes, on the hot path.** A present hook must not make a syscall. It writes 64 bytes into a ring and returns.
-- **The Agent no longer needs elevation for its primary path.** Injecting into a same-integrity process, and reading GPU telemetry through vendor user-mode APIs, both work unprivileged. Elevation is *optional* and unlocks: CPU/board temperatures (LHM + PawnIO), attaching to games that themselves run elevated, and the Tier-2 ETW source. A significant simplification versus the previous design — with one honest consequence: **the fallback tier is the part that needs elevation**, so an unelevated Agent whose Tier-1 attempt fails degrades to Tier 3, not Tier 2 (`04_CAPTURE` §Frame source abstraction).
+- **The Agent no longer needs elevation for its primary path.** Injecting into a same-integrity process, and reading GPU telemetry through vendor user-mode APIs, both work unprivileged. Elevation is *optional* and unlocks: CPU/board temperatures (LHM + PawnIO) and attaching to games that themselves run elevated. ~~and the Tier-2 ETW source~~ — **and as of 2026-08-28 the honest consequence this sentence used to carry is gone with it.** It read: *"the fallback tier is the part that needs elevation, so an unelevated Agent whose Tier-1 attempt fails degrades to Tier 3, not Tier 2"*. There is no ETW tier and no Tier 3, so **no capture tier needs elevation at all** (`04_CAPTURE` §Frame source abstraction).
 
 ## Capture tiers
 
 | Tier | Mechanism | Gets you | When used |
 |---|---|---|---|
 | **1** | Injected hooks (default when the user enabled it and the guard passed) | Everything: exact render/output res, upscaler + quality, FG ground truth, RT/PT evidence, per-process VRAM, PSO stutter attribution, Reflex latency, present flags | Offline/single-player titles the user opted in |
-| **2** | ETW, no injection — ~~via PresentMon console~~ **mechanism undecided** (§G) | Frame times, present mode, displayed vs presented counts. ~~coarse FG inference~~ — that came from PresentMon's `FrameType`, which §S31 retired for NVIDIA, so no Tier-2 FG signal is claimed | Guard refused, hook failed, user chose not to hook, or cross-checking Tier 1 |
-| **3** | Nothing | Session duration + sensors only | Capture disabled |
+| **2** | None | **Session duration, whatever hardware telemetry this machine can provide, and the REASON there is nothing else** — which check refused, or that the hook failed, was not enabled, or the target is 32-bit. Every measured field reads `N/A` (FR-4.9) | Guard refused, hook failed, user chose not to hook, or a target the Overlay structurally cannot enter |
 
 Tier is recorded per session (`sessions.capture_tier`) and shown in the UI, because metric availability differs and comparing across tiers must be explicit.
 
@@ -55,7 +54,7 @@ Tier is recorded per session (`sessions.capture_tier`) and shown in the UI, beca
 
 ```
 watcher sees tracked exe launch
-  → is hooking enabled for this game?           no → Tier 2
+  → is hooking enabled for this game?           no → Tier 2 (nothing measured)
   → AntiCheatGuard.Check(pid)                   fail → refuse + explain + Tier 2 (19_SAFETY)
   → Injector.Attach(pid, dllPath)               fail → log + Tier 2
       OpenProcess(CREATE_THREAD|VM_OPERATION|VM_WRITE|VM_READ|QUERY_LIMITED)
@@ -83,7 +82,7 @@ Guard re-runs every 30 s for the life of the session; anti-cheat appearing late 
 |---|---|
 | Anti-cheat detected pre-injection | Refuse, explain which signal fired, offer Tier 2 |
 | Anti-cheat detected mid-session | Immediate clean unhook, `exit_status = unhooked_safety`, prominent notice |
-| Injection API fails (access denied, protected process) | Log, no retry loop, offer Tier 2 + "run Agent elevated" hint |
+| Injection API fails (access denied, protected process) | Log, no retry loop, offer Tier 2 + "run Agent elevated" hint — elevation here is about *attaching to an elevated target*, not about reaching a tier; Tier 2 needs none |
 | Hook faults 3× | DLL self-disables, sets fault flag in handshake block, Agent finalizes session as `degraded` |
 | Game crashes ≤ 60 s after injection, twice | Hooking auto-disabled for that game, Tier 2 takes over |
 | Ring overflow (Agent stalled) | Overwrite-oldest; dropped count published in the ring header → session flagged with a data-quality warning |
@@ -109,7 +108,7 @@ covers\*.jpg
 
 - **ADR-1 (superseded):** ~~Passive ETW only; injection out of scope.~~ Replaced by ADR-7.
 - **ADR-2:** WPF over WinUI 3 — Velopack maturity, ecosystem stability, portfolio reuse.
-- **ADR-3 (revised twice):** ETW is the **Tier-2 fallback**, not the primary source. ~~ETW/PresentMon~~ — the **tool** is no longer named: §S31 retired PresentMon's `FrameType` as an oracle on 2026-08-20–27 and the owner dropped it on 2026-08-27, so Tier 2 has a tier and no implementation. The `IFrameSource` abstraction that made this cheap to change is retained and **vindicated a second time**: the mechanism changed underneath it and no consumer moved.
+- **ADR-3 (revised three times, and this one retires it):** ~~ETW is the **Tier-2 fallback**, not the primary source.~~ **There is no ETW tier.** Owner decision 2026-08-28: the ladder is two rungs — hooked, or not measured — and Tier 2 carries duration, sensors and the reason. The abstraction below survives; the second implementation it was justified by never existed and is now not planned. ~~ETW/PresentMon~~ — the **tool** is no longer named: §S31 retired PresentMon's `FrameType` as an oracle on 2026-08-20–27 and the owner dropped it on 2026-08-27, so Tier 2 has a tier and no implementation. The `IFrameSource` abstraction that made this cheap to change is retained and **vindicated a second time**: the mechanism changed underneath it and no consumer moved.
 - **ADR-4:** Raw frame series stored as compressed blobs with retention; aggregates kept forever.
 - **ADR-5 (revised):** In-game overlay is now *possible* (we are already in the process) and is planned as an opt-in feature after the data path is stable — see `15_ROADMAP` P5.
 - **ADR-6:** UI toolkit = WPF UI (lepoco `Wpf.Ui` ≥ 4.3.0, MIT) — see `16_WPFUI_SYNTAX.md`.

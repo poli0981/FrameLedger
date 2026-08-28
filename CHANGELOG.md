@@ -19,6 +19,45 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Changed
 
+- **The capture ladder collapses to two rungs, and Tier 2 is not a measurement.** Owner decision
+  2026-08-28, and it is the honest shape once PresentMon was dropped: there is no no-injection
+  measurement mode, so nothing holds a middle rung. What was Tier 3 is now Tier 2 — **session
+  duration, whatever hardware telemetry the machine can provide, and the REASON nothing was
+  measured**. Every measured field reads `N/A` (FR-4.9), and the reason is the payload rather than
+  a consolation attached to it.
+
+  **Frame times, FPS and the lows are now Tier-1-only**, which is a real reduction in what this
+  product promises: `README` previously offered them without injection.
+
+  **No capture tier needs an elevated Agent any more.** The requirement came from ETW trace
+  sessions and there is no ETW rung. That closes §Scope's "Tier 2 requires an elevated Agent" row
+  — as false now, not merely vacuous.
+
+  **§M5 was promoted from a design note to a blocker on a user-facing claim.** Whether LHM GPU
+  sensors work unelevated without PawnIO is UNMEASURED; if they do not, the DEFAULT Agent's Tier-2
+  session is **duration only**, which would falsify the sentence this change puts into `README`,
+  the consent dialog and the EULA. All three therefore say *"whatever hardware telemetry this
+  machine can provide"* — honest under either outcome, vague on purpose.
+
+  Twenty files. The ones that changed MEANING without changing WORDS are annotated in place —
+  chiefly the 32-bit / D3D9 catalogue, "Tier 2" before and after, which went from *frame times
+  without injection* to *unmeasurable in v1* across six files.
+
+### Removed
+
+- **`14_TESTING` §Tier cross-validation — a RELEASE-BLOCKING accuracy gate — is struck, and nothing
+  replaces it.** It required Tier 1 and Tier 2 over the same frames agreeing within 1%. There is no
+  second instrument. Its own last sentence is why this is recorded rather than dropped: it called
+  itself *"the check that would have caught the original detection-accuracy problem"*.
+
+  **So Tier-1 frame times are not falsifiable by anything inside this project.** This is the same
+  absence that killed the frame-generation oracle — one root cause, two casualties, and until now
+  only §S31 was written down. A Tier-2 mechanism would restore both (§G).
+
+- `EtwFrameSource` from the design, `fg_source`'s `etw` value, `HelloAck.etwAvailable`,
+  `CaptureError.EtwAccessDenied`, the `PresentMon version` field in `sysinfo.json`, and the
+  three-tier dropdown in the bug-report template.
+
 - **PresentMon is DROPPED — owner decision 2026-08-27 — and Tier 2 keeps its place while losing
   its mechanism.** §S31 retired it as a measurement oracle (row P2); this removes it as an
   implementation. It is not bundled, not fetched, not used, and `tools/frametype-oracle.ps1` — the

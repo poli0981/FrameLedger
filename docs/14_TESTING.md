@@ -33,7 +33,7 @@ The anti-cheat guard is the one component where a bug can cost someone an accoun
 - Upscaling: exact ratio from render/output pairs; **segment splitting** when resolution changes mid-stream; `settings_changed_midsession` flag; dominant-segment selection.
 - RT: AS-builds-only stream (inline RayQuery case) → `rt = Yes` — the specific regression the old design got wrong; dispatch-only → `Yes`; RT-capable device with neither → `No`; D3D11 → `N/A`. PT confidence scoring never yields `Yes`.
 - Tri-state precedence: `manual > measured > inherited > N/A`.
-- Tier gating: a Tier-2 record stream must produce `N/A` for upscaler/RT/VRAM/latency — **never a fabricated value**.
+- Tier gating: **there is no Tier-2 record stream.** A Tier-2 session produces `N/A` for every measured field — **never a fabricated value**, and never a zero standing in for one.
 
 ### Parsers & infrastructure
 - Shm reader against a synthetic mapping: version mismatch → refuse; torn records skipped; dropped counter propagated.
@@ -58,9 +58,44 @@ The anti-cheat guard is the one component where a bug can cost someone an accoun
 2. Real game, fixed 10-minute scene, capture ON vs OFF, 3 runs each: **game's own Avg FPS delta ≤ 0.5%**, Agent CPU ≤ 1% of a core, Agent RSS ≤ 150 MB, Overlay resident ≤ 8 MB.
 3. Results recorded in the release notes ("measured overhead this release: …").
 
-## Tier cross-validation (accuracy regression net)
+## Tier cross-validation (accuracy regression net) — **GONE, 2026-08-28, and this is the entry to read before planning P5**
 
-Run the same game session with Tier 1 and Tier 2 simultaneously where possible (ETW does not conflict with hooking) and compare frametime distributions: Avg/1% Low must agree within **1%**. Divergence beyond that means one of the two paths is wrong and blocks the release. This is also the check that would have caught the original detection-accuracy problem.
+~~Run the same game session with Tier 1 and Tier 2 simultaneously where possible (ETW does not conflict with hooking) and compare frametime distributions: Avg/1% Low must agree within **1%**. Divergence beyond that means one of the two paths is wrong and blocks the release. This is also the check that would have caught the original detection-accuracy problem.~~
+
+**This gate is unsatisfiable and is struck rather than quietly dropped, because of
+its own last sentence.** It described itself as *"the check that would have caught
+the original detection-accuracy problem"* — the problem the whole hook rewrite exists
+to fix. It required a second instrument measuring the same frames. PresentMon was that
+instrument; §S31 retired it and the owner dropped it, and the two-rung ladder has no
+second instrument by construction.
+
+**So state the consequence plainly: FrameLedger's Tier-1 frame times are not
+falsifiable by anything inside this project.** Not "less well covered" — there is no
+second measurement to disagree with them. The suite still proves the ring, the hooks,
+the guard and the drain against fixtures and against the harness; none of that is an
+independent measurement of a real game's frame times.
+
+**This is the same absence that killed the frame-generation oracle**, one layer over.
+§S31 spent four oracles looking for an instrument that did not divide by our own
+numbers; `fl-baseline-probe` fell to its own falsifier, two readings of Steam's overlay
+were not independent because that overlay also hooks presentation, and PresentMon
+classified every frame of a ×4 capture as an application frame. One root cause, two
+casualties, and until now only one of them was written down.
+
+**What would restore it** — none of these is chosen, and the row in `20_OPEN_QUESTIONS`
+§G owns the question:
+
+- a Tier-2 mechanism of any kind, which restores both this gate and the FG oracle;
+- an instrument outside the present path entirely (hardware capture), which is out of
+  scope for v1 and is the only option that is independent *by construction* rather
+  than by argument;
+- the game's own frame counter, which §S30 records as still unrun and which is not a
+  distribution, only a mean.
+
+**Until one exists, do not describe Tier 1 as validated.** `03_METRICS` §Accuracy
+budget states the Tier-1 figure as a property of the mechanism — direct QPC at the
+present call — and that is the honest claim: it says what is measured and where, not
+that it was checked against anything.
 
 ## Manual test matrix (per release)
 
@@ -68,12 +103,12 @@ Run the same game session with Tier 1 and Tier 2 simultaneously where possible (
 |---|---|
 | OS | Win 10 22H2 VM · Win 11 dev machine |
 | GPU vendor | NVIDIA (primary) · AMD or Intel if available, else document as untested |
-| API | D3D11 · D3D12 · Vulkan (layer path) · OpenGL · **a 32-bit title, asserting it is correctly refused and routed to Tier 2** |
+| API | D3D11 · D3D12 · Vulkan (layer path) · OpenGL · **a 32-bit title, asserting it is correctly refused and recorded as Tier 2 with the reason** |
 | Upscaler | DLSS SR · DLSS-G · DLSS-RR · FSR2/3 · XeSS · none |
 | RT | DXR 1.0 dispatch title · inline RayQuery title · non-RT title |
 | Mode | launch mode · attach mode · mid-session settings change |
 | Safety | game with anti-cheat → toggle disabled · simulated late AC load → unhook · double-crash → auto-disable |
-| Tier | forced Tier 2 · Tier 1 → Tier 2 degradation notice |
+| Tier | forced Tier 2 (records duration, available sensors and the reason — and nothing else) · Tier 1 → Tier 2 degradation notice |
 | Update | Velopack delta; update deferred while a game is hooked (FR-12) |
 
 ## Release smoke

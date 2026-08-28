@@ -4,7 +4,7 @@
     Capture orchestrator: process watcher, anti-cheat guard, injector control,
     shm drain, telemetry poller, session recorder (docs/04_CAPTURE.md).
     Runs as a standard user by default (ADR-9); elevation is optional and only
-    unlocks CPU sensors, elevated-game attach, and the Tier-2 ETW source.
+    unlocks CPU sensors and elevated-game attach. No capture tier needs it.
   -->
 
   <PropertyGroup>

@@ -283,8 +283,8 @@ Unchanged in spirit from v1, bumped to `v2` for the new message set.
 | `SessionStarted` | A→UI | `{ sessionGuid, gameId, pid, tier, startedAt }` |
 | `SessionProgress` | A→UI | 1 Hz: `{ elapsedS, nativeFps5s, displayedFps5s, fgFactor?, fgMode, upscaler, upscalerQuality, renderW/H, outputW/H, rtActive, gpuTempC?, cpuTempC?, vramProcMb, latencyUs? }` |
 | `SessionCompleted` | A→UI | `{ sessionGuid, sessionId, exitStatus, tier }` — UI loads the full row from SQLite |
-| `CaptureRefused` | A→UI | `{ gameId, reason, signal }` — **guard fired**; UI shows the plain-language explanation and the Tier-2 offer |
-| `CaptureDegraded` | A→UI | `{ sessionGuid, from, to, reason }` — Tier 1 → Tier 2 mid-flight, or overlay self-disabled |
+| `CaptureRefused` | A→UI | `{ gameId, reason, signal }` — **guard fired**; UI shows the plain-language explanation — ~~and the Tier-2 offer~~; there is no alternative measurement to offer, only the option to record the session unmeasured (`08_UI` §Safety events) |
+| `CaptureDegraded` | A→UI | `{ sessionGuid, from, to, reason }` — Tier 1 → Tier 2 mid-flight, or overlay self-disabled. **Under a two-rung ladder this means measurement STOPPED**, not that it continued at lower fidelity, and the notice must say so |
 | `SafetyUnhook` | A→UI | `{ sessionGuid, signal }` — anti-cheat appeared mid-session; prominent UI notice |
 | `CaptureError` | A→UI | `{ code, message }` — `InjectFailed`, `RingVersionMismatch`, `EtwAccessDenied`, ~~`PresentMonMissing`~~ (retired with the tool, 2026-08-27 — a code naming an implementation nobody chose), `TelemetryUnavailable`, `DbWriteFailed` |
 | `Ping`/`Pong` | both | 15 s keepalive |
