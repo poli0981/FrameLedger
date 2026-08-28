@@ -33,7 +33,28 @@ internal static class OperatorDisclosure
     /// Stamped onto every record this path writes, so a later change to the wording
     /// does not silently re-interpret acknowledgements already made.
     /// </summary>
-    public const string Version = "unshipped-host-operator/1";
+    /// <remarks>
+    /// <para>
+    /// <b>Bumped to /2 on 2026-08-28, and the reason is that /1 contained two FALSE
+    /// sentences rather than differently-phrased ones.</b> It told an operator that a
+    /// no-injection mode would capture for them, and that nothing here was required to
+    /// measure frame times. The ladder collapsed to two rungs and hooking became the only
+    /// frame-time path, so both stopped being true. Two different texts sharing one version
+    /// would defeat the only property this field has.
+    /// </para>
+    /// <para>
+    /// <b>NOTHING RE-PROMPTS ON A VERSION MISMATCH, and this field is provenance rather
+    /// than a control.</b> Traced 2026-08-28: it is written by <c>Program</c>, merged
+    /// forward by the store, cleared on revoke, and read by exactly one non-test caller —
+    /// the status line in <c>consent list</c>. <c>HookRequest.FromConsent</c> never sees it,
+    /// so a record stamped /1 still yields consent today. Whether that is acceptable is an
+    /// owner decision, not a coding one: the realistic population is one developer's own
+    /// build tree, which <c>git clean</c> removes. If a wording change is ever material
+    /// enough to require re-consent, <b>that re-prompt has to be built — it does not exist</b>,
+    /// and saying so here is what stops the next reader assuming the stamp does something.
+    /// </para>
+    /// </remarks>
+    public const string Version = "unshipped-host-operator/2";
 
     private const string _phrase = "I ACCEPT THE INJECTION RISK";
 
@@ -52,14 +73,17 @@ internal static class OperatorDisclosure
         "  measure the real render resolution, upscaler, frame generation and ray tracing",
         "  state. Passive measurement cannot do this accurately.",
         "",
+        "  If you do not enable hooking, this host still records the session: its start,",
+        "  end and duration, plus whatever hardware telemetry this machine provides. Every",
+        "  frame-derived value — frame times, resolution, upscaler, frame generation, ray",
+        "  tracing — reads N/A. That is Tier 2. It needs no elevation, and it is what every",
+        "  game gets until it is individually enabled here.",
+        "",
         "  Anti-cheat systems may flag or ban accounts. FrameLedger refuses to inject where",
         "  it detects one, and it CANNOT GUARANTEE IT KNOWS EVERY ANTI-CHEAT. If anti-cheat",
         "  appears after injection, capture stops WITHIN 30 SECONDS of it being detected.",
         "",
         "  You are responsible for the terms of service of the games you play.",
-        "",
-        "  Tier-2 capture, which injects nothing, is the default for anything the guard is",
-        "  unsure about. Nothing here is required to measure frame times.",
         "",
     ];
 

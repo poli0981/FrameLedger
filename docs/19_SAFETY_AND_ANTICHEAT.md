@@ -574,11 +574,34 @@ Enabling hooking is a **per-game** action, gated by a one-time dialog per game t
 - what gets injected and why (measuring the real render resolution, upscaler, frame generation and ray tracing state — which passive measurement cannot do accurately),
 - that anti-cheat systems may flag or ban accounts, and that FrameLedger refuses to inject where it detects one but **cannot guarantee it knows every anti-cheat**,
 - that the user is responsible for the terms of service of the games they play,
-- that Tier-2 (no injection) capture is available and is the default for anything the guard is unsure about.
+- **what happens if they do not enable it**: FrameLedger still records the session — its start,
+  end and duration, and whatever hardware telemetry the machine provides — and every
+  frame-derived value on that session reads `N/A` (FR-4.9). That is Tier 2. It is what every game
+  gets until it is individually enabled, and it needs no injection and no elevation.
+
+> **REWRITTEN 2026-08-28, and the old bullet is worth reading before the new one.** It said
+> *"that Tier-2 (no injection) capture is available and is the default for anything the guard is
+> unsure about."* It bundled two claims. *"Is the default"* is now unconditionally true and
+> structurally so. ***"Is available"* was false in the sense a reader takes from a frame-time
+> tool's consent dialog** — Tier 2 captures a clock and a sensor poll — and it was conditional on
+> an elevation state the reader could not evaluate.
+>
+> **THE DIALOG STATES BOTH OPTIONS AT THE SAME GRAIN AND RECOMMENDS NEITHER.** This is normative,
+> because it will not survive translation review otherwise. Tier 1's data and Tier 2's data are
+> each enumerated concretely; *"limited"*, *"reduced"* and *"degraded"* are **not** acceptable
+> descriptions of Tier 2, and neither is any sentence describing what the user **loses** by
+> declining. The dialog does not describe Tier 2 as temporary or pending a better mechanism — a
+> user deciding today decides against what exists today. `09_I18N` reviews this as legal text; a
+> locale that softens either side fails.
+>
+> **Removing the fallback makes declining more costly, and that is exactly why the wording gets
+> more careful rather than more persuasive.** Consent is informed when the cost of declining is
+> stated, not when it is flattering — and naming a concrete cost next to a request to accept is
+> textbook framing, so the rule above exists to stop this section drifting into it.
 
 Consent is stored per game (`games.hook_consent_at`), **stamped by the Agent, never supplied by a client** (`07_IPC` §The pipe is not a trust boundary). Wording lives in `.resx` and is reviewed with the same care as the legal documents.
 
-The default for every newly added game is **hooking off, Tier-2 on**. Nothing is ever injected because the user merely added a game.
+The default for every newly added game is **hooking off — Tier 2**. Nothing is ever injected because the user merely added a game.
 
 ### A game already enabled can become blocked later
 
@@ -636,4 +659,4 @@ The Disclaimer states these explicitly, and the UI consent dialog echoes them:
 - [ ] Does this add a path to inject without passing the guard? → reject
 - [ ] Is the new hook listed in `17_HOOK_ENGINE` §Hook inventory with a stated purpose?
 - [ ] Does the hook body allocate, lock, log, or throw? → reject
-- [ ] Is there a Tier-2 degradation path if the hook is unavailable?
+- [ ] Does the session record `N/A` rather than a fabricated value when this hook is unavailable (FR-4.9), and does it record WHY? *(The old item asked whether a Tier-2 degradation path exists. Under a two-rung ladder the answer is always yes, so it was a box that could not fail — the defect class this document keeps recording.)*

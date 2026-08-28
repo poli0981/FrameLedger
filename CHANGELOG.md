@@ -19,6 +19,43 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Changed
 
+- **The consent texts now say what DECLINING costs, and the anti-nudge rule is normative.**
+  `README`'s safety row, `legal/DISCLAIMER.md`, `legal/EULA.md` and `19_SAFETY` §User-facing consent
+  all called a no-injection mode *"the default"*. That mode does not exist. The consent disclosure
+  in `OperatorDisclosure` said it too, and added *"Nothing here is required to measure frame
+  times"* — **the worst sentence in the tree**, because it told someone about to type
+  `I ACCEPT THE INJECTION RISK` that the risk was optional when hooking is now the only
+  frame-time path.
+
+  **Removing the fallback makes declining more costly, so the wording gets more careful rather
+  than more persuasive.** §19_SAFETY gains a normative rule: both options are enumerated at the
+  same grain, neither is recommended, *"limited"* / *"reduced"* / *"degraded"* are not acceptable
+  descriptions of Tier 2, no sentence describes what the user **loses**, and Tier 2 is never
+  described as temporary — a user deciding today decides against what exists today.
+
+  **The disclosure is also REORDERED.** The Tier-2 sentence used to be the last thing before the
+  prompt, so whatever it said read as the set-up for accepting. Anti-cheat risk and terms of
+  service now sit there instead.
+
+  **`OperatorDisclosure.Version` bumps /1 → /2**, because /1 carried two sentences that were false
+  rather than differently phrased. Traced while doing it: **nothing re-prompts on a version
+  mismatch.** The field is written, merged forward, cleared on revoke and read by exactly one
+  non-test caller — the `consent list` status line. `HookRequest.FromConsent` never sees it, so a
+  /1 record still yields consent. That limit is now written into the type rather than assumed.
+
+### Fixed
+
+- **Two review checklists were boxes that could not fail**, in `19_SAFETY` §Review checklist and in
+  the pull-request template: *"Is there a Tier-2 degradation path if the hook is unavailable?"*
+  Under a two-rung ladder the answer is always yes. Replaced with something falsifiable — does the
+  session record `N/A` rather than a fabricated value, **and record why**.
+
+- **`CommandLineSurfaceTests` could not fail for the thing that changed.** It asserted
+  `Contain("Tier-2")` against the disclosure while claiming to guard `19_SAFETY`'s four statements
+  — so any rewrite keeping that literal token would have passed while the claim behind it changed
+  completely. It now pins the substance (`N/A`, and the absence of both removed false sentences),
+  and the new assertion was **canaried**: restoring one removed sentence turns it red.
+
 - **The capture ladder collapses to two rungs, and Tier 2 is not a measurement.** Owner decision
   2026-08-28, and it is the honest shape once PresentMon was dropped: there is no no-injection
   measurement mode, so nothing holds a middle rung. What was Tier 3 is now Tier 2 — **session
