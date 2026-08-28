@@ -1903,7 +1903,28 @@ admits it has no data for (Ricochet, VAC). Three refuters agreed.
 > narrow. What changed is the **evidence**, not the decision: this is no longer a
 > hypothesis, and whoever picks up §S19(b) now has a reproducible case.
 >
-> The integration tests are traited `Category=Integration` and CI runs
+> #### ⚠ AND IT FIRES ON THE DEV BOX TOO — INTERMITTENTLY — measured 2026-08-28
+>
+> This entry says the cases *"pass on a host that does not load the assembly"*, and the line
+> below adds *"`./build.ps1 check` with no switches still runs them"*. Both read as though the
+> dev box were a stable pass. **It is not.**
+>
+> One full `check` on a docs-only branch went red at
+> `ShmDrainIntegrationTests.APausedSessionStopsRecordingAndResumesWhereItLeftOff` with
+> `GuardedInjectAsync(...).IsAllowed` **False** — the guard refusing our own harness. The same
+> test alone passed immediately afterwards, and the next full `check` passed too. Nothing in
+> the branch touched code.
+>
+> **The mechanism is this entry's own**, one variable further out: the suite runs four test
+> assemblies in parallel, so *which* modules a given test host has loaded when the guard walks
+> its ancestors varies run to run. A .NET host that loaded
+> `System.Security.Cryptography.ProtectedData.dll` refuses; one that has not, does not.
+>
+> **Two consequences.** A local red here is **not** evidence about the branch — check the
+> refusal reason before reading the diff, exactly as `§Traps` now says for `fl_ring`. And the
+> defect is worse than "CI-only" made it sound: the population is any host that happens to
+> load a `protect`-matching module, which is a property of the run rather than of the machine.
+>> The integration tests are traited `Category=Integration` and CI runs
 > `./build.ps1 check -SkipIntegration`, which **skips loudly**. `./build.ps1 check`
 > with no switches still runs them, and they pass on a host that does not load the
 > assembly. A suite that quietly stops running a class is how a gate rots, so the
@@ -3345,7 +3366,7 @@ no drain) stays in P0. Items 5–9 below are still open.
     | `12_BUILD:139`, `13_CI_CD:11`, `09_I18N:28`, `CLAUDE.md:66` | `tools/resx-audit` | Absent. **Honestly handled** — `build.ps1:309` skips it loudly with a reason, and no `.resx` files exist yet |
     | `12_BUILD:136`, `13_CI_CD:11` | the managed **struct-mirror** test | ~~Absent. Nothing under `tests/` references `FlFrameRecord`.~~ **✅ Built in #47** — `ShmLayout.cs` + `ShmLayoutMirrorTests`, driven by `fl-layout-dump`'s JSON rather than a transcribed table, asserting blittability as well as offsets, and walking the field list in both directions. `build.ps1`'s gate now reads the run's `.trx` and fails when the class did not execute, so **deleting the test is red too** — it used to `Test-Path` a source file |
     | `13_CI_CD:21`, `12_BUILD:121`, `CHANGELOG:9` | `.github/workflows/release.yml` | Absent. `CHANGELOG`'s header instructs an author to write for a consumer that does not exist |
-    | `12_BUILD` §Local quality gate | gates omitted from the list | ~~**Three documents give three different counts, which is the finding.** `build.ps1` has **15** `Write-Step` calls as of 2026-08-05 (14 before this PR's `changelog-check`); `12_BUILD` lists 10; this row said 13.~~ **Corrected 2026-08-06: `build.ps1` has 17 `Write-Step` calls** (`package-closure` added two), and `12_BUILD`'s list is rewritten to 16 numbered entries — the difference is that `Invoke-Native`'s three steps run under one heading there. `13_CI_CD` no longer restates the list at all; it points at `12_BUILD`, because restating it in two places is what let one of them rot. **Nothing still derives the list from the script**, so the drift is slowed rather than stopped, and this row remains open for that reason |
+    | `12_BUILD` §Local quality gate | gates omitted from the list | ~~**Three documents give three different counts, which is the finding.** `build.ps1` has **15** `Write-Step` calls as of 2026-08-05 (14 before this PR's `changelog-check`); `12_BUILD` lists 10; this row said 13.~~ **Corrected 2026-08-06: `build.ps1` has 17 `Write-Step` calls** (`package-closure` added two), and `12_BUILD`'s list is rewritten to 16 numbered entries — the difference is that `Invoke-Native`'s three steps run under one heading there. `13_CI_CD` no longer restates the list at all; it points at `12_BUILD`, because restating it in two places is what let one of them rot. **Nothing still derives the list from the script**, so the drift is slowed rather than stopped, and this row remains open for that reason. **And it drifted again, exactly as predicted — re-counted 2026-08-28.** `hookinventory-check` had reached `build.ps1` and never reached the list; `frametype-oracle` had reached both and then been deleted with PresentMon, so the two errors happened to cancel and the *totals* matched while the *membership* did not — the same coincidence §S24's own recount was caught by. The list is rebuilt to **17 entries against 17 `Write-Step` calls, in script order** (re-deriving the order caught a second defect: two adjacent entries had been transposed relative to the script). **The row still does not close.** Aligning by hand is what was done in 2026-08-06 and again here; it lasts until the next gate lands. The fix is a gate that reads the `Write-Step` names out of `build.ps1` and fails when the list disagrees — until it exists, re-count rather than trusting the number |
 
     The struct-mirror row is the one that matters. `CLAUDE.md` §Struct mirroring
     makes that test the mechanism protecting the shared-memory ABI, and a doc that
