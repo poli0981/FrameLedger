@@ -25,7 +25,7 @@ review questions from `docs/19_SAFETY_AND_ANTICHEAT.md` §Review checklist.
 - [ ] No new path can reach `Injector.Attach` without a passing guard result (rule 2)
 - [ ] Every new hook is listed in `docs/17_HOOK_ENGINE.md` §Hook inventory with a stated purpose
 - [ ] No hook body allocates, locks, logs, or throws (rule 5)
-- [ ] There is a Tier-2 degradation path if the hook is unavailable
+- [ ] An unavailable hook degrades to Tier 2 — which measures NOTHING — and the session records why, rather than reporting a zero or a partial number
 - [ ] Measured hook overhead is stated below (`docs/14_TESTING.md` §Hook overhead)
 
 **Measured overhead:** <!-- e.g. "0.31 µs/present, game Avg FPS delta -0.2%" -->

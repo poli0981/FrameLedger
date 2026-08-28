@@ -108,4 +108,4 @@ Draw live FPS/frametime/upscaler info inside the game. Only for games already ho
 
 **Permanently:** any evasion technique (`19_SAFETY`); reading/writing game memory; kernel drivers; hardware control (overclocking, fan curves, power limits — `18_GPU_VENDOR_APIS` is read-only); online/competitive titles.
 
-**v1:** Microsoft Store/UWP/Game Pass titles (packaged-app injection constraints); macOS/Linux; cloud sync; benchmark automation; ARM64. **Tier-1 capture of 32-bit games, including most Direct3D 9 titles** — the Overlay is x64-only and an x64 DLL cannot be loaded into a 32-bit process; those titles are Tier 2 (`17_HOOK_ENGINE` §Build profile, `20_OPEN_QUESTIONS` §Scope).
+**v1:** Microsoft Store/UWP/Game Pass titles (packaged-app injection constraints); macOS/Linux; cloud sync; benchmark automation; ARM64. **Tier-1 capture of 32-bit games, including most Direct3D 9 titles** — the Overlay is x64-only and an x64 DLL cannot be loaded into a 32-bit process; those titles are Tier 2, which since 2026-08-28 means **not measured at all** — duration, sensors and the reason (`17_HOOK_ENGINE` §Build profile, `20_OPEN_QUESTIONS` §Scope).

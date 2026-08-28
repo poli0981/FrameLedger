@@ -20,7 +20,7 @@ Derived in the Agent from the record stream; the mapping is in `03_METRICS`. Sum
 | HDR output | `SetColorSpace1` |
 | Upscaler identity + quality preset | NGX / Streamline / FFX / XeSS create+evaluate calls |
 | Render resolution vs output resolution (incl. mid-session changes) | upscaler parameter reads + `ResizeBuffers` |
-| Frame Generation mode + factor | NGX/SL/FFX FG feature evaluation, ~~then (Tier 2 only) PresentMon `FrameType`,~~ then cadence — the `FrameType` rung is retired (§S31 row P2) and Tier 2 has no tool |
+| Frame Generation mode + factor | NGX/SL/FFX FG feature evaluation, then cadence — **Tier 1 only**. ~~then (Tier 2 only) PresentMon `FrameType`~~ retired (§S31 row P2), and Tier 2 no longer produces frames to run cadence over either |
 | Ray Tracing active | AS builds + `DispatchRays` (both, to catch inline RayQuery) |
 | Ray Reconstruction | NGX `RayReconstruction` feature evaluated |
 | Reflex on + PC latency | NVAPI Reflex hooks |
@@ -37,7 +37,7 @@ Derived in the Agent from the record stream; the mapping is in `03_METRICS`. Sum
 > stale-by-not-being-touched failure this project keeps recording; `06_DATA_MODEL`'s
 > `fg_source` enum carried the same value and is corrected in the same pass.
 
-Tier-2 sessions have `upscaler = unknown`, resolutions `N/A`, RT `N/A`, and an FG mode only if ~~PresentMon's `FrameType` or~~ cadence resolves it — **cadence is the only rung Tier 2 has left**, and it yields `Detected (unknown)` at best, never a named technology.
+~~Tier-2 sessions have `upscaler = unknown`, resolutions `N/A`, RT `N/A`, and an FG mode only if cadence resolves it.~~ **Simpler since 2026-08-28: a Tier-2 session detects NOTHING.** It has no frames, so cadence has nothing to run over. `upscaler`, resolutions, RT and FG all read `N/A`, and the static-hint tier (below) is the only thing that says anything about such a title — which it labels *inference*, never measurement.
 
 ## Static hints — rules engine
 

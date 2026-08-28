@@ -6,7 +6,7 @@ Read this file first, then the reading order at the bottom. **`docs/19_SAFETY_AN
 
 ## Architecture in one paragraph
 
-A C++ DLL (`FrameLedger.Overlay.dll`) is injected into games the user explicitly enabled. It hooks the presentation path (DXGI for D3D11/D3D12, plus OpenGL) and the upscaler/RT APIs, writes fixed-size frame records into a lock-free shared-memory ring, and never blocks. A C# Agent drains that ring at ~10 Hz, enriches with GPU telemetry from vendor APIs, and writes sessions to SQLite. A WPF UI reads SQLite. Vulkan uses an implicit **layer** instead of hooking. If injection is refused or fails, a Tier-2 ETW/PresentMon source provides degraded metrics.
+A C++ DLL (`FrameLedger.Overlay.dll`) is injected into games the user explicitly enabled. It hooks the presentation path (DXGI for D3D11/D3D12, plus OpenGL) and the upscaler/RT APIs, writes fixed-size frame records into a lock-free shared-memory ring, and never blocks. A C# Agent drains that ring at ~10 Hz, enriches with GPU telemetry from vendor APIs, and writes sessions to SQLite. A WPF UI reads SQLite. Vulkan uses an implicit **layer** instead of hooking. If injection is refused or fails there is **no measurement**: the session records duration, hardware telemetry and the reason, and every measured field reads `N/A` (Tier 2, owner decision 2026-08-28).
 
 ## Non-negotiable rules
 
@@ -35,7 +35,7 @@ A C++ DLL (`FrameLedger.Overlay.dll`) is injected into games the user explicitly
 | Charts | ScottPlot 5 |
 | GPU telemetry | Layered: DXGI + PDH counters (all vendors) → LibreHardwareMonitorLib (MPL-2.0, all vendors) → **NVAPI (MIT, headers + `amd64/nvapi64.lib` vendored 2026-08-05** at `src/native/third_party/nvapi/`, consumed via the `fl_nvapi` target; NVIDIA extras + Reflex). **No AMD/Intel vendor SDK** — `docs/18_GPU_VENDOR_APIS.md`. **No telemetry source exists in code yet** — `ctest fl_nvapi_probe` is the only consumer, and it exists so the vendoring is verified rather than asserted. This row previously claimed the vendoring in the present tense while `third_party/` held only `vulkan-headers`; `legal/` had already caught the identical claim about itself and gained a bidirectional gate, which is what made the real vendoring a red-then-green |
 | CPU/board sensors | LibreHardwareMonitorLib ≥ 0.9.6 (PawnIO) — **optional**, elevated only |
-| Tier-2 fallback | **Undecided.** ETW-based, no injection — the mechanism is an open question (`docs/20_OPEN_QUESTIONS.md` §G). ~~Intel PresentMon console binary~~ dropped by owner decision 2026-08-27 after §S31 retired it as an oracle; nothing in this repository names a Tier-2 tool |
+| Tier-2 fallback | **There is none, and Tier 2 is not a measurement.** Owner decision 2026-08-28: the ladder is two rungs — hooked, or duration + sensors + the reason. ~~ETW-based, no injection~~; ~~Intel PresentMon console binary~~ dropped 2026-08-27 after §S31 retired it. Whether a shipped build ever regains a no-injection measurement is `docs/20_OPEN_QUESTIONS.md` §G |
 | Storage | SQLite via Microsoft.Data.Sqlite + Dapper (no EF) |
 | Shared memory IPC | `CreateFileMapping` + lock-free SPSC ring — `docs/07_IPC.md` |
 | Logging | Serilog (managed); ring-buffer + deferred flush (native) |
@@ -65,7 +65,7 @@ src/
                                #    P2's recorder replaces — deliberately not in
                                #    Domain.Metrics.*, which carries a 95% coverage floor)
   FrameLedger.Application/     # use cases, ports
-  FrameLedger.Infrastructure/  # SQLite, shm reader, vendor APIs, injector interop, ETW fallback, parsers
+  FrameLedger.Infrastructure/  # SQLite, shm reader, vendor APIs, injector interop, parsers
   FrameLedger.Shared/          # IPC contracts (System.Text.Json source-gen) + ShmRecord struct mirror
   FrameLedger.Agent/           # capture orchestrator: watcher, injector control, shm drain, recorder
   FrameLedger.App/             # WPF UI

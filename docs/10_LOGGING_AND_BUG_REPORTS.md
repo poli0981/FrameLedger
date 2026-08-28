@@ -24,7 +24,7 @@ Tails the active files (shared read), level filter, text search, pause autoscrol
 1. Entry points: Help → Report a bug, crash dialog, Logs screen button.
 2. **Bundle builder** creates `FrameLedger-bugreport-YYYYMMDD-HHmm.zip` in a user-chosen location:
    - `logs/` (last 7 days, redacted copies)
-   - `sysinfo.json` (app + agent + **overlay build id**, OS build, CPU/GPU name, driver version, telemetry source, Vulkan layer state, PawnIO present?, PresentMon version, elevation state, locale)
+   - `sysinfo.json` (app + agent + **overlay build id**, OS build, CPU/GPU name, driver version, telemetry source, Vulkan layer state, PawnIO present?, elevation state, locale)
    - `overlay-<pid>-*.log` for the last hooked sessions, plus hook fault details and the ring's dropped/fault counters — these are what make injection bugs diagnosable at all
    - `settings.json` (sanitized — no paths)
    - optional checkbox: last session metadata + aggregates JSON (never raw blobs by default)
@@ -37,6 +37,6 @@ Tails the active files (shared read), level filter, text search, pause autoscrol
 
 ## Diagnostics extras
 
-- `Tools → Agent status…` shows the `HelloAck` capability set (tier availability, telemetry source, overlay build id, Vulkan layer) + last 20 Agent log lines.
+- `Tools → Agent status…` shows the `HelloAck` capability set (telemetry source, overlay build id, Vulkan layer — ~~tier availability~~, which meant "is the ETW fallback reachable" and has no meaning under a two-rung ladder) + last 20 Agent log lines.
 - **Never include a game's own logs, saves, or config files** in a bug bundle, even when a crash looks game-related. We ship our logs only.
 - `--diag` CLI flag on the App prints environment + capability report to stdout (support requests).

@@ -104,7 +104,9 @@ enum class Reason : std::uint8_t {
     // The target is a 32-bit process. Permanent and expected, not an error:
     // the Overlay is x64-only, so an x64 DLL cannot load there
     // (20_OPEN_QUESTIONS §Scope decisions). The UI should say so and offer
-    // Tier 2 rather than reporting a failure the user could act on.
+    // Tier 2 rather than reporting a failure the user could act on. (Tier 2
+    // measures nothing since 2026-08-28; it is the honest record of a capture
+    // that did not happen, not a lesser one.)
     kTargetIsWow64,
 
     // The PAYLOAD is not ours (§S22).

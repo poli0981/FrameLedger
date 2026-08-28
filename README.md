@@ -64,10 +64,11 @@ FrameLedger is built to keep that risk small and to be honest about it:
 | Tier | How | What you get |
 |---|---|---|
 | **1** | Injected hooks (opt-in, per game) | Everything above |
-| **2** | ETW, no injection — **mechanism not chosen, nothing built** | Frame times, FPS, lows, present mode. *(An earlier design named Intel PresentMon and promised coarse frame-generation inference. PresentMon was dropped on 2026-08-27 after its `FrameType` column classified every frame of a ×4 capture as an application frame; there is no Tier-2 frame-generation signal today and none is claimed.)* |
-| **3** | None | Session duration + hardware telemetry |
+| **2** | None — nothing is injected | **Session duration, whatever hardware telemetry your machine can provide, and why there is nothing else** (which check refused, or that the hook failed, was not enabled, or the game is 32-bit). Everything else reads `N/A` |
 
 The tier is recorded on every session and shown in the UI. Metrics unavailable at a session's tier read `N/A` — FrameLedger never substitutes an estimate for a measurement.
+
+> **This ladder used to have three rungs and a middle one that measured frame times without injecting.** It was to be built on Intel PresentMon; that was dropped on 2026-08-27 after measurement, and no replacement was chosen. **So frame times, FPS and the lows are now Tier-1-only.** Said plainly because the previous README promised them without injection, and a reader who remembers that would otherwise assume it still holds.
 
 ## Architecture
 
@@ -78,12 +79,12 @@ The tier is recorded on every session and shown in the UI. Metrics unavailable a
 | `FrameLedger.Overlay.dll` | Inside the game | C++20 hooks + lock-free shared-memory writer. Records only; never analyzes, allocates, or blocks |
 | `FrameLedger.VkLayer.dll` | Inside the game | Vulkan implicit layer (Vulkan titles use this instead of injection) |
 
-Elevation is **optional for Tier-1 hooked capture** — that is the normal path and it runs as a standard user. It unlocks CPU temperature sensors, attaching to games that themselves run elevated, and the Tier-2 ETW fallback. If you expect to rely on Tier 2, run the Agent elevated.
+Elevation is **optional — for everything.** Hooked capture is the normal path and runs as a standard user, and there is no longer any tier that needs more than that. Elevation unlocks exactly two extras: CPU temperature sensors, and attaching to games that themselves run elevated. ~~and the Tier-2 ETW fallback. If you expect to rely on Tier 2, run the Agent elevated.~~ — there is no ETW fallback to rely on.
 
 ## Requirements
 
 - Windows 10 (22H2) or Windows 11, 64-bit
-- A 64-bit DirectX 11/12, Vulkan, or OpenGL game for full (Tier-1) capture. 32-bit games — including most DirectX 9 titles — are supported at Tier 2 only
+- A 64-bit DirectX 11/12, Vulkan, or OpenGL game for full (Tier-1) capture. **32-bit games — including most DirectX 9 titles — cannot be measured at all**: the component FrameLedger loads is x64 and an x64 DLL cannot enter a 32-bit process. Such a title records duration and hardware telemetry and nothing else. *(This line previously said "supported at Tier 2 only", which meant frame times without injection. That tier no longer exists.)*
 - Optional: [PawnIO](https://pawnio.eu/) for CPU temperature (GPU telemetry works without it, through your graphics driver's own libraries)
 
 ## Install

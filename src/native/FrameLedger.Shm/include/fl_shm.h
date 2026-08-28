@@ -99,7 +99,8 @@ enum FlApi : uint8_t {
     FL_API_VULKAN = 3,
     FL_API_OPENGL = 4,
     // No D3D9: those titles are almost entirely 32-bit and the Overlay is
-    // x64-only, so they are Tier 2 in v1 (docs/20_OPEN_QUESTIONS.md §Scope).
+    // x64-only, so they are Tier 2 in v1 -- which since 2026-08-28 means NOT
+    // MEASURED, not "measured by a lesser route" (docs/20_OPEN_QUESTIONS.md §Scope).
 };
 
 // THE ZERO VALUE OF EVERY ENUM IN THE RECORD IS "NOBODY SAID", NOT A FACT.

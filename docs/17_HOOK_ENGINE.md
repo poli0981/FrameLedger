@@ -10,7 +10,8 @@ The injected DLL. Its whole job: install hooks, write 64-byte records into a rin
 > it is not rediscovered during implementation.** An x64 DLL cannot be loaded
 > into a 32-bit process, and Direct3D 9 titles — the visual-novel, JRPG and older
 > indie catalogue — are almost entirely 32-bit. **D3D9 is therefore not a Tier-1
-> API in v1**, and 32-bit games of any API are Tier 2. Shipping a second 32-bit
+> API in v1**, and 32-bit games of any API are Tier 2 — which since 2026-08-28 means
+> **not measured at all**, not "measured by a lesser route". Shipping a second 32-bit
 > Overlay and injector would restore them, at the cost of doubling the native
 > build matrix and adding a second struct-mirror surface; that trade is recorded
 > in `20_OPEN_QUESTIONS` §Scope rather than left implicit in a build flag.
@@ -462,7 +463,7 @@ Field notes — each of these was a defect in an earlier revision:
 - **`fgEvaluations`** is what makes Native-vs-Displayed computable at Tier 1 —
   see `03_METRICS` §Frame Generation.
 - **`api` no longer lists `d3d9`.** D3D9 titles are almost entirely 32-bit and
-  the Overlay is x64-only; they are Tier 2 in v1 (`20_OPEN_QUESTIONS` §Scope).
+  the Overlay is x64-only; they are Tier 2 in v1 — i.e. **unmeasured** (`20_OPEN_QUESTIONS` §Scope).
 
 - **SPSC lock-free ring**, capacity a power of two (default 8192 records = 512 KB), overwrite-oldest.
 - Writer/reader seqlock protocol, including the rule that the payload write must

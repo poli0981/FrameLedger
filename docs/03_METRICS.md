@@ -10,7 +10,7 @@ Every metric declares which **capture tier** it requires (`01_ARCHITECTURE` §Ca
 
 > **Renamed in layout v3 (2026-08-05):** `vramUsedBytes` → `vramUsedMb` (MiB, matching the `vramBudgetMb` it is compared against and the `vram_mb` this document already exported), and `hdr` → `colorSpace` (a bool had no third state). `measuredMask` is 16-bit.
 
-**Tier 2** — PresentMon CSV. **Pin the version:** `FrameType` exists only in PresentMon 2.x, while `MsBetweenPresents` / `MsBetweenDisplayChange` are 1.x column names — no single binary emits both sets, so a parser written against this list as originally stated could never succeed. v1 targets the **2.x console** and its column names; the header-map parser (`14_TESTING` §Parsers) resolves columns by name and reports an explicit capability loss when `FrameType` is absent rather than silently reporting `fg_mode = none`.
+~~**Tier 2** — PresentMon CSV.~~ **THERE IS NO TIER-2 INPUT, 2026-08-28.** PresentMon was dropped (§S31 row P2) and no mechanism replaced it (§G), so Tier 2 produces no frames and parses nothing. Everything below that is marked tier `2` is Tier-1-only until a mechanism exists. The version-pinning and header-map reasoning this line carried is preserved in `spike-notes` §11 and `20_OPEN_QUESTIONS` §M2, where the measurements that retired it also live.
 
 **Both** — 1 Hz `GpuSample` (`18_GPU_VENDOR_APIS`) + optional CPU sample.
 
@@ -24,17 +24,17 @@ Let `D` = session duration (first → last present), `F_app` = frames the *game*
 
 | Metric | Definition | Tier |
 |---|---|---|
-| **Native FPS (avg)** | `count(F_app) / D` | 1, 2 |
-| **Displayed FPS (avg)** | `count(F_disp) / D` | 1, 2 |
-| **FG factor** | `DisplayedFPS / NativeFPS`, shown `×N.N`; `—` when FG inactive | 1, 2 |
-| **Avg FPS** (headline) | = Native FPS. Time-based, **not** the mean of instantaneous FPS values | 1, 2 |
-| **Median FPS** | `1000 / p50(ft_app)` | 1, 2 |
-| **1% Low** | `1000 / p99(ft_app)` | 1, 2 |
-| **0.1% Low** | `1000 / p99.9(ft_app)` | 1, 2 |
-| **Min / Max FPS** | `1000 / max(ft_app)` / `1000 / min(ft_app)` | 1, 2 |
-| **Frametime σ** | population stddev of `ft_app` (ms) | 1, 2 |
-| **Stutter count** | `ft_app[i] > 2 × rollingMedian(ft_app, 19)` (centered, window in **frames**) | 1, 2 |
-| **Stutter time %** | `Σ ft_app[stutter] / Σ ft_app × 100` | 1, 2 |
+| **Native FPS (avg)** | `count(F_app) / D` | 1 |
+| **Displayed FPS (avg)** | `count(F_disp) / D` | 1 |
+| **FG factor** | `DisplayedFPS / NativeFPS`, shown `×N.N`; `—` when FG inactive | 1 |
+| **Avg FPS** (headline) | = Native FPS. Time-based, **not** the mean of instantaneous FPS values | 1 |
+| **Median FPS** | `1000 / p50(ft_app)` | 1 |
+| **1% Low** | `1000 / p99(ft_app)` | 1 |
+| **0.1% Low** | `1000 / p99.9(ft_app)` | 1 |
+| **Min / Max FPS** | `1000 / max(ft_app)` / `1000 / min(ft_app)` | 1 |
+| **Frametime σ** | population stddev of `ft_app` (ms) | 1 |
+| **Stutter count** | `ft_app[i] > 2 × rollingMedian(ft_app, 19)` (centered, window in **frames**) | 1 |
+| **Stutter time %** | `Σ ft_app[stutter] / Σ ft_app × 100` | 1 |
 | **PC latency** | mean/p95 of `reflexLatencyUs` when Reflex reports it | **1 only** |
 | **PSO stutter %** | share of stutter frames with `psoCreatedThisFrame > 0` | **1 only** |
 
@@ -63,8 +63,8 @@ toward the session's data-quality warnings.
 This is the metric the rewrite exists for. Resolution ladder, highest confidence first; the winning rung is stored in `fg_source`:
 
 1. **`api` (authoritative).** An NGX `FrameGeneration` feature (or Streamline `DLSS_G`, or an FFX frame-interpolation context, or `xess_fg`) was **created and evaluated this frame** → FG is on, and we know *which* technology by name, from the vendor's own API call. This is a fact, not an inference.
-2. **`etw`** (Tier 2). PresentMon 2.x `FrameType` column reports generated frames directly — **when the vendor emits the events it reads.** See the block below; this rung is conditional, not universal.
-3. **`cadence`** (last resort, both tiers). Sustained `Displayed/Native ≥ 1.5` → `Detected (unknown)`.
+2. ~~**`etw`** (Tier 2).~~ **RUNG REMOVED 2026-08-28.** It read *"PresentMon 2.x `FrameType` column reports generated frames directly"*; §S31 measured that column classifying every frame of a ×4 capture as an application frame, PresentMon was retired, and then dropped. **There is no Tier-2 rung and no Tier 2 to put one on.** The ladder is now rungs 0, 1, 3 and 4 — renumbering them would break every reference in this file and in `fl_shm.h`'s `fg_source`, so the gap is left visible instead.
+3. **`cadence`** (last resort, ~~both tiers~~ **Tier 1 only** — Tier 2 has no frames to find a cadence in). Sustained `Displayed/Native ≥ 1.5` → `Detected (unknown)`.
 4. Otherwise `fg_mode = none`, factor `—`.
 
 > **RUNG 2 IS CONDITIONAL ON THE VENDOR, measured 2026-08-20, and this list read as
@@ -215,7 +215,7 @@ detectable in v1 and must not be implied to be.** It happens after present, in
 the driver or the compositor, invisible to both an in-process hook and
 `GetFrameStatistics`. Where the UI cannot distinguish it, the honest answer is
 `N/A`, exactly as elsewhere in this document. Whether PresentMon 2.x's
-`FrameType` can see it at Tier 2 is a P0 question (`20_OPEN_QUESTIONS` §M1).
+`FrameType` can see it at Tier 2 ~~is a P0 question~~ — **closed by decision: there is no Tier 2 to see it at** (§M1, §G).
 
 `fg_factor` is **always** the measured ratio `F_disp / F_app` regardless of which
 rung identified the mode — only the *identification* comes from the ladder.
@@ -356,8 +356,8 @@ Per session over 1 Hz samples: `avg` (mean of non-null), `max`. Sensor timeline 
 
 | Quantity | Tier 1 | Tier 2 |
 |---|---|---|
-| Frame times / FPS | < 0.05% (direct QPC at the present call) | < 0.1% (ETW) |
-| Native vs Displayed / FG factor | exact counts when rung 1–2 resolved | inferred |
+| Frame times / FPS | < 0.05% (direct QPC at the present call) | **not available** |
+| Native vs Displayed / FG factor | exact counts when rung 1 resolves | **not available** |
 | Upscaler + render resolution | **exact** (vendor API arguments) | not available |
 | RT active | measured per frame | not available |
 | Path tracing | heuristic, confidence-scored, never asserted | not available |
@@ -365,6 +365,8 @@ Per session over 1 Hz samples: `avg` (mean of non-null), `max`. Sensor timeline 
 | PC latency | as reported by Reflex | not available |
 | GPU temp / load / power | vendor API accuracy, ±1 s sampling | same |
 | CPU temperature | sensor-inherent ±1–2 °C, needs LHM + PawnIO + elevation | same |
+
+> **The Tier-2 column is now "not available" for everything except sensors, and that is the whole change.** It previously claimed frame times within 0.1% without injection. Nothing produces them.
 
 ## Export schema (per-frame CSV, FR-9.1)
 
@@ -381,7 +383,7 @@ Per-column sources, and what a *Tier-2* export does instead:
 
 | Column | Tier-1 source | Tier 2 |
 |---|---|---|
-| `frame_index`, `qpc_ms`, `frametime_ms` | `frametimes` blob + session `qpcEpoch` | from CSV |
+| `frame_index`, `qpc_ms`, `frametime_ms` | `frametimes` blob + session `qpcEpoch` | ~~from CSV~~ — no Tier-2 CSV exists; a Tier-2 session exports no per-frame rows at all |
 | `native_or_generated` | `frame_flags` generated bit — set where `fgEvaluations == 0`, i.e. the presents that carried **no** application-frame evaluation. Inverted from the pre-2026-08-14 reading, and accurate to one frame per the note in §Frame Generation | `FrameType` (2.x) |
 | `render_w/h`, `output_w/h` | `render_res` blob — **two `uint16` pairs per frame**, not one; `ResizeBuffers` is hooked precisely because output resolution changes mid-session | `N/A` |
 | `upscaler`, `upscaler_quality`, `fg_mode` | segment table, joined by frame index | `N/A` |

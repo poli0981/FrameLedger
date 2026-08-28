@@ -58,8 +58,7 @@ body:
       description: Shown on the session and on the Dashboard live card
       options:
         - 'Tier 1 (hooked)'
-        - 'Tier 2 (ETW / no injection)'
-        - 'Tier 3 (duration + sensors only)'
+        - 'Tier 2 (not hooked — duration + sensors only)'
         - "Don't know"
     validations:
       required: true
