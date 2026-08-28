@@ -1673,7 +1673,9 @@ into a real title and the process survives it (§7).
 
 ### 🔴 THE RUN HAPPENED — 2026-08-27, three legs, three game launches, and row **P2**
 
-Owner-run from an elevated shell via `tools/s31-capture.ps1`. Cyberpunk 2077, frame
+Owner-run from an elevated shell via a three-leg runbook script. **That script is not in
+this repository** — it drove PresentMon, so it was closed unmerged when PresentMon was dropped
+the same day; do not go looking for it. Cyberpunk 2077, frame
 generation off / ×2 / ×4 set in the title's own menu, 40 s per leg, one game launch
 each. Analysis is in `20_OPEN_QUESTIONS` §S31; what belongs here is what was measured.
 

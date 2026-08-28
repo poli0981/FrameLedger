@@ -437,8 +437,8 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > said three oracles had fallen; a file whose whole subject is staleness contradicted itself
 > inside one entry, which is recorded rather than quietly repaired.
 >
-> ~~**And the owner's list for the §S31 run**~~ — **RUN 2026-08-27. `tools/s31-capture.ps1`
-> drove it, three legs, three game launches, and it landed on row **P2**: `FrameType` present
+> ~~**And the owner's list for the §S31 run**~~ — **RUN 2026-08-27.** A runbook script drove it
+> — three legs, three game launches — and it landed on row **P2**: `FrameType` present
 > and **every row of all three legs `Application`**, while the two instruments agreed on the
 > present rate to within 0.3% — so PresentMon saw the generated presents and classified none
 > of them as generated.
