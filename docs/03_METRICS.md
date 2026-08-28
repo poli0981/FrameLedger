@@ -86,7 +86,8 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 > whole ladder exists to prevent, reached from a new direction.
 >
 > §S31 carries the pre-committed decision table, including the two rows that retire
-> the rung outright. `tools/frametype-oracle.ps1` is what produces the input, and
+> the rung outright. `tools/frametype-oracle.ps1` **was** what produced the input
+> — deleted 2026-08-27 with the tool it parsed — and
 > also the reason `spike-notes` §11 now records that the console binary will not run
 > unelevated on the dev box at all.
 >

@@ -1725,6 +1725,11 @@ unelevated 2026-08-27 and refused with the same exit 6 this section opens with.
 > vendor emitted nothing, or the invocation produced no frame-type data at all. In
 > neither case did PresentMon answer the question **as invoked**.
 
+**The discriminator was run on 2026-08-27 and produced no file at all**, so it settled nothing:
+the command targeted `explorer.exe`, which may present nothing PresentMon tracks, and "no CSV"
+is indistinguishable from "no `FrameType` column". Badly chosen target, recorded as such. Moot
+now — PresentMon was dropped the same day — and written down so nobody re-runs it thinking it
+is untried.
 **Two findings nobody was looking for.**
 
 - **The `off` leg drained ZERO Streamline batches**, against `presents/batch = 1.000`

@@ -20,7 +20,7 @@ Derived in the Agent from the record stream; the mapping is in `03_METRICS`. Sum
 | HDR output | `SetColorSpace1` |
 | Upscaler identity + quality preset | NGX / Streamline / FFX / XeSS create+evaluate calls |
 | Render resolution vs output resolution (incl. mid-session changes) | upscaler parameter reads + `ResizeBuffers` |
-| Frame Generation mode + factor | NGX/SL/FFX FG feature evaluation, then (Tier 2 only) PresentMon `FrameType`, then cadence |
+| Frame Generation mode + factor | NGX/SL/FFX FG feature evaluation, ~~then (Tier 2 only) PresentMon `FrameType`,~~ then cadence — the `FrameType` rung is retired (§S31 row P2) and Tier 2 has no tool |
 | Ray Tracing active | AS builds + `DispatchRays` (both, to catch inline RayQuery) |
 | Ray Reconstruction | NGX `RayReconstruction` feature evaluated |
 | Reflex on + PC latency | NVAPI Reflex hooks |
@@ -37,7 +37,7 @@ Derived in the Agent from the record stream; the mapping is in `03_METRICS`. Sum
 > stale-by-not-being-touched failure this project keeps recording; `06_DATA_MODEL`'s
 > `fg_source` enum carried the same value and is corrected in the same pass.
 
-Tier-2 sessions have `upscaler = unknown`, resolutions `N/A`, RT `N/A`, and an FG mode only if PresentMon's `FrameType` or cadence resolves it.
+Tier-2 sessions have `upscaler = unknown`, resolutions `N/A`, RT `N/A`, and an FG mode only if ~~PresentMon's `FrameType` or~~ cadence resolves it — **cadence is the only rung Tier 2 has left**, and it yields `Detected (unknown)` at best, never a named technology.
 
 ## Static hints — rules engine
 

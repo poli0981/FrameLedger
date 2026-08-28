@@ -15,14 +15,14 @@ public interface IFrameSource : IAsyncDisposable
 | Implementation | Tier | Notes |
 |---|---|---|
 | `HookedFrameSource` | 1 | Injects (or relies on the Vulkan layer), maps the ring, drains at 10 Hz |
-| `EtwFrameSource` | 2 | ~~Bundled~~ PresentMon console binary, CSV over stdout — unchanged from the previous design, now a fallback. **Not bundled** (owner decision 2026-08-27): the console binary is a local test tool, and how a shipped build reaches Tier 2 is undecided — `20_OPEN_QUESTIONS` §G. `EtwFrameSource` is unwritten either way, so nothing depends on this today |
+| `EtwFrameSource` | 2 | **No mechanism.** ~~Bundled PresentMon console binary, CSV over stdout~~ — PresentMon was dropped on 2026-08-27 (§S31 row P2, then an owner decision) and nothing replaced it. This row names a PORT WITH NO ADAPTER: `EtwFrameSource` is unwritten, and what it would read is `20_OPEN_QUESTIONS` §G. Do not plan P2 as though writing it were scoped |
 | `MockFrameSource` | dev | Synthetic frames incl. simulated FG/upscaler/RT records; `FL_MOCK=1` |
 
 Tier selection per launch:
 
 ```
 hookingEnabledForGame && guardPasses && injectionSucceeds   → Tier 1
-otherwise, if the Agent is elevated (ETW needs it)          → Tier 2
+otherwise, if the Agent is elevated (ETW needs it)          → Tier 2   [no implementation — §G]
 otherwise                                                    → Tier 3 (duration + sensors only)
 ```
 

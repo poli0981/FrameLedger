@@ -28,7 +28,7 @@ Rules for this document:
 | — | **D3D9 is not a Tier-1 API in v1.** The Overlay is x64-only; an x64 DLL cannot load into a 32-bit process, and D3D9 titles are almost entirely 32-bit | The VN / JRPG / older-indie catalogue is Tier 2. Reversing this means a second 32-bit Overlay **and** injector, doubling the native build matrix and adding a second struct-mirror surface. Revisit only with evidence that users care more about those titles than about the maintenance cost |
 | — | **`ci.yml` is repo-local**, not a caller stub | The ops repo's `reusable-desktop-csharp.yml` runs `dotnet` directly with no native pre-step input, and `12_BUILD` requires CI and local to run the same script |
 | — | **No `v1 → v2` migration** | Nothing shipped, so no such database exists. `0001_init.sql` creates the current schema |
-| — | **Tier 2 requires an elevated Agent** | An unelevated Agent whose Tier-1 attempt fails lands on Tier 3. Stated in the README, Disclaimer and EULA |
+| — | **Tier 2 requires an elevated Agent** | An unelevated Agent whose Tier-1 attempt fails lands on Tier 3. Stated in the README, Disclaimer and EULA. **Still true and now vacuous, 2026-08-27:** the requirement comes from Windows restricting ETW trace sessions, not from any tool, so it survives PresentMon being dropped — but there is no Tier-2 implementation for it to apply to (§G) |
 
 ---
 
@@ -844,7 +844,20 @@ a wrong answer into a confident wrong answer.
 > re-reading. **It still needs elevation, so it is the owner's** — attempted unelevated
 > 2026-08-27 and refused with the same exit 6 this item has been blocked on from the start.
 >
-> **THE ACTION DOES NOT DEPEND ON IT, WHICH IS WHY THIS ROW LANDS ANYWAY.** Both branches end
+> > **AND THE DISCRIMINATOR WAS RUN, AND PRODUCED NOTHING — 2026-08-27.** The owner ran it
+> > from an elevated shell and no CSV appeared anywhere: not at the given path, not in either
+> > TEMP, not in the repository. **That is not an answer, and it must not be read as one.**
+> > The command named `explorer.exe` as the target, and a process that presents nothing through
+> > a swapchain PresentMon tracks produces no file — so "no CSV" and "no `FrameType` column"
+> > are indistinguishable here, which is the §Traps entry *"a canary that dies before reaching
+> > the gate looks exactly like a canary that worked"*. The command was badly chosen; a target
+> > known to present (`hook-harness --hold-presenting`) would have settled it.
+> >
+> > **It is now moot.** PresentMon was dropped outright on 2026-08-27, so the reason this
+> > sub-question would have decided — whether a later attempt with a different invocation was
+> > worth anyone's time — no longer has anything to decide about. Recorded rather than deleted
+> > so nobody re-runs it believing it is untried.
+>> **THE ACTION DOES NOT DEPEND ON IT, WHICH IS WHY THIS ROW LANDS ANYWAY.** Both branches end
 > at the same place: either the vendor emits nothing, or the invocation produced no frame-type
 > data at all. In both, PresentMon did not answer the question **as invoked**, and an oracle
 > that does not answer is retired rather than re-run until it does — the discipline
@@ -909,7 +922,7 @@ and divides by nothing.
 > Recorded here rather than discovered mid-run, because the previous oracle's output
 > *read like confirmation* and was not.
 
-**What produces the input.** `tools/frametype-oracle.ps1`, run against a PresentMon
+**What produced the input** *(past tense: the tool was deleted on 2026-08-27 with PresentMon; kept here because the reasoning is why the run could be trusted).* `tools/frametype-oracle.ps1`, run against a PresentMon
 2.x CSV and, optionally, a saved CaptureHost report. It compares **two dimensionless
 ratios** — PresentMon's `displayed / application` against our `presents / batch` —
 which is §S30's own correction applied: comparing *rates* needs a shared span, and
@@ -3237,10 +3250,10 @@ instead, which needs no thread at all.
 
 | # | Question |
 |---|---|
-| M1 | Can PresentMon 2.x `FrameType` see **driver-level** frame generation (AMD AFMF)? `03_METRICS` now says v1 cannot detect it at Tier 1. If Tier 2 can, that is a genuine and surprising capability inversion worth surfacing in the UI |
-| M2 | ◐ **Partly measured 2026-08-20** (`spike-notes` §11). It exists — PresentMon **2.5.1**, 956,768 bytes, SHA256 `9BEC…A191` — and it carries **no VERSIONINFO at all**, so pinning means pinning the hash and the filename. It does **NOT** run unelevated on this machine: exit 6, *"requires either administrative privileges or to be run by a user in the Performance Log Users user group"*, and the account is neither. The 2.x column set is therefore still **unmeasured**, which is why `tools/frametype-oracle.ps1` resolves columns by name and refuses loudly. **✅ The column set is MEASURED 2026-08-27: 24 columns, listed in `spike-notes` §11, and the parser has now eaten three real CSVs.** It resolved `FrameType` correctly against a first column literally named `Application`, a collision that would have made a position-based or grep-based parser count process names. What stays open in this row is the elevation-free route, not the column set. `15_ROADMAP` parks the Service + API2 in v2, so there is no planned fallback if the console is gone |
+| M1 ✅ | ~~Can PresentMon 2.x `FrameType` see **driver-level** frame generation (AMD AFMF)?~~ | **Closed by DECISION 2026-08-27, not by measurement, and the distinction matters.** PresentMon is dropped, so this question has no subject. What was learned before it went: `FrameType` reports events a vendor chose to emit, and NVIDIA's DLSS-G emits none (§S31 row P2) — so the "capability inversion" this row hoped for was never demonstrated for any vendor. If a Tier-2 mechanism is ever chosen (§G), ask this of **that** tool rather than reviving this row |
+| M2 ✅ | ~~Does the pinned console binary still exist, run unelevated, and emit the 2.x column set?~~ | **Answered, then closed 2026-08-27.** It exists (2.5.1, 956,768 bytes, SHA256 `9BEC…A191`, **no VERSIONINFO at all**); it does **not** run unelevated (exit 6 — the account is in neither Administrators nor Performance Log Users, and the running `PresentMonSharedService` does not help because the console starts its own session); and the 2.x column set **is measured** — 24 columns, `spike-notes` §11. The parser ate three real CSVs and resolved `FrameType` correctly against a first column literally named `Application`. Closed because the binary is dropped, and kept in full because every one of those facts cost a measurement |
 | M5 | **Do LHM GPU sensors work unelevated, without PawnIO?** This decides whether the default unelevated Agent has temperatures at all, and therefore how ADR-9 reads to users |
-| M6 | ◐ **Half of it is answered, 2026-08-20, and it is the half nobody expected to fall.** *"or the PresentMon Service"* — **no.** `PresentMonSharedService` is installed and `Running` as LocalSystem on this machine, and the console binary still fails with access denied, because the console starts its **own** trace session rather than talking to the service. So the service being present is not a route to elevation-free Tier 2 for the console. The *"add me to Performance Log Users"* half stays open: adding an account to a local group is a system settings change needing admin, and it is the owner's rather than a session's. Would change the README, Disclaimer and EULA wording back |
+| M6 ✅ | ~~Elevation-free Tier 2~~ | **Closed by decision 2026-08-27.** Half was answered on 2026-08-20 in the direction nobody expected: `PresentMonSharedService` is installed and `Running` as LocalSystem and the console **still** fails, because it starts its own trace session. The other half — whether `Performance Log Users` suffices without admin — stays unmeasured and now has no subject. **The elevation question does not disappear with the tool**: ETW trace sessions are restricted by Windows, not by PresentMon, so whatever §G chooses inherits it. Re-ask it there |
 | M7 | `18_GPU_VENDOR_APIS` §Runtime policy says telemetry is never read from the game process, but `17_HOOK_ENGINE` reads per-process VRAM and Reflex latency there. Reconcile the wording — the rule means "no vendor SDK polling loops in the game", not "no measurement in the game" |
 | M8 | The `GpuSample` type has no latency field, yet L3 is credited with Reflex/PC latency. Latency is per-frame and arrives via the ring, not the 1 Hz sample. Fix the layering description |
 | M9 ✅ | **Closed 2026-08-02 by a decision.** The old file/module detection does not exist in this repository and the owner confirmed there is no copy elsewhere, so **"build a minimal static-hint detector as the measurement baseline" is now P0 item 3** (`15_ROADMAP`). It needs no guard and no injection. Until it exists, ADR-7's headline claim stays out of the README rather than being asserted unmeasured |
@@ -3264,7 +3277,7 @@ Each of these is referenced by an existing doc but specified nowhere.
 | **Accessibility / DPI** | NFR-9 states requirements; no design anywhere | NFR-9, `08_UI` |
 | **Uninstall / data deletion** | One Velopack clause. No in-app "delete all my data", despite the privacy position | `12_BUILD`, `legal/PRIVACY_POLICY.md` |
 | **Cover art** | Appears in the schema, the data directory and the UI; nothing says where it comes from or the licence position on downloaded store art | `06_DATA_MODEL`, `05_DETECTION` |
-| **PresentMon distribution** | ~~`12_BUILD` says "bundled … pinned, SHA-256 verified at build" — is the binary committed to the repo or fetched at build time?~~ **ANSWERED 2026-08-27 (owner): NEITHER. The console binary is a LOCAL TEST TOOL** — it stays on the developer's machine for the §S31 run and as `tools/frametype-oracle.ps1`'s input, it is not committed, not fetched, and not redistributed. `/presentmon/` is ignored; `assets/native/PresentMon.exe` is not created. `12_BUILD`, `13_CI_CD`, `04_CAPTURE` and `legal/THIRD_PARTY_NOTICES.md` all asserted the bundling plan and are corrected in the same PR. **A DIFFERENT QUESTION IS NOW OPEN IN ITS PLACE, and it is bigger: how does a SHIPPED build reach Tier 2 at all?** `15_ROADMAP` parks PresentMon Service + API2 in **v2**; §M2 already recorded that there is no planned fallback if the console is gone; and `README`, `legal/DISCLAIMER.md` and `legal/EULA.md` all describe a Tier 2 users can reach. So retiring the bundle does not close this row — it moves it from a packaging question to a **capability** one, and the three user-facing documents are the constraint on whatever answers it | `12_BUILD`, `THIRD_PARTY_NOTICES`, `README`, `15_ROADMAP` |
+| **Tier-2 mechanism** *(was: PresentMon distribution)* | ~~is the binary committed to the repo or fetched at build time?~~ **Dead question: PresentMon is dropped entirely, 2026-08-27** — not committed, not fetched, not used. **What replaces it is bigger, and is now the only live Tier-2 question: by what mechanism does a shipped build reach Tier 2 at all?** Nothing in this repository names one. Constraints on any answer: `README`'s capture-tier table and its **safety** row *"always a way out"*, plus `legal/DISCLAIMER.md` §73 and `legal/EULA.md` §33, all describe a no-injection mode as **the default** for uncertain cases — the README now carries the fact that it is unbuilt, the two legal documents do not and that is a gap this row owns; ETW needs elevation regardless of tool (§M6); and `15_ROADMAP` has no v2 fallback either any more. **Until this is answered, a refused or unhookable title gets Tier 3** | `README`, `legal/DISCLAIMER.md`, `legal/EULA.md`, `04_CAPTURE`, `15_ROADMAP` |
 
 ---
 

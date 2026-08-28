@@ -19,6 +19,43 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Changed
 
+- **PresentMon is DROPPED — owner decision 2026-08-27 — and Tier 2 keeps its place while losing
+  its mechanism.** §S31 retired it as a measurement oracle (row P2); this removes it as an
+  implementation. It is not bundled, not fetched, not used, and `tools/frametype-oracle.ps1` — the
+  parser written for its output — is deleted with it, along with its `build.ps1` gate.
+
+  **Twelve documents named it as the Tier-2 mechanism and every one is corrected**: `CLAUDE.md`'s
+  pinned-stack row, `README`'s capture-tier table **and its safety row**, `01_ARCHITECTURE`'s tier
+  table and ADR-3, `03_METRICS` rung 2, `04_CAPTURE`'s source table and tier selection,
+  `05_DETECTION`'s two Tier-2 rows, `07_IPC`'s `PresentMonMissing` error code, `12_BUILD`,
+  `13_CI_CD`, `14_TESTING`'s CSV-parser row, `15_ROADMAP`'s P2 phase and v2 backlog, and
+  `legal/THIRD_PARTY_NOTICES.md` plus `legal/licenses/README.md`.
+
+  **The notices row and `license-check`'s claim had to go together, and that is the gate working.**
+  `tools/license-check.ps1` bound `Intel PresentMon` to `assets/native/PresentMon.exe`
+  bidirectionally; removing the row alone fails with *"no table row mentions Intel PresentMon, so
+  its bundling claim cannot be checked"*. Removing a claim is a deliberate act and is recorded as
+  one. `legal/licenses/README.md` also listed a `presentmon-MIT.txt` that never existed.
+
+  **§M1, §M2 and §M6 close by DECISION, not by measurement**, and each says so: they were questions
+  about a tool that no longer has a subject. §M2's answers are kept in full because every one cost a
+  measurement. **§G is not closed — it gets bigger**: *"is the binary committed or fetched?"* becomes
+  *"by what mechanism does a shipped build reach Tier 2 at all?"*, and nothing in this repository
+  names one.
+
+  **What this costs users, stated where they will read it.** `README`'s **safety** row promises a
+  no-injection mode as *"always a way out"*, and `legal/DISCLAIMER.md` §73 and `legal/EULA.md` §33
+  both call it **the default** for uncertain cases. The README row now carries the fact that it is
+  unbuilt and has no chosen mechanism, so **a refused or unhookable title gets Tier 3** — session
+  duration and hardware telemetry. The two legal documents still say "default" without that
+  qualification; §G owns the gap and names them. Not fixed here, because changing a legal document
+  is not a cleanup.
+
+  **And the discriminator run was attempted and produced nothing**, so it settled nothing: the
+  command targeted `explorer.exe`, which may present nothing PresentMon tracks, and "no CSV" is
+  indistinguishable from "no `FrameType` column" — the §Traps entry about a canary that dies before
+  reaching the gate. Badly chosen target, recorded as such, and moot now.
+
 - **§S31 ran, and PresentMon is RETIRED as the application-frame oracle — row P2.**
   Three legs, three game launches, Cyberpunk 2077 at off / ×2 / ×4. `FrameType` is present and
   **every row of all three legs reads `Application`** — 1,937 / 6,488 / 10,881 rows, no other

@@ -226,7 +226,6 @@ else {
     $rows = @(Get-Content $noticesPath | Where-Object { $_.TrimStart().StartsWith('|') })
     $claims = @(
         @{ Marker = 'NVIDIA NVAPI SDK'; Path = 'src/native/third_party/nvapi' },
-        @{ Marker = 'Intel PresentMon'; Path = 'assets/native/PresentMon.exe' },
         @{ Marker = 'Vulkan headers'; Path = 'src/native/third_party/vulkan-headers' },
         @{ Marker = 'NVIDIA Streamline'; Path = 'src/native/third_party/streamline' }
     )
