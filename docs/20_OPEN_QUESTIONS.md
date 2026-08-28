@@ -1903,7 +1903,28 @@ admits it has no data for (Ricochet, VAC). Three refuters agreed.
 > narrow. What changed is the **evidence**, not the decision: this is no longer a
 > hypothesis, and whoever picks up §S19(b) now has a reproducible case.
 >
-> The integration tests are traited `Category=Integration` and CI runs
+> #### ⚠ AND IT FIRES ON THE DEV BOX TOO — INTERMITTENTLY — measured 2026-08-28
+>
+> This entry says the cases *"pass on a host that does not load the assembly"*, and the line
+> below adds *"`./build.ps1 check` with no switches still runs them"*. Both read as though the
+> dev box were a stable pass. **It is not.**
+>
+> One full `check` on a docs-only branch went red at
+> `ShmDrainIntegrationTests.APausedSessionStopsRecordingAndResumesWhereItLeftOff` with
+> `GuardedInjectAsync(...).IsAllowed` **False** — the guard refusing our own harness. The same
+> test alone passed immediately afterwards, and the next full `check` passed too. Nothing in
+> the branch touched code.
+>
+> **The mechanism is this entry's own**, one variable further out: the suite runs four test
+> assemblies in parallel, so *which* modules a given test host has loaded when the guard walks
+> its ancestors varies run to run. A .NET host that loaded
+> `System.Security.Cryptography.ProtectedData.dll` refuses; one that has not, does not.
+>
+> **Two consequences.** A local red here is **not** evidence about the branch — check the
+> refusal reason before reading the diff, exactly as `§Traps` now says for `fl_ring`. And the
+> defect is worse than "CI-only" made it sound: the population is any host that happens to
+> load a `protect`-matching module, which is a property of the run rather than of the machine.
+>> The integration tests are traited `Category=Integration` and CI runs
 > `./build.ps1 check -SkipIntegration`, which **skips loudly**. `./build.ps1 check`
 > with no switches still runs them, and they pass on a host that does not load the
 > assembly. A suite that quietly stops running a class is how a gate rots, so the
