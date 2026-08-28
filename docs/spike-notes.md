@@ -249,6 +249,72 @@ two-byte skew and the validator must reject it —
 `well-formed=0, ntoskrnl=NO`, first entry `ystemRoot\system32\ntoskrnl.exe`.
 A count check passes that. This one does not.
 
+### ◐ §S19(b) · the signer half, measured before it is designed — `fl-probe-signer` (2026-08-27)
+
+`ctest fl_signer_probe`, unelevated, dev box. §S19(b) asked for three answers before
+any design is fixed; these are they. The analysis and the decision rows live in
+`20_OPEN_QUESTIONS` §S19(b) — what belongs here is what was **run**.
+
+**Q1 · which route recovers an organisation.** Offline flags throughout
+(`WTD_REVOKE_NONE | WTD_CACHE_ONLY_URL_RETRIEVAL`):
+
+| Subject | embedded | catalog | `O=` |
+|---|---|---|---|
+| `System.Security.Cryptography.ProtectedData.dll` (NuGet **6.0.0**) | **`ERROR_SUCCESS`** 3.61 ms | no catalog | `Microsoft Corporation` |
+| `mskeyprotect.dll` | **`TRUST_E_NOSIGNATURE`** 0.23 ms | **`ERROR_SUCCESS`** 3.62 ms | `Microsoft Corporation` |
+| `kernel32.dll` | `ERROR_SUCCESS` 4.69 ms | `ERROR_SUCCESS` 3.48 ms | `Microsoft Corporation` |
+
+Full subject on every one: `C=US, S=Washington, L=Redmond, O=Microsoft Corporation,
+CN=Microsoft Windows` — so `signerField: "O"` holds here, on a subject class it had
+never been measured against.
+
+**Two results that cut opposite ways.** The CI blocker is embedded-signed and verifies
+offline, so the embedded half alone would clear that refusal. `mskeyprotect.dll` — the
+module §S19(b) was *written about* — does not, and needs `CryptCATAdmin*`. The entry
+predicted exactly that and it is now measured rather than argued.
+
+**`kernel32.dll` carries BOTH**, which the probe was written assuming it would not.
+"Catalog-signed" is not inferable from a file being a system binary; it is a per-file
+measurement, which is why the probe reports both routes for every subject.
+
+**And the module is not what §S19(b) says it is.** It calls the blocker *"a .NET
+shared-framework assembly"*. `Microsoft.NETCore.App` 10.0.11 does not contain it. It
+is a NuGet package assembly reached transitively as `Microsoft.NET.Test.Sdk` →
+`System.Configuration.ConfigurationManager` → `System.Security.Cryptography.ProtectedData`,
+staged next to every test binary. **Dropping the reference means dropping the test
+SDK**, so the cheapest-looking route out of the CI refusal is closed.
+
+**Q2 · cost.** Cold 3.45 ms; warm mean of 20 = **3.54 ms**. There is no amortisation:
+the second verification of the same file costs what the first did. Comfortable against
+the 30 s re-scan **because the scan set is small** — three real titles produced no
+fragment hit at all — and it stops being comfortable on a title that trips the fuzzy
+tier repeatedly.
+
+**Q3 · 🔴 `cryptnet.dll` is newly loaded UNDER THE OFFLINE FLAGS.** Census bracketing
+the offline arm alone: `cryptnet.dll` appears. Nothing further appears once the
+default `WTD_REVOKE_WHOLECHAIN` calls run, so this is not the default arm leaking into
+the measurement.
+
+> **The first version of this probe could not have told those apart.** It censused
+> once at the top and once at the bottom with both arms in between, so the module
+> appeared and the delta could not attribute it — a census spanning both arms of the
+> comparison it exists to discriminate. Fixed before the run recorded above. Same
+> shape as §S30's *"two numbers agreeing can be one number read twice"*, one layer
+> down.
+
+**Mapped is not transmitted, and this probe cannot close the gap.** `cryptnet.dll`
+being loaded is the module that *would* make a request, not evidence that one was
+made; there is no packet counter here. **The discriminating run is the owner's:
+adapters disabled, same three subjects, compare verdicts.** A verdict that changes
+offline retires the route, and §S19(b)'s row G2 says so before the run.
+
+**Canary.** The probe's own unsigned executable returns `TRUST_E_NOSIGNATURE` and
+yields no organisation — so a green result discriminates rather than merely running.
+`fl-baseline-probe` was retired by exactly this class of test.
+
+**Not measured here:** the CI leg (a different machine stages a different copy), and
+the adapters-disabled leg. Both have pre-committed rows. An unrun leg is unrun.
+
 ### Still open
 
 - **§S13(c) — decision on launch-mode injection timing.** The measurement above
@@ -1083,6 +1149,14 @@ scan set, against the 30 s re-scan; and whether `WTD_REVOKE_NONE` +
 `WTD_CACHE_ONLY_URL_RETRIEVAL` emits network traffic — the default
 `WTD_REVOKE_WHOLECHAIN` performs CRL/OCSP fetches, which breaks **NFR-10
 offline-first** as well as CLAUDE.md rule 8, from inside the hard gate.
+
+> **THE PROBE NOW EXISTS AND HAS ANSWERED ALL THREE, 2026-08-27 — see the
+> §S19(b) subsection in §1 above.** This paragraph is kept because the QUESTIONS it
+> fixes are what the probe was built to, and because a reader arriving here needs to
+> know the shape was decided before the answers existed. Two of the three came back
+> the way it predicted; the third — whether the offline flags avoid network I/O —
+> came back with `cryptnet.dll` LOADED, which is neither a pass nor a failure and is
+> why the discriminating run is the owner's.
 
 Also measured: **`gameguard` could never fire.** The match is a case-insensitive
 substring and `guard` is a substring of `gameguard`, so the shorter token always
