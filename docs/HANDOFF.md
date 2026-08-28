@@ -846,6 +846,43 @@ diagnosis*.
   dev box can lose on its own**, and that a red `fl_d3d12_acquisition` is not evidence about the
   code until the two adapters have been probed separately. That probe is ~40 lines of P/Invoke and
   settles it in one run; do that before reading the harness's output as a finding.
+- **A NATIVE test can go red because the RUNNER did not schedule two threads, and it looks
+  like a code regression.** `ring_test.cpp`'s *"a tiny ring, so the writer laps the reader
+  constantly"* ends with `CHECK(dropped > 0)` — an **anti-vacuity** assertion, not a property
+  of the ring. Its own comment says why: *"with 8 slots the writer MUST have lapped us, so a
+  run reporting no drops means the threads never actually overlapped and the case proved
+  nothing."*
+
+  It fired on CI on 2026-08-28, on a pull request that **touched no native source and no
+  test** — `ctest` reported `1 tests failed out of 23`, `build.ps1` threw `ctest failed (exit
+  8)`, and the run before and the run after were both green. Eleven of the twelve CI runs
+  around it passed, two of them on `main` within minutes.
+
+  **The tell is which assertion fired.** A ring defect fails `CHECK_FALSE(mixed)` or
+  `CHECK_FALSE(poisonAccepted)` — the properties. A hosted runner that did not overlap the
+  threads fails only the guard at the end. Read the assertion before reading the diff: this
+  is the integration-budget trap (*"no budget may be sized on the harness's measured rate"*)
+  one layer down, in the **native** suite, where §Traps did not have it.
+
+  Do **not** relax it to `>= 0`. The guard is what stops the case passing while proving
+  nothing, and `ring_test.cpp`'s own header already records that two of its four properties
+  have never been shown red.
+
+- **A self-test's cases can all pass while testing nothing, and their NAMES will not tell
+  you.** Found 2026-08-27 in a PowerShell gate's `-SelfTest`: removing the fail-closed guard
+  from a hash comparison left **all ten cases green**. `[string]::Equals` already refuses
+  empty-vs-present, so three cases named *"an empty hash fails closed"*, *"a null hash fails
+  closed"* and *"an empty EXPECTATION fails closed too"* were testing `Equals`, not us.
+
+  **The case the guard actually carried was the one nobody wrote:** `Equals('','')` is
+  **`true`**. That is the §S23-1 shape — two empty build ids compared equal and
+  `ShmHandshakeValidator` reported `Ok` for every process on the machine — arriving in a
+  different language.
+
+  *"A gate never observed failing is a comment"* applies to a gate's **own tests**. Plant the
+  canary in the thing under test, not in the caller, and check that it fails on exactly one
+  case: if it turns several red, the cases are coupled and none of them is pinning what its
+  name claims.
 - **A failing `REQUIRE` used to END THE WHOLE BINARY, so one red test hid every test
   after it.** Fixed 2026-08-09, and recorded because the symptom was invisible: `ctest`
   reported *"1 test failed"* when the truth was *"and 2 never ran"*.
