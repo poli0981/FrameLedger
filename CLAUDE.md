@@ -35,7 +35,7 @@ A C++ DLL (`FrameLedger.Overlay.dll`) is injected into games the user explicitly
 | Charts | ScottPlot 5 |
 | GPU telemetry | Layered: DXGI + PDH counters (all vendors) → LibreHardwareMonitorLib (MPL-2.0, all vendors) → **NVAPI (MIT, headers + `amd64/nvapi64.lib` vendored 2026-08-05** at `src/native/third_party/nvapi/`, consumed via the `fl_nvapi` target; NVIDIA extras + Reflex). **No AMD/Intel vendor SDK** — `docs/18_GPU_VENDOR_APIS.md`. **No telemetry source exists in code yet** — `ctest fl_nvapi_probe` is the only consumer, and it exists so the vendoring is verified rather than asserted. This row previously claimed the vendoring in the present tense while `third_party/` held only `vulkan-headers`; `legal/` had already caught the identical claim about itself and gained a bidirectional gate, which is what made the real vendoring a red-then-green |
 | CPU/board sensors | LibreHardwareMonitorLib ≥ 0.9.6 (PawnIO) — **optional**, elevated only |
-| Tier-2 fallback | Intel PresentMon console binary (ETW) |
+| Tier-2 fallback | **Undecided.** ETW-based, no injection — the mechanism is an open question (`docs/20_OPEN_QUESTIONS.md` §G). ~~Intel PresentMon console binary~~ dropped by owner decision 2026-08-27 after §S31 retired it as an oracle; nothing in this repository names a Tier-2 tool |
 | Storage | SQLite via Microsoft.Data.Sqlite + Dapper (no EF) |
 | Shared memory IPC | `CreateFileMapping` + lock-free SPSC ring — `docs/07_IPC.md` |
 | Logging | Serilog (managed); ring-buffer + deferred flush (native) |
@@ -81,8 +81,9 @@ tests/
   FrameLedger.CaptureHost.Tests/      # incl. the Category=Integration end-to-end case
   native/FrameLedger.Overlay.Tests/   # Catch2: ring buffer, record encode, fault policy
 tools/                         # changelog-check, chokepoint-check, coverage-gate, gen-ac-floor,
-                               # license-check, package-closure-check, rules-validate,
-                               # vendor-exports, versioninfo-check, vklayer-blastradius
+                               # hookinventory-check, license-check, package-closure-check,
+                               # rules-validate, vendor-exports, versioninfo-check,
+                               # vklayer-blastradius
                                # (PowerShell). This line used to name three, one of which
                                # — resx-audit — does not exist.
                                # native tooling lives under src/native/tools:

@@ -75,10 +75,11 @@ Testing/
 src/native/third_party/**/build/
 _deps/
 
-# NOTE: assets/native/PresentMon.exe is deliberately NOT ignored. 12_BUILD.md
-# calls it "bundled ... pinned, SHA-256 verified at build"; whether it is
-# committed or fetched is an open question (docs/20_OPEN_QUESTIONS.md).
-# Ignoring it here would silently prevent committing it.
+# NOTE: there are no bundled native assets. assets/native/PresentMon.exe was the
+# only one ever planned and PresentMon was DROPPED on 2026-08-27 (S31 row P2,
+# then an owner decision). The path is left unignored anyway: if a future Tier-2
+# mechanism ever needs a bundled binary there, an ignore rule is how it would be
+# missed rather than reviewed.
 
 # /presentmon/ IS ignored, and it is NOT the path above. A hand-downloaded copy
 # of the Intel console binary landed at the repository root on 2026-08-27 --

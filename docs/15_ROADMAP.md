@@ -285,7 +285,7 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > re-scan wired to a real Overlay.
 
 ## P2 — Capture pipeline (1 week)
-Agent: watcher, tier selection, injection orchestration, shm drain, telemetry poller (NVAPI first), session recorder, segments, `.partial` recovery, Tier-2 `EtwFrameSource` retained as fallback. SQLite v2 schema + migrations. Domain metric calculators + golden tests. **Milestone: first real hooked session persisted with measured upscaler/RT data.**
+Agent: watcher, tier selection, injection orchestration, shm drain, telemetry poller (NVAPI first), session recorder, segments, `.partial` recovery, ~~Tier-2 `EtwFrameSource` retained as fallback.~~ **There is nothing to retain: Tier 2 has no mechanism as of 2026-08-27** (§G). `EtwFrameSource` is a port with no adapter, and P2 should not be planned as though writing one were scoped. SQLite v2 schema + migrations. Domain metric calculators + golden tests. **Milestone: first real hooked session persisted with measured upscaler/RT data.**
 
 ## P3 — UI (1 week)
 WPF UI shell (`16_WPFUI_SYNTAX`), library, per-game hooking consent flow, Dashboard live card showing *measured* settings, session summary, ScottPlot charts, game detail tabs, Compare with tier guarding, segment ribbon, tri-state chips with override, refusal/degradation/unhook notices as first-class UI.
@@ -307,7 +307,7 @@ CI/CD with the native build; CodeQL (C# + C++); Dependabot; CHANGELOG; README wi
 
 ## v2 backlog
 
-- PresentMon Service + API2 for a richer Tier 2
+- ~~PresentMon Service + API2 for a richer Tier 2~~ — **struck 2026-08-27**: PresentMon is dropped, so this cannot be the *richer* version of something that is not the baseline any more. What v2 may want is a Tier-2 mechanism at all; **v1 does not have one** (§G)
 - **YouTube overlay export**: frametime/FPS graph as transparent PNG sequence for DaVinci Resolve benchmark videos (SkullMute workflow)
 - CapFrameX-compatible CSV import/export
 - Microsoft Store / Game Pass titles (packaged-app injection constraints)

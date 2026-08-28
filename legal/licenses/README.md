@@ -12,7 +12,6 @@ Required before the first release
 | `minhook-BSD-2-Clause.txt` | MinHook — vendored and built from source |
 | `nvapi-MIT.txt` | NVIDIA NVAPI SDK — headers + import library vendored |
 | `wpfui-MIT.txt` | WPF UI (lepoco) — MIT requires the notice to ship |
-| `presentmon-MIT.txt` | Intel PresentMon — ships beside the bundled binary |
 | `librehardwaremonitor-MPL-2.0.txt` | LibreHardwareMonitorLib, consumed unmodified |
 | `apache-2.0.txt` | Serilog, Dapper, the analyzers, Vulkan headers |
 | `mit.txt` | Shared text for the MIT-licensed NuGet packages |

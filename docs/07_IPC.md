@@ -286,7 +286,7 @@ Unchanged in spirit from v1, bumped to `v2` for the new message set.
 | `CaptureRefused` | A→UI | `{ gameId, reason, signal }` — **guard fired**; UI shows the plain-language explanation and the Tier-2 offer |
 | `CaptureDegraded` | A→UI | `{ sessionGuid, from, to, reason }` — Tier 1 → Tier 2 mid-flight, or overlay self-disabled |
 | `SafetyUnhook` | A→UI | `{ sessionGuid, signal }` — anti-cheat appeared mid-session; prominent UI notice |
-| `CaptureError` | A→UI | `{ code, message }` — `InjectFailed`, `RingVersionMismatch`, `EtwAccessDenied`, `PresentMonMissing`, `TelemetryUnavailable`, `DbWriteFailed` |
+| `CaptureError` | A→UI | `{ code, message }` — `InjectFailed`, `RingVersionMismatch`, `EtwAccessDenied`, ~~`PresentMonMissing`~~ (retired with the tool, 2026-08-27 — a code naming an implementation nobody chose), `TelemetryUnavailable`, `DbWriteFailed` |
 | `Ping`/`Pong` | both | 15 s keepalive |
 
 ## The pipe is not a trust boundary

@@ -1673,7 +1673,9 @@ into a real title and the process survives it (§7).
 
 ### 🔴 THE RUN HAPPENED — 2026-08-27, three legs, three game launches, and row **P2**
 
-Owner-run from an elevated shell via `tools/s31-capture.ps1`. Cyberpunk 2077, frame
+Owner-run from an elevated shell via a three-leg runbook script. **That script is not in
+this repository** — it drove PresentMon, so it was closed unmerged when PresentMon was dropped
+the same day; do not go looking for it. Cyberpunk 2077, frame
 generation off / ×2 / ×4 set in the title's own menu, 40 s per leg, one game launch
 each. Analysis is in `20_OPEN_QUESTIONS` §S31; what belongs here is what was measured.
 
@@ -1725,6 +1727,11 @@ unelevated 2026-08-27 and refused with the same exit 6 this section opens with.
 > vendor emitted nothing, or the invocation produced no frame-type data at all. In
 > neither case did PresentMon answer the question **as invoked**.
 
+**The discriminator was run on 2026-08-27 and produced no file at all**, so it settled nothing:
+the command targeted `explorer.exe`, which may present nothing PresentMon tracks, and "no CSV"
+is indistinguishable from "no `FrameType` column". Badly chosen target, recorded as such. Moot
+now — PresentMon was dropped the same day — and written down so nobody re-runs it thinking it
+is untried.
 **Two findings nobody was looking for.**
 
 - **The `off` leg drained ZERO Streamline batches**, against `presents/batch = 1.000`

@@ -37,7 +37,7 @@ The anti-cheat guard is the one component where a bug can cost someone an accoun
 
 ### Parsers & infrastructure
 - Shm reader against a synthetic mapping: version mismatch → refuse; torn records skipped; dropped counter propagated.
-- PresentMon CSV (Tier 2): header-map building with shuffled/unknown/missing columns, malformed lines, invariant decimal. Fixtures recorded from real runs.
+- ~~PresentMon CSV (Tier 2): header-map building with shuffled/unknown/missing columns, malformed lines, invariant decimal. Fixtures recorded from real runs.~~ **Removed 2026-08-27 with the tool.** Whatever Tier 2 ends up parsing needs its own row, written against the format it actually reads — and the lesson from the one parser that did get written is worth carrying: its CSV's first column was named `Application` while the value it counted was also `Application`, so resolving by NAME rather than position was load-bearing (`spike-notes` §11).
 - Steam ACF (KeyValues), GOG `.info`, Epic `.item`, itch receipt — real-world fixtures.
 - `RuleEvaluator`: fixture directory trees per engine, including the "Unity markers present but UE structure too" ordering case.
 - Blob codecs round-trip for every series in `frame_blobs` (NaN forbidden — assert), including the two-pair `render_res` encoding and the three-bit `rt_flags` byte. SQLite migrations apply cleanly from an empty file to the current schema, and re-applying is a no-op. (There is no v1→v2 upgrade to test — `06_DATA_MODEL` §Migrations.)

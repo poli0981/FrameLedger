@@ -89,7 +89,7 @@ Agent flags: `--serve`, `--console`, `--diag`, `--install-task`, `--uninstall-ta
 
 ## Bundled assets
 
-- ~~`assets/native/PresentMon.exe` (pinned, SHA-256 verified at build) for the Tier-2 fallback~~ — **RETIRED BY OWNER DECISION, 2026-08-27: the console binary is a LOCAL TEST TOOL and is not bundled.** It stays on the developer's machine for the §S31 measurement and for `tools/frametype-oracle.ps1`'s input; the release will reach Tier 2 by a different route, and **which route has not been decided** (`20_OPEN_QUESTIONS` §G). Two consequences worth stating rather than discovering: there is now **no shipping mechanism for Tier 2 at all** — `15_ROADMAP` parks PresentMon Service + API2 in **v2**, and §M2 already recorded that there is no planned fallback if the console is gone — and `README`, `legal/DISCLAIMER.md` and `legal/EULA.md` all describe a Tier 2 that users can reach. Whatever replaces it has to satisfy those three documents or they have to change.
+- ~~`assets/native/PresentMon.exe` (pinned, SHA-256 verified at build) for the Tier-2 fallback~~ — **DROPPED 2026-08-27, and there are no bundled native assets at all.** §S31 measured PresentMon classifying every frame of a ×4 capture as an application frame (row P2); the owner then dropped it outright. It is not bundled, not fetched, not used, and `tools/frametype-oracle.ps1` — the parser that consumed its output — is deleted with it. `assets/` does not exist and now has no reason to. **Tier 2 keeps its place in the design and has no mechanism**: `EtwFrameSource` is unwritten and what it would read is `20_OPEN_QUESTIONS` §G.
 
   The struck text is kept because the *reason* it was written is still live. What it said next, and what remains true:
 

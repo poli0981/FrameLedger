@@ -46,7 +46,7 @@
 | Tier | Mechanism | Gets you | When used |
 |---|---|---|---|
 | **1** | Injected hooks (default when the user enabled it and the guard passed) | Everything: exact render/output res, upscaler + quality, FG ground truth, RT/PT evidence, per-process VRAM, PSO stutter attribution, Reflex latency, present flags | Offline/single-player titles the user opted in |
-| **2** | ETW via PresentMon console (no injection) | Frame times, present mode, displayed vs presented counts, coarse FG inference | Guard refused, hook failed, user chose not to hook, or cross-checking Tier 1 |
+| **2** | ETW, no injection — ~~via PresentMon console~~ **mechanism undecided** (§G) | Frame times, present mode, displayed vs presented counts. ~~coarse FG inference~~ — that came from PresentMon's `FrameType`, which §S31 retired for NVIDIA, so no Tier-2 FG signal is claimed | Guard refused, hook failed, user chose not to hook, or cross-checking Tier 1 |
 | **3** | Nothing | Session duration + sensors only | Capture disabled |
 
 Tier is recorded per session (`sessions.capture_tier`) and shown in the UI, because metric availability differs and comparing across tiers must be explicit.
@@ -109,7 +109,7 @@ covers\*.jpg
 
 - **ADR-1 (superseded):** ~~Passive ETW only; injection out of scope.~~ Replaced by ADR-7.
 - **ADR-2:** WPF over WinUI 3 — Velopack maturity, ecosystem stability, portfolio reuse.
-- **ADR-3 (revised):** ETW/PresentMon is now the **Tier-2 fallback**, not the primary source. The `IFrameSource` abstraction that made this cheap to change is retained and vindicated.
+- **ADR-3 (revised twice):** ETW is the **Tier-2 fallback**, not the primary source. ~~ETW/PresentMon~~ — the **tool** is no longer named: §S31 retired PresentMon's `FrameType` as an oracle on 2026-08-20–27 and the owner dropped it on 2026-08-27, so Tier 2 has a tier and no implementation. The `IFrameSource` abstraction that made this cheap to change is retained and **vindicated a second time**: the mechanism changed underneath it and no consumer moved.
 - **ADR-4:** Raw frame series stored as compressed blobs with retention; aggregates kept forever.
 - **ADR-5 (revised):** In-game overlay is now *possible* (we are already in the process) and is planned as an opt-in feature after the data path is stable — see `15_ROADMAP` P5.
 - **ADR-6:** UI toolkit = WPF UI (lepoco `Wpf.Ui` ≥ 4.3.0, MIT) — see `16_WPFUI_SYNTAX.md`.
