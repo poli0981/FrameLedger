@@ -1867,6 +1867,104 @@ admits it has no data for (Ricochet, VAC). Three refuters agreed.
 > > estimate that survives the work it was written about is how an item stays deferred
 > > after its reason expires.
 
+> #### `fl-probe-signer` EXISTS AND HAS BEEN RUN — 2026-08-27, dev box, unelevated
+>
+> This entry's deferral rationale asked for exactly one thing before any design is
+> fixed: *"Build `fl-probe-signer` first, in the shape `fl-probe-guard` established,
+> and answer those three questions with measurements."* It is `ctest fl_signer_probe`,
+> and the numbers are in `spike-notes` §1. What belongs here is what they decide.
+>
+> **SAY THIS FIRST, BECAUSE IT WEAKENS EVERYTHING BELOW.** §S30 and §S31 each carry a
+> decision table written *before* its run, so the mapping from measurement to action
+> could not be assembled once the answers were known. **This table is not that.** The
+> probe had to be run to be built — its acceptance criterion is that it *prints*
+> answers, so an unrun probe is an unfinished one — and the dev-box numbers were
+> therefore in hand before these rows were written. The rows below are pre-committed
+> only for the legs that are still **unrun**: CI, and the adapters-disabled run. For
+> the dev box they are a reading, not a prediction, and should be reviewed as one.
+>
+> **Q1 · the embedded route recovers an organisation for the CI blocker, and NOT for
+> this entry's own subject.** Both halves matter and they point opposite ways:
+>
+> | Subject | embedded, offline | catalog, offline | `O=` |
+> |---|---|---|---|
+> | `System.Security.Cryptography.ProtectedData.dll` — the CI blocker | **`ERROR_SUCCESS`** | no catalog | `Microsoft Corporation` |
+> | `mskeyprotect.dll` — this entry's own subject | **`TRUST_E_NOSIGNATURE`** | **`ERROR_SUCCESS`** | `Microsoft Corporation` |
+> | `kernel32.dll` | `ERROR_SUCCESS` | `ERROR_SUCCESS` | `Microsoft Corporation` |
+>
+> So **the embedded half alone would clear the CI refusal** — the organisation it
+> recovers is already in the shipped `trustedSigners` — while **`mskeyprotect.dll`
+> still needs `CryptCATAdmin*`**, exactly as this entry predicted. The two are
+> separable, and that separation is the affordable part: the merge-gate work does not
+> have to buy the catalog half.
+>
+> `kernel32.dll` carries **both**, which contradicts the assumption this probe was
+> written under — that a catalog-signed system binary is catalog-*only*. Recorded
+> because it means "catalog-signed" is not a property you can infer from a file being
+> a system binary; it has to be measured per file, which is what the probe now does.
+>
+> **§S19(b) ALSO MIS-DESCRIBES THE MODULE, and the correction closes a tempting
+> route.** This entry calls it *"a .NET shared-framework assembly"*. It is not:
+> `Microsoft.NETCore.App` 10.0.11 does not contain it. It is a **NuGet package
+> assembly, version 6.0.0**, reached transitively as
+> `Microsoft.NET.Test.Sdk` → `System.Configuration.ConfigurationManager` →
+> `System.Security.Cryptography.ProtectedData`, and copied next to every test binary.
+> The tempting inference — *a package reference can just be dropped* — **does not
+> survive it**: dropping this one means dropping the test SDK.
+>
+> **Q2 · about 3.5 ms per module, and WARM IS NOT CHEAPER THAN COLD.** Cold 3.45 ms,
+> warm mean of 20 = 3.54 ms. There is no amortisation to plan around: the second
+> verification of the same file costs what the first did. Against a 30 s re-scan
+> (§S6) that is comfortable *because the scan set is small* — three real titles
+> produced no fragment hit at all — and it would stop being comfortable on a title
+> that trips the fragment tier many times. A cache **within** one evaluation is
+> admissible; a cache **across** evaluations is a re-scan that did not run.
+>
+> **Q3 · `cryptnet.dll` LOADS ANYWAY, and this is the finding that can stop the
+> route.** Under `WTD_REVOKE_NONE | WTD_CACHE_ONLY_URL_RETRIEVAL`, in a census
+> bracketing the offline arm **alone**, `cryptnet.dll` is newly loaded into the
+> process. Nothing further loads once the default `WTD_REVOKE_WHOLECHAIN` calls run,
+> so this is not the default arm leaking into the measurement.
+>
+> > **The probe's first version could not have told those apart, and it read like an
+> > answer.** It took one census at the top and one at the bottom with *both* arms in
+> > between, so `cryptnet.dll` appeared and the delta could not attribute it. A census
+> > that spans both arms of the comparison it exists to discriminate is not a
+> > measurement. Fixed before this entry was written; recorded because it is the same
+> > shape as §S30's *"two numbers agreeing can be one number read twice"*.
+>
+> **What loading is and is not.** `cryptnet.dll` being MAPPED is not a network
+> request; it is the module that would make one. This probe has no packet counter, so
+> it reports the module and refuses to conclude. **The discriminating run is the
+> owner's: adapters disabled, same three subjects, compare the verdicts.**
+>
+> #### The rows, pre-committed for the legs that are still unrun
+>
+> | # | What the unrun leg reports | What it means | What to do |
+> |---|---|---|---|
+> | **G1** | Adapters disabled: all three verdicts UNCHANGED, and CI reproduces the blocker's `ERROR_SUCCESS` + `O=Microsoft Corporation` | The offline flags deliver offline behaviour, and the embedded half alone clears the CI refusal | **Build the embedded half**, and defer the `CryptCATAdmin*` catalog half **with its own written rationale** rather than silently. It is not on the path to the merge gate |
+> | **G2** | Adapters disabled: any verdict CHANGES | The flags do not deliver offline behaviour — a verification whose answer depends on connectivity is doing network I/O inside the hard gate | **DO NOT BUILD IT.** §S19(b) stays deferred, now on a *measured* rationale rather than an assumed one. Re-open only with a mechanism that has no URL-retrieval path at all |
+> | **G3** | CI reports an `O=` that is not `Microsoft Corporation`, or empty | The `O=` premise does not hold for the copy CI actually loads | **STOP.** A signer half reading the wrong field suppresses the wrong modules. Settle `signerField` in `19_SAFETY` §Blocklist seed first |
+> | **G4** | CI's blocker copy returns `TRUST_E_NOSIGNATURE` | CI stages a different copy than the dev box does | Measure *which* copy before deciding. The dev-box answer does not transfer |
+> | **G5** | Cost on CI exceeds ~10 ms/module | The 30 s loop absorbs it only for a small scan set | Not a veto alone: bound the scan set or cache **within** one evaluation, and re-measure. Never across |
+> | **G6** | Anything not covered above | The probe found something nobody predicted | **Not a result.** Print it, add a row, re-run. Do not promote a surprise into a design |
+>
+> **And a constraint no row can lift, because it is not a measurement.** Wiring the
+> signer half makes `trustedSigners` a **live allow-widening surface**: today the field
+> suppresses nothing, and the moment it does, a rules push that adds a publisher widens
+> the hard gate. The gate over that is `Rules / validate`, which **§S23-2 measured is
+> not a required status check on `main`**. `19_SAFETY` already ruled on this exact shape
+> for the launcher list — *"a data-driven cutoff would let a rules push widen the hard
+> gate's blind spot ... the boundary of what the gate looks at is code."* **So even a
+> clean G1 does not authorise the build**: either `Rules / validate` becomes required
+> (§S23-2, owner-only, and the skip-shim lands first), or `trustedSigners` is bounded by
+> a compiled-in allowlist the data file can only intersect. **That is an owner decision
+> and no PR may take it.**
+>
+> **Nothing under `FrameLedger.Injector` changed with the probe**, deliberately. This
+> is a measurement, and reading a row off the table is a separate PR — including the
+> row that says build nothing.
+
 **(c) `signerField` and `action` are required by the schema and parsed by
 nobody.** Both are `required` in `detection-rules.schema.json`, both carry
 safety-relevant `$comment`s — `action` "is a const, not an enum, so `allow` and
