@@ -19,6 +19,43 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Changed
 
+- **§S31 ran, and PresentMon is RETIRED as the application-frame oracle — row P2.**
+  Three legs, three game launches, Cyberpunk 2077 at off / ×2 / ×4. `FrameType` is present and
+  **every row of all three legs reads `Application`** — 1,937 / 6,488 / 10,881 rows, no other
+  value anywhere, counted off the raw CSVs rather than off the tool's summary.
+
+  **The half that makes it a measurement rather than a shrug:** the two instruments agree on the
+  present rate to within **0.3% on every leg** (43.16 vs 43.04, 144.31 vs 144.18, 241.84 vs
+  241.80 present/s). They are counting the same stream, displayed rate tracks the configured
+  multiplier, and at ×4 roughly three presents in four cannot be application frames — while
+  PresentMon classifies **100%** of them as application frames. `tools/frametype-oracle.ps1`
+  reported it as a **falsifier** on all three legs and never as a ratio of 1.0, which is the one
+  behaviour it was written to guarantee.
+
+  **What P2 retires and what it leaves untouched.** Retired: PresentMon 2.x `FrameType` as the
+  oracle for NVIDIA frame generation, and `03_METRICS` rung 2 is narrowed — the honest scope is
+  now *no vendor is known to instrument this provider, and one is known NOT to*. **Not answered:**
+  §S31's actual question. *Is a drained Streamline batch an application frame?* is exactly as open
+  as it was; `presents/batch` still reads 2.00 and 3.99 on the same unverified premise and is
+  still unpublishable as `fg_factor`. **Four oracles have now fallen.** `HANDOFF` item 3 goes back
+  to the hook routes — unblocked, unmade, and now without an oracle behind whatever is chosen.
+
+  **One sub-question is unmeasured and it changes the REASON, not the action:** whether
+  `--track_frame_type` was in effect at all. If the column ships by default, the legs recorded a
+  default rather than an absence. Both branches end at *PresentMon did not answer as invoked*,
+  which is why the row landed without waiting. The discriminator is one five-second run without
+  the flag; it needs elevation, and it is recorded in §S31 with the command.
+
+  **Two findings nobody was looking for.** The `off` leg drained **zero** Streamline batches,
+  against `presents/batch = 1.000` at off in §8 — Ray Reconstruction was not on, and §S30
+  established RR is what produces batches when FG is off, so our side had two readable legs and
+  not three. And the CSV's **first column is named `Application`** while the value being counted
+  in column 9 is also `Application`: a parser resolving by position, or grepping for the word,
+  counts process names. That rule was written into the oracle before it had ever seen a real CSV.
+
+  §M2's column set is measured at last — 24 columns — and `kFeatureDLSS_G` is zero on all three
+  legs, taking that to five capture sets across five titles.
+
 - **Five real-title captures across four titles, and the RT tri-state is complete** —
   `spike-notes` §6 and §8 carry the numbers; §8's per-title table was empty and now has five
   rows. Every run: 40 s, one swapchain, one segment, **0 gaps, 0 dropped**, `faults=0`, all six

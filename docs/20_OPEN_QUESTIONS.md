@@ -90,7 +90,7 @@ or it becomes the next stale status claim this file exists to record.
 
 | **S29** | 🔴 **open, new 2026-08-05 — five ✅ and two ◐, counted off the glyphs below on 2026-08-20** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work. **Sharpened 2026-08-06:** fixing §S19(b) alone would still gate nothing, because `build.ps1`'s `-SkipIntegration` applies `--filter 'Category!=Integration'` and excludes the class *before* the guard is ever asked. Two independent mechanisms produce one absence, and `ci.yml` must drop the switch too; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ✅ **closed 2026-08-20**: the normative contradiction between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is settled the way the entry proposed — AS-build activity proves ray tracing is happening, *naming the technique* is what needs a DXIL scan — and rule 7 is amended in the PR that wrote the hooks. Its second half closes with it: `FL_MEASURED_RT` now has a producer (both command-list detours, installed off the game's own device), so all three conjuncts of the `No` branch are live and **`Yes` and `No` are both reachable for the first time**, proved by injection in both directions; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
 | **S30** | ✅ **closed 2026-08-15** | Answered on the title that raised it: with Ray Reconstruction on, Cyberpunk 2077 evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once**, so RR was doing the upscaling and the decode had no arm for it. Evidence rather than inference: `renderW/H` are published only on a frame that drained an evaluation and read 1485×835 = 0.58 × 2560×1440, so the scaling-input tag arrives ON the RR evaluation. Two further defects fell out — the pre-committed decision table had two holes, and the fix contaminated the census that found it (it derived the id from the decoded byte) |
-| **S31** | ❓ **open, new 2026-08-20** | Is a drained Streamline batch an application frame? The PresentMon 2.x `FrameType` test, with its decision table pre-committed BEFORE the run and `tools/frametype-oracle.ps1` producing the input as two dimensionless ratios. **Two obstacles measured before it could be run**: the console binary will not start a trace session unelevated on the dev box (exit 6; the account is in neither Administrators nor Performance Log Users, and the running shared service does not help), and `--track_frame_type` is a **beta** option whose own help says it needs application or driver instrumentation of the Intel-PresentMon provider — so it may be as unavailable as `fl-baseline-probe` proved to be. Two of the table's six rows retire it outright. Blocks HANDOFF item 3's producer decision |
+| **S31** | ◐ **row P2, 2026-08-27 — the ORACLE is retired, the QUESTION is not** | Is a drained Streamline batch an application frame? The PresentMon 2.x `FrameType` test, with its decision table pre-committed BEFORE the run and `tools/frametype-oracle.ps1` producing the input as two dimensionless ratios. **Two obstacles measured before it could be run**: the console binary will not start a trace session unelevated on the dev box (exit 6; the account is in neither Administrators nor Performance Log Users, and the running shared service does not help), and `--track_frame_type` is a **beta** option whose own help says it needs application or driver instrumentation of the Intel-PresentMon provider — so it may be as unavailable as `fl-baseline-probe` proved to be. Two of the table's six rows retire it outright. Blocks HANDOFF item 3's producer decision |
 | **H11** | 🅓 **deferred 2026-08-20, rationale written** | XeFG and FSR3-FG identity. `libxess_fg.dll` and `ffx_fsr3_x64.dll` export nameable entry points, but the newer `amd_fidelityfx_framegeneration_dx12.dll` (3.1.5, three installed titles) exports only five generic `ffx*` names — identity lives in a struct field, and hand-declaring a vendor ABI from observation is the #71 defect class with another vendor's name on it. The licence checklist has not been run on either SDK either. Cost is coverage, not correctness: such a title reports `FL_FG_UNKNOWN`, never `NONE` |
 
 ~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
@@ -99,13 +99,13 @@ The criterion is *"resolved, **or** explicitly deferred with a written rationale
 so ⏳ (open, sequenced) and ◐ (partly closed) are just as open as ❓, and each needs
 either work or a rationale written down:
 
-- ~~**six ❓**~~ ~~three ❓~~ **four ❓** — S6, S19(c), S20 feed half, ~~**S30**~~ **S31**. *(S19(a),
+- ~~**six ❓**~~ ~~three ❓~~ ~~four ❓~~ **three ❓** — S6, S19(c), S20 feed half. ~~**S30**~~ ~~**S31**~~ *(S19(a),
   S19(d) residual and S23-5 resolved 2026-08-05, each by a mechanism rather than by a
   correction. **S30 closed 2026-08-15 and S31 opened 2026-08-20**, and this bullet went on
   naming S30 until 2026-08-27 — so the total below stayed right by coincidence rather than
   by count.)*
 - **three ⏳** — S2 part three, S4 signing, S23-3
-- **two ◐** — S14, S23-6
+- ~~two ◐~~ **three ◐** — S14, S23-6, **S31** (moved out of ❓ on 2026-08-27: its test ran and landed on row P2, so the oracle is settled and the question is not)
 - **one 🔴** — S29, added by the audit that produced this recount; **five of its seven
   findings are now closed**, and the residue is (a) the ungated managed drain and (d) the
   hand-run blast-radius script. *(This bullet listed **three** residues beside a count of
@@ -126,6 +126,12 @@ the recount becomes the next thing that needs recounting.
 > next author to prevent by moving the list and the count in one PR. Corrected 2026-08-27,
 > in a pass that touched no code — the §Traps entry *"a document can go stale by NOT being
 > touched"* wearing the ledger's own name.
+
+> **STILL TEN on 2026-08-27, for the third consecutive movement.** S31 moved from ❓ to ◐,
+> so ❓ goes four to three and ◐ goes two to three. **The number has now stayed at ten across
+> three different changes**, and that is worth saying out loud precisely because a reader
+> checking only the total would conclude nothing had happened since 2026-08-15. Three things
+> have. The total is the least informative line in this section and it is the one people read.
 
 > **A rising count here is the ledger working, not failing.** Every previous movement was downward and came from closing something. This one is upward because the first capture from a real game produced a wrong answer that no fixture had been able to produce — which is the whole reason exit criterion 1 asks for a real title rather than a harness.
 
@@ -791,7 +797,88 @@ a wrong answer into a confident wrong answer.
 
 </details>
 
-### S31 ❓ · Is a drained Streamline batch an application frame? — the PresentMon `FrameType` test, pre-committed
+### S31 ◐ · Is a drained Streamline batch an application frame? — the ORACLE is retired, the QUESTION is not
+
+> ### 🔴 RUN 2026-08-27 — ROW **P2**. PresentMon is RETIRED as the application-frame oracle.
+>
+> Three legs, three game launches, Cyberpunk 2077, frame generation off / ×2 / ×4.
+> `spike-notes` §11 carries the numbers. What belongs here is the row and what it does
+> and does not settle.
+>
+> **`FrameType` is present and every single row of all three legs reads `Application`** —
+> 1,937 / 6,488 / 10,881 rows, zero rows of any other value, counted off the raw CSVs
+> rather than off the tool's summary.
+>
+> **And the title was demonstrably generating frames, which is the half P2 needs.** The
+> two instruments agree on the present rate to within 0.3% on every leg:
+>
+> | leg | our hook | PresentMon | our `presents/batch` |
+> |---|---|---|---|
+> | off | 43.16 /s | 43.04 /s | N/A — no batch drained |
+> | ×2 | 144.31 /s | 144.18 /s | **2.00** |
+> | ×4 | 241.84 /s | 241.80 /s | **3.99** |
+>
+> So **both instruments are counting the same present stream**, displayed rate tracks the
+> configured multiplier, and at ×4 roughly three presents in four cannot be application
+> frames — while PresentMon classifies **100%** of them `Application`. That is P2 word for
+> word: *"PresentMon sees the presents but classifies none as generated, while the title is
+> demonstrably generating them."*
+>
+> `tools/frametype-oracle.ps1` reported it as a **falsifier** on all three legs and never as
+> a ratio of 1.0, which is the one behaviour that entry was written to guarantee.
+>
+> #### What is NOT yet excluded, and the one command that excludes it
+>
+> **Whether `--track_frame_type` was in effect is unmeasured.** If `FrameType` appears in
+> `--v2_metrics` output *regardless* of the flag, these legs show PresentMon's default rather
+> than an absence of vendor events. The discriminator costs five seconds, no game and no
+> capture — run PresentMon **without** the flag and look at the header:
+>
+> ```
+> PresentMon-2.5.1-x64.exe --process_name explorer.exe --v2_metrics \
+>     --output_file %TEMP%\pm-noflag.csv --timed 5 --terminate_after_timed --stop_existing_session
+> ```
+>
+> No `FrameType` column there ⇒ the column exists only because of the flag ⇒ the vendor
+> emitted nothing. Column present ⇒ these three legs measured a default and this entry needs
+> re-reading. **It still needs elevation, so it is the owner's** — attempted unelevated
+> 2026-08-27 and refused with the same exit 6 this item has been blocked on from the start.
+>
+> **THE ACTION DOES NOT DEPEND ON IT, WHICH IS WHY THIS ROW LANDS ANYWAY.** Both branches end
+> at the same place: either the vendor emits nothing, or the invocation produced no frame-type
+> data at all. In both, PresentMon did not answer the question **as invoked**, and an oracle
+> that does not answer is retired rather than re-run until it does — the discipline
+> `fl-baseline-probe` was retired under. What the discriminator changes is the *reason*, and
+> therefore whether a later attempt with a different invocation is worth anyone's time.
+>
+> #### What P2 retires, and what it leaves exactly where it was
+>
+> **RETIRED:** PresentMon 2.x `FrameType` as the application-frame oracle for NVIDIA frame
+> generation. `03_METRICS` §Frame Generation rung 2 is narrowed accordingly.
+>
+> **NOT ANSWERED:** *is a drained Streamline batch an application frame?* This entry's actual
+> question is untouched. `presents / batch` still reads 2.00 and 3.99 against a title's own
+> ×2 and ×4, still on the unverified premise that the work is recorded once per application
+> frame, and still unpublishable as `fg_factor` for that reason. **Four oracles have now
+> fallen** — `fl-baseline-probe` by its own falsifier, two readings of Steam's overlay (§S30),
+> and this one. `HANDOFF` item 3's producer decision goes back to the hook routes, which is
+> where P1/P2 said it would go.
+>
+> #### Two things the run produced that nobody was looking for
+>
+> **The `off` leg drained ZERO Streamline batches**, where `spike-notes` §8 recorded
+> `presents/batch = 1.000` at off. The difference is Ray Reconstruction: §S30 established that
+> RR is evaluated once per application frame, so with RR on there are batches even at off. RR
+> was not on here. **Consequence for anyone rebuilding this comparison: our side had only TWO
+> readable legs, not three** — enable RR if you need the off leg to carry a ratio.
+>
+> **The CSV's FIRST column is named `Application`** — it holds the process name — while the
+> value being counted, in column 9, is also the string `Application`. A parser resolving by
+> position, or grepping for the word, counts process names and reports a ratio. The
+> *"columns are resolved BY NAME from the header, never by position"* rule was written into
+> `tools/frametype-oracle.ps1` before it had ever seen a real CSV, against exactly the
+> collision that turned out to be there. Recorded because the rule looked like ordinary care
+> when it was written and was load-bearing.
 
 **The question HANDOFF item 3 cannot close without.** `presents / batch` reads
 1.000 / 2.000 / 4.000 against Cyberpunk 2077's own off / ×2 / ×4, and a *batch* is
@@ -3151,7 +3238,7 @@ instead, which needs no thread at all.
 | # | Question |
 |---|---|
 | M1 | Can PresentMon 2.x `FrameType` see **driver-level** frame generation (AMD AFMF)? `03_METRICS` now says v1 cannot detect it at Tier 1. If Tier 2 can, that is a genuine and surprising capability inversion worth surfacing in the UI |
-| M2 | ◐ **Partly measured 2026-08-20** (`spike-notes` §11). It exists — PresentMon **2.5.1**, 956,768 bytes, SHA256 `9BEC…A191` — and it carries **no VERSIONINFO at all**, so pinning means pinning the hash and the filename. It does **NOT** run unelevated on this machine: exit 6, *"requires either administrative privileges or to be run by a user in the Performance Log Users user group"*, and the account is neither. The 2.x column set is therefore still **unmeasured**, which is why `tools/frametype-oracle.ps1` resolves columns by name and refuses loudly. `15_ROADMAP` parks the Service + API2 in v2, so there is no planned fallback if the console is gone |
+| M2 | ◐ **Partly measured 2026-08-20** (`spike-notes` §11). It exists — PresentMon **2.5.1**, 956,768 bytes, SHA256 `9BEC…A191` — and it carries **no VERSIONINFO at all**, so pinning means pinning the hash and the filename. It does **NOT** run unelevated on this machine: exit 6, *"requires either administrative privileges or to be run by a user in the Performance Log Users user group"*, and the account is neither. The 2.x column set is therefore still **unmeasured**, which is why `tools/frametype-oracle.ps1` resolves columns by name and refuses loudly. **✅ The column set is MEASURED 2026-08-27: 24 columns, listed in `spike-notes` §11, and the parser has now eaten three real CSVs.** It resolved `FrameType` correctly against a first column literally named `Application`, a collision that would have made a position-based or grep-based parser count process names. What stays open in this row is the elevation-free route, not the column set. `15_ROADMAP` parks the Service + API2 in v2, so there is no planned fallback if the console is gone |
 | M5 | **Do LHM GPU sensors work unelevated, without PawnIO?** This decides whether the default unelevated Agent has temperatures at all, and therefore how ADR-9 reads to users |
 | M6 | ◐ **Half of it is answered, 2026-08-20, and it is the half nobody expected to fall.** *"or the PresentMon Service"* — **no.** `PresentMonSharedService` is installed and `Running` as LocalSystem on this machine, and the console binary still fails with access denied, because the console starts its **own** trace session rather than talking to the service. So the service being present is not a route to elevation-free Tier 2 for the console. The *"add me to Performance Log Users"* half stays open: adding an account to a local group is a system settings change needing admin, and it is the owner's rather than a session's. Would change the README, Disclaimer and EULA wording back |
 | M7 | `18_GPU_VENDOR_APIS` §Runtime policy says telemetry is never read from the game process, but `17_HOOK_ENGINE` reads per-process VRAM and Reflex latency there. Reconcile the wording — the rule means "no vendor SDK polling loops in the game", not "no measurement in the game" |

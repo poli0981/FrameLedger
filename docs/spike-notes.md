@@ -1671,6 +1671,82 @@ into a real title and the process survives it (§7).
   anything it does not recognise, and its decision table is the only thing standing
   behind it. Said plainly rather than left for the next reader to assume.
 
+### 🔴 THE RUN HAPPENED — 2026-08-27, three legs, three game launches, and row **P2**
+
+Owner-run from an elevated shell via `tools/s31-capture.ps1`. Cyberpunk 2077, frame
+generation off / ×2 / ×4 set in the title's own menu, 40 s per leg, one game launch
+each. Analysis is in `20_OPEN_QUESTIONS` §S31; what belongs here is what was measured.
+
+**The 2.x column set, which §M2 left unmeasured: 24 columns.**
+
+```
+Application, ProcessID, SwapChainAddress, PresentRuntime, SyncInterval, PresentFlags,
+AllowsTearing, PresentMode, FrameType, CPUStartTime, FrameTime, CPUBusy, CPUWait,
+GPULatency, GPUTime, GPUBusy, GPUWait, DisplayLatency, DisplayedTime, AnimationError,
+AnimationTime, MsFlipDelay, AllInputToPhotonLatency, ClickToPhotonLatency
+```
+
+**`FrameType` is present, and every row of all three legs reads `Application`.**
+Counted off the raw CSVs rather than off the tool's own summary:
+
+| leg | rows | distinct `FrameType` values |
+|---|---|---|
+| off | 1,937 | `Application` × 1,937 |
+| ×2 | 6,488 | `Application` × 6,488 |
+| ×4 | 10,881 | `Application` × 10,881 |
+
+**And the two instruments agree on the present rate to within 0.3%**, which is what
+makes the finding a measurement rather than a shrug — PresentMon SAW the generated
+presents:
+
+| leg | our hook | PresentMon | our `presents/batch` | our `evaluations` |
+|---|---|---|---|---|
+| off | 1,676 presents / 38.82 s = **43.16 /s** | 1,937 / 45 s = **43.04 /s** | N/A — no batch drained | 0 |
+| ×2 | 5,746 / 38.64 s = **144.31 /s** | 6,488 / 45 s = **144.18 /s** | **2.00** | 0 |
+| ×4 | 9,652 / 38.77 s = **241.84 /s** | 10,881 / 45 s = **241.80 /s** | **3.99** | 0 |
+
+Every leg: `status=Ready`, `faults=0`, `layoutVersion=3`, `attach=Ok`, one stream, one
+segment, **0 gaps and 0 dropped**, `unidentified=0`.
+
+So displayed rate tracks the configured multiplier, both instruments count the same
+present stream, and at ×4 roughly three presents in four cannot be application frames
+— while PresentMon classifies **100%** of them `Application`. That is §S31 row **P2**,
+and `tools/frametype-oracle.ps1` reported it as a **falsifier** on all three legs
+rather than as a ratio of 1.0, which is the one behaviour it was written to guarantee.
+
+**Unmeasured, and it decides the REASON rather than the action:** whether
+`--track_frame_type` was in effect at all. If `FrameType` ships in `--v2_metrics`
+output regardless of the flag, these legs recorded a default. The discriminator is one
+five-second run **without** the flag, checking only whether the header carries the
+column — no game, no capture, no launch spent. It still needs elevation; attempted
+unelevated 2026-08-27 and refused with the same exit 6 this section opens with.
+
+> **Both branches end at the same action**, which is why §S31 landed anyway: either the
+> vendor emitted nothing, or the invocation produced no frame-type data at all. In
+> neither case did PresentMon answer the question **as invoked**.
+
+**Two findings nobody was looking for.**
+
+- **The `off` leg drained ZERO Streamline batches**, against `presents/batch = 1.000`
+  at off in §8. The difference is Ray Reconstruction: §S30 established RR is evaluated
+  once per application frame, so with RR on there are batches even with FG off. RR was
+  not on here. **Our side therefore had two readable legs, not three** — turn RR on if
+  the off leg needs to carry a ratio.
+- **The CSV's first column is named `Application`** and holds the process name, while
+  the value being counted, in column 9, is also the string `Application`. A parser
+  resolving by position — or grepping for the word — counts process names and reports a
+  ratio from them. `frametype-oracle.ps1`'s *"resolved BY NAME from the header, never by
+  position"* was written before it had ever seen a real CSV, against exactly the
+  collision that was waiting in it.
+
+**`kFeatureDLSS_G` is zero on all three legs**, which takes the count to five capture
+sets across five titles. `HANDOFF` item 3's premise has now failed everywhere it has
+been looked for.
+
+**Artifacts:** `%LOCALAPPDATA%\FrameLedger\s31\{off,x2,x4}\` — `presentmon.csv` and
+`capturehost-report.txt` per leg. Not committed; they are measurement output and the
+numbers above are the record.
+
 ### 🔴 `--track_frame_type` is a BETA option that needs the VENDOR to cooperate
 
 This is the finding, and it lands on a pre-committed oracle. `PresentMon 2.5.1
