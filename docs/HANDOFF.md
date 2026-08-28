@@ -669,11 +669,43 @@ feature hooks — §S29(a) said it was and was wrong; see below. What it buys is
 > drop the switch as well. Anyone costing this as "fix the signer half" is costing
 > half of it.
 
-P0 item 8 telemetry: `BaselineTelemetrySource` (L1), `LhmTelemetrySource` + the M5
-question (do GPU sensors work unelevated without PawnIO — it decides whether the
-default Agent has temperatures at all), `NvapiTelemetrySource` (L3 — the material is
-vendored and `fl_nvapi_probe` proves it works), and the PresentMon binary for
-`spike-notes` §11, the cheapest unfilled section in that file.
+### §M5 — **START HERE**, and it stopped being a telemetry question on 2026-08-28
+
+**Do GPU sensors work unelevated, without PawnIO?** It used to decide how ADR-9 read to
+users. It now decides whether a sentence **already in `README`, `legal/EULA.md` and the
+operator consent disclosure** is true.
+
+The two-rung ladder says a Tier-2 session records *"session duration and whatever hardware
+telemetry this machine can provide"*. That hedge is there because **nobody has measured
+this**. If LHM needs elevation for GPU sensors, the DEFAULT unelevated Agent's Tier-2
+session is **duration only** — and the honest wording is narrower than what those three
+documents now carry. The hedge is deliberate and it is also a placeholder: it buys
+correctness at the cost of telling a user something useful.
+
+`18_GPU_VENDOR_APIS` §P0 item (b) already specifies the test and the dev box can run it. It
+needs `LhmTelemetrySource`, which does not exist — so the first slice of P0 item 8 is now
+the cheapest way to make three user-facing documents say something definite.
+
+**This heading sits under §Separable on purpose, and it is still the live one.** §M5 is not a
+prerequisite of any feature hook — nothing in the queue above waits on it. It is here because
+it is the smallest piece of work that makes an already-shipped claim definite, which is a
+better place to restart than a decision nobody has taken.
+
+**Two other things are open and neither is this.** Item 6 — written rationales for every
+❓/⏳/◐ still in §S24, and unifying the glyphs — is P0 **exit criterion 2** itself and is pure
+editorial; take it if you want P0 closer to done rather than more correct. And `fl-probe-signer`
+→ §S19(b) above buys the managed drain a place in the merge gate. Both are real; neither has a
+claim in a legal document depending on it.
+
+**Why this and not the frame-generation route.** Item 3's producer decision is unblocked and
+unmade, and whoever takes it chooses **with no oracle behind the choice** (§S31 row P2, and
+`14_TESTING`'s cross-validation gate struck the same day). That is a decision to take
+deliberately, not a task to pick up. §M5 is a measurement with a specified method, a machine
+that can run it, and a claim already shipped that depends on the answer.
+
+Rest of P0 item 8 telemetry: `BaselineTelemetrySource` (L1), `NvapiTelemetrySource` (L3 — the
+material is vendored and `fl_nvapi_probe` proves it works). ~~and the PresentMon binary for
+`spike-notes` §11~~ — that section is filled and PresentMon is gone.
 
 Also loose: `LibreHardwareMonitorLib` is referenced by `FrameLedger.Infrastructure`
 and used by **zero lines**, so it ships into the Agent's output — an MPL-2.0 §3.1
