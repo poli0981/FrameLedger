@@ -17,6 +17,43 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Added
+
+- **The first telemetry source, and the measurement it exists for: §M5 is answered — GPU
+  sensors work unelevated, without PawnIO, on NVIDIA.** `FrameLedger.Application.Telemetry`
+  gains the port `18_GPU_VENDOR_APIS` specified (`IGpuTelemetrySource`, `GpuSample`,
+  `GpuCapabilities`, `TelemetryLayer`); `FrameLedger.Infrastructure.Telemetry` gains
+  `LhmTelemetrySource` (L2) over LibreHardwareMonitorLib 0.9.6 — GPU group only, its own
+  poller thread, 1 Hz and never under 500 ms, *throws or hangs twice ⇒ disabled for the
+  session*, capabilities value-derived and monotonic so a sensor that never reports is never
+  a capability — behind an `ILhmComputer` seam so every branch of the fault policy runs on
+  CI, which has no GPU. `SensorMap` carries the name heuristics and their two traps (NVIDIA's
+  `GPU Memory` *load* is VRAM-in-use; `Control` is fan duty, not RPM).
+
+  **The instrument is `FrameLedger.CaptureHost probe-lhm [--seconds n]`** — the unshipped
+  host's fifth verb, the only one besides `consent list` that names no game, because it opens
+  a sensor library in its own process and nothing else. It prints the raw tree before the
+  mapped sample before the verdict, and the verdict names a row of the decision table that
+  `20_OPEN_QUESTIONS` §M5 carried **before** the run.
+
+  **Row R1, twice.** Unelevated: core and memory temperature, load, VRAM used, core and memory
+  clock, package power, fan — eight fields, all five deciding ones among them. The elevated
+  control, launched through UAC, returned the same eight. PawnIO was installed on the box and
+  never opened: only LHM's CPU and board groups use it. So the sentence already in `README`,
+  `legal/EULA.md` and `OperatorDisclosure` — *"whatever hardware telemetry this machine can
+  provide"* — is true as written, and `README`'s row now names what that is on NVIDIA.
+  `OperatorDisclosure.Version` stays /2. Hotspot temperature is absent on this driver / GPU /
+  library and is recorded as N/A, not as a defect. Numbers in `spike-notes` §10; the L2 NVIDIA
+  column of the capability matrix is filled; AMD and Intel are exactly as untested as before.
+
+  **One defect the raw tree caught before the verdict did:** the first `SensorMap` mapped
+  `D3D Shared Memory Used` — system RAM — to adapter VRAM by a fragment rule.
+  `SharedMemoryIsNotVram` pins the fix. Printing the evidence ahead of the interpretation is
+  the whole reason the probe is shaped the way it is.
+
+  Closes the `HANDOFF` loose end that `LibreHardwareMonitorLib` shipped into the Agent's
+  output under an MPL-2.0 §3.1 obligation while used by zero lines.
+
 ### Changed
 
 - **The consent texts now say what DECLINING costs, and the anti-nudge rule is normative.**
