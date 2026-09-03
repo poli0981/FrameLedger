@@ -235,6 +235,63 @@ public enum FlHookFamily : uint
     Vram = 1u << 10,
 }
 
+/// <summary>
+/// Which vendor RUNTIME MODULES the loader reported in the game process. Bits in
+/// <see cref="FlWriterState.RuntimeCensus"/>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Not a hook and not a measurement.</b> Taken on the Overlay's watchdog once a second by
+/// asking the loader for each name in <c>FL_RUNTIME_CENSUS</c>; OR-only, so monotonic. A set bit
+/// says a module of that name was loaded. A clear bit says the loader had none of that name —
+/// and cannot see a statically linked FSR, whose frame-generation proxy still calls the real
+/// <c>Present</c>. <b>It therefore never produces <see cref="FlFgMode.None"/> or
+/// <see cref="FlUpscaler.None"/></b>; it refines the reason for an N/A and warns when a
+/// frame-generation runtime is present and nothing was observed
+/// (<c>03_METRICS</c> §Frame Generation, rung 0's qualifier).
+/// </para>
+/// <para>
+/// <see cref="Ran"/> is bit 0 so a writer that never took the census publishes 0 and decodes as
+/// "nobody looked". A family bit without it is a writer defect.
+/// </para>
+/// </remarks>
+[Flags]
+public enum FlRuntimeCensus : uint
+{
+    None = 0,
+    Ran = 1u << 0,
+
+    SlDlssG = 1u << 1,
+    NvngxDlssG = 1u << 2,
+    LibXessFg = 1u << 3,
+    FfxFrameInterpolation = 1u << 4,
+    FfxFsr3 = 1u << 5,
+    AmdFfxFrameGeneration = 1u << 6,
+
+    SlInterposer = 1u << 8,
+    SlDlss = 1u << 9,
+    SlNis = 1u << 10,
+    NvngxCore = 1u << 11,
+    NvngxDlss = 1u << 12,
+    NvngxDlssD = 1u << 13,
+    LibXess = 1u << 14,
+    FfxFsr2 = 1u << 15,
+    FfxFsr3Upscaler = 1u << 16,
+    AmdFfxUpscaler = 1u << 17,
+    AmdFfxDx12 = 1u << 18,
+}
+
+/// <summary>The two groups of <see cref="FlRuntimeCensus"/>, mirroring <c>FL_CENSUS_FG_FAMILIES</c> and <c>FL_CENSUS_UPSCALER_FAMILIES</c>.</summary>
+public static class FlRuntimeCensusFamilies
+{
+    public const FlRuntimeCensus Fg = FlRuntimeCensus.SlDlssG | FlRuntimeCensus.NvngxDlssG | FlRuntimeCensus.LibXessFg
+        | FlRuntimeCensus.FfxFrameInterpolation | FlRuntimeCensus.FfxFsr3 | FlRuntimeCensus.AmdFfxFrameGeneration;
+
+    public const FlRuntimeCensus Upscaler = FlRuntimeCensus.SlInterposer | FlRuntimeCensus.SlDlss | FlRuntimeCensus.SlNis
+        | FlRuntimeCensus.NvngxCore | FlRuntimeCensus.NvngxDlss | FlRuntimeCensus.NvngxDlssD | FlRuntimeCensus.LibXess
+        | FlRuntimeCensus.FfxFsr2 | FlRuntimeCensus.FfxFsr3Upscaler | FlRuntimeCensus.AmdFfxUpscaler | FlRuntimeCensus.AmdFfxDx12;
+}
+
 /// <summary>Bits in <see cref="FlFrameRecord.RtFlags"/>.</summary>
 [Flags]
 public enum FlRtFlags : byte
@@ -421,8 +478,11 @@ public unsafe struct FlWriterState
     /// <summary>The raster denominator <c>pt_confidence</c> wanted.</summary>
     public uint RasterPsoCreated;
 
+    /// <summary><see cref="FlRuntimeCensus"/> bits. Watchdog-published, OR-only. Took <c>reserved[0]</c> on 2026-09-03.</summary>
+    public uint RuntimeCensus;
+
     /// <summary>Must be zero; room for additive fields.</summary>
-    public fixed uint Reserved[6];
+    public fixed uint Reserved[5];
 
     // WHY THE COUNTERS ARE PUBLISHED AT 1 Hz AND NOT ACCUMULATED HERE PER FRAME: this struct is
     // region 2, which the Overlay writes on the present path, and the regions are separate cache lines

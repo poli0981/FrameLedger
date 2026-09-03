@@ -27,7 +27,8 @@
     SUBTRACTING that count — so a double-counted evaluation lands on fg_factor,
     the number CLAUDE.md rule 6 exists to protect.
 
-    THREE INDEPENDENT PASSES, because each has a blind spot the next covers.
+    FOUR PASSES (three independent ones, and a fourth for the census table --
+    added 2026-09-03), because each has a blind spot the next covers.
     Pass A checks the inventory rows against the oracle. Pass B sweeps the
     Overlay's own sources for vendor-shaped string literals that are NOT in the
     inventory — a second resolver written somewhere else would otherwise be
@@ -115,6 +116,27 @@ function Test-ModuleExports($Modules, [string]$Module, [string]$Symbol) {
     return @($entry.exports) -contains $Symbol
 }
 
+# Parse FL_RUNTIME_CENSUS rows: X(L"module.dll", fl::FL_CENSUS_BIT). Two columns,
+# so the three-column inventory regex cannot mistake one for the other.
+function Get-CensusRow([string]$HeaderText) {
+    $rows = @()
+    foreach ($m in [regex]::Matches($HeaderText, 'X\(\s*L"([^"]+)"\s*,\s*((?:fl::)?FL_CENSUS_[A-Z0-9_]+)\s*\)')) {
+        $rows += [pscustomobject]@{ Module = $m.Groups[1].Value; Bit = $m.Groups[2].Value }
+    }
+    return , $rows
+}
+
+# Is this module NAME in the measured data at all? The census resolves no symbol,
+# so the question is one level up from Test-ModuleExports: has a copy of this name
+# ever been seen on disk in an installed title. Case-sensitive on purpose -- the
+# loader is not, but the oracle records the on-disk spelling and a row that differs
+# from it is a row nobody checked.
+function Test-ModuleMeasured($Modules, [string]$Module) {
+    if ($null -eq $Modules) { return $false }
+    $prop = $Modules.PSObject.Properties[$Module]
+    return $null -ne $prop
+}
+
 # Vendor-shaped literals the Overlay must not resolve outside the inventory.
 # Deliberately broad on the vendor prefixes and narrow on where it looks.
 #
@@ -190,6 +212,20 @@ if ($SelfTest) {
            Got  = ((Get-StrayVendorLiteral 'printf("slept for a while");').Count -eq 0); Want = $true }
         @{ Name = 'an XeFG literal is found - xess[A-Z] does not cover xefg*'
            Got  = ((Get-StrayVendorLiteral 'p = GetProcAddress(h, "xefgSwapChainD3D12InitFromSwapChain");') -contains 'xefgSwapChainD3D12InitFromSwapChain'); Want = $true }
+
+        # --- Pass D: the census rows -------------------------------------------
+        @{ Name = 'a census row parses'
+           Got  = ((Get-CensusRow 'X(L"nvngx_dlssg.dll", fl::FL_CENSUS_NVNGX_DLSSG)').Count -eq 1); Want = $true }
+        @{ Name = 'a census row is NOT an inventory row (two columns, not three)'
+           Got  = ((Get-InventoryRow 'X(L"nvngx_dlssg.dll", fl::FL_CENSUS_NVNGX_DLSSG)').Count -eq 0); Want = $true }
+        @{ Name = 'an inventory row is NOT a census row'
+           Got  = ((Get-CensusRow 'X(L"a.dll", "sym", fl::FAM)').Count -eq 0); Want = $true }
+        @{ Name = 'a measured module name passes'
+           Got  = (Test-ModuleMeasured $oracle 'sl.interposer.dll'); Want = $true }
+        @{ Name = 'an unmeasured module name fails - a misspelling here reads as "not loaded" on every title'
+           Got  = (Test-ModuleMeasured $oracle 'sl.interposor.dll'); Want = $false }
+        @{ Name = 'a null oracle fails closed'
+           Got  = (Test-ModuleMeasured $null 'sl.interposer.dll'); Want = $false }
 
         # --- Pass C: the import parser, then the predicate over it -----------
         @{ Name = 'dumpbin dependent lines parse into module names'
@@ -317,6 +353,26 @@ if (Test-Path $overlayDir) {
     }
 }
 
+# --- Pass D: every census module name is a measured module --------------------
+#
+# FL_RUNTIME_CENSUS names modules the watchdog asks the loader about. Nothing is
+# resolved or called, so Pass A's symbol check does not apply -- but the failure
+# mode is the same shape one level up: a name the data has never seen is a name
+# that will never be found loaded, and "not loaded" is the answer that makes the
+# consumer print "no frame-generation runtime was loaded" about a title that has
+# one. Zero rows is never a pass, for the reason Pass A gives.
+$censusRows = Get-CensusRow (Get-Content $headerPath -Raw)
+if ($censusRows.Count -eq 0) {
+    $violations.Add('parsed ZERO rows out of FL_RUNTIME_CENSUS - either the table is empty or the parser no longer matches its shape, and both must fail rather than report a clean sweep')
+}
+if ($violations.Count -eq 0) {
+    foreach ($c in $censusRows) {
+        if (-not (Test-ModuleMeasured $modules $c.Module)) {
+            $violations.Add("FL_RUNTIME_CENSUS names '$($c.Module)', which no measured title ships (docs/vendor-exports.json) - the loader would never report it and the consumer would read its absence as 'no such runtime was loaded'")
+        }
+    }
+}
+
 # --- Pass C: the built Overlay imports no vendor module -----------------------
 #
 # A and B are source checks and structurally cannot see this. What is being
@@ -393,5 +449,5 @@ if ($violations.Count -gt 0) {
     exit 1
 }
 
-Write-Host "hookinventory OK - $($rows.Count) symbol(s) checked module-scoped against $moduleCount measured modules; $swept Overlay source file(s) swept for strays; imports: $importState" -ForegroundColor Green
+Write-Host "hookinventory OK - $($rows.Count) symbol(s) checked module-scoped against $moduleCount measured modules; $($censusRows.Count) census name(s) measured; $swept Overlay source file(s) swept for strays; imports: $importState" -ForegroundColor Green
 exit 0

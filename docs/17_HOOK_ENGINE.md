@@ -117,6 +117,12 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 > so a shipped hook missing from here is invisible to every gate. Flip the row **and this
 > banner** in the same PR that builds a hook.
 
+### Watchdog observations — not hooks, and listed here so nobody mistakes them for one
+
+| Observation | Mechanism | Rule 4 | Why |
+|---|---|---|---|
+| **Runtime census** (`FlWriterState.runtimeCensus`, 2026-09-03) | Once a second on the watchdog: `GetModuleHandleExW(UNCHANGED_REFCOUNT)` for each name in `FL_RUNTIME_CENSUS` (`fl_hook_inventory.h`); OR-ed into the writer state. No enumeration, no reference, no patch, nothing on the present path | A module-name question to the loader — the same class `ResolveScoped` already asks before installing a hook. Reads no game memory | Rung 0 of `03_METRICS`' FG ladder is where every title lands today, and without this a 2D title and a DLSS-G title on an unhooked route printed the same line. **Never a producer of `NONE`** — statically linked FSR has no module to see. Names gated by `hookinventory-check` Pass D against the measured module list |
+
 ### Presentation
 | Hook | Purpose |
 |---|---|

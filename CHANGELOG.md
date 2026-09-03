@@ -19,6 +19,46 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **Presented FPS, and a runtime census that says what the one number may and may not mean.**
+  With this writer, `03_METRICS`' frame-generation ladder lands on rung 0 for *every* title — no
+  non-Streamline title sets `FL_MEASURED_FG`, and `Σ fgEvaluations` is 0 on every Streamline title
+  measured — so a 2D title with no upscaler and Black Myth: Wukong running DLSS-G through a path
+  this writer does not hook printed the same report line. `08_UI` said *"FG not detected →
+  `144 FPS`"* while `03_METRICS` rung 0 said `N/A`, not `none`; both were half right.
+
+  **The rule (owner decision 2026-09-03, CLAUDE.md rule 6 amended):** when frame generation is
+  not measured, the one number that stands alone is **Presented FPS** — `presents / D`,
+  numerically Displayed FPS, named so that "Native" and "Displayed" are only ever printed
+  *together* — with a mandatory qualifier chosen by the **runtime census**.
+
+  **The census.** `FlWriterState.runtimeCensus` (`reserved[0]`, no layout bump: the build-id
+  handshake refuses an older writer first) is taken on the Overlay's watchdog once a second —
+  `GetModuleHandleExW(UNCHANGED_REFCOUNT)` per name in `FL_RUNTIME_CENSUS`, twenty measured
+  module names in two families, OR-only, nothing on the present path, nothing patched. `Ran` is
+  bit 0 so a writer that never took it publishes 0 and decodes as "nobody looked".
+  `hookinventory-check` gains **Pass D**: every census name must be a module `vendor-exports.json`
+  has actually seen, because a misspelt name reads as "not loaded", which reads as the 2D case.
+
+  **What it changes in the report.** Under Presented FPS, one of three lines: the census did
+  not run; *no known frame-generation runtime was loaded, so this cannot include in-process
+  generated frames (statically linked FSR3-FG and driver-level AFMF excepted)*; or **WARNING:
+  a frame-generation runtime was loaded (`nvngx_dlssg.dll`) and no evaluation was observed —
+  this MAY include generated frames**. The upscaler line stops saying *"our coverage is short,
+  not the title's"* — false in the commonest case — and names the three causes it cannot tell
+  apart: settings off, an unhooked path, an undecoded vendor.
+
+  **What it never does: produce `none`.** `FL_FG_NONE` / `FL_UPSCALER_NONE` mean a hook ran and
+  saw the alternative. FSR is routinely linked statically, so a census-`none` on an FSR3-FG
+  title would print presents as native — the exact number rule 6 forbids — with a confident
+  label. The census narrows an N/A's reason and raises a warning; it does not close the question.
+
+  Fixtures: `fl_guard`'s present-only case asserts `runtimeCensus == FL_CENSUS_RAN` by equality,
+  the Streamline-stub case asserts the interposer bit set and every FG bit clear;
+  `CensusReportTests` drives all three report shapes, the Witcher-3 shape (runtime loaded, no
+  hook) and the inconsistent-writer shape. **Hook-path overhead: none** — the census runs only on
+  the watchdog. The two real-title captures that would show the qualifiers on real games are
+  the owner's (one launch each).
+
 - **The first telemetry source, and the measurement it exists for: §M5 is answered — GPU
   sensors work unelevated, without PawnIO, on NVIDIA.** `FrameLedger.Application.Telemetry`
   gains the port `18_GPU_VENDOR_APIS` specified (`IGpuTelemetrySource`, `GpuSample`,

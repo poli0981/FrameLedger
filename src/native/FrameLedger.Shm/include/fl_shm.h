@@ -129,6 +129,11 @@ enum FlApi : uint8_t {
 //   NONE             -- a hook ran and there was genuinely no upscaler. A real
 //                       measurement, and the only one of the three that may be
 //                       aggregated as a negative.
+//
+// FlWriterState::runtimeCensus (below) REFINES NOT_REPORTED'S REASON and never
+// produces NONE: a module list can say "no known runtime was loaded", and that
+// is a weaker statement than "a hook ran and saw the alternative" -- FSR is
+// routinely linked statically, so its absence from the loader proves nothing.
 enum FlUpscaler : uint8_t {
     FL_UPSCALER_NOT_REPORTED = 0,
 
@@ -338,6 +343,73 @@ enum FlHookFamily : uint32_t {
     FL_HOOK_VRAM = 1u << 10,
 };
 
+// FlWriterState::runtimeCensus -- which vendor RUNTIME MODULES the loader reported
+// present in the process during the session. Bits in FlRuntimeCensus.
+//
+// TAKEN ON THE WATCHDOG THREAD, once a second, by asking the loader for each name
+// in FL_RUNTIME_CENSUS (fl_hook_inventory.h) -- GetModuleHandleExW with
+// UNCHANGED_REFCOUNT, no enumeration, no reference taken, nothing patched. OR-ed
+// into this word, so it is MONOTONIC like hooksInstalledMask. Zero cost on the
+// present path. CLAUDE.md rule 4: a module-name lookup against the loader is the
+// same class of question ResolveScoped already asks to install a hook; it reads no
+// game memory.
+//
+// IT IS NOT A HOOK AND IT IS NOT A MEASUREMENT, and every consumer must keep the
+// distinction. A set bit says a module of that name was loaded; a clear bit says
+// the loader did not have one of that name. Neither is evidence about what the
+// title DID -- Black Myth: Wukong loads sl.interposer.dll, runs DLSS-G, and calls
+// slEvaluateFeature exactly never -- and a clear bit cannot see a statically
+// linked FSR3 at all, whose frame-generation proxy still calls the real Present.
+//
+// SO THE CENSUS NEVER PRODUCES FL_FG_NONE OR FL_UPSCALER_NONE. Those mean "a hook
+// ran and saw the alternative", and a census-derived `none` on a statically
+// linked FSR3-FG title would print presents-as-native: the single inflated number
+// CLAUDE.md rule 6 exists to forbid. What it MAY do is refine the reason for an
+// N/A -- "no known frame-generation runtime was loaded, so this present count
+// cannot include in-process generated frames" versus "nvngx_dlssg.dll is loaded
+// and no evaluation was observed, so it MAY" -- which is the difference between a
+// 2D title and a DLSS-G title on the route this writer hooks, and both printed
+// the same line until 2026-09-03 (docs/03_METRICS.md §Frame Generation, rung 0).
+//
+// FL_CENSUS_RAN is bit 0 so that a writer that never took the census publishes 0
+// and decodes as "nobody looked", the layout-v3 rule. A family bit set with RAN
+// clear is a writer defect, and MeasuredFacts counts it as one.
+enum FlRuntimeCensus : uint32_t {
+    FL_CENSUS_RAN = 1u << 0,
+
+    // Frame-generation runtimes. One bit per family; two module names may share a
+    // bit when they are the same runtime under two names.
+    FL_CENSUS_SL_DLSS_G = 1u << 1,                  // sl.dlss_g.dll
+    FL_CENSUS_NVNGX_DLSSG = 1u << 2,                // nvngx_dlssg.dll
+    FL_CENSUS_LIBXESS_FG = 1u << 3,                 // libxess_fg.dll
+    FL_CENSUS_FFX_FRAMEINTERPOLATION = 1u << 4,     // ffx_frameinterpolation_x64.dll
+    FL_CENSUS_FFX_FSR3 = 1u << 5,                   // ffx_fsr3_x64.dll (the FSR3 facade that owns the FG swapchain)
+    FL_CENSUS_AMD_FFX_FRAMEGENERATION = 1u << 6,    // amd_fidelityfx_framegeneration_dx12.dll
+
+    // Upscaler runtimes.
+    FL_CENSUS_SL_INTERPOSER = 1u << 8,         // sl.interposer.dll
+    FL_CENSUS_SL_DLSS = 1u << 9,               // sl.dlss.dll
+    FL_CENSUS_SL_NIS = 1u << 10,               // sl.nis.dll
+    FL_CENSUS_NVNGX_CORE = 1u << 11,           // nvngx.dll or _nvngx.dll
+    FL_CENSUS_NVNGX_DLSS = 1u << 12,           // nvngx_dlss.dll
+    FL_CENSUS_NVNGX_DLSSD = 1u << 13,          // nvngx_dlssd.dll (Ray Reconstruction)
+    FL_CENSUS_LIBXESS = 1u << 14,              // libxess.dll or libxess_dx11.dll
+    FL_CENSUS_FFX_FSR2 = 1u << 15,             // ffx_fsr2_api_x64.dll or ffx_fsr2_api_dx12_x64.dll
+    FL_CENSUS_FFX_FSR3_UPSCALER = 1u << 16,    // ffx_fsr3upscaler_x64.dll
+    FL_CENSUS_AMD_FFX_UPSCALER = 1u << 17,     // amd_fidelityfx_upscaler_dx12.dll
+    FL_CENSUS_AMD_FFX_DX12 = 1u << 18,         // amd_fidelityfx_dx12.dll (the 3.1 facade; identity is in a struct, H11)
+};
+
+constexpr uint32_t FL_CENSUS_FG_FAMILIES = FL_CENSUS_SL_DLSS_G | FL_CENSUS_NVNGX_DLSSG | FL_CENSUS_LIBXESS_FG |
+                                           FL_CENSUS_FFX_FRAMEINTERPOLATION | FL_CENSUS_FFX_FSR3 |
+                                           FL_CENSUS_AMD_FFX_FRAMEGENERATION;
+constexpr uint32_t FL_CENSUS_UPSCALER_FAMILIES = FL_CENSUS_SL_INTERPOSER | FL_CENSUS_SL_DLSS | FL_CENSUS_SL_NIS |
+                                                 FL_CENSUS_NVNGX_CORE | FL_CENSUS_NVNGX_DLSS | FL_CENSUS_NVNGX_DLSSD |
+                                                 FL_CENSUS_LIBXESS | FL_CENSUS_FFX_FSR2 | FL_CENSUS_FFX_FSR3_UPSCALER |
+                                                 FL_CENSUS_AMD_FFX_UPSCALER | FL_CENSUS_AMD_FFX_DX12;
+static_assert((FL_CENSUS_FG_FAMILIES & FL_CENSUS_UPSCALER_FAMILIES) == 0u, "a runtime is one kind or the other");
+static_assert(((FL_CENSUS_FG_FAMILIES | FL_CENSUS_UPSCALER_FAMILIES) & FL_CENSUS_RAN) == 0u, "RAN is not a family");
+
 // bits in FlFrameRecord::measuredMask — which fields were MEASURED this frame.
 //
 // The zero-defaults elsewhere in the record are affirmative negatives:
@@ -535,7 +607,13 @@ struct alignas(64) FlWriterState {
     uint32_t rtStateObjectsCreated;    // @32  03_METRICS' rt_pso_count
     uint32_t rasterPsoCreated;         // @36  the denominator pt_confidence wanted
 
-    uint32_t reserved[6];    // @40..63  must be zero; room for additive fields
+    // FlRuntimeCensus bits. Published by the watchdog, OR-only. Took reserved[0]
+    // on 2026-09-03 -- additive, in the space reserved for exactly that, no layout
+    // bump: a writer from before it is refused by the build-id handshake (§S23-1)
+    // before any reader could see a 0 here.
+    uint32_t runtimeCensus;    // @40
+
+    uint32_t reserved[5];    // @44..63  must be zero; room for additive fields
 
     // NOTE: there is deliberately no droppedRecords here. The writer has no
     // reader index and cannot know whether the slot it overwrites was ever
@@ -714,7 +792,8 @@ static_assert(offsetof(FlWriterState, rtTier) == 24);
 static_assert(offsetof(FlWriterState, hooksInstalledMask) == 28);
 static_assert(offsetof(FlWriterState, rtStateObjectsCreated) == 32);
 static_assert(offsetof(FlWriterState, rasterPsoCreated) == 36);
-static_assert(offsetof(FlWriterState, reserved) == 40);
+static_assert(offsetof(FlWriterState, runtimeCensus) == 40);
+static_assert(offsetof(FlWriterState, reserved) == 44);
 
 static_assert(offsetof(FlControlBlock, pauseRequested) == 0);
 static_assert(offsetof(FlControlBlock, unhookRequested) == 4);

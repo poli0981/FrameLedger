@@ -62,7 +62,8 @@ int main() {
     Field("hooksInstalledMask", offsetof(FlWriterState, hooksInstalledMask), sizeof(uint32_t));
     Field("rtStateObjectsCreated", offsetof(FlWriterState, rtStateObjectsCreated), sizeof(uint32_t));
     Field("rasterPsoCreated", offsetof(FlWriterState, rasterPsoCreated), sizeof(uint32_t));
-    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 6, true);
+    Field("runtimeCensus", offsetof(FlWriterState, runtimeCensus), sizeof(uint32_t));
+    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 5, true);
     std::printf("    ] },\n");
 
     std::printf("    \"FlControlBlock\": { \"size\": %zu, \"fields\": [\n", sizeof(FlControlBlock));

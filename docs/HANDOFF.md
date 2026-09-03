@@ -678,8 +678,15 @@ belongs here is the **sequencing consequence**: the three user-facing sentences 
 nothing in `README`, `legal/EULA.md` or the consent disclosure is waiting on telemetry any
 more, and the `LibreHardwareMonitorLib` loose end below is closed by having a consumer.
 
-**The live head is now the FPS-display rule, decided by the owner on 2026-09-03 and
-recorded in no other file until its PR lands:** when frame generation is *not measured*
+~~**The live head is now the FPS-display rule, decided by the owner on 2026-09-03 and
+recorded in no other file until its PR lands:**~~ **LANDED the same day** — `03_METRICS`
+§Presented FPS and §Rung 0's qualifier, `fl_shm.h` §FlRuntimeCensus, `17_HOOK_ENGINE`
+§Watchdog observations, CLAUDE.md rule 6's amendment. Status is in `CHANGELOG.md`. **What is
+still open from it is the owner's:** the two real-title captures that would show the two
+qualifiers on real games (Cyberpunk 2077 → WARNING naming `nvngx_dlssg.dll`; any D3D11
+title with no upscaler → "cannot include"), one launch each. The fixtures prove both
+directions natively; the titles would prove the names. The decision text is kept below
+because the reasoning lives in no other file. When frame generation is *not measured*
 (`FL_MEASURED_FG` clear — every non-Streamline title today, and every Streamline title
 on the measured route), the headline is **Presented FPS** (`presents / D`, the name for the
 one number that stands alone; "Native" and "Displayed" appear only together), with a
@@ -782,6 +789,13 @@ deferred with a written rationale.
 The mechanical ones live in the toolchain notes; these are the ones that cost a *wrong
 diagnosis*.
 
+- **STREAMLINE LOADED + ZERO `slEvaluateFeature` CALLS DOES NOT MEAN "UPSCALING OFF".** Black
+  Myth: Wukong has `sl.interposer.dll` and `sl.dlss_g.dll` loaded, DLSS-G demonstrably running,
+  and never calls the one export this writer hooks. So a title with upscaling switched off in
+  its settings and a title driving DLSS through an unhooked path produce byte-identical
+  records — every one `UNKNOWN` — and the consumer may not turn that into `none` for either.
+  The 2026-09-03 census can say which vendor runtimes are *present*; it cannot say what the
+  title did with them, and it is written so it never claims to.
 - **A vendor keeps the SYMBOL NAME and changes the SIGNATURE, and no gate we have can see
   it.** The Witcher 3 ships `sl.interposer.dll` **1.5.6**: it exports `slInit`,
   `slEvaluateFeature`, `slSetTag` and `slShutdown`, so every name check passes, and it exports

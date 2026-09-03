@@ -154,6 +154,11 @@ CREATE TABLE sessions (
   fg_mode TEXT NOT NULL DEFAULT 'na',
   fg_source TEXT,                              -- api|cadence|manual (`etw` removed 2026-08-28: no producer, no tier)
   fg_factor REAL,
+  -- FlWriterState.runtimeCensus, raw (FlRuntimeCensus bits). Which vendor runtime modules
+  -- the loader reported in the process. NOT a measurement and never a source for fg_mode
+  -- or upscaler: it qualifies the presented figure when fg_mode is 'na' (03_METRICS §Rung
+  -- 0's qualifier). NULL = the writer predates the field; 0 = the census never ran.
+  fg_runtime_census INTEGER,
 
   -- ray tracing (measured at tier 1)
   rt_flag TEXT NOT NULL DEFAULT 'na', rt_source TEXT,   -- measured|manual|inherited

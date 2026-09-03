@@ -93,7 +93,8 @@ public sealed partial class MeasuredFactsTests
         string text = SessionReport.Render(
             MeasuredFacts.From(Stream(60, Stopwatch.Frequency / 60), _presentOnly, Stopwatch.Frequency, 0, 0));
 
-        text.Should().Contain("FG factor NOT measured");
+        text.Should().Contain("Presented FPS");
+        text.Should().Contain("frame generation: NOT measured", "a present-only writer with no census leaves the question open");
         FgFactorShape().IsMatch(text).Should().BeFalse("an ×N beside a single number reads as a measured factor");
         text.Should().NotContain("Native FPS", "showing it as N/A beside a real Displayed figure invites "
                                                + "reading Displayed as Native");
