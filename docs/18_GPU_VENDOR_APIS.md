@@ -15,10 +15,20 @@ L1 always works. L2 fills in what L1 cannot see. L3 adds NVIDIA-only depth. **No
 ```csharp
 public interface IGpuTelemetrySource : IDisposable
 {
+    TelemetryLayer Layer { get; }           // L1 / L2 / L3, for the composite descriptor
     GpuCapabilities Capabilities { get; }   // which fields are real on this machine
-    bool TryRead(out GpuSample sample);     // 1 Hz, called by the Agent
+    bool TryRead(out GpuSample? sample);    // 1 Hz, called by the Agent; false = nothing yet, or disabled
 }
 ```
+
+> **Written 2026-09-03 as `FrameLedger.Application.Telemetry`**, with two additions to what
+> this block used to show: `Layer`, so the composite can record which layer supplied a
+> value without reflecting on the type, and `GpuSample.AdapterName`, so a report on a
+> multi-adapter machine can say which one a sample describes. `Capabilities` is
+> **value-derived and monotonic**: a bit is set the first time its field carries a value
+> and is never cleared by a later null tick; a sensor that exists in the tree and never
+> reports sets nothing. That is the one direction a source must never get wrong — a
+> capability bit over a null field is a zero presented as a measurement.
 
 Implementations compose rather than compete:
 
@@ -27,7 +37,7 @@ Implementations compose rather than compete:
 - `NvapiTelemetrySource` (L3) — constructed only on NVIDIA hardware.
 - `CompositeTelemetrySource` merges them with a fixed precedence per field (**L3 > L2 > L1**) and records which layer supplied each value.
 
-`GpuSample`: `tempCoreC`, `tempHotspotC`, `tempMemoryC`, `loadPct`, `vramAdapterMB`, `coreClockMhz`, `memClockMhz`, `powerW`, `fanRpm`, `throttleReasons`, `pcieGen/Width`. Every field nullable — `Capabilities` says what to trust, and the UI shows `N/A` rather than zero.
+`GpuSample`: `takenAt`, `layer`, `adapterName`, `tempCoreC`, `tempHotspotC`, `tempMemoryC`, `loadPct`, `vramAdapterMB`, `coreClockMhz`, `memClockMhz`, `powerW`, `fanRpm`, `throttleReasons`, `pcieGen/Width`. Every field nullable — `Capabilities` says what to trust, and the UI shows `N/A` rather than zero.
 
 `sessions.telemetry_source` stores the **composite descriptor** (e.g. `l1+lhm+nvapi`), not a single name, so a user can see exactly why a field is missing.
 
@@ -72,7 +82,7 @@ L1 gives no temperatures on its own (unless the D3DKMT probe pans out). That is 
 - `Computer` opened with `IsGpuEnabled` always; `IsCpuEnabled` + `IsMemoryEnabled` only when the Agent is elevated and PawnIO is available.
 - Poll on a dedicated thread: `computer.Accept(updateVisitor)` then read mapped sensors. Never faster than 500 ms; default 1000 ms.
 - Sensor mapping by `SensorType` + name heuristics per vendor (`GPU Core`, `GPU Hot Spot`, `GPU Memory`, `GPU Package Power`, …), kept in `SensorMap.cs` with unit tests against captured sensor-tree fixtures.
-- **P0 verification items:** (a) which fields LHM actually returns per vendor on real hardware — fill the capability matrix below; (b) whether GPU-only usage works **without** elevation and without PawnIO (expected yes, since GPU sensors go through user-mode vendor paths, but confirm — it determines whether the default unelevated Agent has temperatures at all); (c) ~~confirm LHM's sources are not marked with MPL-2.0 Exhibit B~~ — **done, 2026-08-02: clear.** No source file applies the notice; the only repository hit is the `LICENSE` template itself, and every file we depend on carries the permissive Exhibit A. Method and evidence in `docs/spike-notes.md` §0. Re-check on every version bump, and check *source headers*, never the LICENSE file — MPL-2.0's own text contains Exhibit B as a template, so grepping the licence finds it in every MPL project ever published.
+- **P0 verification items:** (a) which fields LHM actually returns per vendor on real hardware — fill the capability matrix below — **NVIDIA filled 2026-09-03, AMD/Intel deferred (§R5/§R6)**; (b) ~~whether GPU-only usage works **without** elevation and without PawnIO (expected yes, since GPU sensors go through user-mode vendor paths, but confirm — it determines whether the default unelevated Agent has temperatures at all)~~ — **confirmed 2026-09-03, §M5 row R1**: eight fields unelevated, the same eight elevated, PawnIO never opened; (c) ~~confirm LHM's sources are not marked with MPL-2.0 Exhibit B~~ — **done, 2026-08-02: clear.** No source file applies the notice; the only repository hit is the `LICENSE` template itself, and every file we depend on carries the permissive Exhibit A. Method and evidence in `docs/spike-notes.md` §0. Re-check on every version bump, and check *source headers*, never the LICENSE file — MPL-2.0's own text contains Exhibit B as a template, so grepping the licence finds it in every MPL project ever published.
 
 CPU and motherboard sensors remain LHM-only, elevated-only, PawnIO-dependent, and optional.
 
@@ -175,16 +185,22 @@ iGPU. It must be written and can only be reasoned about.
 
 | Field | NVIDIA | AMD | Intel |
 |---|---|---|---|
-| GPU utilisation, Adapter VRAM, Driver version | ? | untested | untested |
-| Core temp, Hotspot / memory temp | ? | untested | untested |
-| Clocks, Power, Fan | ? | untested | untested |
+| GPU utilisation, Adapter VRAM | ✓ (`GPU Core` load; `GPU Memory Used`, MB) | untested | untested |
+| Driver version | `arch` — LHM publishes no such sensor; L1 owns it | `arch` | `arch` |
+| Core temp, memory temp | ✓ (`GPU Core`; `GPU Memory Junction`) | untested | untested |
+| Hotspot temp | **✗ on this box** — no `GPU Hot Spot` sensor at all (RTX 5080, 616.56, LHM 0.9.6); driver, generation or library unmeasured | untested | untested |
+| Clocks, Power, Fan | ✓ (`GPU Core` / `GPU Memory` MHz; `GPU Package` W; `GPU Fan 1..3` rpm) | untested | untested |
 | Per-process VRAM | `arch` | `arch` | `arch` |
 | Throttle reasons, Reflex / PC latency | `arch` | `arch` | `arch` |
 | CPU temp | ✓ elevated + PawnIO | ✓ elevated + PawnIO | ✓ elevated + PawnIO |
-| **GPU sensors unelevated, no PawnIO (§M5)** | ? | untested | untested |
+| **GPU sensors unelevated, no PawnIO (§M5)** | **✓ — row R1, 2026-09-03.** Unelevated and elevated return the identical eight fields; PawnIO never opened (GPU group only) | untested | untested |
 
 §M5 is the row that decides whether the **default, unelevated** Agent has temperatures at
-all, and it is answerable on this machine with only code as the prerequisite.
+all. **Measured 2026-09-03 — yes, on NVIDIA.** The instrument is
+`FrameLedger.CaptureHost probe-lhm`, the raw tree and the elevated control are in
+`spike-notes` §10, and the decision table it was read against was pre-committed in
+`20_OPEN_QUESTIONS` §M5 before the run. The NVIDIA column above is that one machine's
+answer; the `untested` cells are exactly as untested as before.
 
 ### L3 — NVAPI (NVIDIA only, `arch` elsewhere)
 
@@ -253,7 +269,9 @@ alone could never catch.
 > > legend that separates `?` (a to-do, measurable here) from `untested` (a deferral,
 > > not measurable here) from `arch` (not available by architecture, so neither).
 >
-> The NVIDIA half is **not** deferred and none of it exists in code yet — no PDH, no
-> DXGI telemetry, no LibreHardwareMonitor, no NVAPI. §M5 in particular (do LHM GPU
-> sensors work unelevated, without PawnIO?) decides whether the default unelevated
-> Agent has temperatures at all, and therefore how ADR-9 reads to users.
+> The NVIDIA half is **not** deferred and ~~none of it exists in code yet — no PDH, no
+> DXGI telemetry, no LibreHardwareMonitor, no NVAPI~~ — **L2 exists as of 2026-09-03**
+> (`LhmTelemetrySource`, `SensorMap`, the port in `FrameLedger.Application.Telemetry`);
+> L1 and L3 are still unwritten. §M5 in particular (do LHM GPU
+> sensors work unelevated, without PawnIO?) decided whether the default unelevated
+> Agent has temperatures at all — **it does, on NVIDIA; row R1 above.**

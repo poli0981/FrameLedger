@@ -16,6 +16,7 @@ using FrameLedger.Application.Rules;
 using FrameLedger.CaptureHost.Capture;
 using FrameLedger.CaptureHost.Consent;
 using FrameLedger.CaptureHost.Consume;
+using FrameLedger.CaptureHost.Telemetry;
 using FrameLedger.Domain.Consent;
 using FrameLedger.Infrastructure.AntiCheat;
 using FrameLedger.Infrastructure.Io;
@@ -67,6 +68,7 @@ internal static class Program
             Verb.ConsentGrant => await GrantAsync(store, cmd.ExePath!).ConfigureAwait(false),
             Verb.ConsentRevoke => await RevokeAsync(store, cmd.ExePath!).ConfigureAwait(false),
             Verb.Capture => await CaptureAsync(store, cmd.ExePath!, cmd.Seconds).ConfigureAwait(false),
+            Verb.ProbeLhm => LhmProbe.Run(cmd.Seconds == 0 ? LhmProbe.DefaultSeconds : cmd.Seconds),
             _ => _exitUsage,
         };
     }

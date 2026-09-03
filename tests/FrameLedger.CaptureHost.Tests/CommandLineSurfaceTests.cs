@@ -85,6 +85,18 @@ public sealed class CommandLineSurfaceTests
     }
 
     [Fact]
+    public void ProbeLhmNamesNoGameAndNeedsNoConsentRecord()
+    {
+        // §M5's instrument opens a sensor library in THIS process. There is nothing to inject
+        // into and nothing to consent to, so --exe is not required — and it is the only verb
+        // besides `consent list` for which that is true. The seconds bound is shared.
+        CommandLine.Parse(["probe-lhm"]).Should().BeEquivalentTo(new CommandLine { Verb = Verb.ProbeLhm });
+        CommandLine.Parse(["probe-lhm", "--seconds", "12"]).Seconds.Should().Be(12);
+        CommandLine.Parse(["probe-lhm", "--seconds", "0"]).Error.Should().NotBeNull();
+        CommandLine.Parse(["probe-lhm", "--pid", "1"]).Error.Should().NotBeNull();
+    }
+
+    [Fact]
     public void AnEmptyCommandLineIsAUsageError()
     {
         CommandLine.Parse([]).Error.Should().NotBeNull();

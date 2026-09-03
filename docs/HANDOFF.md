@@ -669,7 +669,31 @@ feature hooks — §S29(a) said it was and was wrong; see below. What it buys is
 > drop the switch as well. Anyone costing this as "fix the signer half" is costing
 > half of it.
 
-### §M5 — **START HERE**, and it stopped being a telemetry question on 2026-08-28
+### ~~§M5 — **START HERE**~~ — MEASURED 2026-09-03, row R1, and the head moves
+
+**Do not start here.** `LhmTelemetrySource` exists, `probe-lhm` ran unelevated and elevated,
+and both landed on row R1 of the table pre-committed in §M5: eight GPU fields with no
+elevation and no PawnIO. Status is in §M5, `spike-notes` §10 and `CHANGELOG.md`. What
+belongs here is the **sequencing consequence**: the three user-facing sentences stand, so
+nothing in `README`, `legal/EULA.md` or the consent disclosure is waiting on telemetry any
+more, and the `LibreHardwareMonitorLib` loose end below is closed by having a consumer.
+
+**The live head is now the FPS-display rule, decided by the owner on 2026-09-03 and
+recorded in no other file until its PR lands:** when frame generation is *not measured*
+(`FL_MEASURED_FG` clear — every non-Streamline title today, and every Streamline title
+on the measured route), the headline is **Presented FPS** (`presents / D`, the name for the
+one number that stands alone; "Native" and "Displayed" appear only together), with a
+mandatory qualifier chosen by a **runtime-module census** run on the Overlay's watchdog
+and published in `FlWriterState`. **The census never produces `FL_FG_NONE` or
+`FL_UPSCALER_NONE`** — statically linked FSR has no module to see, and a census-`none` on
+such a title would print the inflated number rule 6 forbids. It refines the *reason* for
+N/A and warns loudly when a frame-generation runtime is loaded and nothing was observed.
+The two cases that motivated it print identically today: a 2D title with no upscaler, and
+a Streamline title with upscaling switched off in its settings. **`SL loaded + zero calls ≠
+off`** (Black Myth: Wukong) is why the second may not become `none` either.
+
+<details>
+<summary>The entry as it stood while it was the live head, kept for the reasoning</summary>
 
 **Do GPU sensors work unelevated, without PawnIO?** It used to decide how ADR-9 read to
 users. It now decides whether a sentence **already in `README`, `legal/EULA.md` and the
@@ -707,10 +731,12 @@ Rest of P0 item 8 telemetry: `BaselineTelemetrySource` (L1), `NvapiTelemetrySour
 material is vendored and `fl_nvapi_probe` proves it works). ~~and the PresentMon binary for
 `spike-notes` §11~~ — that section is filled and PresentMon is gone.
 
-Also loose: `LibreHardwareMonitorLib` is referenced by `FrameLedger.Infrastructure`
+~~Also loose: `LibreHardwareMonitorLib` is referenced by `FrameLedger.Infrastructure`
 and used by **zero lines**, so it ships into the Agent's output — an MPL-2.0 §3.1
 redistribution obligation incurred for no capability. Either L2 gets written or the
-reference comes out.
+reference comes out.~~ — **L2 was written, 2026-09-03.** The obligation now buys eight fields.
+
+</details>
 
 ---
 

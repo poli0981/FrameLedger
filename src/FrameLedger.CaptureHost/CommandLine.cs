@@ -54,18 +54,11 @@ internal sealed record CommandLine
     {
         ArgumentNullException.ThrowIfNull(args);
 
-        Verb verb = args switch
-        {
-            ["consent", "list", ..] => Verb.ConsentList,
-            ["consent", "grant", ..] => Verb.ConsentGrant,
-            ["consent", "revoke", ..] => Verb.ConsentRevoke,
-            ["capture", ..] => Verb.Capture,
-            _ => Verb.None,
-        };
+        Verb verb = VerbOf(args);
 
         if (verb == Verb.None)
         {
-            return new CommandLine { Error = "usage: consent list | consent grant --exe <path> | consent revoke --exe <path> | capture --exe <path> [--seconds <n>]" };
+            return new CommandLine { Error = "usage: consent list | consent grant --exe <path> | consent revoke --exe <path> | capture --exe <path> [--seconds <n>] | probe-lhm [--seconds <n>]" };
         }
 
         string? exe = null;
@@ -105,11 +98,23 @@ internal sealed record CommandLine
             }
         }
 
-        if (verb != Verb.ConsentList && string.IsNullOrWhiteSpace(exe))
+        // probe-lhm touches no game: it opens a sensor library in THIS process and nothing
+        // else, so there is no executable to name and no consent record to look up.
+        if (verb is not (Verb.ConsentList or Verb.ProbeLhm) && string.IsNullOrWhiteSpace(exe))
         {
             return new CommandLine { Error = "--exe <path> is required" };
         }
 
         return new CommandLine { Verb = verb, ExePath = exe, Seconds = seconds };
     }
+
+    private static Verb VerbOf(string[] args) => args switch
+    {
+        ["consent", "list", ..] => Verb.ConsentList,
+        ["consent", "grant", ..] => Verb.ConsentGrant,
+        ["consent", "revoke", ..] => Verb.ConsentRevoke,
+        ["capture", ..] => Verb.Capture,
+        ["probe-lhm", ..] => Verb.ProbeLhm,
+        _ => Verb.None,
+    };
 }

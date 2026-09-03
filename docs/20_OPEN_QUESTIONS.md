@@ -3275,12 +3275,48 @@ instead, which needs no thread at all.
 |---|---|
 | M1 ✅ | ~~Can PresentMon 2.x `FrameType` see **driver-level** frame generation (AMD AFMF)?~~ | **Closed by DECISION 2026-08-27, not by measurement, and the distinction matters.** PresentMon is dropped, so this question has no subject. What was learned before it went: `FrameType` reports events a vendor chose to emit, and NVIDIA's DLSS-G emits none (§S31 row P2) — so the "capability inversion" this row hoped for was never demonstrated for any vendor. If a Tier-2 mechanism is ever chosen (§G), ask this of **that** tool rather than reviving this row |
 | M2 ✅ | ~~Does the pinned console binary still exist, run unelevated, and emit the 2.x column set?~~ | **Answered, then closed 2026-08-27.** It exists (2.5.1, 956,768 bytes, SHA256 `9BEC…A191`, **no VERSIONINFO at all**); it does **not** run unelevated (exit 6 — the account is in neither Administrators nor Performance Log Users, and the running `PresentMonSharedService` does not help because the console starts its own session); and the 2.x column set **is measured** — 24 columns, `spike-notes` §11. The parser ate three real CSVs and resolved `FrameType` correctly against a first column literally named `Application`. Closed because the binary is dropped, and kept in full because every one of those facts cost a measurement |
-| M5 ❗ | **Do LHM GPU sensors work unelevated, without PawnIO?** This decides whether the default unelevated Agent has temperatures at all, and therefore how ADR-9 reads to users. **SEVERITY PROMOTED 2026-08-28, and the promotion is the point.** It used to decide how a design note read. It now decides whether a **user-facing claim is true**: the two-rung ladder says a Tier-2 session records duration and hardware telemetry, and that sentence is heading for `README`, the consent dialog and `legal/EULA.md`. If LHM needs elevation for GPU sensors, then the DEFAULT Agent's Tier-2 session is **duration only** and every one of those documents is wrong. Until it is measured, all three are worded *"whatever hardware telemetry this machine can provide"* — honest under either outcome, at the cost of vagueness. `18_GPU_VENDOR_APIS` §P0(b) already specifies the test and the dev box can run it |
+| M5 ✅ | **Do LHM GPU sensors work unelevated, without PawnIO?** **YES — measured 2026-09-03, row R1 of the pre-committed table below**, NVIDIA RTX 5080 / 616.56 / LHM 0.9.6: eight fields unelevated (core and memory temperature, load, VRAM used, core and memory clock, package power, fan), the identical eight in the elevated control, PawnIO never opened. The three user-facing sentences stand. Numbers in `spike-notes` §10. *(The row as it stood while open follows, unchanged.)* This decides whether the default unelevated Agent has temperatures at all, and therefore how ADR-9 reads to users. **SEVERITY PROMOTED 2026-08-28, and the promotion is the point.** It used to decide how a design note read. It now decides whether a **user-facing claim is true**: the two-rung ladder says a Tier-2 session records duration and hardware telemetry, and that sentence is heading for `README`, the consent dialog and `legal/EULA.md`. If LHM needs elevation for GPU sensors, then the DEFAULT Agent's Tier-2 session is **duration only** and every one of those documents is wrong. Until it is measured, all three are worded *"whatever hardware telemetry this machine can provide"* — honest under either outcome, at the cost of vagueness. `18_GPU_VENDOR_APIS` §P0(b) already specifies the test and the dev box can run it |
 | M6 ✅ | ~~Elevation-free Tier 2~~ | **Closed by decision 2026-08-27.** Half was answered on 2026-08-20 in the direction nobody expected: `PresentMonSharedService` is installed and `Running` as LocalSystem and the console **still** fails, because it starts its own trace session. The other half — whether `Performance Log Users` suffices without admin — stays unmeasured and now has no subject. **The elevation question does not disappear with the tool**: ETW trace sessions are restricted by Windows, not by PresentMon, so whatever §G chooses inherits it. Re-ask it there |
 | M7 | `18_GPU_VENDOR_APIS` §Runtime policy says telemetry is never read from the game process, but `17_HOOK_ENGINE` reads per-process VRAM and Reflex latency there. Reconcile the wording — the rule means "no vendor SDK polling loops in the game", not "no measurement in the game" |
 | M8 | The `GpuSample` type has no latency field, yet L3 is credited with Reflex/PC latency. Latency is per-frame and arrives via the ring, not the 1 Hz sample. Fix the layering description |
 | M9 ✅ | **Closed 2026-08-02 by a decision.** The old file/module detection does not exist in this repository and the owner confirmed there is no copy elsewhere, so **"build a minimal static-hint detector as the measurement baseline" is now P0 item 3** (`15_ROADMAP`). It needs no guard and no injection. Until it exists, ADR-7's headline claim stays out of the README rather than being asserted unmeasured |
 | M10 | PDH `\GPU Engine(*)\Utilization Percentage` summed across engines does not reproduce the Task Manager figure the doc invokes. Decide what we actually report and label it accordingly |
+
+#### §M5 — the decision table, pre-committed 2026-09-03 BEFORE the first run
+
+The §S30 / §S31 discipline: write down what each outcome means before the instrument
+produces one, so the result cannot be read into the conclusion that is most convenient.
+The instrument is `FrameLedger.CaptureHost probe-lhm`, run **unelevated first**, then once
+elevated as a control — the control exists to separate *"needs elevation"* from *"this
+driver / this LHM version has no such sensor on an RTX 5080"*, which read identically from
+the unelevated run alone. The five fields the row is decided on are the ones `README`'s
+Tier-2 sentence would name if it named any: **core temperature, load, power, adapter VRAM
+used, core clock.**
+
+| Row | Unelevated, no PawnIO, `Computer { IsGpuEnabled }` only | Consequence |
+|---|---|---|
+| **R1** | All five fields non-null | The three documents stand and may name the fields instead of saying *"whatever"*. `18_GPU_VENDOR_APIS` L2 row → ✓. §M5 ✅ |
+| **R2** | A non-empty subset non-null | The three documents name exactly that subset. If the consent sentence changes, `OperatorDisclosure.Version` /2 → /3. §M5 ✅ with the subset recorded |
+| **R3** | LHM enumerates a GPU and every sensor reads null | The default unelevated Agent's Tier-2 session is **duration + reason only**. `README:67`, `legal/EULA.md:15` and `OperatorDisclosure.cs` narrow accordingly, /3. §M5 🔴 until those edits land in the same PR |
+| **R4** | `Open()` / `Accept()` throws, or a poll never returns | As R3, and the *"throws or hangs twice ⇒ disabled for the session"* rule (`18_GPU_VENDOR_APIS` §Runtime policy) is exercised by a real fault rather than a fixture. Record separately whether the failure names PawnIO, because that would mean the GPU path is not user-mode after all |
+
+Two things this table does NOT decide, stated so the run is not read as deciding them:
+which of the fields AMD or Intel expose (§R5/§R6, untestable here), and whether the CPU
+and board sensors need PawnIO (they do, by LHM's own design — `--cpu` is deliberately not
+an option of the probe, so the run cannot accidentally measure that instead).
+
+**RESULT, 2026-09-03 — R1, both runs.** Unelevated: all five deciding fields plus memory
+temperature, memory clock and fan; through the port, `Capabilities` reads the same eight
+and `faults=0`. Elevated control, launched through UAC: the same eight fields, the same
+verdict, values within idle drift. Hotspot temperature is the one field this vendor did
+**not** expose — there is no `GPU Hot Spot` sensor in the tree at all, which is a property
+of this driver / GPU / library combination and not of elevation. One defect the raw tree
+caught before the verdict: the first draft of `SensorMap` mapped `D3D Shared Memory Used`
+(system RAM) to adapter VRAM by a fragment rule; fixed and pinned by a test in the same
+PR, which is what printing the raw tree ahead of the interpretation is for.
+Consequences taken: the three sentences stand (`README`'s row may now name the fields and
+does), `OperatorDisclosure.Version` stays /2, `18_GPU_VENDOR_APIS` L2 NVIDIA column filled,
+AMD / Intel untouched.
 
 ---
 

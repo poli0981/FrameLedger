@@ -64,7 +64,7 @@ FrameLedger is built to keep that risk small and to be honest about it:
 | Tier | How | What you get |
 |---|---|---|
 | **1** | Injected hooks (opt-in, per game) | Everything above |
-| **2** | None — nothing is injected | **Session duration, whatever hardware telemetry your machine can provide, and why there is nothing else** (which check refused, or that the hook failed, was not enabled, or the game is 32-bit). Everything else reads `N/A` |
+| **2** | None — nothing is injected | **Session duration, whatever hardware telemetry your machine can provide, and why there is nothing else** (which check refused, or that the hook failed, was not enabled, or the game is 32-bit). On NVIDIA that telemetry is measured to be GPU temperature, load, power, clocks, VRAM in use and fan speed, with no elevation; AMD and Intel are untested. Everything else reads `N/A` |
 
 The tier is recorded on every session and shown in the UI. Metrics unavailable at a session's tier read `N/A` — FrameLedger never substitutes an estimate for a measurement.
 
