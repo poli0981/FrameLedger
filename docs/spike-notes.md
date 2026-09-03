@@ -1640,12 +1640,13 @@ one launch per capture, consent granted after launch. Exit codes and full report
 
 **What it opens.**
 
-- **Multi-process titles refuse as `TargetAmbiguous`.** NW.js / Electron / Chromium-based
+- **Multi-process titles refused as `TargetAmbiguous`** — NW.js / Electron / Chromium-based
   games (RPG Maker MV/MZ, many VNs) run several `Game.exe` processes with one image path —
-  browser, renderer, GPU. The resolver refuses rather than guess, which is §S27's rule
-  working; but the presenting process is the GPU process, which has no window of its own,
-  so "the one with the top-level window" would be the wrong pick too. Scope row added in
-  `20_OPEN_QUESTIONS`; there is no `--pid` and there will not be one.
+  browser, renderer, GPU — and the presenting one is the GPU process, which has no window of
+  its own. **Resolved the same day by Chromium's `--type=gpu-process` flag** read through a
+  kernel query (`20_OPEN_QUESTIONS` §Scope). What the next *Flower in Us* run measures is
+  whether the Overlay loads inside Chromium's GPU process at all: NW.js runs without the
+  Chromium sandbox by default, so the expectation is yes, and the expectation is not a result.
 - **Hell Is Us at FSR reported 60 FPS presented with the operator's Steam counter not
   counting**, identical to its off run. Whether FSR frame generation was engaged at all in
   that run is unknown; the census cannot say and the report does not claim to.
