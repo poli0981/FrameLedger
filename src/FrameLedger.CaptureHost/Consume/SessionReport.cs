@@ -145,7 +145,7 @@ internal static class SessionReport
             ?? (facts.UpscalerHookRan
                 ? "N/A (Streamline is loaded and slEvaluateFeature never carried an identifiable feature: "
                   + "upscaling is off in this title's settings, or it runs through a path this build does not "
-                  + "hook — measured on 2 of 4 titles — or a vendor this build does not decode)"
+                  + "hook — measured on 3 of 5 titles — or a vendor this build does not decode)"
                 : NoHookRan("upscaler", facts.CensusRan, facts.UpscalerRuntimesLoaded)));
         sb.Append("  render -> output: ").AppendLine(facts.UpscaleRatio is null
             ? "N/A (the ratio is not computed yet; the raw sizes are above)"

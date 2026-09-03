@@ -188,6 +188,8 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 > never calls it. So a title with upscaling switched off in its settings and a title driving
 > DLSS through an unhooked path are indistinguishable to this writer, and the upscaler line
 > now says so — three causes, named, rather than "our coverage is short".
+> **Three of five titles now** (2026-09-03): Hell Is Us with DLSS on and frame generation ×4
+> drained zero batches — `spike-notes` §9.
 
 ### Counting native vs displayed frames at Tier 1
 

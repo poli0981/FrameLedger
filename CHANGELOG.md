@@ -58,8 +58,10 @@ GitHub release body, so a missing section will mean an empty release note.
   frames — is in the FG group, so its presence warns rather than reassures;
   `CensusReportTests` drives all three report shapes, the Witcher-3 shape (runtime loaded, no
   hook) and the inconsistent-writer shape. **Hook-path overhead: none** — the census runs only on
-  the watchdog. The two real-title captures that would show the qualifiers on real games are
-  the owner's (one launch each).
+  the watchdog. **Run the same day on six titles** (`spike-notes` §9): both qualifiers seen on real
+  games with the loader's own names; the census is a startup property on UE5 (identical word at
+  off / FSR / DLSS + FG ×4); Hell Is Us is the third title where DLSS is on and `slEvaluateFeature`
+  sees nothing; a Chromium-based title refuses as `TargetAmbiguous`, now a scope row.
 
 - **The first telemetry source, and the measurement it exists for: §M5 is answered — GPU
   sensors work unelevated, without PawnIO, on NVIDIA.** `FrameLedger.Application.Telemetry`
