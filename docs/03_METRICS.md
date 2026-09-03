@@ -169,6 +169,10 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 > and, for the upscaler, the difference between *no hook ran and no runtime was loaded*
 > and *a runtime is loaded and no hook installed* (the Streamline 1.5.6 case).
 >
+> A module that MAY generate frames counts as a frame-generation runtime: `amd_fidelityfx_dx12.dll`,
+> the FSR 3.1 facade, dispatches both upscaling and frame generation behind one export set (H11), and
+> Lies of P ships it alone while generating frames — so it warns rather than reassures.
+>
 > **What it may NOT say, and this is the whole design: the census never produces `none`.**
 > `FL_FG_NONE` and `FL_UPSCALER_NONE` mean "a hook ran and saw the alternative" — the only
 > negative this document lets a consumer aggregate. A census-derived `none` has two holes,

@@ -284,12 +284,18 @@ public enum FlRuntimeCensus : uint
 /// <summary>The two groups of <see cref="FlRuntimeCensus"/>, mirroring <c>FL_CENSUS_FG_FAMILIES</c> and <c>FL_CENSUS_UPSCALER_FAMILIES</c>.</summary>
 public static class FlRuntimeCensusFamilies
 {
+    /// <summary>
+    /// Includes <see cref="FlRuntimeCensus.AmdFfxDx12"/>: the FidelityFX 3.1 facade dispatches upscaling AND frame
+    /// generation, and Lies of P ships it alone while generating frames. A module that MAY generate frames is
+    /// grouped with the ones that do, so its presence warns rather than reassures.
+    /// </summary>
     public const FlRuntimeCensus Fg = FlRuntimeCensus.SlDlssG | FlRuntimeCensus.NvngxDlssG | FlRuntimeCensus.LibXessFg
-        | FlRuntimeCensus.FfxFrameInterpolation | FlRuntimeCensus.FfxFsr3 | FlRuntimeCensus.AmdFfxFrameGeneration;
+        | FlRuntimeCensus.FfxFrameInterpolation | FlRuntimeCensus.FfxFsr3 | FlRuntimeCensus.AmdFfxFrameGeneration
+        | FlRuntimeCensus.AmdFfxDx12;
 
     public const FlRuntimeCensus Upscaler = FlRuntimeCensus.SlInterposer | FlRuntimeCensus.SlDlss | FlRuntimeCensus.SlNis
         | FlRuntimeCensus.NvngxCore | FlRuntimeCensus.NvngxDlss | FlRuntimeCensus.NvngxDlssD | FlRuntimeCensus.LibXess
-        | FlRuntimeCensus.FfxFsr2 | FlRuntimeCensus.FfxFsr3Upscaler | FlRuntimeCensus.AmdFfxUpscaler | FlRuntimeCensus.AmdFfxDx12;
+        | FlRuntimeCensus.FfxFsr2 | FlRuntimeCensus.FfxFsr3Upscaler | FlRuntimeCensus.AmdFfxUpscaler;
 }
 
 /// <summary>Bits in <see cref="FlFrameRecord.RtFlags"/>.</summary>

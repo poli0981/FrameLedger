@@ -201,6 +201,12 @@ internal static class Program
         int withParams = dominant.Count(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.UpscalerParams));
         HostConsole.Line($"  hooks installed: {(FlHookFamily)result.WriterState.HooksInstalledMask}" +
                           $"   apiMask=0x{result.WriterState.ApiMask:X}   rtTier={result.WriterState.RtTier}");
+        // The census, raw and named, beside the hooks: a real-title run has to be able to say
+        // which module names the loader answered for, not just which qualifier was chosen.
+        var census = (FlRuntimeCensus)result.WriterState.RuntimeCensus;
+        HostConsole.Line($"  runtime census: 0x{result.WriterState.RuntimeCensus:X}  ran={census.HasFlag(FlRuntimeCensus.Ran)}  " +
+                          $"fg=[{CensusNames.Describe(census & FlRuntimeCensusFamilies.Fg)}]  " +
+                          $"upscaler=[{CensusNames.Describe(census & FlRuntimeCensusFamilies.Upscaler)}]");
 
         HostConsole.Line(WriterNote(result));
         HostConsole.Line($"  records carrying Upscaler={withUpscaler}/{dominant.Count}  " +

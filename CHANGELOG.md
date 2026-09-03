@@ -54,6 +54,8 @@ GitHub release body, so a missing section will mean an empty release note.
 
   Fixtures: `fl_guard`'s present-only case asserts `runtimeCensus == FL_CENSUS_RAN` by equality,
   the Streamline-stub case asserts the interposer bit set and every FG bit clear;
+  `amd_fidelityfx_dx12.dll` — the FSR 3.1 facade, which Lies of P ships ALONE while generating
+  frames — is in the FG group, so its presence warns rather than reassures;
   `CensusReportTests` drives all three report shapes, the Witcher-3 shape (runtime loaded, no
   hook) and the inconsistent-writer shape. **Hook-path overhead: none** — the census runs only on
   the watchdog. The two real-title captures that would show the qualifiers on real games are

@@ -397,16 +397,23 @@ enum FlRuntimeCensus : uint32_t {
     FL_CENSUS_FFX_FSR2 = 1u << 15,             // ffx_fsr2_api_x64.dll or ffx_fsr2_api_dx12_x64.dll
     FL_CENSUS_FFX_FSR3_UPSCALER = 1u << 16,    // ffx_fsr3upscaler_x64.dll
     FL_CENSUS_AMD_FFX_UPSCALER = 1u << 17,     // amd_fidelityfx_upscaler_dx12.dll
-    FL_CENSUS_AMD_FFX_DX12 = 1u << 18,         // amd_fidelityfx_dx12.dll (the 3.1 facade; identity is in a struct, H11)
+    // amd_fidelityfx_dx12.dll -- the FidelityFX 3.1 API facade. IN THE FRAME-GENERATION
+    // GROUP, NOT THE UPSCALER GROUP, and it was the other way round for one commit:
+    // the facade dispatches upscaling AND frame generation (H11: identity is a struct
+    // field, not a symbol), and Lies of P ships this module ALONE while running AMD
+    // frame generation. In the upscaler group its presence would have printed "cannot
+    // include in-process generated frames" on that title -- the exact wrong direction.
+    // A module that MAY generate frames belongs with the ones that do.
+    FL_CENSUS_AMD_FFX_DX12 = 1u << 18,
 };
 
 constexpr uint32_t FL_CENSUS_FG_FAMILIES = FL_CENSUS_SL_DLSS_G | FL_CENSUS_NVNGX_DLSSG | FL_CENSUS_LIBXESS_FG |
                                            FL_CENSUS_FFX_FRAMEINTERPOLATION | FL_CENSUS_FFX_FSR3 |
-                                           FL_CENSUS_AMD_FFX_FRAMEGENERATION;
+                                           FL_CENSUS_AMD_FFX_FRAMEGENERATION | FL_CENSUS_AMD_FFX_DX12;
 constexpr uint32_t FL_CENSUS_UPSCALER_FAMILIES = FL_CENSUS_SL_INTERPOSER | FL_CENSUS_SL_DLSS | FL_CENSUS_SL_NIS |
                                                  FL_CENSUS_NVNGX_CORE | FL_CENSUS_NVNGX_DLSS | FL_CENSUS_NVNGX_DLSSD |
                                                  FL_CENSUS_LIBXESS | FL_CENSUS_FFX_FSR2 | FL_CENSUS_FFX_FSR3_UPSCALER |
-                                                 FL_CENSUS_AMD_FFX_UPSCALER | FL_CENSUS_AMD_FFX_DX12;
+                                                 FL_CENSUS_AMD_FFX_UPSCALER;
 static_assert((FL_CENSUS_FG_FAMILIES & FL_CENSUS_UPSCALER_FAMILIES) == 0u, "a runtime is one kind or the other");
 static_assert(((FL_CENSUS_FG_FAMILIES | FL_CENSUS_UPSCALER_FAMILIES) & FL_CENSUS_RAN) == 0u, "RAN is not a family");
 
