@@ -321,13 +321,39 @@ internal sealed record FgWindow
 
         if (w.Evaluations == 0)
         {
-            return "no frame-generation evaluation was counted in the window — a data gap, "
+            return "no application-frame token was counted in the window (slGetNewFrameToken) — a data gap, "
                    + "and treating it as 'no frame generation' is how fg_factor becomes 1.0";
         }
 
-        return NonUniform(w.BucketFactors, w.Presents / (double)w.Evaluations, w.Presents,
-                          "the frame-generation state");
+        string? nonUniform = NonUniform(w.BucketFactors, w.Presents / (double)w.Evaluations, w.Presents,
+                                        "the frame-generation state");
+        if (nonUniform is not null)
+        {
+            return nonUniform;
+        }
+
+        // A RATIO NEAR 1 IS NOT PUBLISHABLE YET, and the reason is the one premise this
+        // producer carries. presents / tokens reads 1.0 either because the title generated
+        // no frames OR because the DLSS-G plugin requested a token for every frame it
+        // generated — and from inside the process those are the same number. A ratio at or
+        // above the cadence threshold cannot be produced by the second explanation, so it is
+        // publishable now; the first has to wait for the owner's off / ×2 / ×4 run to land on
+        // row P1 of the table in 20_OPEN_QUESTIONS §S31. Until then this line is what keeps
+        // "300 → 300 (×1.0 FG)" — the forbidden number with a confident label — off the report.
+        double factor = w.Presents / (double)w.Evaluations;
+        return factor < PublishableFactor
+            ? $"presents/tokens = {factor.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)} reads as "
+              + "no frame generation, and that reading is NOT publishable until the slGetNewFrameToken premise is "
+              + "validated against a title's own ×2 / ×4 (20_OPEN_QUESTIONS §S31, row P1) — a plugin that requested "
+              + "a token for every generated frame would read the same"
+            : null;
     }
+
+    /// <summary>
+    /// The smallest factor this consumer publishes: <c>03_METRICS</c>' cadence threshold. Below it
+    /// the ratio is consistent with the one premise the token producer has not yet had tested.
+    /// </summary>
+    public const double PublishableFactor = 1.5;
 
     /// <summary>The first reason <see cref="PresentsPerBatch"/> may not be read, or null.</summary>
     /// <remarks>

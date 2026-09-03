@@ -85,8 +85,18 @@ namespace fl::inventory {
 // catching an RT over-claim, with every gate in the tree green. A compile error is
 // the right verdict for a family the detour does not honour, and this is the only
 // check in the chain that can produce one.
-inline constexpr uint32_t kFamilyEvaluateFeature =
-    static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY) | static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS);
+// IDENTITY ONLY, since 2026-09-03. Until then the constant was
+// `IDENTITY | FG_EVALUATIONS`, because the same detour counted
+// slEvaluateFeature(kFeatureDLSS_G) as the application-frame count -- and five
+// real titles measured that count at zero (Cyberpunk, Wukong, Rune Factory, Alan
+// Wake 2, Hell Is Us): DLSS-G is not driven through the evaluate entry point on
+// Streamline 2.x. The application-frame count moved to its own row,
+// slGetNewFrameToken, which every Streamline 2 title calls once per frame BY
+// CONTRACT (sl_core_api.h: "obtain unique instance" per frame) -- including the
+// ones that never evaluate anything through this export. The family bit moved with
+// the count, so EntitledBy still binds FL_MEASURED_FG_COUNTS to the detour that
+// actually produces it.
+inline constexpr uint32_t kFamilyEvaluateFeature = static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY);
 
 // EVERY FAMILY THIS DETOUR DOES NOT IMPLEMENT, NAMED. The obvious assertion --
 // `kFamilyEvaluateFeature == (IDENTITY | FG_EVALUATIONS)` -- is a TAUTOLOGY against
@@ -101,10 +111,10 @@ inline constexpr uint32_t kFamilyEvaluateFeature =
 // tolerating -- a family nobody has wired cannot be wrongly claimed by this row.
 inline constexpr uint32_t kFamiliesEvaluateFeatureDoesNotImplement =
     static_cast<uint32_t>(fl::FL_HOOK_PRESENT) | static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS) |
-    static_cast<uint32_t>(fl::FL_HOOK_RT_DISPATCH) | static_cast<uint32_t>(fl::FL_HOOK_RT_AS_BUILD) |
-    static_cast<uint32_t>(fl::FL_HOOK_RT_PSO) | static_cast<uint32_t>(fl::FL_HOOK_PSO) |
-    static_cast<uint32_t>(fl::FL_HOOK_COLOR_SPACE) | static_cast<uint32_t>(fl::FL_HOOK_REFLEX) |
-    static_cast<uint32_t>(fl::FL_HOOK_VRAM);
+    static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS) | static_cast<uint32_t>(fl::FL_HOOK_RT_DISPATCH) |
+    static_cast<uint32_t>(fl::FL_HOOK_RT_AS_BUILD) | static_cast<uint32_t>(fl::FL_HOOK_RT_PSO) |
+    static_cast<uint32_t>(fl::FL_HOOK_PSO) | static_cast<uint32_t>(fl::FL_HOOK_COLOR_SPACE) |
+    static_cast<uint32_t>(fl::FL_HOOK_REFLEX) | static_cast<uint32_t>(fl::FL_HOOK_VRAM);
 
 static_assert((kFamilyEvaluateFeature & kFamiliesEvaluateFeatureDoesNotImplement) == 0u,
               "the slEvaluateFeature row claims a family its detour does not implement -- hookinventory-check "
@@ -112,13 +122,24 @@ static_assert((kFamilyEvaluateFeature & kFamiliesEvaluateFeatureDoesNotImplement
               "verdict available");
 static_assert((kFamilyEvaluateFeature & static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY)) != 0u,
               "the detour decodes sl::Feature, so it must claim upscaler identity");
-static_assert((kFamilyEvaluateFeature & static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS)) != 0u,
-              "the detour counts kFeatureDLSS_G evaluations, so it must claim FG evaluations -- without this "
-              "bit EntitledBy refuses FL_MEASURED_FG_COUNTS and every record over-claims");
+static_assert((kFamilyEvaluateFeature & static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS)) == 0u,
+              "the evaluate detour no longer produces the application-frame count -- slGetNewFrameToken does -- "
+              "so claiming FG_EVALUATIONS here would entitle FL_MEASURED_FG_COUNTS to a detour that writes "
+              "nothing into fgEvaluations");
 
+// slGetNewFrameToken IS THE APPLICATION-FRAME PRODUCER (2026-09-03, HANDOFF item 3's
+// decision). Streamline hands a title one frame token per frame, and the title
+// must ask for it; the detour counts DISTINCT tokens between two presents, so a
+// title that re-requests the same frame's token (explicit frameIndex) counts once.
+// Presents / tokens is fg_factor -- with no premise about Ray Reconstruction
+// batches, and on titles that never call slEvaluateFeature at all. The premise it
+// DOES carry -- that the DLSS-G plugin does not request tokens for the frames it
+// generates -- is what 20_OPEN_QUESTIONS §S31's pre-committed table exists to test
+// against a title's own x2 / x4 before a ratio near 1 may be read as "none".
 #define FL_HOOK_INVENTORY(X)                                                                                           \
     X(L"sl.interposer.dll", "slEvaluateFeature", fl::inventory::kFamilyEvaluateFeature)                                \
-    X(L"sl.interposer.dll", "slSetTag", fl::FL_HOOK_UPSCALER_PARAMS)
+    X(L"sl.interposer.dll", "slSetTag", fl::FL_HOOK_UPSCALER_PARAMS)                                                   \
+    X(L"sl.interposer.dll", "slGetNewFrameToken", fl::FL_HOOK_FG_EVALUATIONS)
 
 // Does this module speak the Streamline 2 ABI the vendored headers describe?
 //

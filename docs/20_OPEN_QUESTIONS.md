@@ -800,6 +800,27 @@ a wrong answer into a confident wrong answer.
 
 ### S31 ◐ · Is a drained Streamline batch an application frame? — the ORACLE is retired, the QUESTION is not
 
+> ### THE QUESTION IS SIDESTEPPED, NOT ANSWERED — 2026-09-03, the producer route is chosen
+>
+> Nothing divides by batches any more. HANDOFF item 3's producer is **`slGetNewFrameToken`**:
+> Streamline hands a title one frame token per application frame by contract, the Overlay
+> counts distinct tokens between presents, and `fg_factor = presents / tokens`. The choice was
+> taken **with no oracle behind it**, as the entry required the next PR to say — so this table
+> was written before the run, and the run is the owner's: **Cyberpunk 2077 at off / ×2 / ×4
+> and Hell Is Us at DLSS + FG ×4, one launch each**, reading `presents/tokens` off the
+> `FG counts:` line.
+>
+> | Row | Reads | Consequence |
+> |---|---|---|
+> | **P1** | ≈ 1.00 / 2.00 / 4.00 on Cyberpunk, ≈ 4.0 on Hell Is Us | Producer accepted. Rung 4's `none` becomes reachable at ratio ≈ 1 in the following PR; §S31 → ✅ by construction, `14_TESTING`'s cross-validation gate regains an inside-the-project oracle for the FG factor |
+> | **P2** | tokens = 0 on a title with frame generation demonstrably on | That title does not call the export from where we can see it. Route dead **there**; N/A stays; record which title |
+> | **P3** | ≈ 1 at ×2 and ×4 | The DLSS-G plugin requests a token for every frame it generates. Route dead everywhere; the detour comes out; back to the candidate list |
+> | **P4** | The off leg reads ≠ 1 (e.g. 0.5), or the ratios are non-integer and stable | The dedupe premise is wrong (several distinct tokens per frame, or one per several). Refine by `frameIndex` before anything is published; nothing above the cadence threshold is trusted until the off leg reads 1 |
+>
+> **Until a row lands, the consumer publishes a factor only at ≥ 1.5** (`FgWindow.PublishableFactor`),
+> because P3 is the one outcome a ratio near 1 cannot be told apart from, and P3 is exactly
+> the shape that would print `300 → 300 (×1.0 FG)` on Hell Is Us.
+
 > ### 🔴 RUN 2026-08-27 — ROW **P2**. PresentMon is RETIRED as the application-frame oracle.
 >
 > Three legs, three game launches, Cyberpunk 2077, frame generation off / ×2 / ×4.

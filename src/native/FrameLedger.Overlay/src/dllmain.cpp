@@ -705,6 +705,25 @@ std::atomic<uint32_t> g_upscalerParamsLive{0};
 using PFN_SlSetTag = ::PFun_slSetTag*;
 PFN_SlSetTag g_origSlSetTag = nullptr;
 
+// The application-frame count (HANDOFF item 3, decided 2026-09-03). Streamline
+// hands a title one FrameToken per frame through slGetNewFrameToken, and a title
+// has to ask for it -- so the number of DISTINCT tokens handed out between two
+// presents is the number of application frames those presents carried. The
+// detour counts pointer changes: SL returns the same object for the same frame
+// when a title re-requests it with an explicit index, and a different one when
+// the frame advances. Nothing is dereferenced -- FrameToken is an abstract vendor
+// object and reading its index would be a virtual call into vendor code from a
+// hook path.
+//
+// DRAINED WITH exchange(0) IN RecordPresent, beside g_slSeen's, and for the same
+// reason: a count that is read without being cleared latches, and this one is
+// the DENOMINATOR of fg_factor.
+using PFN_SlGetNewFrameToken = ::PFun_slGetNewFrameToken*;
+PFN_SlGetNewFrameToken g_origSlGetNewFrameToken = nullptr;
+std::atomic<uint32_t>  g_frameTokensLive{0};
+std::atomic<uint32_t>  g_frameTokens{0};
+std::atomic<uintptr_t> g_lastFrameToken{0};
+
 // The render-resolution sample, packed into one word.
 //
 //   bits  0-15  renderW      bits 16-31  renderH      bit 32  a real sample
@@ -864,6 +883,23 @@ sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const s
     // ALWAYS exactly once, on every path including the fault path, with every
     // argument forwarded untouched.
     return g_origSlEvaluateFeature(feature, frame, inputs, numInputs, cmdBuffer);
+}
+
+// ORIGINAL FIRST, then observe, and the order is forced by the signature: the
+// token is an OUT parameter, so there is nothing to count until the vendor has
+// returned it. Every argument is forwarded untouched and the result is returned
+// unchanged on every path, including the fault path.
+sl::Result STDMETHODCALLTYPE Hook_SlGetNewFrameToken(sl::FrameToken*& token, const uint32_t* frameIndex) {
+    const sl::Result result = g_origSlGetNewFrameToken(token, frameIndex);
+    FL_HOOK_GUARD({
+        if (MayObserve()) {
+            const auto id = reinterpret_cast<uintptr_t>(token);
+            if (id != 0u && g_lastFrameToken.exchange(id, std::memory_order_relaxed) != id) {
+                g_frameTokens.fetch_add(1u, std::memory_order_relaxed);
+            }
+        }
+    })
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -1076,6 +1112,10 @@ bool InstallByFamily(const wchar_t* module, const char* symbol, uint32_t family)
     if (family == static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS)) {
         return InstallRow(module, symbol, family, reinterpret_cast<void*>(&Hook_SlSetTag),
                           reinterpret_cast<void**>(&g_origSlSetTag), g_upscalerParamsLive);
+    }
+    if (family == static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS)) {
+        return InstallRow(module, symbol, family, reinterpret_cast<void*>(&Hook_SlGetNewFrameToken),
+                          reinterpret_cast<void**>(&g_origSlGetNewFrameToken), g_frameTokensLive);
     }
     return false;
 }
@@ -1584,11 +1624,22 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     // fgMode is UNKNOWN and never NONE when nothing was counted: this writer hooks
     // Streamline only, so an XeFG or FSR3-FG title generates frames somewhere we are
     // not looking, and NONE is the one FG state that may be aggregated as a negative.
+    //
+    // IDENTITY AND COUNT ARE TWO DETOURS NOW (2026-09-03). The evaluate detour still
+    // names DLSS-G when a kFeatureDLSS_G evaluation drained -- zero on every title
+    // measured, kept because a title that does evaluate it would be named correctly.
+    // The COUNT comes from slGetNewFrameToken: distinct frame tokens handed to the
+    // title since the last present, i.e. application frames, on every Streamline 2
+    // title including the ones that evaluate nothing through the other export.
     if (g_upscalerIdentityLive.load(std::memory_order_relaxed) != 0) {
         const uint32_t evals = fl::slseen::FgEvals(seen);
-        rec.fgEvaluations = fl::slseen::SaturateToByte(evals);
         rec.fgMode = evals != 0u ? static_cast<uint8_t>(FL_FG_DLSS_G) : static_cast<uint8_t>(FL_FG_UNKNOWN);
-        rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_FG | FL_MEASURED_FG_COUNTS);
+        rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_FG);
+    }
+    if (g_frameTokensLive.load(std::memory_order_relaxed) != 0) {
+        const uint32_t tokens = g_frameTokens.exchange(0u, std::memory_order_relaxed);
+        rec.fgEvaluations = fl::slseen::SaturateToByte(tokens);
+        rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_FG_COUNTS);
     }
 
     // NOT SET, deliberately, and each absence is a producer that does not exist

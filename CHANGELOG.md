@@ -19,6 +19,31 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **The frame-generation producer, chosen with no oracle and built: `slGetNewFrameToken`.**
+  HANDOFF item 3 had five candidate routes and four fallen oracles. The one taken needs neither:
+  Streamline hands a title **one frame token per application frame** by contract and the title
+  must ask for it, so a detour on `sl.interposer.dll!slGetNewFrameToken` — a third inventory row,
+  module-scoped, lazily installed — counts distinct tokens between presents, and `fg_factor =
+  presents / tokens`. No premise about Ray Reconstruction batches, and it installs on the titles
+  where `slEvaluateFeature` is never called (three of five measured). `fgEvaluations` keeps its
+  name and its `03_METRICS` definition ("application frames, counted at the source") and changes
+  producer; `FL_HOOK_FG_EVALUATIONS` moves to the new row and the evaluate detour claims identity
+  only, with the `static_assert` flipped to say so.
+
+  **The one premise it carries is gated, not assumed.** From inside the process, "no frames were
+  generated" and "the DLSS-G plugin requested a token for every frame it generated" both read
+  1.0. A ratio ≥ 1.5 cannot come from the second, so the trio is published from it now; a ratio
+  near 1 is refused by name (`FgWindow.PublishableFactor`) until the owner's Cyberpunk off / ×2 /
+  ×4 and Hell Is Us ×4 run lands on row P1 of the table pre-committed in `20_OPEN_QUESTIONS`
+  §S31. `none` on a Streamline title is the PR after that run.
+
+  Fixtures: the stub interposer hands out tokens from a pool of eight (a nullptr token would
+  have made every call the same frame); `--hold-presenting-fg` issues one token and one
+  evaluation per K presents, and `fl_guard`'s K = 1 / K = 4 pair now discriminates the token
+  count from the present count. Report labels `evaluations=` → `tokens=`. Hook-path overhead:
+  one atomic exchange and one conditional increment on a call the title makes once per frame;
+  nothing on the present path changed.
+
 - **Presented FPS, and a runtime census that says what the one number may and may not mean.**
   With this writer, `03_METRICS`' frame-generation ladder lands on rung 0 for *every* title — no
   non-Streamline title sets `FL_MEASURED_FG`, and `Σ fgEvaluations` is 0 on every Streamline title

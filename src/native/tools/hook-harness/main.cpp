@@ -1990,6 +1990,7 @@ using StubSetTagFn = sl::Result(STDMETHODCALLTYPE*)(const sl::ViewportHandle&, c
                                                     sl::CommandBuffer*);
 
 using StubEvaluateFn = sl::Result(STDMETHODCALLTYPE*)(sl::Feature, const void*, const void*, uint32_t, void*);
+using StubTokenFn = sl::Result(STDMETHODCALLTYPE*)(sl::FrameToken*&, const uint32_t*);
 
 alignas(16) unsigned char g_dummyFrameToken[64]{};
 
@@ -2085,6 +2086,14 @@ int HoldPresentingFg(Gfx& g, int seconds, bool real, int presentsPerEval) {
         Check(false, "the stub exports slEvaluateFeature");
         return 1;
     }
+    // THE APPLICATION-FRAME MARKER, and since 2026-09-03 the thing the count is OF.
+    // One token per application frame, as the vendor's contract says, then K
+    // presents from it; the evaluation beside it is what still names DLSS-G.
+    auto newToken = reinterpret_cast<StubTokenFn>(reinterpret_cast<void*>(GetProcAddress(stub, "slGetNewFrameToken")));
+    if (newToken == nullptr) {
+        Check(false, "the stub exports slGetNewFrameToken");
+        return 1;
+    }
 
     // THE LOCAL TAG, PASSED THROUGH slEvaluateFeature'S OWN `inputs`, and this
     // fixture is the ONLY place that route is exercised end to end.
@@ -2110,8 +2119,9 @@ int HoldPresentingFg(Gfx& g, int seconds, bool real, int presentsPerEval) {
 
     const int  k = presentsPerEval < 1 ? 1 : presentsPerEval;
     const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
-    std::printf("  presenting for %d second(s) [%s], one kFeatureDLSS_G evaluation per %d present(s)\n", seconds,
-                real ? "REAL" : "DXGI_PRESENT_TEST", k);
+    std::printf(
+        "  presenting for %d second(s) [%s], one frame token + one kFeatureDLSS_G evaluation per %d present(s)\n",
+        seconds, real ? "REAL" : "DXGI_PRESENT_TEST", k);
     std::printf("  LOCAL tag only (no slSetTag call): kBufferTypeScalingInputColor extent %ux%u\n", kTaggedRenderW,
                 kTaggedRenderH);
     std::fflush(stdout);
@@ -2120,6 +2130,8 @@ int HoldPresentingFg(Gfx& g, int seconds, bool real, int presentsPerEval) {
     long long       presented = 0;
     long long       evaluated = 0;
     while (GetTickCount64() < until) {
+        sl::FrameToken* token = nullptr;
+        newToken(token, nullptr);
         eval(sl::kFeatureDLSS_G, g_dummyFrameToken, inputs, 1u, nullptr);
         ++evaluated;
         for (int i = 0; i < k; ++i) {

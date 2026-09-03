@@ -120,7 +120,7 @@ public sealed class FgWindowTests
         FgWindow w = FgWindow.From(FgStream(appFrames: 40, k: 4, evalsPerFrame: 0), Stopwatch.Frequency);
 
         w.Factor.Should().BeNull("1.0 is CLAUDE.md rule 6's forbidden number");
-        w.Refusal.Should().Contain("no frame-generation evaluation was counted");
+        w.Refusal.Should().Contain("no application-frame token was counted");
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public sealed class FgWindowTests
 
         // The factor-side refusal names the DATA GAP and says nothing about the state change —
         // which is the defect, stated as an assertion rather than as a comment.
-        w.Refusal.Should().Contain("no frame-generation evaluation was counted");
+        w.Refusal.Should().Contain("no application-frame token was counted");
         w.Refusal.Should().NotContain("changed during",
             "the factor guard keys on fgEvaluations, which is zero here, so it cannot see this");
 

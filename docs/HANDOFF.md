@@ -328,7 +328,18 @@ than cutting a segment.
 
 </details>
 
-### ~~3. Frame generation~~ — BUILT, and the premise it was built on is FALSE
+### ~~3. Frame generation~~ — the producer is CHOSEN and BUILT (2026-09-03); the run that validates it is the owner's
+
+**Do not start here.** `sl.interposer.dll!slGetNewFrameToken` is the application-frame
+producer: an inventory row, a detour that counts distinct tokens between presents, and
+`fg_factor = presents / tokens` with no batch premise. Chosen **with no oracle behind it** and
+said so; the pre-committed table is `20_OPEN_QUESTIONS` §S31 and the owner-only run is
+Cyberpunk 2077 off / ×2 / ×4 plus Hell Is Us ×4. **A ratio near 1 is not published until row
+P1 lands** — the sequencing consequence, and the reason `none` is the PR after that run, not
+this one. The entry below is kept for the route reasoning it carries.
+
+<details>
+<summary>The entry as it stood while the producer was unchosen</summary>
 
 **Do not start here, and do not build the counter again.** `fgEvaluations`, `fgMode`,
 `FL_MEASURED_FG` and `FL_MEASURED_FG_COUNTS` all have producers; the drain, the consumer
@@ -463,6 +474,8 @@ arithmetic, the refusals and the fixtures are in and gated. What is missing is n
 > drained ZERO batches (Ray Reconstruction was off, so there is nothing to divide), and whether
 > `--track_frame_type` was in effect at all is unmeasured — it changes the reason, not the
 > action.
+
+</details>
 
 
 > **§H5 case 3 is MEASURED as of 2026-08-15, and the answer is half of what the entry below
@@ -759,7 +772,9 @@ reference comes out.~~ — **L2 was written, 2026-09-03.** The obligation now bu
    them, forever. Land the skip-shim (drop `paths:`, short-circuit inside the job) first;
    the setting is the owner's.
 2. **Real-title verification runs** for the upscaler/FG/RT work, against each game's own
-   settings menu.
+   settings menu. **Live as of 2026-09-03:** the `slGetNewFrameToken` producer's table —
+   Cyberpunk 2077 off / ×2 / ×4 and Hell Is Us DLSS + FG ×4, one launch each, reading
+   `presents/tokens` off the `FG counts:` line against §S31's rows P1–P4.
 3. **Which titles** go in `blockedExecutables` — a product decision with false-refusal
    consequences. The list ships empty until it is taken.
 

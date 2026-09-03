@@ -3088,7 +3088,14 @@ bool ObserveFg(int presentsPerEval, FgObservation& out) {
         Sleep(50);
     }
 
-    bool ok = st->status == fl::FL_STATUS_READY && WaitForIdentityHook(st);
+    // BOTH ROWS, because the count comes from the SECOND one. The watchdog installs the
+    // inventory rows in order and each MinHook patch suspends every thread, so the token
+    // row goes live some tens of milliseconds after the identity row -- measured
+    // 2026-09-03 as 8 records at 8 ms a present. Waiting for identity alone drained
+    // those 8 into the window, where they legitimately carry no FG_COUNTS bit, and the
+    // assertion below read that install prefix as a writer that was wrong by 8.
+    bool ok = st->status == fl::FL_STATUS_READY && WaitForIdentityHook(st) &&
+              WaitForHookFamily(st, static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS));
     if (ok) {
         fl::RingReader rd;
         ok = rd.Init(base, FL_SHM_DEFAULT_CAPACITY);
@@ -3131,12 +3138,19 @@ bool ObserveFg(int presentsPerEval, FgObservation& out) {
 
 }    // namespace
 
-TEST_CASE("frame-generation evaluations are COUNTED, and the count tracks the fixture's factor",
+TEST_CASE("application-frame tokens are COUNTED, and the count tracks the fixture's factor",
           "[guard][inject][shm][fg]") {
     // ONE EXPRESSION, TWO FIXTURES, and that pairing is the whole test.
     //
+    // SINCE 2026-09-03 THE COUNT IS OF slGetNewFrameToken CALLS -- distinct tokens
+    // handed to the title -- not of kFeatureDLSS_G evaluations, which five real titles
+    // measured at zero. The fixture issues exactly one of each per group of K
+    // presents, so the arithmetic below is unchanged; what changed is which detour
+    // produces sigma, and the K = 1 control is what proves the new one is not the
+    // present count wearing a different name.
+    //
     // A single K = 4 run cannot fail usefully: a writer that counted PRESENTS instead
-    // of evaluations, or that wrote a constant, would still produce some ratio and a
+    // of tokens, or that wrote a constant, would still produce some ratio and a
     // reader would have nothing to compare it against. K = 1 is the control -- one
     // evaluation per present, the no-frame-generation shape -- and the SAME assertion
     // has to hold for both, so a writer that ignores the difference is red in one of
