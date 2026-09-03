@@ -807,11 +807,13 @@ deferred with a written rationale.
 The mechanical ones live in the toolchain notes; these are the ones that cost a *wrong
 diagnosis*.
 
-- **A CHROMIUM-BASED TITLE IS SEVERAL PROCESSES WITH ONE IMAGE PATH, and the resolver refuses
-  it.** *Flower in Us* (NW.js / RPG Maker) returned `TargetAmbiguous`, exit 6, on 2026-09-03.
-  Not a defect: the consent record is keyed on the path and three processes match it. The
-  presenting one is the GPU process, which owns no window — so do not "fix" it by picking the
-  windowed one. Scope row in `20_OPEN_QUESTIONS`.
+- **A CHROMIUM-BASED TITLE IS SEVERAL PROCESSES WITH ONE IMAGE PATH.** *Flower in Us* (NW.js /
+  RPG Maker) returned `TargetAmbiguous`, exit 6, on 2026-09-03: three processes match the
+  consented path. The presenting one is the GPU process, which owns no window — so do not "fix"
+  it by picking the windowed one. **Fixed the same day by Chromium's own `--type=gpu-process`
+  flag**, read through a kernel query and honoured only when exactly one candidate carries it
+  (`TargetResolver`, scope row in `20_OPEN_QUESTIONS`). Whether the Overlay can load inside
+  Chromium's GPU process is the next thing that title measures.
 - **THE CENSUS IS A STARTUP PROPERTY ON UE5.** Hell Is Us published the identical census word
   at off, FSR and DLSS + FG ×4; Lies of P likewise across its three runs. The plugins load at
   init whatever the settings menu says, so the census can never separate "loaded and off" from

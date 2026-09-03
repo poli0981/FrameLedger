@@ -15,16 +15,67 @@ namespace FrameLedger.CaptureHost.Capture;
 /// and injection aimed at pid B inexpressible, rather than merely discouraged.
 /// </para>
 /// <para>
-/// <b>Two matches refuse.</b> Picking one would be a guess about which process the
-/// record was for, and a guess that resolves to an injection is the wrong kind.
+/// <b>Two matches refuse</b> — with one named exception. Picking one would be a guess about
+/// which process the record was for, and a guess that resolves to an injection is the wrong
+/// kind. The exception (2026-09-03) is a Chromium-based title: NW.js, Electron, RPG Maker
+/// MV/MZ run several processes from ONE image path, every one of them is the consented
+/// binary, and Chromium marks the one that owns the swapchain with its own
+/// <c>--type=gpu-process</c> flag. That is not a guess; it is the vendor's label, read
+/// through a kernel query (<see cref="ProcessCommandLine"/>), and it resolves only when
+/// exactly one candidate carries it (<see cref="ChromiumGpuProcess"/>). Measured on
+/// <i>Flower in Us</i>: three <c>Game.exe</c>, one path, <c>TargetAmbiguous</c>.
 /// </para>
 /// </remarks>
 internal sealed class TargetResolver : ITargetResolver
 {
+    private readonly Func<int, string?> _commandLineOf;
+
+    public TargetResolver() : this(ProcessCommandLine.TryRead)
+    {
+    }
+
+    /// <summary>Test seam: how a candidate's command line is read.</summary>
+    public TargetResolver(Func<int, string?> commandLineOf)
+    {
+        _commandLineOf = commandLineOf ?? throw new ArgumentNullException(nameof(commandLineOf));
+    }
+
     public int? Resolve(string normalisedExePath, out SessionEndReason reason)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(normalisedExePath);
 
+        List<int> matches = CollectMatches(normalisedExePath, out int unreadable);
+
+        if (matches.Count == 0)
+        {
+            reason = unreadable > 0 ? SessionEndReason.TargetAmbiguous : SessionEndReason.TargetNotRunning;
+            return null;
+        }
+
+        if (matches.Count == 1 && unreadable == 0)
+        {
+            reason = SessionEndReason.Running;
+            return matches[0];
+        }
+
+        // THE ONE DISCRIMINATOR. Several readable processes of the consented image, and exactly
+        // one of them is Chromium's GPU process by Chromium's own flag. An unreadable sibling
+        // (unreadable > 0) never reaches this, because "could not look" must not narrow the set.
+        if (unreadable == 0 && TryPickGpuProcess(matches) is int gpu)
+        {
+            reason = SessionEndReason.Running;
+            return gpu;
+        }
+
+        // More than one match, or one match beside a process sharing the executable's NAME that we
+        // could not identify. Both are ambiguity, and picking is a guess that resolves to an injection.
+        reason = SessionEndReason.TargetAmbiguous;
+        return null;
+    }
+
+    /// <summary>Every readable process whose image is the path; unreadable candidates are counted, never dropped.</summary>
+    private static List<int> CollectMatches(string normalisedExePath, out int unreadable)
+    {
         string name = Path.GetFileNameWithoutExtension(normalisedExePath);
         List<int> matches = [];
 
@@ -33,7 +84,7 @@ internal sealed class TargetResolver : ITargetResolver
         // exists" from "one candidate is readable and the others were invisible" — and the second is
         // the case where we would inject into the wrong instance of the right game. The comment here
         // used to claim the skip prevented that; it caused it.
-        int unreadable = 0;
+        unreadable = 0;
 
         foreach (Process p in Process.GetProcessesByName(name))
         {
@@ -62,21 +113,24 @@ internal sealed class TargetResolver : ITargetResolver
             }
         }
 
-        if (matches.Count == 0)
+        return matches;
+    }
+
+    private int? TryPickGpuProcess(List<int> matches)
+    {
+        var candidates = new List<(int Pid, string? CommandLine)>(matches.Count);
+        foreach (int pid in matches)
         {
-            reason = unreadable > 0 ? SessionEndReason.TargetAmbiguous : SessionEndReason.TargetNotRunning;
-            return null;
+            candidates.Add((pid, _commandLineOf(pid)));
         }
 
-        if (matches.Count == 1 && unreadable == 0)
+        int? gpu = ChromiumGpuProcess.Pick(candidates);
+        if (gpu is not null)
         {
-            reason = SessionEndReason.Running;
-            return matches[0];
+            HostConsole.Line($"target: {matches.Count} processes share the image; pid {gpu} is Chromium's "
+                             + $"{ChromiumGpuProcess.Marker} and owns the swapchain, so it is the target");
         }
 
-        // More than one match, or one match beside a process sharing the executable's NAME that we
-        // could not identify. Both are ambiguity, and picking is a guess that resolves to an injection.
-        reason = SessionEndReason.TargetAmbiguous;
-        return null;
+        return gpu;
     }
 }

@@ -19,6 +19,19 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **Chromium-based titles resolve to their GPU process instead of refusing as ambiguous.**
+  NW.js, Electron and RPG Maker MV/MZ run several processes from one image path, and *Flower in
+  Us* refused as `TargetAmbiguous` on 2026-09-03. The presenting process is Chromium's GPU
+  process — it owns no window, so no window-based pick is correct — and Chromium labels it with
+  `--type=gpu-process` on its own command line. `TargetResolver` now reads each candidate's
+  command line through `NtQueryInformationProcess(ProcessCommandLineInformation)` — served by
+  the kernel with `PROCESS_QUERY_LIMITED_INFORMATION`, no `ReadProcessMemory`, no PEB walk, the
+  rule-4 line `HeldProcessHandle` already draws — and resolves only when **exactly one** readable
+  candidate carries the flag as a whole argument. Two GPU processes, none, or an unreadable
+  sibling still refuse; §S27 is untouched (consent keyed on the path, every candidate is that
+  path, the guard scans the pid chosen, no `--pid`). `TargetResolverTests` drives it against
+  real processes: a uniquely-named copy of `cmd.exe` started three times, one with the flag.
+
 - **The frame-generation producer, chosen with no oracle and built: `slGetNewFrameToken`.**
   HANDOFF item 3 had five candidate routes and four fallen oracles. The one taken needs neither:
   Streamline hands a title **one frame token per application frame** by contract and the title
