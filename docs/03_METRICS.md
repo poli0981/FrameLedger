@@ -202,6 +202,30 @@ F_disp  = presents observed by the hook
 F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the source)
 ```
 
+> ### The source is `slGetNewFrameToken` — decided 2026-09-03, HANDOFF item 3's producer
+>
+> Streamline hands a title **one frame token per application frame**, and the title has to ask
+> for it: `slGetNewFrameToken` (`sl_core_api.h`: *"obtain unique instance"* per frame; every
+> `slSetTag` / `slEvaluateFeature` takes the token). The Overlay detours that export —
+> module-scoped, lazily installed, an inventory row like the other two — and `fgEvaluations`
+> is the number of **distinct** tokens handed out between two presents. `fg_factor = presents
+> / Σ tokens` therefore needs **no premise about Ray Reconstruction batches** and works on the
+> titles where `slEvaluateFeature` is never called at all (Wukong, Rune Factory, Hell Is Us),
+> which the previous producer could not reach on five titles out of five.
+>
+> **The one premise it carries, and the gate on it.** From inside the process, *"no frames
+> were generated"* and *"the DLSS-G plugin requested a token for every frame it generated"*
+> are the same ratio: 1.0. A ratio ≥ 1.5 (the cadence threshold below) cannot be produced by
+> the second explanation, so the trio is published from it now. **A ratio near 1 is not** —
+> `FgWindow` refuses it by name — until the owner's off / ×2 / ×4 run lands on row P1 of the
+> table pre-committed in `20_OPEN_QUESTIONS` §S31. Only then does rung 4's `none` become
+> reachable on a Streamline title, and that is the PR after this one.
+>
+> **What `fgMode` still is.** Identity — `DLSS_G` when a `kFeatureDLSS_G` evaluation drained,
+> `UNKNOWN` otherwise — from the evaluate detour, unchanged. A factor ≥ 1.5 with `UNKNOWN`
+> identity is *frame generation active, technology not identified*, which on a UE5 title with
+> both Streamline and FidelityFX loaded is the honest answer.
+
 > **MEASURED 2026-08-15, AND IT CHANGES WHAT THIS SECTION CAN PROMISE.** On the one title
 > measured — Cyberpunk 2077, SL 2.7.1 — `slEvaluateFeature(kFeatureDLSS_G)` is **never
 > called**: 0 evaluations across ~14,000 Streamline batches at four frame-generation

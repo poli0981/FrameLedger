@@ -714,7 +714,17 @@ struct alignas(64) FlFrameRecord {
     // rule 6's forbidden direction. 255 is therefore a sentinel as much as a value:
     // no configuration evaluates frame generation 255 times between two presents, so
     // a consumer seeing it must refuse to publish a factor rather than divide.
-    uint8_t fgEvaluations;    // @43
+    //
+    // PRODUCER CHANGED 2026-09-03, NAME KEPT. The byte now counts APPLICATION-FRAME
+    // TOKENS -- distinct sl::FrameToken objects the title obtained through
+    // slGetNewFrameToken since the previous present -- which is exactly the quantity
+    // 03_METRICS defines it as ("APPLICATION frames, counted at the source") and
+    // which the kFeatureDLSS_G count above never delivered on any measured title.
+    // 0 or 1 on a frame-generating title, in the same shape as before: 1 on the
+    // present that carried the application frame, 0 on the presents the vendor's
+    // swapchain generated from it. Renaming the field would be a layout-version
+    // bump for a comment's benefit; the C# mirror carries the same note.
+    uint8_t fgEvaluations;    // @43  application-frame tokens drained at this present
 
     // @44 — NARROWED uint64 bytes -> uint32 MiB, renamed, moved from 40. This is
     // where v3's four spare bytes came from, and the narrowing is a correction

@@ -34,10 +34,22 @@ namespace {
 volatile LONG g_calls = 0;
 volatile LONG g_lastFeature = -1;
 
+// A POOL OF DISTINCT TOKENS, because the Overlay counts POINTER CHANGES. The real
+// interposer hands out one FrameToken object per frame from a small ring; a stub
+// that returned nullptr, or one static object, would make every call look like the
+// same frame and the count would read 1 forever -- a fixture green for a writer that
+// never counted. Storage only: sl::FrameToken is abstract and nothing here or in
+// the Overlay ever dereferences one.
+volatile LONG g_tokenCalls = 0;
+alignas(16) unsigned char g_tokenPool[8][64];
+
 }    // namespace
 
 // The inventory must still spell it this way. Renaming the row, or misspelling
 // it, is a compile error here rather than a silently passing fixture.
+static_assert(fl::stub::InventoryHas("slGetNewFrameToken"),
+              "fl_hook_inventory.h no longer contains \"slGetNewFrameToken\", so the frame-token fixture would "
+              "exercise a row the Overlay does not install.");
 static_assert(fl::stub::InventoryHas("slEvaluateFeature"),
               "fl_hook_inventory.h no longer contains \"slEvaluateFeature\", so this stub would export a name "
               "the Overlay does not look for -- the fixture would pass while proving nothing "
@@ -102,8 +114,11 @@ SL_API sl::Result slIsFeatureLoaded(sl::Feature feature, bool& loaded) {
 }
 
 SL_API sl::Result slGetNewFrameToken(sl::FrameToken*& token, const uint32_t* frameIndex) {
-    (void)frameIndex;
-    token = nullptr;
+    // The vendor's contract in miniature: an explicit index returns THAT frame's
+    // token (the same object on a re-request), no index advances to a new one.
+    const LONG     n = InterlockedIncrement(&g_tokenCalls);
+    const uint32_t index = frameIndex != nullptr ? *frameIndex : static_cast<uint32_t>(n);
+    token = reinterpret_cast<sl::FrameToken*>(&g_tokenPool[index % 8u][0]);
     return sl::Result::eOk;
 }
 

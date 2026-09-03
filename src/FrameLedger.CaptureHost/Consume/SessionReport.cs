@@ -200,12 +200,12 @@ internal static class SessionReport
         // moved across 78.6-83 on window choice alone, ten times the residual that draft quoted.
         sb.Append("    FG counts: presents=").Append(Count(w.Presents))
           .Append(" batches=").Append(Count(w.Batches))
-          .Append(" evaluations=").Append(Count(w.Evaluations))
+          .Append(" tokens=").Append(Count(w.Evaluations))
           .Append(" streams=").Append(Count(w.Streams))
           .Append(" unidentified=").Append(Count(w.Unidentified))
           .Append(" span=").Append(Num(w.Seconds > 0 ? w.Seconds : null)).Append('s')
           .Append("  presents/batch=").Append(Num(w.PresentsPerBatch))
-          .Append("  evaluations/batch=").AppendLine(Num(w.EvaluationsPerBatch));
+          .Append("  tokens/batch=").AppendLine(Num(w.EvaluationsPerBatch));
 
         AppendProxyVerdict(sb, w);
         AppendFgAnomalies(sb, w);

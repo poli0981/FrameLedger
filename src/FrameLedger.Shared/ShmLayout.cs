@@ -599,6 +599,12 @@ public struct FlFrameRecord
     /// publish a factor rather than divide by a floor.
     /// </para>
     /// </remarks>
+    /// <remarks>
+    /// <b>Producer changed 2026-09-03, name kept:</b> the byte counts APPLICATION-FRAME TOKENS —
+    /// distinct <c>sl::FrameToken</c> objects the title obtained through <c>slGetNewFrameToken</c>
+    /// since the previous present — which is the quantity <c>03_METRICS</c> always defined it as.
+    /// The <c>kFeatureDLSS_G</c> evaluation count it used to carry read zero on five real titles.
+    /// </remarks>
     public byte FgEvaluations;
 
     /// <summary>

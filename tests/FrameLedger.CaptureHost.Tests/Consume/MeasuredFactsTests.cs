@@ -136,7 +136,7 @@ public sealed partial class MeasuredFactsTests
             stream, writer, Stopwatch.Frequency, 0, 0, FgWindow.From(stream, Stopwatch.Frequency)));
 
         text.Should().Contain("Native FPS").And.Contain("Displayed FPS").And.Contain("x4 FG");
-        text.Should().Contain("evaluations/batch").And.Contain("histogram");
+        text.Should().Contain("tokens/batch").And.Contain("histogram");
         text.Should().Contain("frame generation: DlssG");
     }
 
