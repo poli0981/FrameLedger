@@ -1023,6 +1023,20 @@ void PublishHookFamily(uint32_t family, std::atomic<uint32_t>& live) noexcept {
     live.store(1, std::memory_order_release);
 }
 
+// The runtime census (fl_shm.h §FlRuntimeCensus). Watchdog only; OR-only; never
+// on the present path. It is the answer to "was any known frame-generation or
+// upscaler runtime in this process" -- which is not the same question as "did the
+// title generate frames", and fl_shm.h spends a section on why it must not be
+// read as one.
+void PublishRuntimeCensus() noexcept {
+    if (g_state == nullptr) {
+        return;
+    }
+    const uint32_t            seen = fl::inventory::ObserveRuntimeModules();
+    std::atomic_ref<uint32_t> census{g_state->runtimeCensus};
+    census.fetch_or(seen, std::memory_order_relaxed);
+}
+
 bool InstallRow(const wchar_t* module, const char* symbol, uint32_t family, void* detour, void** original,
                 std::atomic<uint32_t>& live) noexcept {
     if (live.load(std::memory_order_acquire) != 0) {
@@ -1271,6 +1285,10 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
         // is a moment chosen by the game rather than by our init. It RETRIES and
         // latches only on success, exactly as the upscaler installer does.
         InstallRtHooks();
+
+        // The census, on the same tick. After the installers so that a module which
+        // appeared this second is both hooked and counted in the same pass.
+        PublishRuntimeCensus();
 
         // Supervision loss. guardTicks counts COMPLETED guard evaluations, not
         // seconds, so a stalled guard loop stops it advancing even while the

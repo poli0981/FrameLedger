@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Consume;
 
@@ -49,8 +50,14 @@ internal static class SessionReport
         }
         else
         {
-            sb.Append("  Displayed FPS (presents observed; FG factor NOT measured): ")
-              .AppendLine(Num(facts.DisplayedFps));
+            // PRESENTED FPS, the name for the one number that stands alone (03_METRICS §Core
+            // definitions, 2026-09-03). Numerically it is Displayed FPS; the name changes because
+            // "Displayed" is half of a pair, and printing half a pair invites the reader to supply
+            // the other half. The qualifier under it is mandatory, and which one is printed is the
+            // census's whole job.
+            sb.Append("  Presented FPS: ").Append(Num(facts.DisplayedFps))
+              .Append("   over ").Append(Count(facts.PresentsObserved)).AppendLine(" present(s)");
+            sb.Append("    ").AppendLine(FgQualifier(facts));
             if (facts.Fg?.Refusal is not null)
             {
                 sb.Append("    no FG factor: ").AppendLine(facts.Fg.Refusal);
@@ -59,7 +66,14 @@ internal static class SessionReport
 
         AppendFgDiagnostics(sb, facts.Fg);
         AppendFacts(sb, facts);
+        AppendWarnings(sb, facts);
 
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>Defects in the DATA, each attributed to where it came from, never averaged in.</summary>
+    private static void AppendWarnings(StringBuilder sb, MeasuredFacts facts)
+    {
         if (facts.HasDataGaps)
         {
             sb.AppendLine("  WARNING: the drain reported torn or overwritten records; intervals spanning "
@@ -73,7 +87,41 @@ internal static class SessionReport
                           + "the Overlay, not in this report");
         }
 
-        return sb.ToString().TrimEnd();
+        if (facts.CensusInconsistent)
+        {
+            sb.AppendLine("  WARNING: the runtime census names a module while saying it never ran — a defect in "
+                          + "the Overlay's watchdog, and nothing above was read from it");
+        }
+    }
+
+    /// <summary>
+    /// The line under Presented FPS. Three shapes, and the census decides which — never a
+    /// fourth that says <c>none</c>.
+    /// </summary>
+    /// <remarks>
+    /// The clear-census sentence names its own two holes because they are the reason the
+    /// census may not say <c>none</c>: a statically linked FSR3-FG has no module to see, and
+    /// driver-level AFMF happens after present. Both are outside what an in-process module
+    /// list can know, and the sentence is only honest with them in it.
+    /// </remarks>
+    private static string FgQualifier(MeasuredFacts facts)
+    {
+        if (!facts.CensusRan)
+        {
+            return "frame generation: NOT measured, and the runtime census did not run — this number is presents, "
+                   + "and whether they include generated frames is unknown";
+        }
+
+        if (facts.FgRuntimesLoaded != FlRuntimeCensus.None)
+        {
+            return "WARNING: a frame-generation runtime was loaded (" + CensusNames.Describe(facts.FgRuntimesLoaded)
+                   + ") and no evaluation was observed — this number MAY include generated frames; read it as "
+                   + "Displayed, not Native";
+        }
+
+        return "frame generation: not measured — no known frame-generation runtime was loaded in this process, "
+               + "so this number cannot include in-process generated frames (statically linked FSR3-FG and "
+               + "driver-level AFMF are outside what this can see)";
     }
 
     /// <summary>The per-session facts, each with the reason behind its N/A.</summary>
@@ -87,21 +135,46 @@ internal static class SessionReport
     /// </remarks>
     private static void AppendFacts(StringBuilder sb, MeasuredFacts facts)
     {
+        // THREE CAUSES, NOT ONE. This line used to say "our coverage is short, not the title's" for
+        // every UNKNOWN, and that is false in the commonest case: a Streamline title with upscaling
+        // switched off in its settings never calls slEvaluateFeature either. Nothing in this writer
+        // can tell that apart from a title driving DLSS through a path we do not hook — Black Myth:
+        // Wukong loads sl.interposer.dll, runs DLSS-G, and calls it never — so the line names all
+        // three rather than picking the one that flatters the hook.
         sb.Append("  upscaler: ").AppendLine(facts.Upscaler
             ?? (facts.UpscalerHookRan
-                ? "N/A (a hook ran and could not identify it — our coverage is short, not the title's)"
-                : "N/A (no upscaler hook ran)"));
+                ? "N/A (Streamline is loaded and slEvaluateFeature never carried an identifiable feature: "
+                  + "upscaling is off in this title's settings, or it runs through a path this build does not "
+                  + "hook — measured on 3 of 5 titles — or a vendor this build does not decode)"
+                : NoHookRan("upscaler", facts.CensusRan, facts.UpscalerRuntimesLoaded)));
         sb.Append("  render -> output: ").AppendLine(facts.UpscaleRatio is null
             ? "N/A (the ratio is not computed yet; the raw sizes are above)"
             : Num(facts.UpscaleRatio));
         sb.Append("  frame generation: ").AppendLine(facts.FgMode
             ?? (facts.FgHookRan
                 ? "N/A (a hook ran and saw no frame-generation evaluation — see the FG counts above)"
-                : "N/A (no frame-generation hook ran)"));
+                : NoHookRan("frame-generation", facts.CensusRan, facts.FgRuntimesLoaded)));
         sb.Append("  ray tracing: ").AppendLine(facts.RayTracing.ToString());
         sb.Append("  ray reconstruction: ").AppendLine(facts.RayReconstruction.ToString());
         sb.Append("  path tracing: ").AppendLine(facts.PathTracing.ToString());
         sb.Append("  HDR: ").AppendLine(facts.Hdr.ToString());
+    }
+
+    /// <summary>
+    /// "No hook ran", refined by the census: was there even a runtime of that kind to hook?
+    /// </summary>
+    private static string NoHookRan(string kind, bool censusRan, FlRuntimeCensus loaded)
+    {
+        if (!censusRan)
+        {
+            return $"N/A (no {kind} hook ran)";
+        }
+
+        string article = kind[0] is 'a' or 'e' or 'i' or 'o' or 'u' ? "an" : "a";
+        return loaded == FlRuntimeCensus.None
+            ? $"N/A (no {kind} hook ran, and no known {kind} runtime was loaded in this process)"
+            : $"N/A (no {kind} hook ran, though {article} {kind} runtime is loaded: {CensusNames.Describe(loaded)} — "
+              + "an ABI this build refuses, or a vendor it does not hook)";
     }
 
     /// <summary>

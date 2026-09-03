@@ -26,8 +26,9 @@ Let `D` = session duration (first → last present), `F_app` = frames the *game*
 |---|---|---|
 | **Native FPS (avg)** | `count(F_app) / D` | 1 |
 | **Displayed FPS (avg)** | `count(F_disp) / D` | 1 |
-| **FG factor** | `DisplayedFPS / NativeFPS`, shown `×N.N`; `—` when FG inactive | 1 |
-| **Avg FPS** (headline) | = Native FPS. Time-based, **not** the mean of instantaneous FPS values | 1 |
+| **Presented FPS (avg)** | `presents / D` — **numerically Displayed FPS; the name for the one number that stands alone.** "Native" and "Displayed" are printed only *together* (rule 6); when frame generation is not measured, this is the headline, with a mandatory qualifier (§Frame Generation, rung 0's qualifier) | 1 |
+| **FG factor** | `DisplayedFPS / NativeFPS`, shown `×N.N`; `—` when FG inactive; **`N/A` when FG is not measured** | 1 |
+| **Avg FPS** (headline) | = Native FPS when `fg_mode` is measured (`api` rung) or `none`; **= Presented FPS, labelled, when `fg_mode` is `N/A`**. Time-based, **not** the mean of instantaneous FPS values | 1 |
 | **Median FPS** | `1000 / p50(ft_app)` | 1 |
 | **1% Low** | `1000 / p99(ft_app)` | 1 |
 | **0.1% Low** | `1000 / p99.9(ft_app)` | 1 |
@@ -55,6 +56,13 @@ stutter — the exact artifact these metrics exist to detect honestly. Gaps coun
 toward the session's data-quality warnings.
 
 **Lows use application frames only.** Generated frames smooth display cadence but do not represent simulation stalls; mixing them hides real stutter. A secondary "Displayed 1% Low" is stored for the Displayed chart series but never replaces the headline.
+
+> **When frame generation is NOT measured, the lows are taken over presents and labelled
+> `(presented)`** — added 2026-09-03 with Presented FPS. On a title with no in-process frame
+> generation that is exactly the application-frame low; on one that generates frames through a
+> path this writer does not hook it is smoother than the truth, which is why the label stays on
+> until `fg_mode` is measured or `none`. An unlabelled low is a claim about application frames,
+> and a present-only writer cannot make it.
 
 **Sufficiency guards (FR-4.8):** 0.1% Low needs ≥ 10,000 application frames, 1% Low ≥ 1,000; otherwise `N/A`.
 
@@ -133,6 +141,55 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 > `fgEvaluations = 0` *with the bit set*, which is a real measurement of that present. A
 > consumer must not filter those records out — doing so leaves `presents == Σ` and recovers
 > the forbidden 1.0 from honest data.
+
+> ### Rung 0's qualifier: the runtime census (2026-09-03, owner decision)
+>
+> **The problem rung 0 left.** With this writer, rung 0 is where *every* title lands: no
+> non-Streamline title sets `FL_MEASURED_FG` at all, and on every Streamline title measured
+> `Σ fgEvaluations` is 0. So a 2D title with no upscaler and Black Myth: Wukong running
+> DLSS-G through a path this writer does not hook printed the *same* line — "FG factor not
+> measured" — and the reader had no way to know that the first number was a frame rate and
+> the second might be twice one.
+>
+> **The census.** `FlWriterState.runtimeCensus` (`fl_shm.h` §FlRuntimeCensus) is taken on the
+> Overlay's watchdog once a second: for each module name in `FL_RUNTIME_CENSUS`, ask the loader
+> whether it is present. OR-only, so monotonic; `FL_CENSUS_RAN` says the census ran at all.
+> The names are the measured ones in `vendor-exports.json`, gated by `hookinventory-check`
+> Pass D. **It is not a hook and not a measurement**: a set bit says a module of that name was
+> loaded, a clear bit says the loader had none of that name.
+>
+> **What it may say.** The line under Presented FPS, one of three:
+>
+> | Census | Line |
+> |---|---|
+> | did not run | *not measured, and the census did not run — whether presents include generated frames is unknown* |
+> | ran, no FG family bit | *no known frame-generation runtime was loaded, so this number **cannot** include in-process generated frames (statically linked FSR3-FG and driver-level AFMF are outside what this can see)* |
+> | ran, FG family bit(s) | ***WARNING**: a frame-generation runtime was loaded (`nvngx_dlssg.dll`) and no evaluation was observed — this number **may** include generated frames; read it as Displayed, not Native* |
+>
+> and, for the upscaler, the difference between *no hook ran and no runtime was loaded*
+> and *a runtime is loaded and no hook installed* (the Streamline 1.5.6 case).
+>
+> A module that MAY generate frames counts as a frame-generation runtime: `amd_fidelityfx_dx12.dll`,
+> the FSR 3.1 facade, dispatches both upscaling and frame generation behind one export set (H11), and
+> Lies of P ships it alone while generating frames — so it warns rather than reassures.
+>
+> **What it may NOT say, and this is the whole design: the census never produces `none`.**
+> `FL_FG_NONE` and `FL_UPSCALER_NONE` mean "a hook ran and saw the alternative" — the only
+> negative this document lets a consumer aggregate. A census-derived `none` has two holes,
+> both structural: **FSR2/FSR3 are routinely linked statically**, so an FSR3-FG title has no
+> module for the census to see while its proxy swapchain still calls the real `Present`,
+> and a `none` there would publish presents as native — the inflated number rule 6 forbids —
+> with a confident label on it; and driver-level or out-of-process generation (AFMF,
+> Lossless Scaling) is invisible to any in-process list. The census may narrow an N/A's
+> reason and may raise a warning. It may not close the question.
+>
+> **And the other direction is just as closed.** *Streamline loaded + zero `slEvaluateFeature`
+> calls* does not mean *upscaling off*: Wukong loads `sl.interposer.dll`, runs DLSS-G, and
+> never calls it. So a title with upscaling switched off in its settings and a title driving
+> DLSS through an unhooked path are indistinguishable to this writer, and the upscaler line
+> now says so — three causes, named, rather than "our coverage is short".
+> **Three of five titles now** (2026-09-03): Hell Is Us with DLSS on and frame generation ×4
+> drained zero batches — `spike-notes` §9.
 
 ### Counting native vs displayed frames at Tier 1
 
@@ -221,6 +278,12 @@ the driver or the compositor, invisible to both an in-process hook and
 rung identified the mode — only the *identification* comes from the ladder.
 
 **Display rule (product requirement, CLAUDE.md rule 6):** wherever FPS appears and FG is active, render `"{native} → {displayed} FPS (×{factor} FG)"`. Cards show Native large, Displayed + factor secondary. Charts default to Native with a Displayed toggle. Exports contain all three.
+
+**And when FG is not measured (2026-09-03):** render the one number as **Presented FPS** —
+`144 FPS` with a qualifier chip chosen by the census above, never the word "Native", never
+a factor, never `—` (which means `none`, a measured negative). The chip is muted when no
+frame-generation runtime was loaded and a warning when one was. `08_UI` §FPS display rule
+carries the three shapes.
 
 ## Upscaling — measured, not guessed (Tier 1)
 
@@ -357,7 +420,7 @@ Per session over 1 Hz samples: `avg` (mean of non-null), `max`. Sensor timeline 
 | Quantity | Tier 1 | Tier 2 |
 |---|---|---|
 | Frame times / FPS | < 0.05% (direct QPC at the present call) | **not available** |
-| Native vs Displayed / FG factor | exact counts when rung 1 resolves | **not available** |
+| Native vs Displayed / FG factor | exact counts when rung 1 resolves; **`N/A` otherwise, with the runtime census qualifying the presented figure** — the census cannot see a statically linked FSR or any out-of-process generation, so its "cannot include generated frames" is bounded by those two holes and says so | **not available** |
 | Upscaler + render resolution | **exact** (vendor API arguments) | not available |
 | RT active | measured per frame | not available |
 | Path tracing | heuristic, confidence-scored, never asserted | not available |

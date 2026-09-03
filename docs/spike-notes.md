@@ -1597,6 +1597,68 @@ into a real title and the process survives it (§7).
 - Can PresentMon 2.x `FrameType` see driver-level FG / AFMF (§M1):
 - AFMF on this machine: **untested — RTX 5080, AMD driver-side feature**
 
+### ✅ Presented FPS + the runtime census, on six real titles — 2026-09-03
+
+The two qualifiers `03_METRICS` §Rung 0's qualifier specifies were both seen on real games,
+and the report line that prints the census by name (`runtime census:`) is what made each row
+below readable. Operator: the owner. Instrument: `FrameLedger.CaptureHost capture --seconds 60`,
+one launch per capture, consent granted after launch. Exit codes and full reports in
+`E:\frameledger-runs\2026-09-03\` (not in the repository).
+
+| Title | API | Hooks installed | Census: FG group | Census: upscaler group | Presented FPS | Qualifier printed |
+|---|---|---|---|---|---|---|
+| **DARK SOULS III** (2016, no anti-cheat on this install) | D3D11 | Present | — | — | 59.8 | *cannot include* — the clean (a) shape |
+| **KOISHIKARUBEKI** (Unity, 2D VN, x64) | D3D11 | Present | — | — | 59.6 | *cannot include* — the clean (a) shape |
+| **Cyberpunk 2077** | D3D12 | Present, SL identity+params, FG evals, RT ×2 | `nvngx_dlssg`, `libxess_fg`, `ffx_frameinterpolation_x64`, `ffx_fsr3_x64`, `amd_fidelityfx_dx12` | `sl.interposer`, `nvngx`, `nvngx_dlss`, `nvngx_dlssd`, `libxess`, `ffx_fsr3upscaler` | 142.0 | **WARNING**, names listed; `presents/batch = 2` against the title's own ×2 |
+| **Lies of P** ×3 — **FSR + AMD frame generation, FSR + AMD frame generation, DLSS** (operator-confirmed; no off run) | D3D12 | Present, RT ×2 — **no Streamline** | `amd_fidelityfx_dx12` in **every** run, the DLSS one included | `nvngx`, `nvngx_dlss` in every run | **231.1 / 237.5** (FG on) / **59.9** (DLSS, no FG) | **WARNING** naming `amd_fidelityfx_dx12.dll` — the facade regroup of the same morning is what put it there |
+| **Hell Is Us** ×3 (off / FSR / DLSS + FG ×4 — the third labelled by the operator's own note) | D3D12 | Present, SL identity+params, FG evals, RT ×2 | `nvngx_dlssg`, `libxess_fg`, `amd_fidelityfx_framegeneration_dx12` in **every** run | `sl.interposer`, `nvngx`, `nvngx_dlss`, `nvngx_dlssd`, `libxess`, `amd_fidelityfx_upscaler_dx12` in every run | 60.0 / 60.0 / **300.4** | **WARNING**, names listed, all three runs |
+| **Flower in Us** (NW.js / RPG Maker, not Ren'Py) | — | — | — | — | — | **`TargetAmbiguous`, exit 6** — no capture |
+
+**What it settles.**
+
+- **Both shapes are reachable on real titles**, and the census names are the loader's, not
+  the directory's: Hell Is Us ships `sl.dlss_g.dll` on disk and the loader reported
+  `nvngx_dlssg.dll`; Cyberpunk's row is five FG runtimes for one title.
+- **The census is a STARTUP property on UE5, and it cannot see settings.** Hell Is Us
+  reported the identical word `0x2794D` at off, FSR and DLSS + FG ×4; Lies of P the identical
+  `0x41801` across its three. The plugins load at init whatever the menu says. So (b) *"module
+  loaded, upscaling off"* and (c) *"module loaded, driven through an unhooked path"* print the
+  same WARNING — exactly what `03_METRICS` says the census may and may not do, now measured.
+- **The facade regroup was load-bearing.** Lies of P ships `amd_fidelityfx_dx12.dll` alone
+  and the operator reports Steam's counter counting generated frames on its FSR run. With the
+  facade in the upscaler group the report would have printed *"cannot include in-process
+  generated frames"* on a title generating them.
+- **A THIRD title where nothing goes through `slEvaluateFeature`.** Hell Is Us with DLSS on
+  and frame generation at ×4: `records carrying Upscaler = 17,920 / 18,033`, **0 batches
+  drained, `kFeatureDLSS = 0`**, `upscaler: N/A`. UE5's DLSS plugin drives super-resolution
+  through NGX directly and its Streamline plugin drives DLSS-G somewhere this hook does not
+  see. `spike-notes` §8's "two of the four" is now **three of five**. Presented 300 FPS at ×4
+  reads as ~75 native, and the WARNING is the only honest line the report has for it.
+- **The (a) shape is exact on a title with no vendor module at all**: DS3 and the Unity VN
+  publish `runtimeCensus == 0x1`, precisely the `FL_CENSUS_RAN` equality `fl_guard` asserts on
+  the harness.
+
+**What it opens.**
+
+- **Multi-process titles refuse as `TargetAmbiguous`.** NW.js / Electron / Chromium-based
+  games (RPG Maker MV/MZ, many VNs) run several `Game.exe` processes with one image path —
+  browser, renderer, GPU. The resolver refuses rather than guess, which is §S27's rule
+  working; but the presenting process is the GPU process, which has no window of its own,
+  so "the one with the top-level window" would be the wrong pick too. Scope row added in
+  `20_OPEN_QUESTIONS`; there is no `--pid` and there will not be one.
+- **Hell Is Us at FSR reported 60 FPS presented with the operator's Steam counter not
+  counting**, identical to its off run. Whether FSR frame generation was engaged at all in
+  that run is unknown; the census cannot say and the report does not claim to.
+- **Lies of P's FSR3 frame-generation presents REACH the hook** — the §H5 fear does not occur
+  for the FidelityFX 3.1 facade either. The two FSR + FG runs presented 231 and 237 FPS with
+  Steam's counter counting generated frames; the DLSS run, with AMD frame generation off,
+  presented 59.9. So the facade's proxy swapchain forwards to the real `Present` on the shared
+  `dxgi.dll` vtable, exactly as `--probe-proxy` predicted for a forwarding proxy — and the
+  presented figure on those runs is therefore the DISPLAYED rate, which is what the WARNING
+  says to read it as. What the run does not give is the native rate: nothing in this writer
+  counts FSR3 interpolations (H11), so `fg_factor` stays N/A there. The 59.9 on the DLSS run
+  is a cap or vsync, not a measurement of anything this run was about.
+
 ## 10 · Telemetry layering
 
 - L1 baseline vendor-neutral:

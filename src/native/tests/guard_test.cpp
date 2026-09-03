@@ -1645,6 +1645,13 @@ TEST_CASE("the injected Overlay records real presents into the ring", "[guard][i
     // FL_HOOK_PRESENT alone is the correct and only answer here.
     CHECK(st->hooksInstalledMask == static_cast<uint32_t>(fl::FL_HOOK_PRESENT));
 
+    // THE CENSUS RAN AND SAW NO VENDOR RUNTIME, and both halves are asserted by
+    // EQUALITY. This harness loads no stub, so any family bit here would be a name
+    // in FL_RUNTIME_CENSUS matching a module that has nothing to do with upscaling
+    // -- and a missing RAN bit would be the watchdog never taking the census at all,
+    // which decodes as "nobody looked" and would silence the qualifier on every title.
+    CHECK(st->runtimeCensus == static_cast<uint32_t>(fl::FL_CENSUS_RAN));
+
     CHECK((st->apiMask & (1u << fl::FL_API_D3D11)) != 0);
     CHECK((st->apiMask & (1u << fl::FL_API_D3D12)) == 0);
 
@@ -3017,6 +3024,7 @@ namespace {
 
 // What one --hold-presenting-fg run yields, drained after the identity hook is live.
 struct FgObservation {
+    std::uint32_t census = 0;
     std::size_t   drained = 0;
     std::uint64_t sigma = 0;    // sum of fgEvaluations over the window
     std::uint32_t hooks = 0;
@@ -3113,6 +3121,7 @@ bool ObserveFg(int presentsPerEval, FgObservation& out) {
         }
     }
     out.hooks = st->hooksInstalledMask;
+    out.census = st->runtimeCensus;
     out.faults = st->faultCount;
 
     UnmapViewOfFile(base);
@@ -3174,6 +3183,16 @@ TEST_CASE("frame-generation evaluations are COUNTED, and the count tracks the fi
         // this fixture ever calls the second one. Installing is what the mask records.
         CHECK(obs.hooks == static_cast<std::uint32_t>(fl::FL_HOOK_PRESENT | fl::FL_HOOK_UPSCALER_IDENTITY |
                                                       fl::FL_HOOK_UPSCALER_PARAMS | fl::FL_HOOK_FG_EVALUATIONS));
+
+        // THE CENSUS SEES THE STUB BY NAME. The interposer stub is loaded by absolute
+        // path and is still called sl.interposer.dll, so the loader answers yes for
+        // it -- and for nothing in the frame-generation group, because no FG module
+        // is in this process. The second check is the one that matters: it is what
+        // keeps a title with Streamline loaded and no evaluation observed from being
+        // printed as "no frame-generation runtime was loaded".
+        CHECK((obs.census & fl::FL_CENSUS_RAN) != 0u);
+        CHECK((obs.census & fl::FL_CENSUS_SL_INTERPOSER) != 0u);
+        CHECK((obs.census & fl::FL_CENSUS_FG_FAMILIES) == 0u);
 
         // At K = 1 every present carries an evaluation, so there is no zero-count
         // record for the anti-filter property to be about; at K = 4 there must be.

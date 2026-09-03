@@ -215,6 +215,63 @@ inline void* ResolveScoped(const wchar_t* module, const char* symbol) noexcept {
     return reinterpret_cast<void*>(GetProcAddress(h, symbol));
 }
 
+// ---------------------------------------------------------------------------
+// THE RUNTIME CENSUS. Not inventory rows: nothing here is detoured, resolved or
+// called. Each row is a module NAME the loader is asked about once a second on
+// the watchdog, and the FlRuntimeCensus bit that name publishes.
+//
+// The names are the measured ones in docs/vendor-exports.json, and
+// hookinventory-check Pass D fails the build when a row names a module that
+// data has never seen -- for the same reason Pass A exists: a misspelt name here
+// degrades silently to "not loaded", which reads as the 2D-title case and would
+// print the very qualifier this census exists to withhold on a DLSS-G title.
+//
+// Lives in this header, not dllmain.cpp, because Pass B sweeps every other
+// Overlay source for vendor-shaped literals and this is the one file it exempts.
+// ---------------------------------------------------------------------------
+#define FL_RUNTIME_CENSUS(X)                                                                                           \
+    X(L"sl.dlss_g.dll", fl::FL_CENSUS_SL_DLSS_G)                                                                       \
+    X(L"nvngx_dlssg.dll", fl::FL_CENSUS_NVNGX_DLSSG)                                                                   \
+    X(L"libxess_fg.dll", fl::FL_CENSUS_LIBXESS_FG)                                                                     \
+    X(L"ffx_frameinterpolation_x64.dll", fl::FL_CENSUS_FFX_FRAMEINTERPOLATION)                                         \
+    X(L"ffx_fsr3_x64.dll", fl::FL_CENSUS_FFX_FSR3)                                                                     \
+    X(L"amd_fidelityfx_framegeneration_dx12.dll", fl::FL_CENSUS_AMD_FFX_FRAMEGENERATION)                               \
+    X(L"sl.interposer.dll", fl::FL_CENSUS_SL_INTERPOSER)                                                               \
+    X(L"sl.dlss.dll", fl::FL_CENSUS_SL_DLSS)                                                                           \
+    X(L"sl.nis.dll", fl::FL_CENSUS_SL_NIS)                                                                             \
+    X(L"nvngx.dll", fl::FL_CENSUS_NVNGX_CORE)                                                                          \
+    X(L"_nvngx.dll", fl::FL_CENSUS_NVNGX_CORE)                                                                         \
+    X(L"nvngx_dlss.dll", fl::FL_CENSUS_NVNGX_DLSS)                                                                     \
+    X(L"nvngx_dlssd.dll", fl::FL_CENSUS_NVNGX_DLSSD)                                                                   \
+    X(L"libxess.dll", fl::FL_CENSUS_LIBXESS)                                                                           \
+    X(L"libxess_dx11.dll", fl::FL_CENSUS_LIBXESS)                                                                      \
+    X(L"ffx_fsr2_api_x64.dll", fl::FL_CENSUS_FFX_FSR2)                                                                 \
+    X(L"ffx_fsr2_api_dx12_x64.dll", fl::FL_CENSUS_FFX_FSR2)                                                            \
+    X(L"ffx_fsr3upscaler_x64.dll", fl::FL_CENSUS_FFX_FSR3_UPSCALER)                                                    \
+    X(L"amd_fidelityfx_upscaler_dx12.dll", fl::FL_CENSUS_AMD_FFX_UPSCALER)                                             \
+    X(L"amd_fidelityfx_dx12.dll", fl::FL_CENSUS_AMD_FFX_DX12)
+
+// Is a module of this name in the process right now? UNCHANGED_REFCOUNT, unlike
+// ResolveScoped: the census patches nothing, so it has no reason to keep the
+// module alive and takes the smaller claim. Allocation-free, one documented call.
+inline bool IsModuleLoaded(const wchar_t* module) noexcept {
+    HMODULE h = nullptr;
+    return GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, module, &h) && h != nullptr;
+}
+
+// One census pass. Always carries FL_CENSUS_RAN, so a word without it means the
+// census never ran rather than "ran and saw nothing".
+inline uint32_t ObserveRuntimeModules() noexcept {
+    uint32_t seen = static_cast<uint32_t>(fl::FL_CENSUS_RAN);
+#define FL_CENSUS_ROW(name, bit)                                                                                       \
+    if (IsModuleLoaded(name)) {                                                                                        \
+        seen |= static_cast<uint32_t>(bit);                                                                            \
+    }
+    FL_RUNTIME_CENSUS(FL_CENSUS_ROW)
+#undef FL_CENSUS_ROW
+    return seen;
+}
+
 }    // namespace fl::inventory
 
 #endif    // FRAMELEDGER_FL_HOOK_INVENTORY_H

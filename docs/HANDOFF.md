@@ -678,8 +678,18 @@ belongs here is the **sequencing consequence**: the three user-facing sentences 
 nothing in `README`, `legal/EULA.md` or the consent disclosure is waiting on telemetry any
 more, and the `LibreHardwareMonitorLib` loose end below is closed by having a consumer.
 
-**The live head is now the FPS-display rule, decided by the owner on 2026-09-03 and
-recorded in no other file until its PR lands:** when frame generation is *not measured*
+~~**The live head is now the FPS-display rule, decided by the owner on 2026-09-03 and
+recorded in no other file until its PR lands:**~~ **LANDED the same day** — `03_METRICS`
+§Presented FPS and §Rung 0's qualifier, `fl_shm.h` §FlRuntimeCensus, `17_HOOK_ENGINE`
+§Watchdog observations, CLAUDE.md rule 6's amendment. Status is in `CHANGELOG.md`. ~~**What is
+still open from it is the owner's:** the two real-title captures that would show the two
+qualifiers on real games (Cyberpunk 2077 → WARNING naming `nvngx_dlssg.dll`; any D3D11
+title with no upscaler → "cannot include"), one launch each. The fixtures prove both
+directions natively; the titles would prove the names.~~ **RUN THE SAME DAY, six titles,
+`spike-notes` §9.** Both shapes seen; the names are the loader's; one refusal
+(`TargetAmbiguous`, NW.js) became a scope row; Hell Is Us became the third title where DLSS is
+on and `slEvaluateFeature` sees nothing. The decision text is kept below
+because the reasoning lives in no other file. When frame generation is *not measured*
 (`FL_MEASURED_FG` clear — every non-Streamline title today, and every Streamline title
 on the measured route), the headline is **Presented FPS** (`presents / D`, the name for the
 one number that stands alone; "Native" and "Displayed" appear only together), with a
@@ -782,6 +792,25 @@ deferred with a written rationale.
 The mechanical ones live in the toolchain notes; these are the ones that cost a *wrong
 diagnosis*.
 
+- **A CHROMIUM-BASED TITLE IS SEVERAL PROCESSES WITH ONE IMAGE PATH, and the resolver refuses
+  it.** *Flower in Us* (NW.js / RPG Maker) returned `TargetAmbiguous`, exit 6, on 2026-09-03.
+  Not a defect: the consent record is keyed on the path and three processes match it. The
+  presenting one is the GPU process, which owns no window — so do not "fix" it by picking the
+  windowed one. Scope row in `20_OPEN_QUESTIONS`.
+- **THE CENSUS IS A STARTUP PROPERTY ON UE5.** Hell Is Us published the identical census word
+  at off, FSR and DLSS + FG ×4; Lies of P likewise across its three runs. The plugins load at
+  init whatever the settings menu says, so the census can never separate "loaded and off" from
+  "loaded and driven through an unhooked path". It was designed not to try; on 2026-09-03 that
+  stopped being a design note and became a measurement.
+- **STREAMLINE LOADED + ZERO `slEvaluateFeature` CALLS DOES NOT MEAN "UPSCALING OFF".** Black
+  Myth: Wukong has `sl.interposer.dll` and `sl.dlss_g.dll` loaded, DLSS-G demonstrably running,
+  and never calls the one export this writer hooks. **Hell Is Us made it three of five on
+  2026-09-03**: DLSS on, frame generation ×4, 17,920 records carrying the identity bit, zero
+  batches drained. So a title with upscaling switched off in
+  its settings and a title driving DLSS through an unhooked path produce byte-identical
+  records — every one `UNKNOWN` — and the consumer may not turn that into `none` for either.
+  The 2026-09-03 census can say which vendor runtimes are *present*; it cannot say what the
+  title did with them, and it is written so it never claims to.
 - **A vendor keeps the SYMBOL NAME and changes the SIGNATURE, and no gate we have can see
   it.** The Witcher 3 ships `sl.interposer.dll` **1.5.6**: it exports `slInit`,
   `slEvaluateFeature`, `slSetTag` and `slShutdown`, so every name check passes, and it exports

@@ -87,6 +87,32 @@ internal sealed record MeasuredFacts
     /// <summary>Whether a hook capable of naming the frame-generation mode was live.</summary>
     public bool FgHookRan { get; init; }
 
+    /// <summary>
+    /// <see cref="FlWriterState.RuntimeCensus"/>: which vendor runtime modules the loader
+    /// reported in the process. Not a measurement — see the enum's remarks.
+    /// </summary>
+    /// <remarks>
+    /// <b>What it is for.</b> Until 2026-09-03 a 2D title with no upscaler and a DLSS-G title
+    /// on the route this writer does not hook printed the same line. The census cannot tell
+    /// what the title DID, but it can tell whether a frame-generation runtime was even
+    /// present — which is the difference between "this present count cannot include
+    /// in-process generated frames" and "it may". <b>It never promotes an N/A to
+    /// <c>none</c></b>: a statically linked FSR3-FG has no module to see, and a census-derived
+    /// <c>none</c> there would print the inflated number CLAUDE.md rule 6 forbids.
+    /// </remarks>
+    public FlRuntimeCensus RuntimeCensus { get; init; }
+
+    /// <summary>False means the watchdog never took the census, and nothing below may be inferred.</summary>
+    public bool CensusRan => RuntimeCensus.HasFlag(FlRuntimeCensus.Ran);
+
+    public FlRuntimeCensus FgRuntimesLoaded => RuntimeCensus & FlRuntimeCensusFamilies.Fg;
+
+    public FlRuntimeCensus UpscalerRuntimesLoaded => RuntimeCensus & FlRuntimeCensusFamilies.Upscaler;
+
+    /// <summary>A family bit without <see cref="FlRuntimeCensus.Ran"/>: the writer's defect, reported rather than read.</summary>
+    public bool CensusInconsistent =>
+        !CensusRan && (RuntimeCensus & ~FlRuntimeCensus.Ran) != FlRuntimeCensus.None;
+
     /// <summary>Null, because <c>renderW/H</c> are always 0 and the ratio would divide by zero.</summary>
     public double? UpscaleRatio { get; init; }
 
@@ -152,6 +178,7 @@ internal sealed record MeasuredFacts
                 stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler)) < stream.Count,
             FgHookRan = RecordWindow.ClaimedSuffixStart(
                 stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Fg)) < stream.Count,
+            RuntimeCensus = (FlRuntimeCensus)writer.RuntimeCensus,
 
             // Still a deliberate absence: renderW/H are 0 unless a params hook ran, and the
             // ratio would divide by zero. See the property doc.

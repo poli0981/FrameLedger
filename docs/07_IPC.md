@@ -48,7 +48,8 @@ struct alignas(64) FlWriterState {   // Overlay-written
     uint32_t hooksInstalledMask; // @28 FlHookFamily bits; monotonic, set-only
     uint32_t rtStateObjectsCreated; // @32 session count, published at 1 Hz
     uint32_t rasterPsoCreated;   // @36 session count, published at 1 Hz
-    uint32_t reserved[6];        // @40..63 must be zero; reserved for additive fields
+    uint32_t runtimeCensus;      // @40 FlRuntimeCensus bits; watchdog-published, OR-only (2026-09-03, took reserved[0])
+    uint32_t reserved[5];        // @44..63 must be zero; reserved for additive fields
 };
 
 struct alignas(64) FlControlBlock {  // Agent-written
