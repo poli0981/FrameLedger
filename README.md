@@ -103,7 +103,7 @@ Everything lives locally in `%LOCALAPPDATA%\FrameLedger`. The only network calls
 
 GPL-3.0-only. See `LICENSE`. Third-party components: [`legal/THIRD_PARTY_NOTICES.md`](legal/THIRD_PARTY_NOTICES.md).
 
-GPU telemetry is layered so the project never depends on a proprietary vendor licence: a vendor-neutral DXGI/performance-counter baseline, LibreHardwareMonitor (MPL-2.0) for sensors on all vendors, and NVIDIA's NVAPI SDK (MIT) for NVIDIA-only extras such as Reflex latency. No Intel or AMD GPU SDK is bundled — see `docs/18_GPU_VENDOR_APIS.md` for why.
+GPU telemetry is layered so the project never depends on a proprietary vendor licence: a vendor-neutral DXGI/performance-counter baseline, LibreHardwareMonitor (MPL-2.0) for sensors on all vendors, and NVIDIA's NVAPI SDK (MIT) for NVIDIA-only extras such as Reflex latency. No Intel or AMD GPU *telemetry* SDK is bundled — see `docs/18_GPU_VENDOR_APIS.md` for why. The one AMD component in the tree is five MIT headers from the FidelityFX SDK, used for types only so the upscaler hook can read an FSR title's own dispatch descriptor; nothing AMD-built is linked or redistributed.
 
 ## Documentation
 

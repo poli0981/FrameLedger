@@ -127,27 +127,50 @@ Writing our own IGCL declarations to avoid vendoring the headers is **not an app
 
 **NVIDIA NGX / Streamline, AMD FidelityFX, Intel XeSS runtimes** — not loaded and not redistributed by us at all. We observe the calls the *game* makes to the copies it ships (`17_HOOK_ENGINE`). No vendor code is distributed by FrameLedger.
 
-**AMD FidelityFX SDK headers** — *checklist run 2026-09-04, CLEAR for the API headers; not yet vendored.*
+**AMD FidelityFX SDK headers** — *checklist run 2026-09-04, CLEAR; **vendored the same day at
+tag `v2.3.0`**, five headers, types only (`src/native/third_party/fidelityfx/README.md`).*
 Read off the upstream repository through the GitHub API, not from memory:
 
-- **Tag `v1.1.4`** (the last 1.x, the FSR 3.1.x API the installed titles ship): the root
-  `LICENSE.txt` is the MIT grant verbatim, and every header of interest carries the same grant
-  inline — `ffx-api/include/ffx_api/{ffx_api.h, ffx_api_types.h, ffx_api_loader.h,
-  ffx_upscale.h, ffx_framegeneration.h, dx12/ffx_api_dx12.h, vk/ffx_api_vk.h}` and the FSR 3.0
-  host API `sdk/include/FidelityFX/host/{ffx_fsr3.h, ffx_fsr3upscaler.h,
-  ffx_frameinterpolation.h, ffx_opticalflow.h, ffx_types.h, ffx_error.h, ffx_interface.h,
-  ffx_util.h, ffx_assert.h}`. None of step 2's needles appear. **Vendor from this tag.**
-- **`main` (SDK 2.x, pushed 2026-06-24)** is a different shape and is the reason the tag is
-  named: its repository-level `docs/license.md` is a **binary-only, no-reverse-engineering**
-  licence that "applies to all files except as noted below" — and the 845-line exception list
-  *does* name `Kits/FidelityFX/api/include/*.h`, `Kits/FidelityFX/framegeneration/include/*.h`
-  and `Kits/FidelityFX/upscalers/fsr3/include/*.h`, which carry the MIT grant inline. So the
-  API headers on `main` are MIT too, but only by exception, and `license-check.ps1` would have
-  to assert the exception rather than a root licence. Take `v1.1.4` unless a title ships an API
-  version that needs 2.x.
+- **Tag `v1.1.4`** (the last 1.x): the root `LICENSE.txt` is the MIT grant verbatim, and every
+  header of interest carries the same grant inline — the `ffx-api/include/ffx_api/` set and the
+  FSR 3.0 host API under `sdk/include/FidelityFX/host/`. None of step 2's needles appear. **This
+  paragraph said "vendor from this tag", and its own reversal condition fired the same day** —
+  see the third bullet. The host API is still only here: `main` dropped `ffx_fsr3.h`, so the FSR
+  3.0 route (Cyberpunk's `ffx_fsr3_x64.dll`, named exports) vendors from `v1.1.4` when it is built,
+  and its closure is **ten** files, not the nine first listed — `ffx_interface.h` includes
+  `ffx_message.h` — with `<mutex>`/`<shared_mutex>` reached through `ffx_types.h`.
+- **`main` == tag `v2.3.0`** (`60f4ea81`, "AMD FSR SDK 2.3.0", 2026-06-24) is a different shape:
+  its `docs/license.md` is a **binary-only, no-reverse-engineering** default licence that
+  "applies to all files except as noted below", followed by an MIT exception list of 845 paths.
+  **Read off the tree API: the repository at that commit holds exactly 845 blobs, and every one
+  of them is on the list** — `Kits/FidelityFX/signedbin/*.dll` included — so the default licence
+  governs no file that is actually in the tree, and the headers carry the grant inline as well.
+  MIT by exception, for the whole tree. `license-check.ps1` §2d asserts it per vendored file
+  rather than trusting this sentence: every path under `fidelityfx/Kits/` must be on the list
+  inside the vendored `license.md`, every `.h` must carry the grant, and no binary or source may
+  be present.
+- **Why `v2.3.0` and not `v1.1.4`, decided by the owner 2026-09-04.** The reversal condition —
+  *"unless a title ships an API version that needs 2.x"* — is met on this machine: Hell Is Us
+  ships `amd_fidelityfx_upscaler_dx12.dll` 4.0.3 and `amd_fidelityfx_framegeneration_dx12.dll`
+  4.0.0, Expedition 33 and Dying Light: The Beast ship upscaler 4.0.2 with frame generation 3.1.5
+  (all SDK 2.x effect DLLs), and the SDK's own sample dispatches
+  `ffxDispatchDescFrameGenerationPrepareV2` (`0x0002000c`), which `v1.1.4` does not declare.
+  Every value and layout the Overlay reads is identical in both tags (`UPSCALE 0x00010001`,
+  `FRAMEGENERATION 0x00020003`, `PREPARE 0x00020004`, `ffxApiHeader`, `FfxApiResource`,
+  `ffxDispatchDescUpscale`, the `Prepare` prefix through `renderSize`), so the 1.1.x monolith
+  decodes with the 2.3.0 constants. Vendored: `Kits/FidelityFX/api/include/{ffx_api.h,
+  ffx_api_types.h}`, `upscalers/include/ffx_upscale.h`, `framegeneration/include/{ffx_framegeneration.h,
+  ffx_framegeneration_api_types.h}`, in upstream's layout because they include each other by
+  relative path. Excluded, each with a reason in the README: `signedbin/`, `ffx_api_loader.h`
+  (a `GetProcAddress` helper), the two `dx12/` backend headers (no consumer yet), the `.hpp`
+  helpers and every source file.
 - Types-only, never linked, with a consumer in the same commit — the Streamline rules
-  (`src/native/third_party/streamline/README.md`), and `hookinventory-check` Pass C's
-  forbidden-import list must gain `amd_fidelityfx_*.dll` / `ffx_*.dll` in the same PR.
+  (`src/native/third_party/streamline/README.md`). **`hookinventory-check` Pass C already
+  forbade `amd_fidelityfx*` / `ffx_*` imports** — the sentence here that said the list "must
+  gain" them was written before checking, and the self-test at line 242 had covered them since
+  2026-08-14 — and now reads the built Overlay's **export table** too, because `ffx_api.h`
+  declares its entry points `__declspec(dllexport)` with no import switch and a definition
+  inside the Overlay would announce a vendor API it does not implement.
 
 **Intel XeSS SDK** — *checklist run 2026-09-04, REJECTED; the same class as NGX.* The repository
 <https://github.com/intel/xess> ships `LICENSE.txt` = **Intel Simplified Software License

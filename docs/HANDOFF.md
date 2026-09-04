@@ -731,6 +731,45 @@ hole; it does not close it.
 - **The only cheap improvement is wording**, and it is already in: the qualifier says
   *statically linked FSR3-FG … outside what this can see*. If a title is found, the first PR is
   a `spike-notes` row and a `20_OPEN_QUESTIONS` §Scope entry with the measured shape, not code.
+- **Measured 2026-09-04: no such title is installed.** Both Steam libraries scanned to full
+  depth — every FSR title ships its DLLs (the SDK 1.1.x monolith, the SDK 2.x effect DLLs, or
+  Red Dead Redemption 2's `ffx_fsr2_api_*` set); the module topology per title is in
+  `spike-notes` §9. So this item stays a boundary row in §Scope decisions, not work.
+
+#### ~~7c. AMD and Intel identity, measured rather than inferred~~ — **AMD LANDED 2026-09-04; Intel closed; the owner's three launches are owed**
+
+**Do not start here.** The three ffx-api leaves are hooked, the FidelityFX headers are vendored
+at tag **`v2.3.0`** (not the `v1.1.4` step 1 below names — its own reversal condition fired:
+installed titles ship SDK 2.x effect DLLs whose `PrepareV2` descriptor 1.1.4 does not declare),
+the K = 1 / K = 4 pair runs on both vendor shapes, and the acceptance table is pre-committed in
+`20_OPEN_QUESTIONS` §H11 (rows A1–A3, R1–R5). Status is in `CHANGELOG.md` and §H11. **Three
+corrections to the entry below, each of which changed what got built:**
+
+- **Scope to the LEAVES, not "the facade".** Step 2 says *"module-scope every row to the facade
+  … the plugin modules are called by the facade"*. Measured: SDK 2.x's `amd_fidelityfx_loader_dx12.dll`
+  contains no effect code and can reach an effect DLL only through the effect DLL's own five
+  exports; Hell Is Us and Expedition 33 ship the two effect DLLs with **no loader at all** (the UE
+  plugin compiles the MIT loader source in). So the rows are the three leaves — the 1.1.x
+  monolith and the two 2.x effect DLLs — and the loader is refused as a row by `static_assert`.
+  Hooking "the facade" on a loader-shipping title would have hooked the forwarder, and hooking
+  both would have counted every dispatch twice.
+- **`ffxCreateContext` is not a row.** Identity comes off the UPSCALE dispatch's type — per
+  frame, so it says *running* rather than *created* — and a create-context row's honest family
+  is `UPSCALER_IDENTITY` alone, which collides with `slEvaluateFeature`'s under the installer's
+  equality binding.
+- **"Extend Pass C's forbidden-import list" was already done** — `^(sl\.|_?nvngx|libxess|ffx_|amd_fidelityfx)`
+  since 2026-08-14, self-tested. Pass C gained the **export** table instead, because `ffx_api.h`
+  declares its entry points `__declspec(dllexport)` unconditionally.
+
+**What the owner's runs settle** (one launch each, §H11's table): A1 Lies of P at FSR + FG prints
+`upscaler: Fsr3` / `frame generation: FsrFg` and the trio at ≈ ×2 with `frames/upscale-drained ≈ 1.00`;
+A2 the same title with FG off reads `none` by count; A3 Hell Is Us at FSR prints the
+`FSR (3.1 or 4 …)` identity and shows which vendor's count the latch chose. **The FSR 3.0 host
+route (`ffx_fsr3_x64.dll`, step 3 below) is deferred to its own PR** — ten host headers from
+`v1.1.4`, one title here to test on.
+
+<details>
+<summary>The entry as it stood, kept for the reasoning it carries</summary>
 
 #### 7c. AMD and Intel identity, measured rather than inferred — §H11's deferral has a next step
 
@@ -798,6 +837,8 @@ exports `xessD3D12Init` / `xessD3D12Execute` and XeFG `xefgSwapChainD3D12InitFro
 zero (resolve at the writer); a vendor keeps a NAME and changes a SIGNATURE (`SpeaksExpectedAbi`
 needs an AMD and an Intel arm); the K = 1 / K = 4 harness pair must exist before the first
 real-title run, or a writer that counts presents instead of dispatches is green everywhere.
+
+</details>
 
 ### Separable
 

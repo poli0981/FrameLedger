@@ -168,7 +168,7 @@ Files shipped with a game tell us what it *supports*. These populate a **"Suppor
 
 - DLSS SR `nvngx_dlss.dll` · DLSS-G `nvngx_dlssg.dll` · **Ray Reconstruction `nvngx_dlssd.dll`**
 - Streamline `sl.interposer.dll`, `sl.dlss_g.dll`, `sl.reflex.dll`
-- FSR `ffx_fsr2_*.dll`, `ffx_frameinterpolation_*.dll`, `amd_fidelityfx_*.dll`, `ffx_api*.dll`
+- FSR `ffx_fsr2_*.dll`, `ffx_frameinterpolation_*.dll`, `amd_fidelityfx_*.dll`, `ffx_api*.dll` — a hint still, even though `amd_fidelityfx_dx12.dll` / `_upscaler_dx12.dll` / `_framegeneration_dx12.dll` are *hooked* since 2026-09-04: the measured chip comes from the dispatch, never from the file
 - XeSS `libxess.dll`, XeFG `libxess_fg.dll`
 - DXR-capable: `d3d12.dll` usage + RT-capable GPU (capability only — says nothing about the game)
 

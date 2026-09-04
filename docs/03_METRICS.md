@@ -173,7 +173,10 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 >
 > A module that MAY generate frames counts as a frame-generation runtime: `amd_fidelityfx_dx12.dll`,
 > the FSR 3.1 facade, dispatches both upscaling and frame generation behind one export set (H11), and
-> Lies of P ships it alone while generating frames — so it warns rather than reassures.
+> Lies of P ships it alone while generating frames — so it warns rather than reassures. **Since
+> 2026-09-04 that module is also HOOKED** (§The AMD source below), so on such a title the count is
+> measured and the trio prints; the WARNING is what remains for a title whose ffx-api dispatches
+> never arrive.
 >
 > **What it may NOT say, and this is the whole design: the census never produces `none`.**
 > `FL_FG_NONE` and `FL_UPSCALER_NONE` mean "a hook ran and saw the alternative" — the only
@@ -235,6 +238,37 @@ F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the 
 > `UNKNOWN` otherwise — from the evaluate detour, unchanged. A factor ≥ 1.5 with `UNKNOWN`
 > identity is *frame generation active, technology not identified*, which on a UE5 title with
 > both Streamline and FidelityFX loaded is the honest answer.
+
+> ### The AMD source is the ffx-api PREPARE dispatch's `frameID` — built 2026-09-04, HANDOFF item 7c
+>
+> An FSR title routes every per-frame piece of work through one export, `ffxDispatch`, and the
+> descriptor it passes says which: an **UPSCALE** dispatch once per application frame, a
+> frame-generation **PREPARE** once per application frame carrying `frameID` (documented by the
+> vendor as *"must increment by exactly one for each frame"*), and a **FRAMEGENERATION** dispatch
+> per generated batch, sent back through the same export from the title's own callback. The Overlay
+> detours `ffxDispatch` on the three modules that actually run the effects — the SDK 1.1.x monolith
+> and the two SDK 2.x effect DLLs, never the 2.x loader that forwards to them — and:
+>
+> - `fgEvaluations` is the number of **new** `frameID`s the PREPARE dispatches carried between two
+>   presents — this vendor's `slGetNewFrameToken`, keyed the same way (a monotone maximum, so a
+>   re-issued prepare counts once). A title that has **never** prepared counts UPSCALE dispatches
+>   instead, one per application frame; the choice is a one-way latch per process, because choosing
+>   per present would double-count a frame whose two dispatches straddle a present.
+> - `fgMode` is `FSR_FG` on a present that drained a FRAMEGENERATION dispatch; `UNKNOWN` otherwise.
+>   `none` is still the consumer's verdict from the count, exactly as on the Streamline route.
+> - **Two vendors in one process** (UE5 loads Streamline and the AMD leaves whatever the menu says):
+>   Streamline's token count keeps precedence once it has ever issued a token, so every title
+>   validated on §S31 is byte-identical to before; a process where Streamline is loaded and idle
+>   falls through to the AMD count.
+> - **The second count.** UPSCALE dispatches are counted separately in the same drain word, and the
+>   consumer prints `frames/upscale-drained` beside `presents/frame` — the AMD twin of `tokens/batch`:
+>   `1.00` when the two per-frame counts agree, `2.00` when one of them is doubled (a hook on the loader
+>   as well as the leaf, or two upscale contexts per frame). **Build the second count before trusting
+>   the first** is 7c's own rule, and this is it.
+>
+> The acceptance table for the owner's three launches is pre-committed in `20_OPEN_QUESTIONS` §H11.
+> What this route does NOT reach: the FSR 3.0 host DLLs (`ffx_fsr3_x64.dll`, named exports, deferred
+> to their own PR), statically linked FSR (§Scope decisions), and Intel (closed at the census).
 
 > **MEASURED 2026-08-15, AND IT CHANGES WHAT THIS SECTION CAN PROMISE.** On the one title
 > measured — Cyberpunk 2077, SL 2.7.1 — `slEvaluateFeature(kFeatureDLSS_G)` is **never
