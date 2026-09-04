@@ -19,6 +19,17 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **The report's `render -> output` line is computed, not "not computed yet".** Every real-title
+  run since 2026-08-15 printed the raw sizes two lines above an N/A. `UpscaleExtent` takes the
+  MODAL (render, output) tuple over the records that claim both `FL_MEASURED_UPSCALER_PARAMS` and
+  `FL_MEASURED_OUTPUT_RES`, and the line prints the two measured sizes, `03_METRICS` §Upscaling's
+  `sqrt((outW×outH)/(renW×renH))`, the reciprocal as a render-scale percentage, the record counts,
+  and a **SETTINGS MOVED** flag when the window held more than one tuple — modal rather than mean,
+  because averaging across a settings change is the classic way a benchmark number stops meaning
+  anything. Cyberpunk's 1485×835 at 2560×1440 reads `1.72x (58% render scale)`. **No preset name is
+  derived from it**: whether a label such as "≈ Balanced" may appear beside a measured field is
+  HANDOFF item 7a's owner decision, and the quality byte stays what the writer measured.
+
 - **The SDK 2.x loader is the fourth AMD row, because three loader-shipping titles read silent
   behind the leaf-only build.** The owner's run on #110 (thirteen captures, nine titles, one launch
   each) landed rows A1–A3 exactly as pre-committed — Lies of P `Fsr3` / `FsrFg` / `118.98 → 238.02

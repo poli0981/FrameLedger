@@ -694,7 +694,15 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   `quality=` off the `render …  quality=…  upscaler=…` line. If it reads the preset, criterion 1
   is 5 of 5 on that title and this item is a spike-notes entry. If it reads 0xFF too, the
   Streamline options route yields nothing on either measured title, and the decision below is
-  live.
+  live. *(Runbook title 12 is Alan Wake 2 as of 2026-09-04; Epic may update the executable on
+  launch, so launch first and grant after.)*
+- **The input to that decision is on the report now** (2026-09-04): `render -> output` prints the
+  two measured sizes, `03_METRICS`' ratio and the render-scale percentage — Cyberpunk reads
+  `1485x835 -> 2560x1440 = 1.72x (58% render scale)` — plus a **SETTINGS MOVED** flag when the
+  window held more than one tuple. It prints **no preset name**; that is the decision below,
+  still the owner's. Every FSR title measured on 2026-09-04 also reads `0xFF` for the quality
+  byte, and on that route it is the true value rather than a gap: the ffx-api dispatch carries
+  no quality mode at all, so the derived label is the only route to a preset name for AMD too.
 - **The decision, if 0xFF everywhere:** `renderW/H ÷ outputW/H` is *exact* (Cyberpunk: 1485×835
   at 2560×1440 = 0.58, which IS DLSS Balanced, and the menu agreed), and DLSS's preset ratios
   are documented constants (DLAA 1.0, Quality 0.667, Balanced 0.58, Performance 0.5, Ultra

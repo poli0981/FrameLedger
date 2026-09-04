@@ -132,8 +132,24 @@ internal sealed record MeasuredFacts
     public bool CensusInconsistent =>
         !CensusRan && (RuntimeCensus & ~FlRuntimeCensus.Ran) != FlRuntimeCensus.None;
 
-    /// <summary>Null, because <c>renderW/H</c> are always 0 and the ratio would divide by zero.</summary>
-    public double? UpscaleRatio { get; init; }
+    /// <summary>
+    /// The dominant render → output extent over the records that claim <see cref="FlMeasured.UpscalerParams"/>
+    /// and carry an output size, or null when no record carried both.
+    /// </summary>
+    /// <remarks>
+    /// <b>The ratio is <c>03_METRICS</c> §Upscaling's own formula — <c>sqrt((outW×outH)/(renW×renH))</c>
+    /// — and nothing more.</b> A preset NAME derived from it ("58% ≈ Balanced") is HANDOFF item 7a's
+    /// owner decision and is deliberately not printed here: the quality byte stays what the writer
+    /// measured (<c>0xFF</c> on every title so far), and this line says what the title rendered at,
+    /// which is a measurement, beside the ratio, which is arithmetic on two measurements. The modal
+    /// tuple rather than a mean, because averaging across a settings change is the classic way a
+    /// benchmark number stops meaning anything; <see cref="UpscaleExtent.DistinctGroups"/> says
+    /// whether one happened.
+    /// </remarks>
+    public UpscaleExtent? Extent { get; init; }
+
+    /// <summary><c>sqrt((outW×outH)/(renW×renH))</c> of the dominant extent, or null.</summary>
+    public double? UpscaleRatio => Extent?.Ratio;
 
     public Tri RayTracing { get; init; }
 
@@ -199,9 +215,7 @@ internal sealed record MeasuredFacts
                 stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Fg)) < stream.Count,
             RuntimeCensus = (FlRuntimeCensus)writer.RuntimeCensus,
 
-            // Still a deliberate absence: renderW/H are 0 unless a params hook ran, and the
-            // ratio would divide by zero. See the property doc.
-            UpscaleRatio = null,
+            Extent = UpscaleExtent.From(stream),
             Upscaler = UpscalerOf(stream),
             RayTracing = RayTracingOf(stream, writer),
             RayReconstruction = RayReconstructionOf(stream),
