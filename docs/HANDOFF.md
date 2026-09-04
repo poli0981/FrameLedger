@@ -729,13 +729,19 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   **and the rerun on it still read `UpscalerParams = 0` with both rows live**, so the title
   tags with a zero extent or not on this route at all. The next build reads the size the
   tagged `sl::Resource` declares when the extent is zero (`TagSize`, every route); one more
-  DL:TB DLSS capture on it is **owed**. If `render -> output` prints, 7a's measurement is that
-  line plus the quality byte; if it stays `N/A`, the route yields nothing on this title and
-  the honest answer is `N/A`. The derived-label decision above is unchanged until it lands.
-- **Separately, and more important than the preset:** every DL:TB DLSS run had DLSS Frame
-  Generation ON per the owner, and every one read `presents = tokens`, `frame generation:
-  none`. That is `20_OPEN_QUESTIONS` §H5 case 3's candidate title — read that entry before
-  touching FG counting; the discriminator is pre-committed there.
+  DL:TB DLSS capture on it is ~~owed~~ **ran 2026-09-05 00:53 (#116 build): `N/A` stands** —
+  params 0 of 3523 with both rows live and the fallback in. The route yields nothing on this
+  title; the honest answer is `N/A`, and 7a on DL:TB is closed on that. What would reopen it
+  is a tag-route census (calls per export, zero-extent seen, Resource-size seen), which needs
+  a layout bump and is not worth one for a preset byte. The derived-label decision above is
+  unchanged and applies to the titles that do print the line.
+- **Separately, and more important than the preset:** every DL:TB DLSS run (five, the last at
+  00:53 on the #116 build) had DLSS Frame Generation ON per the owner, and every one read
+  `presents = tokens`, `frame generation: none`. That is `20_OPEN_QUESTIONS` §H5 case 3's
+  candidate title. **Owner decision 2026-09-05: this is its own session and its own PR.** Read
+  §H5 first; the discriminator (the owner's counter beside our `FPS:` line) is pre-committed
+  there and is the first thing that session asks for. Nothing in FG counting changes before
+  that reading.
 
 #### 7b. Titles whose upscaler or frame generation is compiled into the executable
 

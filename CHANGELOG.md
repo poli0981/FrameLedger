@@ -33,6 +33,11 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Changed
 
+- **7a on Dying Light: The Beast closes as measured `N/A`** (docs): the 00:53 capture on the
+  whole-resource build still carried no render size on either global-tag route, so the quality
+  byte and the render size are `N/A` on this title, honestly, and the derived-label decision
+  applies to the titles that print the line. The DLSS-FG-on `presents = tokens` result is now
+  five for five; by owner decision it is handled in its own session and PR (`HANDOFF` 7a, §H5).
 - **`20_OPEN_QUESTIONS` §H5 has a candidate title for case 3.** Dying Light: The Beast at DLSS
   with DLSS Frame Generation on read `presents = tokens` on four captures (the same title with
   FSR FG read ×2; Cyberpunk on Streamline 2.7.1 read ×3.99), so the report printed `frame
