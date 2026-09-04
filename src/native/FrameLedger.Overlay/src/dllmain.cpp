@@ -39,6 +39,7 @@
 #include <d3d12.h>
 #include <dxgi1_2.h>
 
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <fl_d3d12_vtable.h>
@@ -60,6 +61,16 @@
 // runs. We use exactly one thing from here -- the PFun_slEvaluateFeature
 // typedef and the kFeature* ids -- and resolve the symbol at runtime.
 #include <sl.h>
+// AMD FidelityFX (ffx-api), the same way and under the same rule. Used for exactly
+// four things: ffxApiHeader::type, the FFX_API_DISPATCH_DESC_TYPE_* constants, the
+// renderSize / frameID fields of the descriptors those constants name, and the
+// PfnFfxDispatch typedef the trampolines are typed by. ffx_api.h declares the entry
+// points __declspec(dllexport) with no import switch; nothing here defines or takes
+// the address of one, so nothing is exported -- hookinventory-check Pass C reads the
+// built DLL's export table to keep it that way.
+#include <ffx_api.h>
+#include <ffx_framegeneration.h>
+#include <ffx_upscale.h>
 
 using namespace fl;
 
@@ -756,6 +767,75 @@ std::atomic<uint8_t> g_dlssQuality{0xFFu};
 
 constexpr uint64_t kTagValid = 1ull << 32;
 
+// --- AMD FidelityFX through the ffx-api leaves (HANDOFF item 7c, 2026-09-04) -----
+//
+// ONE OBSERVER, THREE TRAMPOLINES. The three leaves in fl_hook_inventory.h each
+// export their own ffxDispatch, so each needs its own MinHook target, its own
+// trampoline and its own liveness latch -- and one observer, because what the detour
+// does with a descriptor does not depend on which leaf it arrived at.
+//
+// WHAT IS READ, AND FROM WHERE (CLAUDE.md rule 4). Only the descriptor the title
+// passed to the API we hooked: its head type, and -- once the type has matched a
+// vendored constant -- renderSize (UPSCALE, PREPARE) and frameID (PREPARE). Never the
+// context handle, never pNext, never a command list or a resource, never
+// numGeneratedFrames (there is no field to publish it into, and the factor is
+// MEASURED from counts rather than read off the configuration). Nothing is written.
+//
+// THE WORD RecordPresent DRAINS, in fl_sl_seen.h's encoding because that encoding is
+// vendor-neutral -- bits below kCountShift are facts, the field above them a COUNT:
+//
+//   bit 0  FL_FFX_SEEN_FG_DISPATCH  a FRAMEGENERATION dispatch -- a generated batch,
+//                                   sent back through the export from the title's own
+//                                   frameGenerationCallback -- since the last present
+//   bit 1  FL_FFX_SEEN_OTHER        a dispatch type this build does not decode
+//   count  UPSCALE dispatches since the last present. A COUNT and not a bit, on
+//          purpose: it is the second application-frame count beside PREPARE's, and a
+//          loader+leaf double hook reads 2.00 on their ratio where a bit would read 1.
+enum FlFfxSeen : uint32_t {
+    FL_FFX_SEEN_FG_DISPATCH = 1u << 0,
+    FL_FFX_SEEN_OTHER = 1u << 1,
+};
+static_assert(((FL_FFX_SEEN_FG_DISPATCH | FL_FFX_SEEN_OTHER) & ~fl::slseen::kFeatureMask) == 0u,
+              "the FFX fact bits must stay below the count field");
+std::atomic<uint32_t> g_ffxSeen{0};
+
+// PREPARE dispatches whose frameID was NEW -- the application-frame count on this
+// vendor, this vendor's slGetNewFrameToken. Keyed on a monotone maximum of frameID
+// for the reason Hook_SlGetNewFrameToken gives: the vendor's "must increment by
+// exactly one for each frame" is a contract about the INDEX, not about the number of
+// calls, and the SDK's own sample re-issues the prepare when its configuration
+// changes. Drained with exchange(0) in RecordPresent beside g_frameTokens.
+std::atomic<uint32_t> g_ffxPrepares{0};
+// frameID + 1, so that 0 means "no frame yet". 64 bits wide, so no tag bit is needed.
+std::atomic<uint64_t> g_ffxMaxFrameKey{0};
+
+// The render extent, packed exactly as g_tagExtent is and persisting for the same
+// reason: it is the size the title is upscaling FROM, restated on every UPSCALE (and
+// every PREPARE) dispatch, and RecordPresent publishes it only on a present that
+// drained a dispatch -- so it cannot outlive the frame it describes.
+std::atomic<uint64_t> g_ffxExtent{0};
+
+// Which leaf the last UPSCALE dispatch arrived at, plus one (0 = none yet). The
+// identity byte depends on it: the SDK 1.1.x monolith hosts FSR 3.1 and nothing
+// else, while the SDK 2.x upscaler DLL hosts FSR 3.1 AND FSR 4 and the dispatch does
+// not say which -- so the same UPSCALE type decodes to FL_UPSCALER_FSR3 from one leaf
+// and to FL_UPSCALER_FSR_UNVERSIONED from the other (fl_shm.h says why).
+std::atomic<uint32_t> g_ffxUpscaleLeaf{0};
+
+using PFN_FfxDispatch = ::PfnFfxDispatch;
+PFN_FfxDispatch g_origFfxDispatch[fl::inventory::kFfxLeafCount] = {};
+// Per leaf: PATCHED, not published. The family is published once, below, when every
+// leaf the process has loaded is patched -- PublishHookFamily's own rule ("a hook that
+// spans several targets must not claim its family until every one of them is in"),
+// and it was measured mattering before it was applied: with the family published on
+// the FIRST leaf, an injected fixture caught the window between the upscaler leaf's
+// patch and the frame-generation leaf's, during which UPSCALE dispatches were counted
+// and the PREPARE and FRAMEGENERATION dispatches on the other leaf were not -- two
+// application frames identified as FSR with no FSR_FG mode, in a window the consumer
+// had every right to read as complete.
+std::atomic<uint32_t> g_ffxPatched[fl::inventory::kFfxLeafCount] = {};
+std::atomic<uint32_t> g_ffxLive{0};
+
 // WHY THIS PERSISTS RATHER THAN BEING exchange(0)'d LIKE g_slSeen.
 //
 // g_slSeen answers "did an upscaler run THIS FRAME", so a sample that outlived
@@ -930,6 +1010,143 @@ sl::Result STDMETHODCALLTYPE Hook_SlGetNewFrameToken(sl::FrameToken*& token, con
         }
     })
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// AMD FidelityFX: the one observer behind the three ffxDispatch trampolines.
+//
+// HEAD TYPE FIRST, AND NOTHING PAST THE HEAD UNTIL IT MATCHED. ffxApiHeader is the
+// first sixteen bytes of every descriptor -- a uint64 type and a pNext -- and that is
+// all that is read on an unmatched type. A body is reinterpreted only after its type
+// equalled a vendored constant whose layout is identical in every SDK tag consulted
+// (1.1.4 and 2.3.0), so the SDK 1.1.x monolith and the 2.x effect DLLs decode with
+// one switch. pNext is never followed: nothing this writer publishes lives in a
+// chained extension.
+//
+// WHAT EACH TYPE MEANS FOR THE RECORD:
+//   UPSCALE                the upscaler ran this application frame. Identity (which
+//                          leaf it arrived at), renderSize (PARAMS), and one more COUNT
+//                          in the drain word -- the second application-frame count,
+//                          beside PREPARE's, so the consumer can print their ratio the
+//                          way it prints tokens/batch for Streamline.
+//   PREPARE / PREPARE_V2   the frame-generation prepare pass the title issues once per
+//                          application frame, carrying frameID: this vendor's
+//                          slGetNewFrameToken. Counted on a NEW frameID only.
+//   FRAMEGENERATION        a generated batch, dispatched back through the export from
+//                          the title's own frameGenerationCallback -- the fact that
+//                          names FL_FG_FSR_FG on this present.
+//   anything else          FL_FFX_SEEN_OTHER: a dispatch this build does not decode.
+//
+// ONE READ-MODIFY-WRITE PER ARM on the drain word, exactly as Hook_SlEvaluateFeature
+// keeps; the PREPARE arm's CAS loop is on its own word and is the token detour's
+// shape. Nothing here allocates, locks, logs or calls out.
+// ---------------------------------------------------------------------------
+
+// PREPARE (what an SDK 1.1.x title sends) and PREPARE_V2 (SDK 2.x) share their layout
+// through renderSize byte for byte, and the Overlay reads a PREPARE through the V2
+// struct. The older struct is [[deprecated]] in the vendored header, so under /W4 /WX
+// naming it is a build error -- the equality is asserted here, inside the smallest
+// possible suppression, rather than silencing the attribute for the file. Both offsets
+// sit inside the OLDER struct's size, so the read never leaves the smaller descriptor
+// a 1.1.x title actually passed.
+#pragma warning(push)
+#pragma warning(disable : 4996)
+static_assert(offsetof(ffxDispatchDescFrameGenerationPrepare, frameID) ==
+                  offsetof(ffxDispatchDescFrameGenerationPrepareV2, frameID),
+              "PREPARE and PREPARE_V2 must agree on where frameID is, or a 1.1.x title's frame index is read from "
+              "the wrong bytes");
+static_assert(offsetof(ffxDispatchDescFrameGenerationPrepare, renderSize) ==
+                  offsetof(ffxDispatchDescFrameGenerationPrepareV2, renderSize),
+              "PREPARE and PREPARE_V2 must agree on where renderSize is");
+static_assert(offsetof(ffxDispatchDescFrameGenerationPrepare, renderSize) + sizeof(FfxApiDimensions2D) <=
+                  sizeof(ffxDispatchDescFrameGenerationPrepare),
+              "the fields read must lie inside the smaller descriptor");
+#pragma warning(pop)
+
+// The render extent, from an UPSCALE or PREPARE descriptor. Same packing and the same
+// in-band unknown as NoteTags: a zero or absurd size clears the sample rather than
+// publishing a resolution nobody rendered at.
+void NoteFfxExtent(const FfxApiDimensions2D& size) noexcept {
+    const uint64_t w = size.width;
+    const uint64_t h = size.height;
+    if (w == 0 || h == 0 || w > 0xFFFFu || h > 0xFFFFu) {
+        g_ffxExtent.store(0, std::memory_order_release);
+        return;
+    }
+    g_ffxExtent.store(w | (h << 16) | kTagValid, std::memory_order_release);
+}
+
+void ObserveFfxDispatch(uint32_t leaf, const ffxDispatchDescHeader* desc) noexcept {
+    if (desc == nullptr) {
+        return;
+    }
+    switch (desc->type) {
+    case FFX_API_DISPATCH_DESC_TYPE_UPSCALE: {
+        const auto* up = reinterpret_cast<const ffxDispatchDescUpscale*>(desc);
+        NoteFfxExtent(up->renderSize);
+        g_ffxUpscaleLeaf.store(leaf + 1u, std::memory_order_relaxed);
+        g_ffxSeen.fetch_add(fl::slseen::kCountOne, std::memory_order_relaxed);
+        break;
+    }
+    case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE:
+    case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2: {
+        const auto* prep = reinterpret_cast<const ffxDispatchDescFrameGenerationPrepareV2*>(desc);
+        NoteFfxExtent(prep->renderSize);
+        // frameID + 1, so 0 stays "no frame yet"; a NEW maximum counts, a re-issue of a
+        // frame already counted does not, and a large jump backwards (a level reload
+        // restarting the counter) re-bases rather than freezing the count at zero.
+        const uint64_t id = prep->frameID;
+        const uint64_t key = id + 1u;
+        uint64_t       seen = g_ffxMaxFrameKey.load(std::memory_order_relaxed);
+        for (;;) {
+            const bool     none = seen == 0u;
+            const uint64_t max = seen - 1u;
+            const bool     rebase = !none && max > id && max - id > kFrameIndexRebaseGap;
+            if (!none && !rebase && id <= max) {
+                break;
+            }
+            if (g_ffxMaxFrameKey.compare_exchange_weak(seen, key, std::memory_order_relaxed)) {
+                g_ffxPrepares.fetch_add(1u, std::memory_order_relaxed);
+                break;
+            }
+        }
+        break;
+    }
+    case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION:
+        g_ffxSeen.fetch_or(FL_FFX_SEEN_FG_DISPATCH, std::memory_order_relaxed);
+        break;
+    default:
+        g_ffxSeen.fetch_or(FL_FFX_SEEN_OTHER, std::memory_order_relaxed);
+        break;
+    }
+}
+
+// Three trampolines from one template, one per leaf slot: MinHook needs a distinct
+// detour address per patched target, and the leaf index is what lets the trampoline
+// find its own original. Every argument forwarded untouched, the original called
+// exactly once on every path including the fault path.
+template <uint32_t Leaf>
+ffxReturnCode_t Hook_FfxDispatchT(ffxContext* context, const ffxDispatchDescHeader* desc) {
+    static_assert(Leaf < fl::inventory::kFfxLeafCount, "a trampoline per leaf, and no more");
+    FL_HOOK_GUARD({
+        if (MayObserve()) {
+            ObserveFfxDispatch(Leaf, desc);
+        }
+    })
+    return g_origFfxDispatch[Leaf](context, desc);
+}
+
+void* FfxDispatchDetour(uint32_t leaf) noexcept {
+    switch (leaf) {
+    case fl::inventory::kFfxLeafMonolith:
+        return reinterpret_cast<void*>(&Hook_FfxDispatchT<fl::inventory::kFfxLeafMonolith>);
+    case fl::inventory::kFfxLeafUpscaler:
+        return reinterpret_cast<void*>(&Hook_FfxDispatchT<fl::inventory::kFfxLeafUpscaler>);
+    case fl::inventory::kFfxLeafFrameGeneration:
+        return reinterpret_cast<void*>(&Hook_FfxDispatchT<fl::inventory::kFfxLeafFrameGeneration>);
+    default:
+        return nullptr;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1147,7 +1364,68 @@ bool InstallByFamily(const wchar_t* module, const char* symbol, uint32_t family)
         return InstallRow(module, symbol, family, reinterpret_cast<void*>(&Hook_SlGetNewFrameToken),
                           reinterpret_cast<void**>(&g_origSlGetNewFrameToken), g_frameTokensLive);
     }
+    if (family == fl::inventory::kFamilyFfxDispatch) {
+        // THREE ROWS, ONE ARM: the row's MODULE picks the trampoline and the latch slot,
+        // because the three leaves export the same name and each must be patched at its
+        // own address. Per-leaf latches rather than one, so that on a UE5 title -- two
+        // leaves, loaded in whatever order the engine's plugin loads them -- the watchdog
+        // keeps trying the leaf that is not in yet after the other one is.
+        //
+        // PATCHED HERE, PUBLISHED IN PublishFfxFamilyIfWhole. InstallRow publishes the
+        // family the moment one target is in, which is right for a one-target row and
+        // wrong for this one: the family's three claims come from two different leaves
+        // on a 2.x title, so a family published on the first leaf entitles records the
+        // second leaf is not yet producing.
+        //
+        // A module the leaf table does not know installs NOTHING. fl_hook_inventory.h's
+        // static_asserts make that unreachable for the rows as written; this is the
+        // installer's safe direction for a row somebody adds later.
+        const int leaf = fl::inventory::FfxLeafOf(module);
+        if (leaf < 0) {
+            return false;
+        }
+        const auto slot = static_cast<uint32_t>(leaf);
+        if (g_ffxPatched[slot].load(std::memory_order_acquire) != 0) {
+            return true;
+        }
+        void* target = fl::inventory::ResolveScoped(module, symbol);
+        if (target == nullptr) {
+            return false;    // not loaded, or a module of the name that does not speak ffx-api
+        }
+        if (!PatchTarget(target, FfxDispatchDetour(slot), reinterpret_cast<void**>(&g_origFfxDispatch[slot]))) {
+            return false;
+        }
+        g_ffxPatched[slot].store(1, std::memory_order_release);
+        return true;
+    }
     return false;
+}
+
+// Publish kFamilyFfxDispatch once EVERY LEAF THE PROCESS HAS LOADED is patched, and
+// at least one is. Runs every watchdog tick after the rows, so a leaf that loads later
+// (a title enabling frame generation from its menu after launch) is patched on the
+// next tick; by then the family is already published, and the short window in which
+// that leaf's dispatches go unobserved is what the consumer's frames/upscale-drained
+// ratio exists to show. A leaf of the right NAME that ResolveScoped refuses keeps the
+// family unpublished for as long as it stays loaded -- the writer cannot claim what
+// it cannot read, and a partial claim is the defect this function exists to prevent.
+void PublishFfxFamilyIfWhole() noexcept {
+    if (g_ffxLive.load(std::memory_order_acquire) != 0) {
+        return;
+    }
+    bool anyPatched = false;
+    for (uint32_t i = 0; i < fl::inventory::kFfxLeafCount; ++i) {
+        if (g_ffxPatched[i].load(std::memory_order_acquire) != 0) {
+            anyPatched = true;
+            continue;
+        }
+        if (fl::inventory::IsModuleLoaded(fl::inventory::kFfxLeafModules[i])) {
+            return;    // loaded and not yet patched: the family is not whole
+        }
+    }
+    if (anyPatched) {
+        PublishHookFamily(fl::inventory::kFamilyFfxDispatch, g_ffxLive);
+    }
 }
 
 bool InstallUpscalerHooks() noexcept {
@@ -1155,6 +1433,7 @@ bool InstallUpscalerHooks() noexcept {
 #define FL_INSTALL_ROW(mod, sym, family) any = InstallByFamily(mod, sym, static_cast<uint32_t>(family)) || any;
     FL_HOOK_INVENTORY(FL_INSTALL_ROW)
 #undef FL_INSTALL_ROW
+    PublishFfxFamilyIfWhole();
     return any;
 }
 
@@ -1473,7 +1752,17 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     // mid-session settings change 03_METRICS §Upscaling segments on.
     const uint32_t seen = g_slSeen.exchange(0, std::memory_order_acq_rel);
 
-    if (g_upscalerIdentityLive.load(std::memory_order_relaxed) != 0) {
+    // The AMD word and count, drained beside the Streamline word and for the same
+    // reason. ALWAYS drained, whether or not anything below reads them: a count that
+    // is consumed only once its hook is live would latch through the install window
+    // and land whole on the first present after it.
+    const uint32_t ffx = g_ffxSeen.exchange(0, std::memory_order_acq_rel);
+    const uint32_t ffxPrepares = g_ffxPrepares.exchange(0u, std::memory_order_relaxed);
+    const uint32_t ffxUpscales = fl::slseen::FgEvals(ffx);
+    const bool     ffxLive = g_ffxLive.load(std::memory_order_relaxed) != 0;
+    const bool     ffxSaw = ffxUpscales != 0u || ffxPrepares != 0u;
+
+    if (g_upscalerIdentityLive.load(std::memory_order_relaxed) != 0 || ffxLive) {
         // A hook CAPABLE of answering was live for this frame, so the field may
         // be read. What it says is a separate question, below.
         rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_UPSCALER);
@@ -1505,14 +1794,29 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
             // same word. So the technology is DLSS and the RR axis stays where it is;
             // giving RR its own upscaler value would resurrect the conflation v3 removed.
             rec.upscaler = FL_UPSCALER_DLSS;
+        } else if (ffxUpscales != 0u) {
+            // AN UPSCALE DISPATCH REACHED AN ffx-api LEAF THIS PRESENT, and which leaf
+            // decides the byte. The SDK 1.1.x monolith (amd_fidelityfx_dx12.dll) hosts
+            // FSR 3.1 and nothing else, so it is FSR3 as a fact. The SDK 2.x upscaler
+            // DLL hosts FSR 3.1 AND FSR 4 behind the same UPSCALE type, the provider is
+            // chosen at context creation by an opaque version id, and the dispatch does
+            // not carry it -- so from that leaf the honest byte is "FSR, version not
+            // named" (fl_shm.h §FL_UPSCALER_FSR_UNVERSIONED): FSR3 would be right on
+            // every non-RDNA4 machine and a fabrication on one, and UNKNOWN would print
+            // the very N/A this arm exists to remove.
+            rec.upscaler = g_ffxUpscaleLeaf.load(std::memory_order_relaxed) == fl::inventory::kFfxLeafMonolith + 1u
+                               ? static_cast<uint8_t>(FL_UPSCALER_FSR3)
+                               : static_cast<uint8_t>(FL_UPSCALER_FSR_UNVERSIONED);
         } else {
             // UNKNOWN, AND NEVER `NONE`. FL_UPSCALER_NONE means "a hook ran and
             // there was genuinely no upscaler" -- the one state fl_shm.h allows
-            // to be aggregated as a negative. This writer hooks STREAMLINE and
-            // nothing else, so an FSR, XeSS or NGX-direct title evaluates its
-            // upscaler somewhere we are not looking. Reporting NONE would turn
-            // "we do not cover that vendor" into a measured fact about the
-            // title. UNKNOWN says the true thing: our coverage is short.
+            // to be aggregated as a negative. This writer hooks Streamline and the
+            // ffx-api leaves and nothing else, so an XeSS, NGX-direct or FSR 3.0
+            // (ffx_fsr3_x64.dll) title evaluates its upscaler somewhere we are not
+            // looking -- and so does an FSR title on a present that drained no
+            // dispatch, which under frame generation is every generated present.
+            // Reporting NONE would turn "we do not cover that vendor" into a measured
+            // fact about the title. UNKNOWN says the true thing: our coverage is short.
             //
             // It is also what an unrecognised feature id lands on
             // (FL_SL_SEEN_OTHER) -- a NEW Streamline feature we do not decode is
@@ -1559,6 +1863,25 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
             // and later.
             rec.upscalerSharpness = 0xFFu;
 
+            rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_UPSCALER_PARAMS);
+        }
+    } else if (ffxLive && ffxSaw) {
+        // THE SAME TWO CONDITIONS, ONE VENDOR OVER: an ffx-api leaf is hooked (we were
+        // in a position to read a descriptor) AND a dispatch drained THIS PRESENT, so
+        // the extent describes this frame and not a resolution the title stopped
+        // rendering at. renderSize is read off the UPSCALE or PREPARE descriptor itself.
+        const uint64_t ext = g_ffxExtent.load(std::memory_order_acquire);
+        if ((ext & kTagValid) != 0u) {
+            rec.renderW = static_cast<uint16_t>(ext & 0xFFFFu);
+            rec.renderH = static_cast<uint16_t>((ext >> 16) & 0xFFFFu);
+            // 0xFF for both, and for this vendor it is the TRUE value rather than a
+            // gap: the ffx-api dispatch carries no quality mode at all -- the
+            // FfxApiUpscaleQualityMode enum is an input to a QUERY the title makes
+            // before creating its context, never to the per-frame dispatch -- and no
+            // sharpness travels here either. A preset label derived from the measured
+            // ratio is HANDOFF item 7a's owner decision, not this byte's.
+            rec.upscalerQuality = 0xFFu;
+            rec.upscalerSharpness = 0xFFu;
             rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_UPSCALER_PARAMS);
         }
     }
@@ -1661,14 +1984,49 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     // The COUNT comes from slGetNewFrameToken: distinct frame tokens handed to the
     // title since the last present, i.e. application frames, on every Streamline 2
     // title including the ones that evaluate nothing through the other export.
-    if (g_upscalerIdentityLive.load(std::memory_order_relaxed) != 0) {
+    if (g_upscalerIdentityLive.load(std::memory_order_relaxed) != 0 || ffxLive) {
         const uint32_t evals = fl::slseen::FgEvals(seen);
-        rec.fgMode = evals != 0u ? static_cast<uint8_t>(FL_FG_DLSS_G) : static_cast<uint8_t>(FL_FG_UNKNOWN);
+        // FSR_FG when a generated batch came back through an ffx-api leaf's export this
+        // present; DLSS_G when a kFeatureDLSS_G evaluation drained; UNKNOWN otherwise,
+        // and never NONE -- `none` is the CONSUMER's verdict from the count
+        // (FgWindow.NoneCeiling), because from here "nothing was generated" and
+        // "generated somewhere we do not hook" are the same absence.
+        uint8_t mode = FL_FG_UNKNOWN;
+        if ((ffx & FL_FFX_SEEN_FG_DISPATCH) != 0u) {
+            mode = FL_FG_FSR_FG;
+        } else if (evals != 0u) {
+            mode = FL_FG_DLSS_G;
+        }
+        rec.fgMode = mode;
         rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_FG);
     }
-    if (g_frameTokensLive.load(std::memory_order_relaxed) != 0) {
+    if (g_frameTokensLive.load(std::memory_order_relaxed) != 0 || ffxLive) {
         const uint32_t tokens = g_frameTokens.exchange(0u, std::memory_order_relaxed);
-        rec.fgEvaluations = fl::slseen::SaturateToByte(tokens);
+
+        // WHICH COUNT, WHEN TWO VENDORS ARE IN THE PROCESS -- and on UE5 they routinely
+        // are (Hell Is Us: sl.interposer.dll AND both AMD leaves loaded whatever the menu
+        // says). Two latches, each one-way for the life of the process:
+        //
+        //   Streamline keeps precedence once it has EVER handed out a token
+        //   (g_maxFrameKey != 0). Every Streamline title validated on §S31's table is
+        //   then byte-identical to before the AMD rows existed, which is what a
+        //   validated producer is owed. A process where Streamline is loaded and idle --
+        //   the plugin present, the token never requested -- falls through to AMD.
+        //
+        //   On the AMD side, PREPARE's frameID once a PREPARE has EVER arrived
+        //   (g_ffxMaxFrameKey != 0), else the UPSCALE count. Choosing PER PRESENT would
+        //   double-count an application frame whose UPSCALE and PREPARE straddle a
+        //   present; the latch cannot. A title generating frames from the first frame
+        //   counts prepares throughout; a title with frame generation off never issues
+        //   one and counts upscales; a title that switches frame generation OFF
+        //   mid-session and stops preparing counts nothing from then on, which the
+        //   consumer refuses as a data gap rather than reading as 1.0 -- and which
+        //   03_METRICS says to segment on in any case.
+        const bool     slEver = g_frameTokensLive.load(std::memory_order_relaxed) != 0 &&
+                                g_maxFrameKey.load(std::memory_order_relaxed) != 0u;
+        const bool     ffxPreparesEver = g_ffxMaxFrameKey.load(std::memory_order_relaxed) != 0u;
+        const uint32_t ffxApp = ffxPreparesEver ? ffxPrepares : ffxUpscales;
+        rec.fgEvaluations = fl::slseen::SaturateToByte(slEver ? tokens : ffxApp);
         rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_FG_COUNTS);
     }
 

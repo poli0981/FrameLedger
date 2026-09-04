@@ -163,6 +163,22 @@ enum FlUpscaler : uint8_t {
     // across two languages is transcription risk for a cosmetic gain.
     FL_UPSCALER_NONE = 8,
 
+    // FSR THROUGH THE SDK 2.x UPSCALER DLL, VERSION NOT NAMED (2026-09-04). The
+    // ffx-api dispatch descriptor says "upscale" and not which provider answered:
+    // one amd_fidelityfx_upscaler_dx12.dll hosts FSR 3.1 AND FSR 4, the version is
+    // chosen at context creation through an opaque id the title got from ffxQuery,
+    // and reading that back is out of scope. FL_UPSCALER_FSR3 from that leaf would
+    // be right on every non-RDNA4 machine and a fabrication on one; FL_UPSCALER_UNKNOWN
+    // would print the very N/A the AMD hook exists to remove. So: FSR, measured,
+    // version unnamed -- while the SDK 1.1.x monolith, which hosts FSR 3.1 only,
+    // still decodes to FL_UPSCALER_FSR3. FSR4 stays reserved for a writer that can
+    // actually tell.
+    //
+    // AN ENUMERATOR, NOT A FIELD (the FL_FEAT_SL_UNDECODED precedent): no struct
+    // change, no FL_SHM_LAYOUT_VERSION bump, no fl-layout-dump entry. The byte and
+    // its offset are unchanged; ShmLayout.cs gains the same member.
+    FL_UPSCALER_FSR_UNVERSIONED = 9,
+
     FL_UPSCALER_UNKNOWN = 0xFF,
 };
 
