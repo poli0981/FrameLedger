@@ -19,6 +19,31 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **The SDK 2.x loader is the fourth AMD row, because three loader-shipping titles read silent
+  behind the leaf-only build.** The owner's run on #110 (thirteen captures, nine titles, one launch
+  each) landed rows A1–A3 exactly as pre-committed — Lies of P `Fsr3` / `FsrFg` / `118.98 → 238.02
+  (×2)` with the two per-frame counts agreeing at 1.00, `none` by count with frame generation off;
+  Hell Is Us `FSR (3.1 or 4 …)` / `FsrFg` / ×2 — and produced a row the table lacked: Dying Light:
+  The Beast at FSR + FSR frame generation, KCD2 at FSR and Black Myth: Wukong at FSR each dispatched
+  **zero** times at any leaf export while the leaves sat in the census. The game calls the loader's
+  export, and the signed loader reaches its providers through an object rather than the leaves'
+  `ffxDispatch`, so "five identical export tables leave it no other route" was wrong about the
+  loader. `amd_fidelityfx_loader_dx12.dll` is now an inventory row alongside the three leaves, the
+  `static_assert` that refused it asserts the opposite with the measurement in its message, the
+  loader stub forwards through the leaves' FrameLedger-named *direct* entry (never their export) to
+  model what was measured, `--probe-ffx-resolve` asserts the forward touched no leaf export, and a
+  third harness topology (`--ffx-topology ue`: the two effect DLLs called directly, no loader) keeps
+  the leaf detours exercised now that the loader case never reaches them. The K = 1 control with
+  all four modules hooked, and the consumer's `frames/upscale-drained`, are what would read 2× for a
+  loader that re-entered an export. Also from the run: Expedition 33 at FSR upscaling under DLSS
+  frame generation ×3 printed `×2.97`, *technology not identified*, from the UPSCALE count; Cyberpunk
+  at FSR 3 generates through the 1.1.x monolith (`FsrFg`) while upscaling through the deferred FSR
+  3.0 route; and **Rune Factory: Guardians of Azuma is HANDOFF 7b's statically linked title** — the
+  monolith ships beside it and is never loaded, yet the Streamline token count still read
+  `59.99 → 119.95 (×2 FG)`, so the ceiling for such a title is the trio with the vendor missing, not
+  Presented FPS alone. Owed: the three loader titles against §H11 row R6. `20_OPEN_QUESTIONS` §H11
+  carries the run table; `HANDOFF` 7b/7c and `spike-notes` §9 carry the corrections.
+
 - **AMD identity is measured through the ffx-api leaves, and the first non-NVIDIA vendor
   reaches the record.** HANDOFF item 7c. Lies of P at FSR 3.1 + frame generation printed
   `upscaler: N/A … frame generation: N/A` plus a census WARNING because the three AMD modules

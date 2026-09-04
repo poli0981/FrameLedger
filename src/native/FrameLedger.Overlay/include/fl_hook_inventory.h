@@ -129,7 +129,7 @@ static_assert((kFamilyEvaluateFeature & static_cast<uint32_t>(fl::FL_HOOK_FG_EVA
 
 // --- AMD FidelityFX, through the ffx-api facade (2026-09-04, HANDOFF item 7c) ----
 //
-// ONE FAMILY, THREE ROWS, THREE MODULES, AND EVERY ROW IS THE SAME EXPORT NAME.
+// ONE FAMILY, FOUR ROWS, FOUR MODULES, AND EVERY ROW IS THE SAME EXPORT NAME.
 // `ffxDispatch` is the single call an ffx-api title routes every per-frame piece
 // of work through -- the upscale, the frame-generation PREPARE, and the generated
 // batch -- and the DESCRIPTOR it is handed says which (ffxApiHeader::type, a value
@@ -141,32 +141,39 @@ static_assert((kFamilyEvaluateFeature & static_cast<uint32_t>(fl::FL_HOOK_FG_EVA
 // a compound constant, and it must differ from all three single-bit values above
 // because InstallByFamily binds by EQUALITY (dllmain.cpp).
 //
-// WHY THESE THREE MODULES, AND WHY NOT A FOURTH. Measured on installed titles,
-// 2026-09-04:
+// WHY THESE FOUR MODULES. Measured on installed titles, 2026-09-04:
 //
 //   amd_fidelityfx_dx12.dll                  SDK 1.1.x MONOLITH -- Lies of P, Cyberpunk 2077,
 //                                            Rune Factory, Black Myth: Wukong (1.0.1.41314)
 //   amd_fidelityfx_upscaler_dx12.dll         SDK 2.x effect DLL: the FSR 3.1 AND FSR 4 providers
 //   amd_fidelityfx_framegeneration_dx12.dll  SDK 2.x effect DLL: FSR 3.1 / FSR 4 frame generation
 //                                            and the frame-generation swapchain
-//   amd_fidelityfx_loader_dx12.dll           SDK 2.x LOADER: no effect code, forwards to the two above
+//   amd_fidelityfx_loader_dx12.dll           SDK 2.x LOADER: no effect code, hands the game's
+//                                            calls to the two above
 //
-// All four export the same five names and nothing else (docs/vendor-exports.json),
-// so the loader can reach an effect DLL only through the effect DLL's OWN exports
-// -- and a UE5 title ships the two effect DLLs with NO loader at all (Hell Is Us,
-// Expedition 33: the engine plugin compiles the MIT loader source in and calls the
-// leaves directly). Every route therefore ends at a LEAF, and the leaves are what
-// is hooked. Hooking the loader as well would count each dispatch TWICE on a
-// loader-shipping title, straight into fg_factor -- the exact defect the module
-// column exists to prevent, one vendor over. The loader's name is kept here ONLY
-// so a static_assert below can refuse it as a row, and so the fixtures can build a
-// forwarding decoy that proves the leaf count reads 1x with a loader in the chain.
+// THE ROW SET IS "WHATEVER MODULE THE GAME CALLS", AND THAT WAS MEASURED TWICE IN
+// ONE DAY, WITH OPPOSITE ANSWERS FOR THE LOADER. The first version of this table
+// hooked the three leaves and refused the loader as a row, on the argument that all
+// four modules export only the five ffx-api names, so the loader could reach an
+// effect DLL only through the effect DLL's own export -- and hooking both would
+// count every dispatch twice. The UE5 half of that held: Hell Is Us and Expedition
+// 33 ship the two effect DLLs with NO loader (the engine plugin compiles the MIT
+// loader source in) and their dispatches arrive at the leaves' exports, 1x. The
+// loader half did not: Dying Light: The Beast at FSR + FSR frame generation, Kingdom
+// Come: Deliverance II at FSR and Black Myth: Wukong at FSR each produced ZERO
+// dispatches at any leaf export while the leaves sat in the census -- the game
+// calls the LOADER's export, and however the signed loader reaches its providers
+// afterwards (the MIT source shows an "external provider" object, not an export
+// call), it is not through the leaves' ffxDispatch. So the loader IS the game's
+// entry on a loader-shipping title, and it is a row. The two counts the consumer
+// prints against each other (frames/upscale-drained) and the K = 1 control in the
+// fixtures are what would show a loader that re-entered a leaf's export: 2x on both.
 //
 // The effect-DLL split is NOT a guess about the vendor's internals: the FidelityFX
 // SDK's own getting-started text says the loader "only manages the loading of
 // effect type DLLs" and is "interface- and behavior-compatible with
 // amd_fidelityfx_dx12.dll". The monolith IS its own leaf -- SDK 1.1.x compiled the
-// providers in -- which is why it is a row and the loader is not.
+// providers in.
 inline constexpr uint32_t kFamilyFfxDispatch = static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY) |
                                                static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS) |
                                                static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS);
@@ -200,18 +207,22 @@ enum FfxLeaf : uint32_t {
     kFfxLeafMonolith = 0,           // amd_fidelityfx_dx12.dll -- SDK 1.1.x, FSR 3.1 only
     kFfxLeafUpscaler = 1,           // amd_fidelityfx_upscaler_dx12.dll -- SDK 2.x, FSR 3.1 or FSR 4
     kFfxLeafFrameGeneration = 2,    // amd_fidelityfx_framegeneration_dx12.dll -- SDK 2.x
-    kFfxLeafCount = 3,
+    kFfxLeafLoader = 3,             // amd_fidelityfx_loader_dx12.dll -- SDK 2.x, the game's entry on
+                                    // a loader-shipping title (measured: its leaves' exports stay silent)
+    kFfxLeafCount = 4,
 };
 
 inline constexpr const wchar_t* kFfxLeafModules[kFfxLeafCount] = {
     L"amd_fidelityfx_dx12.dll",
     L"amd_fidelityfx_upscaler_dx12.dll",
     L"amd_fidelityfx_framegeneration_dx12.dll",
+    L"amd_fidelityfx_loader_dx12.dll",
 };
 
-// NOT A ROW, and asserted so below. Named here for the static_assert and for the
-// forwarding decoy in tools/vendor-stubs, nowhere else.
-inline constexpr const wchar_t* kFfxLoaderModule = L"amd_fidelityfx_loader_dx12.dll";
+// The loader by name, for the fixtures: the decoy in tools/vendor-stubs stands in
+// for it and forwards to the two 2.x leaves the way the measurement says the real
+// one does -- NOT through their exports.
+inline constexpr const wchar_t* kFfxLoaderModule = kFfxLeafModules[kFfxLeafLoader];
 
 // constexpr string compares, so the bindings below are COMPILE errors rather than
 // runtime disagreements nobody runs. Case-sensitive: they compare this file's
@@ -264,16 +275,18 @@ inline int FfxLeafOf(const wchar_t* module) noexcept {
 // DOES carry -- that the DLSS-G plugin does not request tokens for the frames it
 // generates -- is what 20_OPEN_QUESTIONS §S31's pre-committed table exists to test
 // against a title's own x2 / x4 before a ratio near 1 may be read as "none".
-// THE THREE ffxDispatch ROWS ARE THE LEAVES, spelled as literals because Pass A's
-// parser reads literals; the static_asserts under the table bind these spellings to
-// kFfxLeafModules in both directions, so neither list can gain or lose a module alone.
+// THE FOUR ffxDispatch ROWS ARE THE MODULES A GAME CALLS, spelled as literals
+// because Pass A's parser reads literals; the static_asserts under the table bind
+// these spellings to kFfxLeafModules in both directions, so neither list can gain or
+// lose a module alone.
 #define FL_HOOK_INVENTORY(X)                                                                                           \
     X(L"sl.interposer.dll", "slEvaluateFeature", fl::inventory::kFamilyEvaluateFeature)                                \
     X(L"sl.interposer.dll", "slSetTag", fl::FL_HOOK_UPSCALER_PARAMS)                                                   \
     X(L"sl.interposer.dll", "slGetNewFrameToken", fl::FL_HOOK_FG_EVALUATIONS)                                          \
     X(L"amd_fidelityfx_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                                    \
     X(L"amd_fidelityfx_upscaler_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                           \
-    X(L"amd_fidelityfx_framegeneration_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)
+    X(L"amd_fidelityfx_framegeneration_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                    \
+    X(L"amd_fidelityfx_loader_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)
 
 // THE LEAF TABLE AND THE ROWS ARE BOUND TO EACH OTHER AT COMPILE TIME, BOTH WAYS.
 // A leaf without a row would be a trampoline slot nothing installs into; a row
@@ -309,16 +322,20 @@ constexpr bool AnyRowNames(const wchar_t* module) noexcept {
 }
 static_assert(FfxDispatchRowExistsFor(kFfxLeafModules[kFfxLeafMonolith]) &&
                   FfxDispatchRowExistsFor(kFfxLeafModules[kFfxLeafUpscaler]) &&
-                  FfxDispatchRowExistsFor(kFfxLeafModules[kFfxLeafFrameGeneration]),
+                  FfxDispatchRowExistsFor(kFfxLeafModules[kFfxLeafFrameGeneration]) &&
+                  FfxDispatchRowExistsFor(kFfxLeafModules[kFfxLeafLoader]),
               "every ffx leaf needs its ffxDispatch row, spelled identically -- a leaf with no row is a trampoline "
               "slot nothing installs into");
 static_assert(EveryFfxDispatchRowIsALeaf(),
               "an ffxDispatch row names a module the leaf table does not know -- InstallByFamily would resolve it "
               "and find no trampoline slot, and install nothing without saying so");
-static_assert(!AnyRowNames(kFfxLoaderModule),
-              "amd_fidelityfx_loader_dx12.dll is a FORWARDER and must never be a row: it reaches the effect DLLs "
-              "through their own ffxDispatch exports, so hooking it as well counts every dispatch twice, straight "
-              "into fg_factor");
+// The reverse of what this line said on the morning of 2026-09-04, and the evening's
+// measurement is why: three loader-shipping titles at FSR produced zero dispatches at
+// any leaf export, so the loader is where a game's calls arrive and it MUST be a row.
+static_assert(AnyRowNames(kFfxLoaderModule),
+              "amd_fidelityfx_loader_dx12.dll is the game's entry on a loader-shipping title (Dying Light: The "
+              "Beast, KCD2, Wukong measured 2026-09-04: zero dispatches at any leaf export while FSR ran), so "
+              "without a row those titles read N/A");
 
 // Does this module speak the Streamline 2 ABI the vendored headers describe?
 //

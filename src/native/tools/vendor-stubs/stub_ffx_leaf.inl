@@ -53,6 +53,37 @@ volatile LONG g_prepareV2 = 0;
 volatile LONG g_frameGeneration = 0;
 volatile LONG g_other = 0;
 volatile LONG g_contexts = 0;
+// Calls that entered through the EXPORT, as opposed to the direct entry below. The
+// loader decoy forwards through the direct entry -- the shape measured on the
+// loader-shipping titles, whose leaf exports stayed silent -- so a test can assert
+// that a dispatch pushed through the loader was counted once, at the leaf, and did
+// NOT re-enter this export (which is the double count the Overlay's loader row
+// would produce if the real loader forwarded that way).
+volatile LONG g_exportCalls = 0;
+
+ffxReturnCode_t DispatchBody(const ffxDispatchDescHeader* desc) {
+    if (desc == nullptr) {
+        return FFX_API_RETURN_ERROR_PARAMETER;
+    }
+    switch (desc->type) {
+    case FFX_API_DISPATCH_DESC_TYPE_UPSCALE:
+        InterlockedIncrement(&g_upscale);
+        break;
+    case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE:
+        InterlockedIncrement(&g_prepare);
+        break;
+    case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2:
+        InterlockedIncrement(&g_prepareV2);
+        break;
+    case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION:
+        InterlockedIncrement(&g_frameGeneration);
+        break;
+    default:
+        InterlockedIncrement(&g_other);
+        break;
+    }
+    return FFX_API_RETURN_OK;
+}
 
 }    // namespace
 
@@ -93,27 +124,22 @@ FFX_API_ENTRY ffxReturnCode_t ffxQuery(ffxContext* context, ffxQueryDescHeader* 
 // Overlay read it from the argument and not from anything this stub produced.
 FFX_API_ENTRY ffxReturnCode_t ffxDispatch(ffxContext* context, const ffxDispatchDescHeader* desc) {
     (void)context;
-    if (desc == nullptr) {
-        return FFX_API_RETURN_ERROR_PARAMETER;
-    }
-    switch (desc->type) {
-    case FFX_API_DISPATCH_DESC_TYPE_UPSCALE:
-        InterlockedIncrement(&g_upscale);
-        break;
-    case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE:
-        InterlockedIncrement(&g_prepare);
-        break;
-    case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2:
-        InterlockedIncrement(&g_prepareV2);
-        break;
-    case FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION:
-        InterlockedIncrement(&g_frameGeneration);
-        break;
-    default:
-        InterlockedIncrement(&g_other);
-        break;
-    }
-    return FFX_API_RETURN_OK;
+    InterlockedIncrement(&g_exportCalls);
+    return DispatchBody(desc);
+}
+
+// The DIRECT entry: the same counting, NOT through the ffx-api export, which is how
+// the loader decoy reaches this leaf -- the shape the real loader was measured to
+// have. FrameLedger-named, so nothing here pretends to be part of a vendor API, and
+// never an inventory row.
+__declspec(dllexport) ffxReturnCode_t FlStubFfxDispatchDirect(ffxContext* context, const ffxDispatchDescHeader* desc) {
+    (void)context;
+    return DispatchBody(desc);
+}
+
+// How many dispatches entered through the EXPORT (the hooked one), whichever type.
+__declspec(dllexport) unsigned int FlStubFfxExportCalls() {
+    return static_cast<unsigned int>(InterlockedCompareExchange(&g_exportCalls, 0, 0));
 }
 
 // FrameLedger-named observers, so nothing here pretends to be part of a vendor API.

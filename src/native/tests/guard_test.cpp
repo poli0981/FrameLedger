@@ -3260,10 +3260,11 @@ struct FfxObservation {
 // off -- for the reason ObserveFg gives: two hand-written cases let one acquire a
 // tolerance the other does not have, and the pair stops discriminating the moment
 // they differ.
-bool ObserveFfx(int presentsPerEval, bool topology2x, bool prepare, fl::FlUpscaler expected, FfxObservation& out) {
+bool ObserveFfx(int presentsPerEval, const wchar_t* topology, bool prepare, fl::FlUpscaler expected,
+                FfxObservation& out) {
     Child        child;
     std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --presents-per-eval " +
-                       std::to_wstring(presentsPerEval) + (topology2x ? L" --ffx-topology 2x" : L" --ffx-topology 1x") +
+                       std::to_wstring(presentsPerEval) + L" --ffx-topology " + topology +
                        (prepare ? L"" : L" --ffx-no-prepare") + L" --hold-presenting-ffx 14";
     STARTUPINFOW si{};
     si.cb = sizeof(si);
@@ -3429,17 +3430,20 @@ void AssertFfxWindow(const FfxObservation& obs, int k) {
 
 }    // namespace
 
-TEST_CASE("FSR through the SDK 2.x leaves behind a loader: identified, extent exact, and the count tracks K",
+TEST_CASE("FSR through the SDK 2.x loader: identified, extent exact, the count tracks K, and nothing is counted twice",
           "[guard][inject][shm][ffx]") {
-    // THE LOADER IS IN THE CHAIN AND IS NOT HOOKED. Every dispatch enters through the
-    // loader decoy's ffxDispatch and reaches a leaf through the leaf's, so a writer that
-    // had a row for the loader would count each one twice -- and the K = 1 control below
-    // would read 2.0 where it must read 1.0. That is the property the rows' leaf-only
-    // scoping claims, made falsifiable.
+    // THE LOADER IS IN THE CHAIN AND IS HOOKED, AND SO ARE THE LEAVES BEHIND IT. The
+    // game calls the loader's export -- measured on Dying Light: The Beast, KCD2 and
+    // Wukong, whose leaf exports stayed silent under the leaf-only build -- and the
+    // stub forwards the way the real one was measured to: through the leaves' direct
+    // entry, not their export. So every dispatch is counted once, at the loader, and
+    // the K = 1 control below reads 1.0. A loader that re-entered a leaf's export would
+    // be counted at both and read 2.0 here, which is exactly the shape the row set
+    // must never ship.
     for (const int k : {1, 4}) {
         CAPTURE(k);
         FfxObservation obs;
-        REQUIRE(ObserveFfx(k, /*topology2x=*/true, /*prepare=*/true, fl::FL_UPSCALER_FSR_UNVERSIONED, obs));
+        REQUIRE(ObserveFfx(k, L"2x", /*prepare=*/true, fl::FL_UPSCALER_FSR_UNVERSIONED, obs));
         AssertFfxWindow(obs, k);
 
         // The census sees the two SDK 2.x leaves by name and NOT the monolith -- and
@@ -3461,13 +3465,31 @@ TEST_CASE("the SDK 1.1.x monolith is FSR3; with no PREPARE the count falls back 
     for (const int k : {1, 4}) {
         CAPTURE(k);
         FfxObservation obs;
-        REQUIRE(ObserveFfx(k, /*topology2x=*/false, /*prepare=*/k > 1, fl::FL_UPSCALER_FSR3, obs));
+        REQUIRE(ObserveFfx(k, L"1x", /*prepare=*/k > 1, fl::FL_UPSCALER_FSR3, obs));
         AssertFfxWindow(obs, k);
 
         CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_DX12) != 0u);
         CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_UPSCALER) == 0u);
         CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_FRAMEGENERATION) == 0u);
     }
+}
+
+TEST_CASE("the UE5 shape: the two SDK 2.x leaves called directly, no loader in the process",
+          "[guard][inject][shm][ffx]") {
+    // Hell Is Us and Expedition 33 -- the engine plugin compiles the MIT loader in and
+    // calls the effect DLLs' exports itself. With the loader hooked as well, this is the
+    // case that keeps the LEAF detours exercised: the loader case above never reaches
+    // them (the forward is direct), so a leaf trampoline that stopped working would be
+    // invisible there. K = 4 only: no forwarder is in this chain, so the double-count
+    // control has nothing to control for, and the frame-generation shape is the one
+    // that touches both leaves.
+    FfxObservation obs;
+    REQUIRE(ObserveFfx(4, L"ue", /*prepare=*/true, fl::FL_UPSCALER_FSR_UNVERSIONED, obs));
+    AssertFfxWindow(obs, 4);
+
+    CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_UPSCALER) != 0u);
+    CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_FRAMEGENERATION) != 0u);
+    CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_DX12) == 0u);
 }
 
 namespace {

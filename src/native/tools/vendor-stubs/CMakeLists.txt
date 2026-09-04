@@ -62,13 +62,13 @@ set_target_properties(fl_stub_sl_interposer_v1 PROPERTIES
 
 # --- AMD FidelityFX (ffx-api) -------------------------------------------------
 #
-# THREE LEAVES AND A FORWARDER. The three modules the Overlay hooks all export the
-# same five ffx-api names (docs/vendor-exports.json), and so does the SDK 2.x
-# loader, which forwards to the two effect DLLs and is deliberately NOT an
-# inventory row. The fixture reproduces exactly that shape: the harness binds the
-# loader stub to the two 2.x leaf stubs and dispatches THROUGH it, so "the leaf
-# count reads 1x with a loader in the chain" is a property the [ffx] tests can
-# falsify rather than a comment in fl_hook_inventory.h.
+# THREE LEAVES AND THE LOADER, ALL FOUR HOOKED. The four modules export the same
+# five ffx-api names (docs/vendor-exports.json). The loader was first a decoy that
+# must never be hooked; three loader-shipping titles at FSR then produced zero
+# dispatches at any leaf export (2026-09-04), so it is a row, and this stub forwards
+# to the two 2.x leaves through their DIRECT entry -- the measured shape -- so "a
+# dispatch through the loader is counted once with everything hooked" is a property
+# the [ffx] tests can falsify rather than a comment in fl_hook_inventory.h.
 #
 # Distinct output names, so no output-directory games are needed here.
 fl_add_vendor_stub(fl_stub_ffx_dx12 "amd_fidelityfx_dx12" stub_amd_fidelityfx_dx12.cpp)

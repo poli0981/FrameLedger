@@ -246,8 +246,10 @@ F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the 
 > frame-generation **PREPARE** once per application frame carrying `frameID` (documented by the
 > vendor as *"must increment by exactly one for each frame"*), and a **FRAMEGENERATION** dispatch
 > per generated batch, sent back through the same export from the title's own callback. The Overlay
-> detours `ffxDispatch` on the three modules that actually run the effects — the SDK 1.1.x monolith
-> and the two SDK 2.x effect DLLs, never the 2.x loader that forwards to them — and:
+> detours `ffxDispatch` on the four modules a game calls — the SDK 1.1.x monolith, the two SDK 2.x
+> effect DLLs, **and the SDK 2.x loader**, which turned out to be the entry on loader-shipping titles
+> with the effect DLLs' exports silent behind it (measured the evening the leaf-only build shipped;
+> §H11 row R6) — and:
 >
 > - `fgEvaluations` is the number of **new** `frameID`s the PREPARE dispatches carried between two
 >   presents — this vendor's `slGetNewFrameToken`, keyed the same way (a monotone maximum, so a

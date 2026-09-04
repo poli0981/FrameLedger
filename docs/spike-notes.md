@@ -1705,11 +1705,26 @@ one launch per capture, consent granted after launch. Exit codes and full report
   | Cyberpunk 2077 (also) | `ffx_fsr3_x64.dll`, `ffx_backend_dx12_x64.dll`, `ffx_frameinterpolation_x64.dll`, `ffx_fsr3upscaler_x64.dll`, `ffx_opticalflow_x64.dll` | FSR 3.0 host DLLs, named exports — the deferred route |
 
   Every module in the ffx-api family exports the same five names and nothing else
-  (`vendor-exports.json`), so the loader can only reach a leaf through the leaf's own export —
-  which is why the rows are the leaves and never the loader. **No statically linked FSR title is
-  installed** (HANDOFF 7b): every FSR title above ships its DLLs. **Owed, one launch each, against
-  `20_OPEN_QUESTIONS` §H11's table:** Lies of P at FSR + FG (A1) and FSR alone (A2), Hell Is Us at
-  FSR (A3) — read the `ffx dispatch census` line and the trio.
+  (`vendor-exports.json`) — which the morning read as "the loader can only reach a leaf through
+  the leaf's own export, so the rows are the leaves and never the loader". **The evening's run
+  reversed that** (below): on the three loader-shipping titles the leaves' exports stayed silent
+  while FSR ran, so the loader is the game's entry and is now a row. ~~**No statically linked FSR
+  title is installed**~~ — shipping is not loading: Rune Factory ships the monolith and never
+  loads it.
+
+- **2026-09-04 evening, thirteen captures across nine titles under the leaf-only build (#110), one
+  launch each** — the full table with the settings the owner set is in `20_OPEN_QUESTIONS` §H11.
+  In one line each: **Lies of P** `Fsr3` / `FsrFg` / `118.98 → 238.02 (×2)` / counts agree 1.00,
+  and `none` by count with FG off; **Hell Is Us** `FSR (3.1 or 4 …)` / `FsrFg` / ×2 / 1.00, and
+  `none` with FG off; **Expedition 33** FSR upscale under DLSS FG ×3 → `×2.97`, *technology not
+  identified*, count from UPSCALE dispatches (no PREPARE, no token); **Cyberpunk** at FSR 3: the FSR
+  3.0 host DLLs upscale (`upscaler: N/A`, deferred route) while the 1.1.x monolith generates
+  (`FsrFg`, 4261 batches, ×2); **Dying Light: The Beast** (FSR + FSR FG), **KCD2** (FSR) and
+  **Wukong** (FSR): **zero dispatches at any leaf export**, `upscaler: N/A` — the loader-row
+  reversal; **Rune Factory** (FSR FG): no AMD module in the census, `59.99 → 119.95 (×2)` from
+  Streamline tokens, *technology not identified* — 7b's statically linked title, with the count
+  surviving and the identity not. **Owed after the loader row:** the three loader titles again,
+  against row R6.
 
 ## 10 · Telemetry layering
 

@@ -731,10 +731,15 @@ hole; it does not close it.
 - **The only cheap improvement is wording**, and it is already in: the qualifier says
   *statically linked FSR3-FG … outside what this can see*. If a title is found, the first PR is
   a `spike-notes` row and a `20_OPEN_QUESTIONS` §Scope entry with the measured shape, not code.
-- **Measured 2026-09-04: no such title is installed.** Both Steam libraries scanned to full
-  depth — every FSR title ships its DLLs (the SDK 1.1.x monolith, the SDK 2.x effect DLLs, or
-  Red Dead Redemption 2's `ffx_fsr2_api_*` set); the module topology per title is in
-  `spike-notes` §9. So this item stays a boundary row in §Scope decisions, not work.
+- ~~**Measured 2026-09-04: no such title is installed.**~~ **Found the same evening, by running
+  rather than by scanning: Rune Factory: Guardians of Azuma.** The scan was right that every FSR
+  title *ships* its DLLs — Rune Factory ships the 1.1.x monolith — and wrong to read shipping as
+  loading: with FSR frame generation on, the census has **no AMD module at all**, so the plugin's
+  FSR 3 is compiled in. And the ceiling is better than this entry feared: Streamline's frame
+  token is requested on that UE5 title regardless, so the count read `59.99 → 119.95 (×2 FG)`,
+  *technology not identified* — the trio, with the vendor missing. Identity by name stays out of
+  reach; §Scope decisions carries the corrected row. A disk scan cannot find this shape; a
+  capture with the census line can.
 
 #### ~~7c. AMD and Intel identity, measured rather than inferred~~ — **AMD LANDED 2026-09-04; Intel closed; the owner's three launches are owed**
 
@@ -745,14 +750,18 @@ the K = 1 / K = 4 pair runs on both vendor shapes, and the acceptance table is p
 `20_OPEN_QUESTIONS` §H11 (rows A1–A3, R1–R5). Status is in `CHANGELOG.md` and §H11. **Three
 corrections to the entry below, each of which changed what got built:**
 
-- **Scope to the LEAVES, not "the facade".** Step 2 says *"module-scope every row to the facade
-  … the plugin modules are called by the facade"*. Measured: SDK 2.x's `amd_fidelityfx_loader_dx12.dll`
-  contains no effect code and can reach an effect DLL only through the effect DLL's own five
-  exports; Hell Is Us and Expedition 33 ship the two effect DLLs with **no loader at all** (the UE
-  plugin compiles the MIT loader source in). So the rows are the three leaves — the 1.1.x
-  monolith and the two 2.x effect DLLs — and the loader is refused as a row by `static_assert`.
-  Hooking "the facade" on a loader-shipping title would have hooked the forwarder, and hooking
-  both would have counted every dispatch twice.
+- **Scope to the modules a GAME CALLS — the three leaves AND the SDK 2.x loader — not "the
+  facade", and this bullet reversed itself within the day.** Step 2 says *"module-scope every row
+  to the facade … the plugin modules are called by the facade"*. The morning's build hooked the
+  three leaves only and refused the loader by `static_assert`, arguing that five identical export
+  tables leave the loader no route to a leaf but the leaf's own export, so hooking both would
+  double-count. The UE5 half held — Hell Is Us and Expedition 33 ship the two effect DLLs with
+  **no loader** and their dispatches arrive at the leaves, 1×. **The loader half did not:** Dying
+  Light: The Beast at FSR + FSR FG, KCD2 at FSR and Wukong at FSR produced **zero** dispatches at
+  any leaf export (§H11's run table, row R6). The signed loader reaches its providers through an
+  object, not an export. So the row set is *whatever module the game calls*: four rows, the
+  loader's stub forwards through the leaves' direct entry to model the measurement, and the
+  K = 1 control with all four hooked is what would show a loader that re-entered an export.
 - **`ffxCreateContext` is not a row.** Identity comes off the UPSCALE dispatch's type — per
   frame, so it says *running* rather than *created* — and a create-context row's honest family
   is `UPSCALER_IDENTITY` alone, which collides with `slEvaluateFeature`'s under the installer's
@@ -761,12 +770,15 @@ corrections to the entry below, each of which changed what got built:**
   since 2026-08-14, self-tested. Pass C gained the **export** table instead, because `ffx_api.h`
   declares its entry points `__declspec(dllexport)` unconditionally.
 
-**What the owner's runs settle** (one launch each, §H11's table): A1 Lies of P at FSR + FG prints
-`upscaler: Fsr3` / `frame generation: FsrFg` and the trio at ≈ ×2 with `frames/upscale-drained ≈ 1.00`;
-A2 the same title with FG off reads `none` by count; A3 Hell Is Us at FSR prints the
-`FSR (3.1 or 4 …)` identity and shows which vendor's count the latch chose. **The FSR 3.0 host
-route (`ffx_fsr3_x64.dll`, step 3 below) is deferred to its own PR** — ten host headers from
-`v1.1.4`, one title here to test on.
+**Run 2026-09-04 evening, thirteen captures, §H11's table:** A1–A3 landed as pre-committed
+(`Fsr3` / `FsrFg` / ×2.00 / 1.00 on Lies of P; `none` by count with FG off; `FSR (3.1 or 4 …)` /
+`FsrFg` / ×2 on Hell Is Us), Expedition 33 showed the mixed-vendor shape (FSR upscale + DLSS FG ×3
+→ *active, technology not identified* at ×2.97), Cyberpunk at FSR 3 split across two AMD
+generations, and **Rune Factory turned out to be 7b's statically linked title** with the Streamline
+token count still reading ×2. **Owed after the loader row lands:** Dying Light: The Beast at
+FSR + FSR FG, KCD2 at FSR, Wukong at FSR — against row R6. **The FSR 3.0 host route
+(`ffx_fsr3_x64.dll`, step 3 below) is deferred to its own PR** — ten host headers from `v1.1.4`;
+Cyberpunk at FSR 3 is its oracle and already prints `FsrFg` from the monolith beside it.
 
 <details>
 <summary>The entry as it stood, kept for the reasoning it carries</summary>
