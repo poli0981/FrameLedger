@@ -127,6 +127,43 @@ Writing our own IGCL declarations to avoid vendoring the headers is **not an app
 
 **NVIDIA NGX / Streamline, AMD FidelityFX, Intel XeSS runtimes** — not loaded and not redistributed by us at all. We observe the calls the *game* makes to the copies it ships (`17_HOOK_ENGINE`). No vendor code is distributed by FrameLedger.
 
+**AMD FidelityFX SDK headers** — *checklist run 2026-09-04, CLEAR for the API headers; not yet vendored.*
+Read off the upstream repository through the GitHub API, not from memory:
+
+- **Tag `v1.1.4`** (the last 1.x, the FSR 3.1.x API the installed titles ship): the root
+  `LICENSE.txt` is the MIT grant verbatim, and every header of interest carries the same grant
+  inline — `ffx-api/include/ffx_api/{ffx_api.h, ffx_api_types.h, ffx_api_loader.h,
+  ffx_upscale.h, ffx_framegeneration.h, dx12/ffx_api_dx12.h, vk/ffx_api_vk.h}` and the FSR 3.0
+  host API `sdk/include/FidelityFX/host/{ffx_fsr3.h, ffx_fsr3upscaler.h,
+  ffx_frameinterpolation.h, ffx_opticalflow.h, ffx_types.h, ffx_error.h, ffx_interface.h,
+  ffx_util.h, ffx_assert.h}`. None of step 2's needles appear. **Vendor from this tag.**
+- **`main` (SDK 2.x, pushed 2026-06-24)** is a different shape and is the reason the tag is
+  named: its repository-level `docs/license.md` is a **binary-only, no-reverse-engineering**
+  licence that "applies to all files except as noted below" — and the 845-line exception list
+  *does* name `Kits/FidelityFX/api/include/*.h`, `Kits/FidelityFX/framegeneration/include/*.h`
+  and `Kits/FidelityFX/upscalers/fsr3/include/*.h`, which carry the MIT grant inline. So the
+  API headers on `main` are MIT too, but only by exception, and `license-check.ps1` would have
+  to assert the exception rather than a root licence. Take `v1.1.4` unless a title ships an API
+  version that needs 2.x.
+- Types-only, never linked, with a consumer in the same commit — the Streamline rules
+  (`src/native/third_party/streamline/README.md`), and `hookinventory-check` Pass C's
+  forbidden-import list must gain `amd_fidelityfx_*.dll` / `ffx_*.dll` in the same PR.
+
+**Intel XeSS SDK** — *checklist run 2026-09-04, REJECTED; the same class as NGX.* The repository
+<https://github.com/intel/xess> ships `LICENSE.txt` = **Intel Simplified Software License
+(October 2022)**: the grant is for the software *"provided in binary form only"*, it forbids
+*"reverse engineering, decompilation, or disassembly … nor any modification"*, and it carries
+its own **termination** clause — two of step 2's needles. The headers under `inc/` (`xess/xess.h`,
+`xess/xess_d3d12.h`, `xess_fg/xefg_swapchain.h`, `xess_fg/xefg_swapchain_d3d12.h`, `xell/*.h`)
+carry no MIT text; each opens *"Intel copyrighted materials … you may not use, modify, copy,
+publish, distribute … without Intel's prior written permission."* Step 3 therefore binds:
+**do not vendor, and do not re-declare the API.** What remains in policy for Intel is the
+census (module presence by name) and, if the owner wants it, **counting calls to a named export
+without declaring its signature** — a register-preserving thunk that increments a counter and
+jumps to the original reads no argument and declares no type; it is the one route that is
+neither a vendoring nor a re-declaration, and it is an owner decision because it needs an
+assembly source in the Overlay's build.
+
 ### Checklist before adding any vendor SDK
 
 1. Is it MIT / BSD / Apache-2.0 / MPL-2.0? → proceed, add the licence copy, done.

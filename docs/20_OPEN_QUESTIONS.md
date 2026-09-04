@@ -29,6 +29,7 @@ Rules for this document:
 | — | **`ci.yml` is repo-local**, not a caller stub | The ops repo's `reusable-desktop-csharp.yml` runs `dotnet` directly with no native pre-step input, and `12_BUILD` requires CI and local to run the same script |
 | — | **No `v1 → v2` migration** | Nothing shipped, so no such database exists. `0001_init.sql` creates the current schema |
 | — | ~~**Multi-process titles are refused as `TargetAmbiguous` in v1**~~ — **the Chromium case is RESOLVED the same day (2026-09-03), by the vendor's own label** | Chromium-based runtimes — NW.js, Electron, RPG Maker MV/MZ, a large share of the VN catalogue — run several processes from ONE image path (browser, renderer, GPU), and *Flower in Us* refused as `TargetAmbiguous`. The presenting process is Chromium's GPU process, which owns no window, so "the one with the window" and "the parent" were both wrong picks. **What resolves it:** Chromium marks that process with `--type=gpu-process` on its own command line. `TargetResolver` now reads each candidate's command line through `NtQueryInformationProcess(ProcessCommandLineInformation)` — **served by the kernel, no `ReadProcessMemory`, no PEB walk, `PROCESS_QUERY_LIMITED_INFORMATION` only**, which is the rule-4 line `HeldProcessHandle` already draws — and resolves only when **exactly one** readable candidate carries the flag as a whole argument. Two GPU processes (two instances), none, or any unreadable candidate still refuse. §S27 is untouched: consent is keyed on the path, every candidate is that path, the guard scans the pid chosen, and `--pid` stays forbidden. **Measured the same evening, and the first rule did not fire:** *Flower in Us* runs **six** processes — browser, `crashpad-handler`, three `utility`, `renderer` — and **no `--type=gpu-process` at all**. NW.js runs the GPU **in-process, in the browser**, which is the one process Chromium leaves untyped. Second rule added: exactly one untyped candidate, every other candidate typed, no GPU process ⇒ the browser is the target; two untyped candidates are two instances and refuse. The refusal line now prints the tree (`browser=1, renderer=1, utility=3, …`) so the next unknown shape is data rather than a bare `TargetAmbiguous`. **Still unmeasured:** whether the Overlay loads and sees presents inside that browser process |
+| — | **A title whose upscaler or frame generation is compiled into its executable is Presented FPS + the census's qualifier, in attach mode, and that is the ceiling** (recorded 2026-09-04) | No module for the census, no export for the inventory: nothing by name. What survives static linking is behaviour on interfaces we hook — the FSR3 frame-generation proxy swapchain at *creation* (launch mode only, §S1 deferred) and queue-side cadence with no vendor name on it (rung 3 at best, and without an application-frame count). The report's qualifier already names the hole ("statically linked FSR3-FG … outside what this can see"). **No installed title has this shape** — every FSR title here ships its DLLs — so this row is a boundary, not a deferral of work: find such a title before costing anything (`HANDOFF` item 7b) |
 | — | ~~**Tier 2 requires an elevated Agent**~~ | **CLOSED 2026-08-28 by the two-rung ladder.** The requirement came from Windows restricting ETW trace sessions; there is no ETW rung, so **no capture tier needs elevation**. Elevation is optional everywhere and buys exactly two things (CPU temperatures via PawnIO, attaching to elevated targets — ADR-9). An unelevated Agent whose Tier-1 attempt fails lands on Tier 2, which is what every unhooked session lands on regardless of privilege |
 
 ---
@@ -3301,6 +3302,21 @@ turns a would-be STL throw into `__fastfail`, which SEH cannot intercept
 load-bearing rather than stylistic.
 
 ### H11 🅓 · XeFG and FSR3-FG have no in-policy identity route — **deferred 2026-08-20 with a written rationale**
+
+> **The deferral has a next step as of 2026-09-04, and it is `HANDOFF` item 7c.** The Streamline
+> work built every tool this needs — module-scoped inventory rows, types-only vendoring with a
+> consumer in the same commit, `hookinventory-check` Pass A–D, the K = 1 / K = 4 harness pair,
+> and a per-frame count validated against a title's own menu — and Lies of P (FSR 3.1 FG on,
+> `amd_fidelityfx_dx12.dll` alone) is the title that shows what this deferral costs today:
+> `upscaler: N/A`, `frame generation: N/A`, a WARNING, no factor. The first move is the one this
+> entry names and nobody had made: **run the licence checklist on the FidelityFX and XeSS SDK
+> headers.** ~~Both are published under MIT~~ — **run 2026-09-04, and the sentence struck was
+> wrong about Intel.** FidelityFX at tag `v1.1.4` is MIT root-and-inline and is clear to vendor
+> types-only; the XeSS SDK is the Intel Simplified Software License (binary-only grant,
+> no-reverse-engineering, termination) and its headers say they may not be copied without
+> Intel's permission, so step 3 binds and XeSS stays where NGX is. `18_GPU_VENDOR_APIS` §Vendor
+> SDKs carries both decisions with the evidence. **So 7c is AMD only**, plus one owner decision
+> for Intel: a signature-free call counter on a named export.
 
 HANDOFF item 3 asks for this to be *deferred with a written rationale rather than
 guessed*, and this is that rationale. The deferral is the decision; it is not a

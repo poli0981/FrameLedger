@@ -71,6 +71,10 @@ Telemetry is layered so no proprietary vendor licence is ever required (`docs/18
 
 **AMD ADLX / ADL** — not used. LibreHardwareMonitor already covers AMD sensors under a GPL-compatible licence, so there is no reason to take on an additional vendor licence.
 
+**Intel XeSS SDK** (`inc/xess/*.h`, `inc/xess_fg/*.h`, `inc/xell/*.h`, and the `libxess*.dll` binaries) — rejected on licence grounds, 2026-09-04. The repository's `LICENSE.txt` is the Intel Simplified Software License (October 2022): a binary-form-only grant with a no-reverse-engineering clause and a termination clause, and the headers themselves state they may not be used, copied or distributed without Intel's written permission. As with NGX, the headers are neither vendored nor re-declared; the runtime is observed by module name only (`docs/18_GPU_VENDOR_APIS.md` §Vendor SDKs we deliberately do not use).
+
+*(Pending, not yet vendored: the **AMD FidelityFX SDK** API headers at tag `v1.1.4` are MIT — root `LICENSE.txt` and every header inline — and cleared the same checklist the same day. When they are vendored, a row goes in the table above with the tag and the file list, exactly as Streamline's does.)*
+
 Any proposal to add a vendor SDK must first pass the checklist in `docs/18_GPU_VENDOR_APIS.md` §Checklist, and the decision — including rejections and their reasons — must be recorded there.
 
 ## Interoperates with (not bundled)

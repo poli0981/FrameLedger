@@ -1226,6 +1226,10 @@ to prove themselves.
 | **Black Myth: Wukong** (2026-08-20, RT High · FG ×4 · Balanced) | ⬜ `Unknown` — *coverage short, not the title's* | ⬜ | ⬜ no local tag | ◐ `presents / RT-active` = **4.0000** as a PROXY | ✅ **`Yes`** | **2 of 5** |
 | **Rune Factory: Guardians of Azuma** (2026-08-20, no RT option · FG ×6 via NVIDIA App · DLAA) | ⬜ `Unknown` | ⬜ | ⬜ no local tag | ⬜ nothing observed | ✅ **`No`** | **1 of 5** |
 | **Cyberpunk 2077** (2026-08-20, **all RT off** · RR off · MFG ×4 · Balanced) | ✅ `Dlss` | ⬜ `0xFF` | ✅ **1485×835 → 2560×1440** | ◐ `presents/batch` = 4.00 as a PROXY | ✅ **`No`** | **3 of 5** |
+| **Cyberpunk 2077** (2026-09-04, RR on · MFG **×4** · Balanced) | ✅ `Dlss` | ⬜ `0xFF` (title never chains `sl::DLSSOptions`) | ✅ **1485×835 → 2560×1440** | ✅ **×3.99 MEASURED** — `presents / tokens`, §S31 row P1, `tokens/batch` 1.00 | ✅ `Yes` | **4 of 5** |
+| **Cyberpunk 2077** (2026-09-04, MFG **×3**) | ✅ `Dlss` | ⬜ `0xFF` | ✅ | ✅ **×2.99 measured** | ✅ | **4 of 5** |
+| **Cyberpunk 2077** (2026-09-04, MFG **off**, RR on) | ✅ `Dlss` | ⬜ `0xFF` | ✅ | ✅ **`none` by counting** — 1.00, 4,922 tokens against 4,922 presents | ✅ | **4 of 5** |
+| **Hell Is Us** (2026-09-04, DLSS · FG **×4**) | ❌ `N/A` — SL loaded, `slEvaluateFeature` never called (NGX-direct SR) | ⬜ | ⬜ | ✅ **×4.00 measured**, identity `Active (technology not identified)` | ✅ `No` | **2 of 5** — the FG factor is right on a title whose upscaler is invisible to this writer |
 
 > ### ✅ FIVE CAPTURES ACROSS FOUR TITLES — 2026-08-20, and the RT tri-state is complete
 >
