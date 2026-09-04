@@ -124,13 +124,19 @@ internal sealed class TargetResolver : ITargetResolver
             candidates.Add((pid, _commandLineOf(pid)));
         }
 
-        int? gpu = ChromiumGpuProcess.Pick(candidates);
-        if (gpu is not null)
+        int? picked = ChromiumGpuProcess.Pick(candidates, out ChromiumGpuProcess.Kind kind);
+        string shape = ChromiumGpuProcess.Describe(candidates);
+        HostConsole.Line(kind switch
         {
-            HostConsole.Line($"target: {matches.Count} processes share the image; pid {gpu} is Chromium's "
-                             + $"{ChromiumGpuProcess.Marker} and owns the swapchain, so it is the target");
-        }
+            ChromiumGpuProcess.Kind.GpuProcess =>
+                $"target: {matches.Count} processes share the image ({shape}); pid {picked} is Chromium's "
+                + $"{ChromiumGpuProcess.Marker} and owns the swapchain, so it is the target",
+            ChromiumGpuProcess.Kind.BrowserWithInProcessGpu =>
+                $"target: {matches.Count} processes share the image ({shape}); pid {picked} is the untyped browser "
+                + "process and the GPU is in-process (no --type=gpu-process exists), so it is the target",
+            _ => $"target: {matches.Count} processes share the image ({shape}) and none can be singled out",
+        });
 
-        return gpu;
+        return picked;
     }
 }

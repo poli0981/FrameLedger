@@ -2129,9 +2129,21 @@ int HoldPresentingFg(Gfx& g, int seconds, bool real, int presentsPerEval) {
     const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
     long long       presented = 0;
     long long       evaluated = 0;
+    uint32_t        frame = 0;
     while (GetTickCount64() < until) {
+        // THREE REQUESTS PER FRAME, INTERLEAVED WITH THE PREVIOUS FRAME'S, as a title
+        // with frames in flight does (Cyberpunk asks 3 to 4.6 times per frame from
+        // more than one thread). The stub hands back a distinct object each time, so
+        // a pointer-keyed writer reads three frames here; and the middle request is
+        // for the PREVIOUS index, so a writer keyed on "differs from the last index"
+        // reads two. Only a monotone maximum reads one, which is what the K = 1
+        // control demands.
+        ++frame;
+        const uint32_t  previous = frame > 1u ? frame - 1u : frame;
         sl::FrameToken* token = nullptr;
-        newToken(token, nullptr);
+        newToken(token, &frame);
+        newToken(token, &previous);
+        newToken(token, &frame);
         eval(sl::kFeatureDLSS_G, g_dummyFrameToken, inputs, 1u, nullptr);
         ++evaluated;
         for (int i = 0; i < k; ++i) {

@@ -811,9 +811,18 @@ diagnosis*.
   RPG Maker) returned `TargetAmbiguous`, exit 6, on 2026-09-03: three processes match the
   consented path. The presenting one is the GPU process, which owns no window — so do not "fix"
   it by picking the windowed one. **Fixed the same day by Chromium's own `--type=gpu-process`
-  flag**, read through a kernel query and honoured only when exactly one candidate carries it
-  (`TargetResolver`, scope row in `20_OPEN_QUESTIONS`). Whether the Overlay can load inside
-  Chromium's GPU process is the next thing that title measures.
+  flag** — and that fix did not fire, because **NW.js has no GPU process**: the GPU runs
+  in-process in the browser, the one process Chromium leaves untyped. Second rule: one
+  untyped candidate among typed siblings is the browser and the target. **Read the tree before
+  guessing the rule** — the refusal line prints it now. Whether the Overlay can load inside
+  that browser process is the next thing the title measures.
+- **A TITLE ASKS STREAMLINE FOR A FRAME TOKEN SEVERAL TIMES PER FRAME AND GETS A DIFFERENT
+  OBJECT EACH TIME.** Cyberpunk 2077: 3 to 4.6 requests per application frame, distinct pointers,
+  same index. A count keyed on the pointer reads the request rate and the `off` leg comes out
+  at 0.22 (§S31 row P4). Key on the frame index, **and on a NEW index only** — frames in flight
+  interleave their requests across threads, so "differs from the last" still over-counts. The stub
+  and harness now reproduce both shapes, so the K = 1 control catches a pointer-keyed writer and
+  a last-index-keyed one.
 - **THE CENSUS IS A STARTUP PROPERTY ON UE5.** Hell Is Us published the identical census word
   at off, FSR and DLSS + FG ×4; Lies of P likewise across its three runs. The plugins load at
   init whatever the settings menu says, so the census can never separate "loaded and off" from

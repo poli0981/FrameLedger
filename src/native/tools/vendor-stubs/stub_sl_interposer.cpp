@@ -40,8 +40,17 @@ volatile LONG g_lastFeature = -1;
 // same frame and the count would read 1 forever -- a fixture green for a writer that
 // never counted. Storage only: sl::FrameToken is abstract and nothing here or in
 // the Overlay ever dereferences one.
-volatile LONG g_tokenCalls = 0;
-alignas(16) unsigned char g_tokenPool[8][64];
+// CONCRETE, because the Overlay may READ the index through the vendor's accessor.
+// Each call hands back a DIFFERENT object carrying the requested frame's index --
+// which is what the real interposer was measured doing on 2026-09-03 (Cyberpunk
+// 2077: 3 to 4.6 requests per frame, a distinct object each) -- so a writer that
+// counted pointer changes is red here and one that counts index changes is green.
+struct StubFrameToken final : sl::FrameToken {
+    uint32_t index = 0;
+             operator uint32_t() const override { return index; }
+};
+volatile LONG  g_tokenCalls = 0;
+StubFrameToken g_tokenPool[8];
 
 }    // namespace
 
@@ -116,9 +125,10 @@ SL_API sl::Result slIsFeatureLoaded(sl::Feature feature, bool& loaded) {
 SL_API sl::Result slGetNewFrameToken(sl::FrameToken*& token, const uint32_t* frameIndex) {
     // The vendor's contract in miniature: an explicit index returns THAT frame's
     // token (the same object on a re-request), no index advances to a new one.
-    const LONG     n = InterlockedIncrement(&g_tokenCalls);
-    const uint32_t index = frameIndex != nullptr ? *frameIndex : static_cast<uint32_t>(n);
-    token = reinterpret_cast<sl::FrameToken*>(&g_tokenPool[index % 8u][0]);
+    const LONG      n = InterlockedIncrement(&g_tokenCalls);
+    StubFrameToken& slot = g_tokenPool[static_cast<unsigned>(n) % 8u];
+    slot.index = frameIndex != nullptr ? *frameIndex : static_cast<uint32_t>(n);
+    token = &slot;
     return sl::Result::eOk;
 }
 

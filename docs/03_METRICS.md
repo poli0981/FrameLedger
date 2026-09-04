@@ -208,7 +208,10 @@ F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the 
 > for it: `slGetNewFrameToken` (`sl_core_api.h`: *"obtain unique instance"* per frame; every
 > `slSetTag` / `slEvaluateFeature` takes the token). The Overlay detours that export —
 > module-scoped, lazily installed, an inventory row like the other two — and `fgEvaluations`
-> is the number of **distinct** tokens handed out between two presents. `fg_factor = presents
+> is the number of **new frame indices** — above every index seen before — the tokens handed out
+> between two presents carried. *New indices, not distinct objects and not "different from the
+> last":* measured 2026-09-03, Cyberpunk asks for a token three to four-and-a-half times per frame,
+> from more than one thread, and receives a different object each time (§S31 row P4). `fg_factor = presents
 > / Σ tokens` therefore needs **no premise about Ray Reconstruction batches** and works on the
 > titles where `slEvaluateFeature` is never called at all (Wukong, Rune Factory, Hell Is Us),
 > which the previous producer could not reach on five titles out of five.

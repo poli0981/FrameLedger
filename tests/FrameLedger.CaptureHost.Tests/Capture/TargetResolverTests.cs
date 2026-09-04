@@ -77,6 +77,21 @@ public sealed class TargetResolverTests : IDisposable
     }
 
     [Fact]
+    public void TheNwJsShapeResolvesToTheBrowserProcess()
+    {
+        // Flower in Us, measured: one untyped process and five typed children, no gpu-process.
+        Process browser = Start("/c ping -n 30 127.0.0.1 > nul & rem --nwapp=D:\\g");
+        Start("/c ping -n 30 127.0.0.1 > nul & rem --type=crashpad-handler");
+        Start("/c ping -n 30 127.0.0.1 > nul & rem --type=utility");
+        Start("/c ping -n 30 127.0.0.1 > nul & rem --type=renderer");
+
+        int? pid = new TargetResolver().Resolve(ExecutableIdentity.Normalise(_exe), out SessionEndReason reason);
+
+        reason.Should().Be(SessionEndReason.Running);
+        pid.Should().Be(browser.Id);
+    }
+
+    [Fact]
     public void TwoGpuProcessesAreTwoTitlesAndRefuse()
     {
         Start("/c ping -n 30 127.0.0.1 > nul & rem --type=gpu-process");
