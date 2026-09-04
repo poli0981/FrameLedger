@@ -91,7 +91,7 @@ or it becomes the next stale status claim this file exists to record.
 
 | **S29** | 🔴 **open, new 2026-08-05 — five ✅ and two ◐, counted off the glyphs below on 2026-08-20** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work. **Sharpened 2026-08-06:** fixing §S19(b) alone would still gate nothing, because `build.ps1`'s `-SkipIntegration` applies `--filter 'Category!=Integration'` and excludes the class *before* the guard is ever asked. Two independent mechanisms produce one absence, and `ci.yml` must drop the switch too; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ✅ **closed 2026-08-20**: the normative contradiction between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is settled the way the entry proposed — AS-build activity proves ray tracing is happening, *naming the technique* is what needs a DXIL scan — and rule 7 is amended in the PR that wrote the hooks. Its second half closes with it: `FL_MEASURED_RT` now has a producer (both command-list detours, installed off the game's own device), so all three conjuncts of the `No` branch are live and **`Yes` and `No` are both reachable for the first time**, proved by injection in both directions; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
 | **S30** | ✅ **closed 2026-08-15** | Answered on the title that raised it: with Ray Reconstruction on, Cyberpunk 2077 evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once**, so RR was doing the upscaling and the decode had no arm for it. Evidence rather than inference: `renderW/H` are published only on a frame that drained an evaluation and read 1485×835 = 0.58 × 2560×1440, so the scaling-input tag arrives ON the RR evaluation. Two further defects fell out — the pre-committed decision table had two holes, and the fix contaminated the census that found it (it derived the id from the decoded byte) |
-| **S31** | ◐ **row P2, 2026-08-27 — the ORACLE is retired, the QUESTION is not** | Is a drained Streamline batch an application frame? The PresentMon 2.x `FrameType` test, with its decision table pre-committed BEFORE the run and `tools/frametype-oracle.ps1` producing the input as two dimensionless ratios. **Two obstacles measured before it could be run**: the console binary will not start a trace session unelevated on the dev box (exit 6; the account is in neither Administrators nor Performance Log Users, and the running shared service does not help), and `--track_frame_type` is a **beta** option whose own help says it needs application or driver instrumentation of the Intel-PresentMon provider — so it may be as unavailable as `fl-baseline-probe` proved to be. Two of the table's six rows retire it outright. Blocks HANDOFF item 3's producer decision |
+| **S31** | ✅ **resolved 2026-09-04 — row P1, and `tokens/batch = 1.00`** | Is a drained Streamline batch an application frame? **Yes.** The `slGetNewFrameToken` count (#103, #105) reads 1.00 / 2.99 / 3.99 against Cyberpunk's own off / ×3 / ×4 and 4.00 on Hell Is Us, and on every leg with batches the two counts agree to the frame. Two independent per-frame API counts are the oracle four instruments could not be. `fg_factor` is published; `none` is reachable by counting. *(The row as it stood while open:)* ◐ **row P2, 2026-08-27 — the ORACLE is retired, the QUESTION is not** | Is a drained Streamline batch an application frame? The PresentMon 2.x `FrameType` test, with its decision table pre-committed BEFORE the run and `tools/frametype-oracle.ps1` producing the input as two dimensionless ratios. **Two obstacles measured before it could be run**: the console binary will not start a trace session unelevated on the dev box (exit 6; the account is in neither Administrators nor Performance Log Users, and the running shared service does not help), and `--track_frame_type` is a **beta** option whose own help says it needs application or driver instrumentation of the Intel-PresentMon provider — so it may be as unavailable as `fl-baseline-probe` proved to be. Two of the table's six rows retire it outright. Blocks HANDOFF item 3's producer decision |
 | **H11** | 🅓 **deferred 2026-08-20, rationale written** | XeFG and FSR3-FG identity. `libxess_fg.dll` and `ffx_fsr3_x64.dll` export nameable entry points, but the newer `amd_fidelityfx_framegeneration_dx12.dll` (3.1.5, three installed titles) exports only five generic `ffx*` names — identity lives in a struct field, and hand-declaring a vendor ABI from observation is the #71 defect class with another vendor's name on it. The licence checklist has not been run on either SDK either. Cost is coverage, not correctness: such a title reports `FL_FG_UNKNOWN`, never `NONE` |
 
 ~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
@@ -106,7 +106,7 @@ either work or a rationale written down:
   naming S30 until 2026-08-27 — so the total below stayed right by coincidence rather than
   by count.)*
 - **three ⏳** — S2 part three, S4 signing, S23-3
-- ~~two ◐~~ **three ◐** — S14, S23-6, **S31** (moved out of ❓ on 2026-08-27: its test ran and landed on row P2, so the oracle is settled and the question is not)
+- ~~two ◐~~ ~~**three ◐**~~ **two ◐ (2026-09-04)** — S14, S23-6. ~~**S31**~~ *(moved out of ❓ on 2026-08-27 when its test landed on row P2; **resolved 2026-09-04** when the token count landed on row P1 with `tokens/batch = 1.00` — the question answered by a second count rather than by an oracle)*
 - **one 🔴** — S29, added by the audit that produced this recount; **five of its seven
   findings are now closed**, and the residue is (a) the ungated managed drain and (d) the
   hand-run blast-radius script. *(This bullet listed **three** residues beside a count of
@@ -128,6 +128,10 @@ the recount becomes the next thing that needs recounting.
 > in a pass that touched no code — the §Traps entry *"a document can go stale by NOT being
 > touched"* wearing the ledger's own name.
 
+> **NINE on 2026-09-04.** S31 ✅ — the first S-item closed by a *measurement that answered
+> the question* rather than by a decision to stop asking it, since S30. ❓ three, ⏳ three,
+> ◐ two, 🔴 one, plus 🚫 S23-2. The list above moved in the same edit as this count.
+>
 > **STILL TEN on 2026-08-27, for the third consecutive movement.** S31 moved from ❓ to ◐,
 > so ❓ goes four to three and ◐ goes two to three. **The number has now stayed at ten across
 > three different changes**, and that is worth saying out loud precisely because a reader
@@ -798,7 +802,44 @@ a wrong answer into a confident wrong answer.
 
 </details>
 
-### S31 ◐ · Is a drained Streamline batch an application frame? — the ORACLE is retired, the QUESTION is not
+### S31 ✅ · Is a drained Streamline batch an application frame? — **YES, measured 2026-09-04 by an oracle that divides by nothing**
+
+> ### RUN 2, 2026-09-04 — row **P1**, and the original question answered on the way
+>
+> Same instrument as run 1, the monotone-index count from #105. Cyberpunk 2077, three
+> launches, and Hell Is Us, one; legs identified by the title's own `presents/batch` where it
+> has one:
+>
+> | leg | presents | tokens | **presents/tokens** | batches | tokens/batch | report |
+> |---|---|---|---|---|---|---|
+> | Cyberpunk **off** (RR on) | 4,922 | 4,924 | **1.00** | 4,922 | **1.00** | `Presented FPS 84.02` — factor refused at 1.0 by the pre-P1 gate, as designed |
+> | Cyberpunk **off** (RR off) | 2,664 | 2,665 | **1.00** | 0 | — | `Presented FPS 45.47`, same refusal |
+> | Cyberpunk **×3** | 10,567 | 3,534 | **2.99** | 3,532 | **1.00** | `Native 61.37 → Displayed 183.49 (×2.99 FG)` |
+> | Cyberpunk **×4** | 13,706 | 3,439 | **3.99** | 3,437 | **1.00** | `Native 58.74 → Displayed 234.09 (×3.99 FG)` |
+> | Hell Is Us **DLSS + FG ×4** | 17,942 | 4,485 | **4.00** | 0 | — | `Native 76.54 → Displayed 306.17 (×4 FG)` |
+>
+> **P1 word for word:** 1.00 at off, 2.99 / 3.99 at ×3 / ×4, 4.00 on the title that never
+> drains a batch. P3 is excluded on the title that would have shown it — the DLSS-G plugin
+> does not request tokens for the frames it generates — and the off leg at exactly 1.00
+> retires P4. **The producer is accepted.** `fg_factor` is `presents / tokens`.
+>
+> **And the question this entry was opened for is answered by the same numbers.**
+> `tokens/batch` reads **1.00** on every leg that has batches: a drained Streamline batch
+> IS an application frame on Cyberpunk 2077 — Ray Reconstruction is evaluated exactly once
+> per frame the title asked a token for. Two independent counts, one per API call the title
+> makes, agreeing to the frame. That is the oracle four instruments could not provide,
+> because it divides by nothing: it is a second count, not a ratio against the first.
+>
+> **Consequences, taken in the PR that records this:** rung 4's `none` is reachable by
+> counting (`FgWindow.IsNone`, factor ≤ 1.05 with a published window); the pre-P1 refusal is
+> replaced by a refusal of the band between 1.05 and the cadence threshold, which no vendor
+> ships; `fgMode` reads `None` / `Active (technology not identified)` from the count when the
+> identity hook named nothing. `14_TESTING`'s struck cross-validation regains an in-project
+> oracle for the FG factor: two counts that must agree.
+>
+> *The entry as it stood while open follows, unchanged.*
+
+### S31 ◐ · Is a drained Streamline batch an application frame? — the ORACLE is retired, the QUESTION is not *(superseded above)*
 
 > ### THE QUESTION IS SIDESTEPPED, NOT ANSWERED — 2026-09-03, the producer route is chosen
 >

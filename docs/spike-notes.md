@@ -1661,6 +1661,21 @@ one launch per capture, consent granted after launch. Exit codes and full report
   again. *Flower in Us* through the merged resolver: still `TargetAmbiguous`, and the tree
   says why — browser, `crashpad-handler`, `utility` ×3, `renderer`, **no `--type=gpu-process`**;
   NW.js keeps the GPU in the browser process. Rule added for the untyped-browser shape.
+- **Run 3, 2026-09-04 morning, on #105's monotone count — row P1, and §S31's question
+  answered.** Cyberpunk 2077 off (RR on) / off (RR off) / ×3 / ×4: `presents/tokens` **1.00 /
+  1.00 / 2.99 / 3.99**, `tokens/batch` **1.00** on every leg with batches; Hell Is Us DLSS +
+  FG ×4: **4.00** (17,942 presents, 4,485 tokens, zero batches). The report printed the trio on
+  the three FG legs — `61.37 → 183.49 (×2.99)`, `58.74 → 234.09 (×3.99)`, `76.54 → 306.17
+  (×4)` — and refused the two off legs at 1.00 exactly as the pre-P1 gate was written to; that
+  refusal is lifted in the PR that records this. **Two independent per-frame counts agreeing
+  to the frame is the oracle four instruments could not be.** *Flower in Us* through #105's
+  browser rule: **resolved, injected, captured** — `target: 6 processes share the image
+  (browser=1, crashpad-handler=1, renderer=1, utility=3); pid 32652 is the untyped browser
+  process`; 3,587 records over **three swapchains** (Chromium presents its UI and content
+  separately; the dominant stream carried 3,435), `Presented FPS 59.76`, census `0x1`, the
+  clean (a) shape. So the Overlay loads inside NW.js's browser process, which was the one
+  thing the rule could not promise. Lies of P, FSR + FG: WARNING as before, no tokens (no
+  Streamline), 239 presented.
 - **Lies of P's FSR3 frame-generation presents REACH the hook** — the §H5 fear does not occur
   for the FidelityFX 3.1 facade either. The two FSR + FG runs presented 231 and 237 FPS with
   Steam's counter counting generated frames; the DLSS run, with AMD frame generation off,

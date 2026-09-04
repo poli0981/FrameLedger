@@ -19,6 +19,21 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **`none` is reachable by counting, §S31 is resolved, and P0's frame-generation blocker is
+  gone.** The owner's second run on #105's monotone count landed on row **P1** of the table
+  pre-committed in `20_OPEN_QUESTIONS` §S31: Cyberpunk 2077 off / ×3 / ×4 at `presents/tokens`
+  **1.00 / 2.99 / 3.99**, Hell Is Us DLSS + FG ×4 at **4.00**, and `tokens/batch` **1.00** on
+  every leg with batches — so a drained Streamline batch *is* an application frame on that
+  title, answered by a second per-frame count rather than by any of the four oracles that fell.
+  The pre-P1 refusal of ratios near 1 is replaced: a published factor ≤ 1.05
+  (`FgWindow.NoneCeiling`) is rung 4's `none` — every present carried an application frame,
+  measured — a factor ≥ 1.5 (`ActiveThreshold`) is active, and the band between is refused as a
+  configuration no vendor ships. `fgMode` reads `None` / `Active (technology not identified)`
+  from the count when the identity hook named nothing; the report gains its third shape, the
+  bare `FPS: 84.02` with a `frame generation: none` line — no pair, no factor, no qualifier.
+  `15_ROADMAP` item 7 ✅; §S24 counts nine. *Flower in Us* resolved to its browser process,
+  injected, and captured three swapchains' worth of presents, so the Overlay loads inside NW.js.
+
 - **The frame-token count keys on a NEW frame INDEX, and the Chromium resolver knows the shape
   with no GPU process.** Both from the run that followed #103 / #104 the same evening.
   Cyberpunk 2077 asks `slGetNewFrameToken` three to four-and-a-half times per application frame

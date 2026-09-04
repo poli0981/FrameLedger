@@ -73,7 +73,9 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 1. **`api` (authoritative).** An NGX `FrameGeneration` feature (or Streamline `DLSS_G`, or an FFX frame-interpolation context, or `xess_fg`) was **created and evaluated this frame** → FG is on, and we know *which* technology by name, from the vendor's own API call. This is a fact, not an inference.
 2. ~~**`etw`** (Tier 2).~~ **RUNG REMOVED 2026-08-28.** It read *"PresentMon 2.x `FrameType` column reports generated frames directly"*; §S31 measured that column classifying every frame of a ×4 capture as an application frame, PresentMon was retired, and then dropped. **There is no Tier-2 rung and no Tier 2 to put one on.** The ladder is now rungs 0, 1, 3 and 4 — renumbering them would break every reference in this file and in `fl_shm.h`'s `fg_source`, so the gap is left visible instead.
 3. **`cadence`** (last resort, ~~both tiers~~ **Tier 1 only** — Tier 2 has no frames to find a cadence in). Sustained `Displayed/Native ≥ 1.5` → `Detected (unknown)`.
-4. Otherwise `fg_mode = none`, factor `—`.
+4. Otherwise `fg_mode = none`, factor `—`. **Reachable since 2026-09-04 by counting**: a
+   published `presents / tokens` at or below 1.05 over a uniform window (§The source, below).
+   Never from a hook that merely saw nothing (rung 0), and never from the census.
 
 > **RUNG 2 IS CONDITIONAL ON THE VENDOR, measured 2026-08-20, and this list read as
 > though it were not.** `--track_frame_type` is a **beta** option in PresentMon 2.5.1
@@ -216,13 +218,18 @@ F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the 
 > titles where `slEvaluateFeature` is never called at all (Wukong, Rune Factory, Hell Is Us),
 > which the previous producer could not reach on five titles out of five.
 >
-> **The one premise it carries, and the gate on it.** From inside the process, *"no frames
+> **The one premise it carried, and how it was retired.** From inside the process, *"no frames
 > were generated"* and *"the DLSS-G plugin requested a token for every frame it generated"*
-> are the same ratio: 1.0. A ratio ≥ 1.5 (the cadence threshold below) cannot be produced by
-> the second explanation, so the trio is published from it now. **A ratio near 1 is not** —
-> `FgWindow` refuses it by name — until the owner's off / ×2 / ×4 run lands on row P1 of the
-> table pre-committed in `20_OPEN_QUESTIONS` §S31. Only then does rung 4's `none` become
-> reachable on a Streamline title, and that is the PR after this one.
+> are the same ratio: 1.0. So until the owner's run landed, `FgWindow` refused any ratio below
+> the cadence threshold. **It landed on row P1 on 2026-09-04** — Cyberpunk 2077 off / ×3 / ×4
+> at **1.00 / 2.99 / 3.99**, Hell Is Us ×4 at **4.00** — which excludes the second explanation
+> on the title that would have shown it. **Rung 4's `none` is therefore reachable by
+> counting:** a published factor ≤ 1.05 (`FgWindow.NoneCeiling`) is the measured statement
+> that every present carried an application frame. A factor ≥ 1.5 (`ActiveThreshold`, the
+> cadence rung) is active; the band between is refused as a configuration no vendor ships.
+> And `tokens/batch = 1.00` on every leg with batches answered §S31's own question — a drained
+> Streamline batch is an application frame on that title — with a second count rather than an
+> oracle.
 >
 > **What `fgMode` still is.** Identity — `DLSS_G` when a `kFeatureDLSS_G` evaluation drained,
 > `UNKNOWN` otherwise — from the evaluate detour, unchanged. A factor ≥ 1.5 with `UNKNOWN`
