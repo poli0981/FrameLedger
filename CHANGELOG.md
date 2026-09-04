@@ -52,8 +52,16 @@ GitHub release body, so a missing section will mean an empty release note.
   3.0 route; and **Rune Factory: Guardians of Azuma is HANDOFF 7b's statically linked title** — the
   monolith ships beside it and is never loaded, yet the Streamline token count still read
   `59.99 → 119.95 (×2 FG)`, so the ceiling for such a title is the trio with the vendor missing, not
-  Presented FPS alone. Owed: the three loader titles against §H11 row R6. `20_OPEN_QUESTIONS` §H11
-  carries the run table; `HANDOFF` 7b/7c and `spike-notes` §9 carry the corrections.
+  Presented FPS alone. **Row R6 ran the same night on this build:** Dying Light: The Beast at FSR +
+  FSR FG printed `FSR (3.1 or 4 …)` / `FsrFg` / `70.49 → 140.9 (×2 FG)` with `frames/upscale-drained`
+  1.01, and KCD2 at FSR the identity with `none` at 1.00 — the loader row carries both, once, which
+  is the K = 1 control confirmed on a real title. Wukong at FSR with FG off read silent at the
+  monolith and the loader alike with the monolith loaded, and offers no FSR frame generation at
+  all: FSR upscaling compiled into its UE plugin (Rune Factory's shape), the monolith shipped and
+  loaded for nothing this hook sees — the second static title, and nothing more is owed on AMD
+  identity beyond the FSR 3.0 host route.
+  `20_OPEN_QUESTIONS` §H11 carries the run tables; `HANDOFF` 7b/7c and `spike-notes` §9 carry the
+  corrections.
 
 - **AMD identity is measured through the ffx-api leaves, and the first non-NVIDIA vendor
   reaches the record.** HANDOFF item 7c. Lies of P at FSR 3.1 + frame generation printed
