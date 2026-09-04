@@ -725,9 +725,17 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   first Streamline title measured whose batches carry `kFeatureDLSS` — identity `Dlss` on 4,575
   of 4,575 batches. It read `UpscalerParams = 0` on three captures, because DL:TB ships
   **Streamline 2.8.0, which deprecates `slSetTag` for `slSetTagForFrame`**, and only the
-  deprecated export had a row. The `slSetTagForFrame` row exists as of this entry; the DL:TB
-  DLSS rerun that reads the `render -> output` line and the quality byte is **owed**, and the
-  derived-label decision above is unchanged until it lands.
+  deprecated export had a row. The `slSetTagForFrame` row exists as of this entry (#115) —
+  **and the rerun on it still read `UpscalerParams = 0` with both rows live**, so the title
+  tags with a zero extent or not on this route at all. The next build reads the size the
+  tagged `sl::Resource` declares when the extent is zero (`TagSize`, every route); one more
+  DL:TB DLSS capture on it is **owed**. If `render -> output` prints, 7a's measurement is that
+  line plus the quality byte; if it stays `N/A`, the route yields nothing on this title and
+  the honest answer is `N/A`. The derived-label decision above is unchanged until it lands.
+- **Separately, and more important than the preset:** every DL:TB DLSS run had DLSS Frame
+  Generation ON per the owner, and every one read `presents = tokens`, `frame generation:
+  none`. That is `20_OPEN_QUESTIONS` §H5 case 3's candidate title — read that entry before
+  touching FG counting; the discriminator is pre-committed there.
 
 #### 7b. Titles whose upscaler or frame generation is compiled into the executable
 

@@ -882,18 +882,18 @@ void NoteTags(const sl::ResourceTag* tags, uint32_t numTags) noexcept {
         if (t.type != sl::kBufferTypeScalingInputColor) {
             continue;
         }
-        // extent is by VALUE and defaults to all-zero, which the vendor header
-        // documents as "using the entire resource". That is the honest unknown
-        // fl_shm.h already defines for renderW/H, so it is stored as such rather
-        // than guessed at from the resource description -- which for D3D12 is
-        // itself unset (sl_core_types.h: mandatory only for Vulkan).
-        const uint64_t w = t.extent.width;
-        const uint64_t h = t.extent.height;
-        if (w == 0 || h == 0 || w > 0xFFFFu || h > 0xFFFFu) {
+        // The extent, or -- when the title tagged the whole resource -- the size the
+        // Resource itself declares; fl_sl_inputs.h's TagSize is the one reading of a
+        // tag all three routes share. Neither present is the honest unknown fl_shm.h
+        // already defines for renderW/H, stored as such rather than guessed.
+        uint32_t w = 0;
+        uint32_t h = 0;
+        if (!fl::slinputs::TagSize(t, w, h)) {
             g_tagExtent.store(0, std::memory_order_release);
             return;
         }
-        g_tagExtent.store(w | (h << 16) | kTagValid, std::memory_order_release);
+        g_tagExtent.store(static_cast<uint64_t>(w) | (static_cast<uint64_t>(h) << 16) | kTagValid,
+                          std::memory_order_release);
         return;
     }
 }

@@ -3129,6 +3129,37 @@ probe never showed a deadlock.
 
 ### H5 ◐ · Proxy swapchains defeat the dummy-vtable assumption
 
+> ### CASE 3 HAS A CANDIDATE TITLE — Dying Light: The Beast, Streamline 2.8.0, DLSS Frame Generation ON, 2026-09-05
+>
+> **The numbers.** Four 58 s captures at DLSS with DLSS Frame Generation on (the owner's
+> setting, confirmed after the runs): `presents = tokens = batches` on every one —
+> 4706 / 4258 / 4560 / 4311 — so the report printed `FPS: 80.41 / 72.73 / 77.69 / 73.64` and
+> **`frame generation: none`**, with `sl.dlss_g.dll` and `nvngx_dlssg.dll` (310.6) in the census.
+> **The same title with FSR frame generation on** read presents 8255 against 4129 tokens
+> (×2, the loader row, §H11 R6). **Cyberpunk 2077 on Streamline 2.7.1 with the same DLSS-G
+> generation (310.8), same GPU,** read presents 13706 against 3439 tokens (×3.99) on 2026-09-03.
+>
+> **What that means, stated as the two readings the record cannot separate.** Either (a)
+> Streamline 2.8's DLSS-G presents its generated frames on a path the class-vtable hook on
+> `Present`/`Present1` does not see — case 3 of this entry, realised, with the application
+> frames still counted by `slGetNewFrameToken` and the generated ones simply absent — or (b)
+> the title was not generating in those runs despite the setting. **The discriminator is the
+> owner's counter reading**: an in-game or Steam frame counter near 2× our `FPS:` line is (a);
+> one near our line is (b). It is pre-committed here so the next run answers it rather than
+> being read into whichever reading is more comfortable.
+>
+> **Why this is a rule-6 exposure and not a curiosity.** `none` there is computed —
+> `presents == application frames` — and under reading (a) that equality holds *because*
+> the generated presents are missing, so the report states the absence of frame generation on
+> a title that is generating. The consumer cannot tell this from a real off. Until the
+> discriminator runs, a `none` on a Streamline 2.8 title with DLSS-G in the census is a
+> **count**, not a verdict, and `03_METRICS` §FG has no wording for that case yet. This is the
+> §H5 outcome the entry was written to fear, on a newer Streamline than the one that measured
+> it not happening; whether the fix is a wording, a census-version gate (the interposer's file
+> version is ours to read — it is a module in our process, not game memory), or a second
+> present sink is the owner's decision after the reading. **What is NOT in doubt:** the
+> Streamline tag row (`slSetTagForFrame`, #115) is unrelated — this is about presents.
+
 > ### NARROWED, NOT CLOSED — five real-title captures, 2026-08-15
 >
 > **What is now measured.** Cyberpunk 2077, SL 2.7.1, RTX 5080, D3D12, 2560×1440, DLSS

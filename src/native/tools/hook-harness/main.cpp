@@ -55,6 +55,9 @@
 //   --sl-tag-for-frame
 //                    make --hold-presenting-upscaled tag through slSetTagForFrame
 //                    (Streamline 2.8's frame-based API) instead of slSetTag
+//   --sl-tag-whole-resource
+//                    make --hold-presenting-upscaled tag with a ZERO extent and the
+//                    size on the Resource instead (the whole-resource shape)
 //   --probe-ffx-resolve
 //                    AMD ffx-api: the Overlay's resolver picks each LEAF's own
 //                    ffxDispatch with the loader decoy present, and a dispatch
@@ -1728,7 +1731,55 @@ bool ProbeSlInputs() {
         const sl::BaseStructure* one[] = {&tagWholeResource};
         const auto               r = fl::slinputs::FindScalingInputExtent(one, 1);
         Check(!r.found && r.renderW == 0 && r.renderH == 0,
-              "a whole-resource tag yields the honest unknown, not a 0x0 resolution");
+              "a whole-resource tag with NO size on the Resource yields the honest unknown, not a 0x0 resolution");
+    }
+    {
+        // THE WHOLE-RESOURCE SHAPE WITH THE SIZE ON THE RESOURCE: extent zero, and
+        // the Resource the tag points at declares width/height. That is the title's
+        // statement of the input buffer's size, read from the argument it passed.
+        sl::Resource sized(sl::ResourceType::eTex2d, nullptr);
+        sized.width = kTaggedRenderW;
+        sized.height = kTaggedRenderH;
+        sl::ResourceTag whole(&sized, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent,
+                              &zero);
+        const sl::BaseStructure* one[] = {&whole};
+        const auto               r = fl::slinputs::FindScalingInputExtent(one, 1);
+        Check(r.found && r.renderW == kTaggedRenderW && r.renderH == kTaggedRenderH,
+              "a whole-resource tag takes the exact size the Resource declares");
+    }
+    {
+        // A non-zero extent WINS over the Resource's size: the extent is the area in
+        // use, the Resource may be the larger dynamic-resolution target.
+        sl::Resource bigger(sl::ResourceType::eTex2d, nullptr);
+        bigger.width = kTaggedRenderW * 2u;
+        bigger.height = kTaggedRenderH * 2u;
+        sl::ResourceTag sub(&bigger, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent,
+                            &real);
+        const sl::BaseStructure* one[] = {&sub};
+        const auto               r = fl::slinputs::FindScalingInputExtent(one, 1);
+        Check(r.found && r.renderW == kTaggedRenderW && r.renderH == kTaggedRenderH,
+              "an extent takes precedence over the Resource's own size");
+    }
+    {
+        // The Resource pointer names something that is NOT a Resource: GUID-checked
+        // and skipped, never read as one.
+        sl::ViewportHandle       notAResource{9u};
+        sl::ResourceTag          bad(reinterpret_cast<sl::Resource*>(&notAResource), sl::kBufferTypeScalingInputColor,
+                                     sl::ResourceLifecycle::eValidUntilPresent, &zero);
+        const sl::BaseStructure* one[] = {&bad};
+        Check(!fl::slinputs::FindScalingInputExtent(one, 1).found,
+              "a whole-resource tag whose Resource fails the GUID check yields nothing");
+    }
+    {
+        // TagSize is the SAME reading the global-tag detours use, so the direct
+        // call is asserted too: a Resource with one zero dimension is not a size.
+        sl::Resource half(sl::ResourceType::eTex2d, nullptr);
+        half.width = kTaggedRenderW;
+        sl::ResourceTag whole(&half, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent,
+                              &zero);
+        uint32_t        w = 0;
+        uint32_t        h = 0;
+        Check(!fl::slinputs::TagSize(whole, w, h), "a Resource declaring only a width is not a size");
     }
     {
         const sl::BaseStructure* one[] = {&tagOtherBuffer};
@@ -2192,7 +2243,7 @@ using StubTokenFn = sl::Result(STDMETHODCALLTYPE*)(sl::FrameToken*&, const uint3
 
 alignas(16) unsigned char g_dummyFrameToken[64]{};
 
-int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature, bool tagForFrame) {
+int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature, bool tagForFrame, bool wholeResource) {
     const HMODULE stub = LoadStubExactly(FL_STUB_SL_INTERPOSER);
     if (stub == nullptr) {
         Check(false, "the sl.interposer.dll stub loaded for the upscaled hold");
@@ -2231,16 +2282,26 @@ int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature, 
         Check(false, "the stub exports slSetTagForFrame");
         return 1;
     }
+    // Two shapes of the same statement. The extent shape is Cyberpunk's; the
+    // whole-resource shape (zero extent, size on the Resource) is the one a title
+    // that tags entire buffers produces, and under it an extent in the record can
+    // only have come from the Resource's declared size.
     sl::Extent extent{};
+    sl::Extent zero{};
     extent.width = kTaggedRenderW;
     extent.height = kTaggedRenderH;
-    sl::ResourceTag tag(nullptr, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent, &extent);
+    sl::Resource sized(sl::ResourceType::eTex2d, nullptr);
+    sized.width = kTaggedRenderW;
+    sized.height = kTaggedRenderH;
+    sl::ResourceTag    tag(wholeResource ? &sized : nullptr, sl::kBufferTypeScalingInputColor,
+                           sl::ResourceLifecycle::eValidUntilPresent, wholeResource ? &zero : &extent);
     sl::ViewportHandle viewport{0u};
 
     const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
     std::printf("  presenting for %d second(s) [%s], evaluating feature %u before each present\n", seconds,
                 real ? "REAL" : "DXGI_PRESENT_TEST", static_cast<unsigned>(feature));
-    std::printf("  tagged kBufferTypeScalingInputColor extent %ux%u through %s\n", kTaggedRenderW, kTaggedRenderH,
+    std::printf("  tagged kBufferTypeScalingInputColor %s %ux%u through %s\n",
+                wholeResource ? "whole resource, Resource size" : "extent", kTaggedRenderW, kTaggedRenderH,
                 tagForFrame ? "slSetTagForFrame (Streamline 2.8, frame-based)" : "slSetTag");
     std::fflush(stdout);
 
@@ -2585,6 +2646,7 @@ int main(int argc, char** argv) {
     FfxTopology ffxTopology = FfxTopology::Loader;
     bool        ffxPrepare = true;
     bool        slTagForFrame = false;
+    bool        slTagWholeResource = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0) {
@@ -2614,6 +2676,8 @@ int main(int argc, char** argv) {
             ffxPrepare = false;
         } else if (std::strcmp(argv[i], "--sl-tag-for-frame") == 0) {
             slTagForFrame = true;
+        } else if (std::strcmp(argv[i], "--sl-tag-whole-resource") == 0) {
+            slTagWholeResource = true;
         }
     }
 
@@ -2621,7 +2685,7 @@ int main(int argc, char** argv) {
         if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--plus-ui") == 0 ||
             std::strcmp(argv[i], "--present-interval-ms") == 0 || std::strcmp(argv[i], "--presents-per-eval") == 0 ||
             std::strcmp(argv[i], "--ffx-topology") == 0 || std::strcmp(argv[i], "--ffx-no-prepare") == 0 ||
-            std::strcmp(argv[i], "--sl-tag-for-frame") == 0) {
+            std::strcmp(argv[i], "--sl-tag-for-frame") == 0 || std::strcmp(argv[i], "--sl-tag-whole-resource") == 0) {
             if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
                 std::strcmp(argv[i], "--presents-per-eval") == 0 || std::strcmp(argv[i], "--ffx-topology") == 0) {
                 ++i;
@@ -2637,7 +2701,9 @@ int main(int argc, char** argv) {
             ok = HoldPresentingFfx(g, std::atoi(argv[++i]), real, presentsPerEval, ffxTopology, ffxPrepare) == 0 && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting-upscaled") == 0 && i + 1 < argc) {
-            ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, sl::kFeatureDLSS, slTagForFrame) == 0 && ok;
+            ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, sl::kFeatureDLSS, slTagForFrame,
+                                        slTagWholeResource) == 0 &&
+                 ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting-upscaled-unknown") == 0 && i + 1 < argc) {
             // The SAME target, evaluating a feature id the Overlay does not
@@ -2645,8 +2711,8 @@ int main(int argc, char** argv) {
             // SET -- "a hook ran and could not identify what it saw" -- and must
             // never report FL_UPSCALER_NONE, which is the only state that may be
             // aggregated as a negative. 0xF00D is not a Streamline feature.
-            ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, static_cast<sl::Feature>(0xF00Du),
-                                        slTagForFrame) == 0 &&
+            ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, static_cast<sl::Feature>(0xF00Du), slTagForFrame,
+                                        slTagWholeResource) == 0 &&
                  ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-upscaler-resolve") == 0) {

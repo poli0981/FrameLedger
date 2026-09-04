@@ -105,6 +105,41 @@ inline bool IsReadableResourceTag(const sl::BaseStructure* s) noexcept {
     return IsReadable<sl::ResourceTag>(s);
 }
 
+// The size a scaling-input tag states, from EITHER of the two places the vendor
+// struct can carry it. Shared by the local walk below and by the global-tag detours
+// (slSetTag, slSetTagForFrame), so the three routes cannot disagree about what a
+// tag says.
+//
+// 1. `extent` -- "the area of the tagged resource to use". Set by titles that
+//    render into a buffer larger than the render resolution (dynamic resolution
+//    on an output-sized target). Cyberpunk 2077 sets it: 1485x835.
+// 2. `resource->width/height` when the extent is ZERO. sl_core_types.h documents a
+//    zero extent as "using the entire resource" and the Resource's own size as
+//    "MANDATORY only when using Vulkan" -- so on D3D12 it MAY be filled and may not
+//    be, and a filled one is the title's statement of the buffer's size, which for a
+//    whole-resource tag IS the render resolution. Both are fields of the argument
+//    the hooked API received (CLAUDE.md rule 4), nothing is dereferenced beyond the
+//    struct the title passed, and the Resource is GUID-checked the way every other
+//    Streamline structure is before a field is read.
+//
+// A tag with neither is the honest unknown fl_shm.h already defines for renderW/H:
+// reported as not-found rather than as a resolution of zero. Measured need: Dying
+// Light: The Beast (SL 2.8.0) published DLSS identity on every batch and no extent
+// from either global-tag route on four captures; the whole-resource shape is the
+// remaining reading the record can distinguish, and this is how it is tested.
+inline bool TagSize(const sl::ResourceTag& tag, uint32_t& w, uint32_t& h) noexcept {
+    w = tag.extent.width;
+    h = tag.extent.height;
+    if (w == 0 || h == 0) {
+        if (!IsReadable<sl::Resource>(tag.resource)) {
+            return false;
+        }
+        w = tag.resource->width;
+        h = tag.resource->height;
+    }
+    return w != 0 && h != 0 && w <= 0xFFFFu && h <= 0xFFFFu;
+}
+
 // Find the extent a title tagged as the upscaler's INPUT colour buffer.
 //
 // kBufferTypeScalingInputColor is the render target the upscaler reads, so its
@@ -114,9 +149,10 @@ inline bool IsReadableResourceTag(const sl::BaseStructure* s) noexcept {
 // A ZERO EXTENT IS NOT AN ERROR AND NOT A MEASUREMENT. sl_core_types.h documents
 // `extent` as "the area of the tagged resource to use (if using the entire
 // resource leave as null)", and it is a value member defaulting to all-zero. So
-// a title tagging whole resources yields 0, which is the in-band unknown
-// fl_shm.h already defines for renderW/H. Reported as not-found rather than as
-// a resolution of zero.
+// a title tagging whole resources yields 0 from the extent -- and TagSize then
+// reads the Resource's own declared size, which is the in-band unknown fl_shm.h
+// already defines for renderW/H when the title left that zero too. Reported as
+// not-found rather than as a resolution of zero.
 inline ScanResult FindScalingInputExtent(const sl::BaseStructure** inputs, uint32_t numInputs) noexcept {
     ScanResult out;
     if (inputs == nullptr || numInputs == 0) {
@@ -143,16 +179,16 @@ inline ScanResult FindScalingInputExtent(const sl::BaseStructure** inputs, uint3
             if (IsReadableResourceTag(s)) {
                 const auto* tag = static_cast<const sl::ResourceTag*>(s);
                 if (tag->type == sl::kBufferTypeScalingInputColor && !out.found) {
-                    const uint32_t w = tag->extent.width;
-                    const uint32_t h = tag->extent.height;
-                    if (w != 0 && h != 0 && w <= 0xFFFFu && h <= 0xFFFFu) {
+                    uint32_t w = 0;
+                    uint32_t h = 0;
+                    if (TagSize(*tag, w, h)) {
                         out.renderW = static_cast<uint16_t>(w);
                         out.renderH = static_cast<uint16_t>(h);
                         out.found = true;
                     }
-                    // Otherwise a whole-resource tag, or a size that cannot be a
-                    // render target. Keep looking: a title may chain several tags
-                    // and only one of them carries an extent.
+                    // Otherwise a whole-resource tag whose Resource states no size,
+                    // or a size that cannot be a render target. Keep looking: a title
+                    // may chain several tags and only one of them carries a size.
                 }
             } else if (IsReadable<sl::DLSSOptions>(s) && !out.qualityFound) {
                 // `mode` is the FIRST member of DLSSOptions and has been since

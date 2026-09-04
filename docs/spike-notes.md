@@ -1743,6 +1743,21 @@ one launch per capture, consent granted after launch. Exit codes and full report
   owner's to say** — if any did, `none` there is the §H5 false negative on a title where the FG
   runtime (`sl.dlss_g.dll`) is in the census, and it is a finding about DLSS-G on SL 2.8, not
   about the tag row. Row added; rerun owed.
+- **2026-09-05 00:19, DL:TB at DLSS again, on the #115 build** (the payload is the CaptureHost
+  bin's `FrameLedger.Overlay.dll`, rebuilt 00:17): `Dlss` 4331/4401, `FPS 73.64`, and
+  **`UpscalerParams` still 0 of 4401** with the params family live — which, under
+  publish-when-whole, means BOTH tag rows were patched. So the title either tags the scaling
+  input with a **zero extent** ("use the entire resource") or tags it nowhere we hook. The
+  zero-extent reading is the one the record can still act on: `sl::Resource` carries its own
+  `width/height` (mandatory only on Vulkan, so filled or not on D3D12 at the title's choice),
+  and `TagSize` in `fl_sl_inputs.h` now reads them when the extent is zero — on every route,
+  local and both global — GUID-checked, from the argument the hooked API received. If the
+  next run prints a `render -> output` line, that was the shape; if not, the title does not
+  state the size on this route at all and the honest line stays `N/A`.
+- **And the owner's answer to the FG question: all four DLSS runs had DLSS Frame Generation
+  ON.** `presents = tokens` on every one, against ×2 with FSR FG on the same title and ×3.99
+  on Cyberpunk (SL 2.7.1, DLSS-G 310.8) — recorded in `20_OPEN_QUESTIONS` §H5 as case 3's
+  candidate, with the discriminator (the owner's counter reading) pre-committed there.
 
 ## 10 · Telemetry layering
 
