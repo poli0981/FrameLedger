@@ -28,7 +28,7 @@ Rules for this document:
 | — | **D3D9 is not a Tier-1 API in v1.** The Overlay is x64-only; an x64 DLL cannot load into a 32-bit process, and D3D9 titles are almost entirely 32-bit | **The consequence hardened on 2026-08-28 without a word of this row changing**, which is why it is called out: that catalogue used to be "Tier 2", meaning frame times without injection. Tier 2 now measures nothing, so those titles are **unmeasurable in v1**. The VN / JRPG / older-indie catalogue is Tier 2. Reversing this means a second 32-bit Overlay **and** injector, doubling the native build matrix and adding a second struct-mirror surface. Revisit only with evidence that users care more about those titles than about the maintenance cost |
 | — | **`ci.yml` is repo-local**, not a caller stub | The ops repo's `reusable-desktop-csharp.yml` runs `dotnet` directly with no native pre-step input, and `12_BUILD` requires CI and local to run the same script |
 | — | **No `v1 → v2` migration** | Nothing shipped, so no such database exists. `0001_init.sql` creates the current schema |
-| — | ~~**Multi-process titles are refused as `TargetAmbiguous` in v1**~~ — **the Chromium case is RESOLVED the same day (2026-09-03), by the vendor's own label** | Chromium-based runtimes — NW.js, Electron, RPG Maker MV/MZ, a large share of the VN catalogue — run several processes from ONE image path (browser, renderer, GPU), and *Flower in Us* refused as `TargetAmbiguous`. The presenting process is Chromium's GPU process, which owns no window, so "the one with the window" and "the parent" were both wrong picks. **What resolves it:** Chromium marks that process with `--type=gpu-process` on its own command line. `TargetResolver` now reads each candidate's command line through `NtQueryInformationProcess(ProcessCommandLineInformation)` — **served by the kernel, no `ReadProcessMemory`, no PEB walk, `PROCESS_QUERY_LIMITED_INFORMATION` only**, which is the rule-4 line `HeldProcessHandle` already draws — and resolves only when **exactly one** readable candidate carries the flag as a whole argument. Two GPU processes (two instances), none, or any unreadable candidate still refuse. §S27 is untouched: consent is keyed on the path, every candidate is that path, the guard scans the pid chosen, and `--pid` stays forbidden. **Unmeasured:** whether Chromium's GPU-process sandbox lets the injected Overlay load at all — NW.js runs unsandboxed by default, Electron does not; the next *Flower in Us* run answers the first |
+| — | ~~**Multi-process titles are refused as `TargetAmbiguous` in v1**~~ — **the Chromium case is RESOLVED the same day (2026-09-03), by the vendor's own label** | Chromium-based runtimes — NW.js, Electron, RPG Maker MV/MZ, a large share of the VN catalogue — run several processes from ONE image path (browser, renderer, GPU), and *Flower in Us* refused as `TargetAmbiguous`. The presenting process is Chromium's GPU process, which owns no window, so "the one with the window" and "the parent" were both wrong picks. **What resolves it:** Chromium marks that process with `--type=gpu-process` on its own command line. `TargetResolver` now reads each candidate's command line through `NtQueryInformationProcess(ProcessCommandLineInformation)` — **served by the kernel, no `ReadProcessMemory`, no PEB walk, `PROCESS_QUERY_LIMITED_INFORMATION` only**, which is the rule-4 line `HeldProcessHandle` already draws — and resolves only when **exactly one** readable candidate carries the flag as a whole argument. Two GPU processes (two instances), none, or any unreadable candidate still refuse. §S27 is untouched: consent is keyed on the path, every candidate is that path, the guard scans the pid chosen, and `--pid` stays forbidden. **Measured the same evening, and the first rule did not fire:** *Flower in Us* runs **six** processes — browser, `crashpad-handler`, three `utility`, `renderer` — and **no `--type=gpu-process` at all**. NW.js runs the GPU **in-process, in the browser**, which is the one process Chromium leaves untyped. Second rule added: exactly one untyped candidate, every other candidate typed, no GPU process ⇒ the browser is the target; two untyped candidates are two instances and refuse. The refusal line now prints the tree (`browser=1, renderer=1, utility=3, …`) so the next unknown shape is data rather than a bare `TargetAmbiguous`. **Still unmeasured:** whether the Overlay loads and sees presents inside that browser process |
 | — | ~~**Tier 2 requires an elevated Agent**~~ | **CLOSED 2026-08-28 by the two-rung ladder.** The requirement came from Windows restricting ETW trace sessions; there is no ETW rung, so **no capture tier needs elevation**. Elevation is optional everywhere and buys exactly two things (CPU temperatures via PawnIO, attaching to elevated targets — ADR-9). An unelevated Agent whose Tier-1 attempt fails lands on Tier 2, which is what every unhooked session lands on regardless of privilege |
 
 ---
@@ -820,6 +820,35 @@ a wrong answer into a confident wrong answer.
 > **Until a row lands, the consumer publishes a factor only at ≥ 1.5** (`FgWindow.PublishableFactor`),
 > because P3 is the one outcome a ratio near 1 cannot be told apart from, and P3 is exactly
 > the shape that would print `300 → 300 (×1.0 FG)` on Hell Is Us.
+>
+> #### RUN 1, 2026-09-03 evening — row **P4**, and the refinement it prescribed is built
+>
+> Cyberpunk 2077, three launches, read off the `FG counts:` line (`spike-notes` §9):
+>
+> | leg (by its own `presents/batch`) | presents | tokens | presents/tokens | tokens/batch |
+> |---|---|---|---|---|
+> | off (1.00) | 5,199 | 24,059 | **0.22** | 4.63 |
+> | ×2 (2.00) | 8,544 | 13,259 | **0.64** | 3.10 |
+> | ×4 (3.99) | 15,193 | 11,633 | **1.31** | 3.05 |
+> | Hell Is Us, DLSS + FG ×4 | 17,788 | 13,783 | **1.29** | — |
+>
+> **The off leg reads 0.22, not 1**, and `tokens/batch` reads 3.05–4.63: the title asks for a
+> frame token **three to four-and-a-half times per application frame** and the interposer hands
+> back a **different object each time**, so the pointer-change count read the request rate,
+> not the frame rate. That is P4 word for word — *"several distinct tokens per frame"* — and
+> not P3: at ×4 the ratio moved (1.31 against 0.64 at ×2), so tokens are not tracking presents.
+> The gate held: **no factor was published** on any leg, because every ratio sat below 1.5.
+>
+> **Refinement built the same evening:** the detour keys on the frame **index** — the
+> title-supplied `frameIndex` when given, else the token's own accessor — and counts it **only
+> when it is above every index seen so far**, so a frame asked for N times counts once even when
+> the requests for frames N and N+1 arrive interleaved from the two or three threads a title
+> keeps in flight ("differs from the last index" would count every switch). A jump backwards
+> of more than 1,024 re-bases the maximum, so a level reload that restarts the counter does not
+> freeze the count at zero. The stub interposer now hands back distinct objects carrying the same
+> index and the harness asks twice per frame, so the K = 1 control fails a pointer-keyed writer.
+> **The table above is unchanged and the run is owed again**, same four legs; P1 is still what
+> makes `none` reachable.
 
 > ### 🔴 RUN 2026-08-27 — ROW **P2**. PresentMon is RETIRED as the application-frame oracle.
 >

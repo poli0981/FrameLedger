@@ -19,6 +19,23 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **The frame-token count keys on a NEW frame INDEX, and the Chromium resolver knows the shape
+  with no GPU process.** Both from the run that followed #103 / #104 the same evening.
+  Cyberpunk 2077 asks `slGetNewFrameToken` three to four-and-a-half times per application frame
+  and receives a distinct object each time, so a pointer-keyed count read the request rate:
+  `presents/tokens` 0.22 / 0.64 / 1.31 at off / ×2 / ×4 — `20_OPEN_QUESTIONS` §S31 row **P4**,
+  the refinement it prescribed. The detour now reads the frame index — the title-supplied
+  `frameIndex`, or the token's own accessor when none is given — and counts it **only when it is
+  above every index seen so far**: "differs from the last index" would still count every switch
+  between the two or three frames a title keeps in flight. The stub hands back distinct objects,
+  and the harness asks three times per frame with the previous frame's index in the middle, so
+  the K = 1 control is red for a pointer-keyed writer and for a last-index-keyed one. No factor
+  had been published on any leg — the ≥ 1.5 gate held — and the four-leg run is owed again.
+  *Flower in Us* still refused through #104's rule because **NW.js has no `--type=gpu-process`**:
+  six processes, the GPU in-process in the untyped browser. Second rule: exactly one untyped
+  candidate among typed siblings is the browser and the target; two untyped are two instances
+  and refuse. The refusal line prints the tree.
+
 - **Chromium-based titles resolve to their GPU process instead of refusing as ambiguous.**
   NW.js, Electron and RPG Maker MV/MZ run several processes from one image path, and *Flower in
   Us* refused as `TargetAmbiguous` on 2026-09-03. The presenting process is Chromium's GPU

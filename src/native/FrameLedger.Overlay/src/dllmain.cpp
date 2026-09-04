@@ -722,7 +722,20 @@ using PFN_SlGetNewFrameToken = ::PFun_slGetNewFrameToken*;
 PFN_SlGetNewFrameToken g_origSlGetNewFrameToken = nullptr;
 std::atomic<uint32_t>  g_frameTokensLive{0};
 std::atomic<uint32_t>  g_frameTokens{0};
-std::atomic<uintptr_t> g_lastFrameToken{0};
+// The HIGHEST frame index seen so far, tagged in bit 32 so that index 0 is
+// distinct from "no frame yet". Measured 2026-09-03 on Cyberpunk 2077
+// (20_OPEN_QUESTIONS §S31, row P4): the title asks for a token 3 to 4.6 times per
+// application frame and the interposer hands back a DIFFERENT object each time,
+// so a pointer-change count read the request rate. The index is the vendor's own
+// identity for a frame -- and the count advances only when an index is NEW, i.e.
+// above every index seen before, not merely different from the last one: a title
+// with two or three frames in flight asks for N and N+1 from different threads
+// in whatever order they run, and "differs from the last" would count every
+// switch. A monotone maximum counts each frame exactly once whatever the
+// interleaving. A large jump backwards (a level reload restarting the counter)
+// re-bases rather than freezing the count at zero forever.
+std::atomic<uint64_t> g_maxFrameKey{0};
+constexpr uint32_t    kFrameIndexRebaseGap = 1024u;
 
 // The render-resolution sample, packed into one word.
 //
@@ -892,10 +905,27 @@ sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const s
 sl::Result STDMETHODCALLTYPE Hook_SlGetNewFrameToken(sl::FrameToken*& token, const uint32_t* frameIndex) {
     const sl::Result result = g_origSlGetNewFrameToken(token, frameIndex);
     FL_HOOK_GUARD({
-        if (MayObserve()) {
-            const auto id = reinterpret_cast<uintptr_t>(token);
-            if (id != 0u && g_lastFrameToken.exchange(id, std::memory_order_relaxed) != id) {
-                g_frameTokens.fetch_add(1u, std::memory_order_relaxed);
+        if (MayObserve() && token != nullptr) {
+            // THE INDEX, NOT THE POINTER. When the title supplies the index it is read
+            // from the argument the title passed to the API we hooked (rule 4, the
+            // same class of read as slEvaluateFeature's `inputs`). When it does not,
+            // the token's own accessor is the vendor's documented way to read the
+            // index SL assigned -- one virtual call on the object SL just returned,
+            // inside the guard.
+            const uint32_t index = frameIndex != nullptr ? *frameIndex : static_cast<uint32_t>(*token);
+            const uint64_t key = (1ull << 32) | index;
+            uint64_t       seen = g_maxFrameKey.load(std::memory_order_relaxed);
+            for (;;) {
+                const bool     none = seen == 0u;
+                const uint32_t max = static_cast<uint32_t>(seen);
+                const bool     rebase = !none && index + kFrameIndexRebaseGap < max;
+                if (!none && !rebase && index <= max) {
+                    break;    // a frame already counted, asked for again from another thread
+                }
+                if (g_maxFrameKey.compare_exchange_weak(seen, key, std::memory_order_relaxed)) {
+                    g_frameTokens.fetch_add(1u, std::memory_order_relaxed);
+                    break;
+                }
             }
         }
     })

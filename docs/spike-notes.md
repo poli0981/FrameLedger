@@ -1650,6 +1650,17 @@ one launch per capture, consent granted after launch. Exit codes and full report
 - **Hell Is Us at FSR reported 60 FPS presented with the operator's Steam counter not
   counting**, identical to its off run. Whether FSR frame generation was engaged at all in
   that run is unknown; the census cannot say and the report does not claim to.
+- **Second run, same evening, after #103 / #104 merged — the frame-token producer landed on
+  §S31 row P4 and the NW.js shape had no GPU process.** Cyberpunk 2077 off / ×2 / ×4 (legs
+  identified by their own `presents/batch` = 1.00 / 2.00 / 3.99): `presents/tokens` read
+  **0.22 / 0.64 / 1.31** and `tokens/batch` **4.63 / 3.10 / 3.05**; Hell Is Us DLSS + FG ×4
+  read **1.29** (17,788 presents, 13,783 tokens). The title asks for a token three to four-and-
+  a-half times per application frame and gets a distinct object each time, so a count keyed on
+  pointer change read the request rate. No factor was published on any leg — the ≥ 1.5 gate is
+  what the table was written for. The detour now keys on the frame index; the run is owed
+  again. *Flower in Us* through the merged resolver: still `TargetAmbiguous`, and the tree
+  says why — browser, `crashpad-handler`, `utility` ×3, `renderer`, **no `--type=gpu-process`**;
+  NW.js keeps the GPU in the browser process. Rule added for the untyped-browser shape.
 - **Lies of P's FSR3 frame-generation presents REACH the hook** — the §H5 fear does not occur
   for the FidelityFX 3.1 facade either. The two FSR + FG runs presented 231 and 237 FPS with
   Steam's counter counting generated frames; the DLSS run, with AMD frame generation off,
