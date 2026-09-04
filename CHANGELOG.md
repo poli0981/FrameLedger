@@ -45,8 +45,10 @@ GitHub release body, so a missing section will mean an empty release note.
   FSR FG printed `FSR (3.1 or 4 …)` / `FsrFg` / `70.49 → 140.9 (×2 FG)` with `frames/upscale-drained`
   1.01, and KCD2 at FSR the identity with `none` at 1.00 — the loader row carries both, once, which
   is the K = 1 control confirmed on a real title. Wukong at FSR with FG off read silent at the
-  monolith and the loader alike with the monolith loaded: FSR upscaling compiled into its UE plugin
-  (Rune Factory's shape), the monolith idle for frame generation — owed with FSR FG on.
+  monolith and the loader alike with the monolith loaded, and offers no FSR frame generation at
+  all: FSR upscaling compiled into its UE plugin (Rune Factory's shape), the monolith shipped and
+  loaded for nothing this hook sees — the second static title, and nothing more is owed on AMD
+  identity beyond the FSR 3.0 host route.
   `20_OPEN_QUESTIONS` §H11 carries the run tables; `HANDOFF` 7b/7c and `spike-notes` §9 carry the
   corrections.
 

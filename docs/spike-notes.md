@@ -1725,9 +1725,9 @@ one launch per capture, consent granted after launch. Exit codes and full report
   Streamline tokens, *technology not identified* — 7b's statically linked title, with the count
   surviving and the identity not. **Row R6, same night, on #111:** DL:TB FSR + FSR FG →
   `FSR (3.1 or 4 …)` / `FsrFg` / `70.49 → 140.9 (×2)` / 1.01 and KCD2 FSR → identity + `none` /
-  1.00, both through the loader row at 1×; Wukong FSR (FG off, ×2 runs) → silent at monolith and
-  loader with the monolith loaded — FSR upscaling compiled in, the monolith idle for FG; owed with
-  FSR FG on.
+  1.00, both through the loader row at 1×; Wukong FSR (×2 runs) → silent at monolith and loader
+  with the monolith loaded, and the title has no FSR frame-generation option — FSR upscaling
+  compiled in (Rune Factory's shape), the monolith shipped and loaded for nothing this hook sees.
 
 ## 10 · Telemetry layering
 

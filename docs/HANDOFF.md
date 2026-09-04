@@ -739,7 +739,8 @@ hole; it does not close it.
   token is requested on that UE5 title regardless, so the count read `59.99 → 119.95 (×2 FG)`,
   *technology not identified* — the trio, with the vendor missing. Identity by name stays out of
   reach; §Scope decisions carries the corrected row. A disk scan cannot find this shape; a
-  capture with the census line can.
+  capture with the census line can. **Black Myth: Wukong is the second** — its FSR upscaling
+  dispatches to neither the loaded monolith nor the loader, and it offers no FSR frame generation.
 
 #### ~~7c. AMD and Intel identity, measured rather than inferred~~ — **AMD LANDED 2026-09-04; Intel closed; the owner's three launches are owed**
 
@@ -779,9 +780,9 @@ token count still reading ×2. **Row R6 ran the same night on #111:** Dying Ligh
 FSR + FSR FG printed `FSR (3.1 or 4 …)` / `FsrFg` / `70.49 → 140.9 (×2)` with the counts agreeing
 at 1.01, KCD2 at FSR printed the identity and `none` by count at 1.00 — the loader row carries
 both, once. **Wukong at FSR read silent at the monolith AND the loader with the monolith loaded**:
-FSR upscaling compiled into its UE plugin (Rune Factory's shape) with the monolith there for frame
-generation, is the reading that fits; **owed: Wukong with FSR frame generation ON** (expect the
-Cyberpunk shape, `FsrFg` from the monolith with `upscaler: N/A`). **The FSR 3.0 host route
+FSR upscaling compiled into its UE plugin (Rune Factory's shape) with the monolith loaded and
+unused — ~~owed: Wukong with FSR frame generation ON~~ **the title has no FSR frame-generation
+option (owner, same night)**, so Wukong is the second static title and nothing is owed on it. **The FSR 3.0 host route
 (`ffx_fsr3_x64.dll`, step 3 below) is deferred to its own PR** — ten host headers from `v1.1.4`;
 Cyberpunk at FSR 3 is its oracle and already prints `FsrFg` from the monolith beside it.
 
