@@ -1754,6 +1754,17 @@ one launch per capture, consent granted after launch. Exit codes and full report
   local and both global — GUID-checked, from the argument the hooked API received. If the
   next run prints a `render -> output` line, that was the shape; if not, the title does not
   state the size on this route at all and the honest line stays `N/A`.
+- **2026-09-05 00:53, DL:TB at DLSS on the #116 build (payload rebuilt 00:51): `N/A` stands.**
+  `Dlss` 3460/3523, `FPS 58.87`, **`UpscalerParams` 0 of 3523**, both tag rows live, the
+  whole-resource fallback in. So on this title the scaling-input tag reaches neither global
+  export with a size in either place, or does not reach them at all — the record cannot
+  separate those two, and that is the one thing left to instrument if 7a is ever reopened on
+  this title (a tag-route census: calls seen per export, zero-extent seen, Resource-size seen —
+  a record bit or a writer-state word, so a layout bump). **7a on DL:TB closes as measured
+  `N/A`** for the quality byte and the render size; the derived label has no input here and
+  stays the owner's decision for the titles that do print the line (Cyberpunk).
+  `frame generation: none` again with presents = tokens = 3441 and DLSS FG on — the fifth
+  such run, §H5.
 - **And the owner's answer to the FG question: all four DLSS runs had DLSS Frame Generation
   ON.** `presents = tokens` on every one, against ×2 with FSR FG on the same title and ×3.99
   on Cyberpunk (SL 2.7.1, DLSS-G 310.8) — recorded in `20_OPEN_QUESTIONS` §H5 as case 3's

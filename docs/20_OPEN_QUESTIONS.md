@@ -3131,10 +3131,13 @@ probe never showed a deadlock.
 
 > ### CASE 3 HAS A CANDIDATE TITLE — Dying Light: The Beast, Streamline 2.8.0, DLSS Frame Generation ON, 2026-09-05
 >
-> **The numbers.** Four 58 s captures at DLSS with DLSS Frame Generation on (the owner's
+> **The numbers.** Five 58 s captures at DLSS with DLSS Frame Generation on (the owner's
 > setting, confirmed after the runs): `presents = tokens = batches` on every one —
-> 4706 / 4258 / 4560 / 4311 — so the report printed `FPS: 80.41 / 72.73 / 77.69 / 73.64` and
-> **`frame generation: none`**, with `sl.dlss_g.dll` and `nvngx_dlssg.dll` (310.6) in the census.
+> 4706 / 4258 / 4560 / 4311 / 3441 — so the report printed `FPS: 80.41 / 72.73 / 77.69 /
+> 73.64 / 58.87` and **`frame generation: none`**, with `sl.dlss_g.dll` and `nvngx_dlssg.dll`
+> (310.6) in the census. The fifth ran on the #116 build, 2026-09-05 00:53. **Owner decision
+> the same night: a separate session and a separate PR own this; nothing below is started
+> until the discriminator has a reading.**
 > **The same title with FSR frame generation on** read presents 8255 against 4129 tokens
 > (×2, the loader row, §H11 R6). **Cyberpunk 2077 on Streamline 2.7.1 with the same DLSS-G
 > generation (310.8), same GPU,** read presents 13706 against 3439 tokens (×3.99) on 2026-09-03.
