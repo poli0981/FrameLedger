@@ -741,14 +741,28 @@ same as its off run. The three AMD 3.1 modules export the same five generic name
 exports `xessD3D12Init` / `xessD3D12Execute` and XeFG `xefgSwapChainD3D12InitFromSwapChain`
 (`vendor-exports.json`).
 
-1. **Run `18_GPU_VENDOR_APIS` §Checklist on both SDKs first — nobody has** (§H11 says so). The
-   FidelityFX SDK and the XeSS SDK *headers* are both published under MIT on GitHub; the XeSS
-   *binary* (`libxess.dll`) is under Intel's own licence and is never redistributed by us, the
-   same shape as `nvapi64.dll` and `sl.interposer.dll`. If the checklist clears them, vendor
-   the headers **types-only, with a consumer in the same commit** (`18_GPU_VENDOR_APIS`
-   records why an unconsumed vendoring is worse than none), and extend `hookinventory-check`
-   Pass C's forbidden-import list so a linked `amd_fidelityfx_dx12.dll` or `libxess.dll` can
-   never become a load-time dependency — the Streamline lesson, one vendor over.
+1. **The `18_GPU_VENDOR_APIS` §Checklist has been run on both SDKs (2026-09-04) — read the
+   result before assuming the previous sentence, which said both were MIT and was wrong about
+   Intel.** *AMD FidelityFX*: clear. Tag **`v1.1.4`** is MIT at the root and inline in every
+   header of interest; vendor **types-only, with a consumer in the same commit**
+   (`18_GPU_VENDOR_APIS` records why an unconsumed vendoring is worse than none). The files:
+   `ffx-api/include/ffx_api/{ffx_api.h, ffx_api_types.h, ffx_api_loader.h, ffx_upscale.h,
+   ffx_framegeneration.h, dx12/ffx_api_dx12.h, vk/ffx_api_vk.h}` for the 3.1 facade the
+   installed titles call, and `sdk/include/FidelityFX/host/{ffx_fsr3.h, ffx_fsr3upscaler.h,
+   ffx_frameinterpolation.h, ffx_opticalflow.h, ffx_types.h, ffx_error.h, ffx_interface.h,
+   ffx_util.h, ffx_assert.h}` for the FSR 3.0 host API. Do not take `main`: it is SDK 2.x under
+   a binary-only `docs/license.md` that excepts these headers as MIT only by an 845-line list.
+   Extend `hookinventory-check` Pass C's forbidden-import list with `amd_fidelityfx_*.dll` /
+   `ffx_*.dll` in the same PR — the Streamline lesson, one vendor over. *Intel XeSS SDK*:
+   **rejected.** Intel Simplified Software License (binary-only grant, no reverse engineering,
+   termination), and the headers themselves forbid copying without Intel's permission, so
+   step 3 binds — no vendoring and **no re-declaration** of `xessD3D12Execute` or
+   `xefgSwapChain*`. Intel stays at the census unless the owner takes the one route left in
+   policy: a signature-free call counter on a named export (a register-preserving thunk that
+   increments and jumps; needs an assembly source in the Overlay's build). That is an owner
+   decision, not a default.
+   What this means for 7c: **it is AMD identity plus an Intel decision, not two symmetrical
+   vendorings.** Step 4 below is written for the counter and is conditional on that ruling.
 2. **AMD 3.1 (`amd_fidelityfx_dx12.dll`, the facade the game calls):** identity is in
    `ffxCreateContextDescHeader.type` — `FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE` vs
    `…_FRAMEGENERATION` — read from the argument of a hooked `ffxCreateContext`, which is the
@@ -761,14 +775,20 @@ exports `xessD3D12Init` / `xessD3D12Execute` and XeFG `xefgSwapChainD3D12InitFro
 3. **AMD 3.0 (`ffx_fsr3_x64.dll`, Cyberpunk's copy):** named exports, no struct decode needed —
    `ffxFsr3ContextDispatchUpscale` for identity and extent, `ffxFsr3DispatchFrameGeneration`
    once per application frame.
-4. **Intel:** `xessD3D12Init` / `xessD3D12Execute` (identity; `inputWidth/Height` in the
-   execute params → `renderW/H`), and for XeFG `xefgSwapChainD3D12InitFromSwapChain` plus the
-   per-frame tag/execute call — the swapchain-proxy shape §H5 already cleared for DLSS-G and
-   FSR3, to be measured rather than assumed for Intel.
+4. **Intel — only if the owner rules for the signature-free counter (step 1).** Without a
+   declared `xessD3D12Execute` there is no `inputWidth/Height` read, so `renderW/H` stays
+   `NOT_REPORTED` for XeSS *by licence, not by ignorance* — say so in the report line. What
+   a counter gives: `Xess` identity from *calls observed* to `xessD3D12Execute` (presence in
+   the census is not identity — Cyberpunk loads `libxess.dll` at DLSS), and for XeFG a
+   per-application-frame count from the `xefgSwapChainD3D12Tag*` / execute export, the
+   swapchain-proxy shape §H5 already cleared for DLSS-G and FSR3 — measured, not assumed, and
+   the K = 1 / K = 4 harness pair applies. If the owner rules against, Intel's line is the
+   census sentence and nothing more, which rule 6's amendment already permits.
 5. **Acceptance, against the titles' own menus:** Lies of P at FSR + FG prints
    `upscaler: Fsr3`, `frame generation: FsrFg`, and the trio at ≈ ×2 with the same
    `presents / dispatches` arithmetic; Hell Is Us at FSR prints identity where today it prints
-   the off run's line; Cyberpunk at XeSS prints `Xess`. **A wrong preset name degrades
+   the off run's line; Cyberpunk at XeSS prints `Xess` (counter route) or the census
+   sentence with `libxess.dll` named (no-counter route). **A wrong preset name degrades
    silently** — the histogram and `tokens/batch`-style second count are what make a mistake
    visible, so build the per-vendor second count before trusting the first.
 

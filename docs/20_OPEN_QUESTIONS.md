@@ -3309,8 +3309,14 @@ load-bearing rather than stylistic.
 > and a per-frame count validated against a title's own menu — and Lies of P (FSR 3.1 FG on,
 > `amd_fidelityfx_dx12.dll` alone) is the title that shows what this deferral costs today:
 > `upscaler: N/A`, `frame generation: N/A`, a WARNING, no factor. The first move is the one this
-> entry names and nobody has made: **run the licence checklist on the FidelityFX and XeSS SDK
-> headers.** Both are published under MIT; the XeSS binary is not and is never ours to ship.
+> entry names and nobody had made: **run the licence checklist on the FidelityFX and XeSS SDK
+> headers.** ~~Both are published under MIT~~ — **run 2026-09-04, and the sentence struck was
+> wrong about Intel.** FidelityFX at tag `v1.1.4` is MIT root-and-inline and is clear to vendor
+> types-only; the XeSS SDK is the Intel Simplified Software License (binary-only grant,
+> no-reverse-engineering, termination) and its headers say they may not be copied without
+> Intel's permission, so step 3 binds and XeSS stays where NGX is. `18_GPU_VENDOR_APIS` §Vendor
+> SDKs carries both decisions with the evidence. **So 7c is AMD only**, plus one owner decision
+> for Intel: a signature-free call counter on a named export.
 
 HANDOFF item 3 asks for this to be *deferred with a written rationale rather than
 guessed*, and this is that rationale. The deferral is the decision; it is not a
