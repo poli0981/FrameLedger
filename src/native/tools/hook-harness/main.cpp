@@ -52,6 +52,9 @@
 //                    production call site at all
 //   --presents-per-eval K
 //                    the FG factor --hold-presenting-fg emits. 1 is the control
+//   --sl-tag-for-frame
+//                    make --hold-presenting-upscaled tag through slSetTagForFrame
+//                    (Streamline 2.8's frame-based API) instead of slSetTag
 //   --probe-ffx-resolve
 //                    AMD ffx-api: the Overlay's resolver picks each LEAF's own
 //                    ffxDispatch with the loader decoy present, and a dispatch
@@ -2178,13 +2181,18 @@ bool ProbeFfxResolve() {
 // ---------------------------------------------------------------------------
 using StubSetTagFn = sl::Result(STDMETHODCALLTYPE*)(const sl::ViewportHandle&, const sl::ResourceTag*, uint32_t,
                                                     sl::CommandBuffer*);
+// The token slot is integer-class (a reference is a pointer) and nothing on either
+// side dereferences it, so the dummy buffer stands in exactly as it does for
+// slEvaluateFeature's token below.
+using StubSetTagForFrameFn = sl::Result(STDMETHODCALLTYPE*)(const void*, const sl::ViewportHandle&,
+                                                            const sl::ResourceTag*, uint32_t, sl::CommandBuffer*);
 
 using StubEvaluateFn = sl::Result(STDMETHODCALLTYPE*)(sl::Feature, const void*, const void*, uint32_t, void*);
 using StubTokenFn = sl::Result(STDMETHODCALLTYPE*)(sl::FrameToken*&, const uint32_t*);
 
 alignas(16) unsigned char g_dummyFrameToken[64]{};
 
-int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature) {
+int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature, bool tagForFrame) {
     const HMODULE stub = LoadStubExactly(FL_STUB_SL_INTERPOSER);
     if (stub == nullptr) {
         Check(false, "the sl.interposer.dll stub loaded for the upscaled hold");
@@ -2214,6 +2222,15 @@ int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature) 
         Check(false, "the stub exports slSetTag");
         return 1;
     }
+    // THE 2.8 ROUTE: the same tag list through slSetTagForFrame, and NEVER through
+    // slSetTag in that mode -- so an extent in the record can only have come from the
+    // frame-based row, which is what the injected case for it asserts.
+    auto setTagForFrame =
+        reinterpret_cast<StubSetTagForFrameFn>(reinterpret_cast<void*>(GetProcAddress(stub, "slSetTagForFrame")));
+    if (setTagForFrame == nullptr) {
+        Check(false, "the stub exports slSetTagForFrame");
+        return 1;
+    }
     sl::Extent extent{};
     extent.width = kTaggedRenderW;
     extent.height = kTaggedRenderH;
@@ -2223,7 +2240,8 @@ int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature) 
     const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
     std::printf("  presenting for %d second(s) [%s], evaluating feature %u before each present\n", seconds,
                 real ? "REAL" : "DXGI_PRESENT_TEST", static_cast<unsigned>(feature));
-    std::printf("  tagged kBufferTypeScalingInputColor extent %ux%u\n", kTaggedRenderW, kTaggedRenderH);
+    std::printf("  tagged kBufferTypeScalingInputColor extent %ux%u through %s\n", kTaggedRenderW, kTaggedRenderH,
+                tagForFrame ? "slSetTagForFrame (Streamline 2.8, frame-based)" : "slSetTag");
     std::fflush(stdout);
 
     const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
@@ -2233,7 +2251,11 @@ int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature) 
         // Tag, then evaluate, then present -- the order a Streamline title uses,
         // and the order that matters: the extent must be in place before the
         // evaluation the Overlay attributes it to.
-        setTag(viewport, &tag, 1, nullptr);
+        if (tagForFrame) {
+            setTagForFrame(g_dummyFrameToken, viewport, &tag, 1, nullptr);
+        } else {
+            setTag(viewport, &tag, 1, nullptr);
+        }
         // ONE EVALUATION PER PRESENT, which is what a real upscaled title does
         // and what makes the drained record's identity checkable frame by frame.
         eval(feature, g_dummyFrameToken, nullptr, 0, nullptr);
@@ -2562,6 +2584,7 @@ int main(int argc, char** argv) {
     // hold mode drives every combination and the tests assert one expression.
     FfxTopology ffxTopology = FfxTopology::Loader;
     bool        ffxPrepare = true;
+    bool        slTagForFrame = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0) {
@@ -2589,13 +2612,16 @@ int main(int argc, char** argv) {
                                                       : FfxTopology::Loader;
         } else if (std::strcmp(argv[i], "--ffx-no-prepare") == 0) {
             ffxPrepare = false;
+        } else if (std::strcmp(argv[i], "--sl-tag-for-frame") == 0) {
+            slTagForFrame = true;
         }
     }
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--plus-ui") == 0 ||
             std::strcmp(argv[i], "--present-interval-ms") == 0 || std::strcmp(argv[i], "--presents-per-eval") == 0 ||
-            std::strcmp(argv[i], "--ffx-topology") == 0 || std::strcmp(argv[i], "--ffx-no-prepare") == 0) {
+            std::strcmp(argv[i], "--ffx-topology") == 0 || std::strcmp(argv[i], "--ffx-no-prepare") == 0 ||
+            std::strcmp(argv[i], "--sl-tag-for-frame") == 0) {
             if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
                 std::strcmp(argv[i], "--presents-per-eval") == 0 || std::strcmp(argv[i], "--ffx-topology") == 0) {
                 ++i;
@@ -2611,7 +2637,7 @@ int main(int argc, char** argv) {
             ok = HoldPresentingFfx(g, std::atoi(argv[++i]), real, presentsPerEval, ffxTopology, ffxPrepare) == 0 && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting-upscaled") == 0 && i + 1 < argc) {
-            ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, sl::kFeatureDLSS) == 0 && ok;
+            ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, sl::kFeatureDLSS, slTagForFrame) == 0 && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting-upscaled-unknown") == 0 && i + 1 < argc) {
             // The SAME target, evaluating a feature id the Overlay does not
@@ -2619,7 +2645,9 @@ int main(int argc, char** argv) {
             // SET -- "a hook ran and could not identify what it saw" -- and must
             // never report FL_UPSCALER_NONE, which is the only state that may be
             // aggregated as a negative. 0xF00D is not a Streamline feature.
-            ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, static_cast<sl::Feature>(0xF00Du)) == 0 && ok;
+            ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, static_cast<sl::Feature>(0xF00Du),
+                                        slTagForFrame) == 0 &&
+                 ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-upscaler-resolve") == 0) {
             ok = ProbeUpscalerResolve() && ok;

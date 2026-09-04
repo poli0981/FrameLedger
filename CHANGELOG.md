@@ -19,6 +19,25 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **A row for `sl.interposer.dll!slSetTagForFrame`, Streamline 2.8's frame-based tag entry
+  point.** Dying Light: The Beast ships Streamline 2.8.0, which deprecates `slSetTag` in favour of
+  `slSetTagForFrame` (the frame token first, then the same tag list); the title published `Dlss`
+  identity on every batch across three captures and the params bit on none, because the only
+  params row hooked the deprecated export. The new detour hands the list to the same tag walk, has
+  its own trampoline, and is selected by SYMBOL
+  through a constant the inventory header binds to its row with a `static_assert` — Pass B forbids
+  the literal anywhere else. **The params family is published when whole**, once every tag export
+  the loaded interposer has is patched — a 2.7 interposer is whole with `slSetTag` alone, a 2.8 one
+  needs both — because the first cut published it on the first row and the frame-based fixture
+  measured 38 of 41 records claiming params, the ffx leaves' install-window defect from #110
+  again. The stub exports it, the harness tags through it under `--sl-tag-for-frame`, and a Catch2
+  case asserts the exact tagged extent arrives on every record with `slSetTag` never called.
+- **`tools/vendor-exports.ps1` unions exports across every copy of a module name** and lists every
+  distinct version seen, instead of recording the first copy the walk reached. With `sl.interposer.dll`
+  installed as 2.7.1 and 2.8.0 side by side, whether the oracle contained `slSetTagForFrame`
+  depended on directory order; `docs/vendor-exports.json` is regenerated (ten interposer copies,
+  eight versions from 1.5.6 to 2.10.3).
+
 - **The report's `render -> output` line is computed, not "not computed yet".** Every real-title
   run since 2026-08-15 printed the raw sizes two lines above an N/A. `UpscaleExtent` takes the
   MODAL (render, output) tuple over the records that claim both `FL_MEASURED_UPSCALER_PARAMS` and

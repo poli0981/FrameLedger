@@ -1728,6 +1728,21 @@ one launch per capture, consent granted after launch. Exit codes and full report
   1.00, both through the loader row at 1×; Wukong FSR (×2 runs) → silent at monolith and loader
   with the monolith loaded, and the title has no FSR frame-generation option — FSR upscaling
   compiled in (Rune Factory's shape), the monolith shipped and loaded for nothing this hook sees.
+- **2026-09-04, late: Dying Light: The Beast at DLSS, three captures (23:31 / 23:39 / 23:43), for
+  7a after Alan Wake 2 would not run.** The first Streamline title measured whose batches carry
+  `kFeatureDLSS`: `upscaler: Dlss` on 4720/4783, 4271/4345 and 4575/4657 records, `FPS 80.41 /
+  72.73 / 77.69`, every batch identified, RT measured on ~98% of presents. **`UpscalerParams`
+  0 of N on all three**, `render -> output: N/A`, quality byte never published. Cause, measured
+  with dumpbin: DL:TB ships `sl.interposer.dll` **2.8.0**, which exports `slSetTagForFrame`
+  (Cyberpunk's 2.7.1 does not); `sl.h` marks `slSetTag` deprecated in its favour, and a 2.8 title
+  tagging per frame never calls the export the only params row hooked. The oracle had hidden it:
+  `vendor-exports.ps1` recorded the FIRST `sl.interposer.dll` found (2.7.4.0), so the 2.8 export
+  was absent from `docs/vendor-exports.json` until the tool unioned across copies (ten copies,
+  eight distinct versions from 1.5.6 to 2.10.3). All three runs read `frame generation: none`
+  with presents = tokens = batches; **which of the three had DLSS Frame Generation on is the
+  owner's to say** — if any did, `none` there is the §H5 false negative on a title where the FG
+  runtime (`sl.dlss_g.dll`) is in the census, and it is a finding about DLSS-G on SL 2.8, not
+  about the tag row. Row added; rerun owed.
 
 ## 10 · Telemetry layering
 

@@ -716,6 +716,18 @@ std::atomic<uint32_t> g_upscalerParamsLive{0};
 using PFN_SlSetTag = ::PFun_slSetTag*;
 PFN_SlSetTag g_origSlSetTag = nullptr;
 
+// The frame-based twin (Streamline 2.8: slSetTag is deprecated in favour of it).
+// Its own trampoline; and the two rows carry PATCHED flags of their own while the
+// family keeps ONE published latch (g_upscalerParamsLive), because the family is
+// published when whole -- PublishParamsFamilyIfWhole -- and not by whichever row
+// installed first. InstallRow's latch would have done both jobs wrongly: shared, the
+// first row would have claimed it and the second would never patch; separate, the
+// first row would have published a family the second was not yet producing.
+using PFN_SlSetTagForFrame = ::PFun_slSetTagForFrame*;
+PFN_SlSetTagForFrame  g_origSlSetTagForFrame = nullptr;
+std::atomic<uint32_t> g_slSetTagPatched{0};
+std::atomic<uint32_t> g_slSetTagForFramePatched{0};
+
 // The application-frame count (HANDOFF item 3, decided 2026-09-03). Streamline
 // hands a title one FrameToken per frame through slGetNewFrameToken, and a title
 // has to ask for it -- so the number of DISTINCT tokens handed out between two
@@ -896,6 +908,21 @@ sl::Result STDMETHODCALLTYPE Hook_SlSetTag(const sl::ViewportHandle& viewport, c
     // ALWAYS exactly once, on every path including the fault path, with every
     // argument forwarded untouched.
     return g_origSlSetTag(viewport, tags, numTags, cmdBuffer);
+}
+
+// slSetTagForFrame: the FrameToken first, then the same list slSetTag takes. The
+// token is not read -- the frame count comes from slGetNewFrameToken -- and the tag
+// list is handed to the same NoteTags, because a per-frame tag and a viewport tag
+// state the same thing about the input buffer. Forwarded exactly once on every path.
+sl::Result STDMETHODCALLTYPE Hook_SlSetTagForFrame(const sl::FrameToken& frame, const sl::ViewportHandle& viewport,
+                                                   const sl::ResourceTag* tags, uint32_t numTags,
+                                                   sl::CommandBuffer* cmdBuffer) {
+    FL_HOOK_GUARD({
+        if (MayObserve()) {
+            NoteTags(tags, numTags);
+        }
+    })
+    return g_origSlSetTagForFrame(frame, viewport, tags, numTags, cmdBuffer);
 }
 
 sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const sl::FrameToken& frame,
@@ -1360,8 +1387,33 @@ bool InstallByFamily(const wchar_t* module, const char* symbol, uint32_t family)
                           reinterpret_cast<void**>(&g_origSlEvaluateFeature), g_upscalerIdentityLive);
     }
     if (family == static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS)) {
-        return InstallRow(module, symbol, family, reinterpret_cast<void*>(&Hook_SlSetTag),
-                          reinterpret_cast<void**>(&g_origSlSetTag), g_upscalerParamsLive);
+        // TWO ROWS IN THIS FAMILY WITH DIFFERENT SIGNATURES, so the family alone would
+        // bind the wrong body to one of them. The symbol decides, through the constant
+        // the inventory header binds to its own row -- no literal here, which is what
+        // keeps hookinventory-check Pass B able to see every resolver in the Overlay.
+        //
+        // PATCHED WITHOUT PUBLISHING, as the ffx leaves are. The family is published by
+        // PublishParamsFamilyIfWhole once every row this interposer exports is in;
+        // published on the first row, it entitled records the second was not yet
+        // producing -- 38 of 41 records claiming params on the frame-based fixture.
+        const bool             frameRow = fl::inventory::SameA(symbol, fl::inventory::kSymbolSlSetTagForFrame);
+        std::atomic<uint32_t>& patched = frameRow ? g_slSetTagForFramePatched : g_slSetTagPatched;
+        if (patched.load(std::memory_order_acquire) != 0) {
+            return true;
+        }
+        void* target = fl::inventory::ResolveScoped(module, symbol);
+        if (target == nullptr) {
+            return false;    // not loaded, a generation without this export, or an ABI we do not speak
+        }
+        void* detour =
+            frameRow ? reinterpret_cast<void*>(&Hook_SlSetTagForFrame) : reinterpret_cast<void*>(&Hook_SlSetTag);
+        void** original =
+            frameRow ? reinterpret_cast<void**>(&g_origSlSetTagForFrame) : reinterpret_cast<void**>(&g_origSlSetTag);
+        if (!PatchTarget(target, detour, original)) {
+            return false;
+        }
+        patched.store(1, std::memory_order_release);
+        return true;
     }
     if (family == static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS)) {
         return InstallRow(module, symbol, family, reinterpret_cast<void*>(&Hook_SlGetNewFrameToken),
@@ -1431,11 +1483,43 @@ void PublishFfxFamilyIfWhole() noexcept {
     }
 }
 
+// Publish FL_HOOK_UPSCALER_PARAMS once EVERY TAG EXPORT THE LOADED INTERPOSER HAS is
+// patched, and at least one is. "Has" is the export table, not the module list: a
+// 2.7 interposer exports slSetTag alone and is whole with that one row patched; a
+// 2.8 interposer exports both, and is whole only with both. Runs after the rows on
+// every watchdog tick, so a row whose patch failed once holds the family back until
+// it is in rather than letting the other row publish over it.
+void PublishParamsFamilyIfWhole() noexcept {
+    if (g_upscalerParamsLive.load(std::memory_order_acquire) != 0) {
+        return;
+    }
+    struct Row {
+        const char*            symbol;
+        std::atomic<uint32_t>* patched;
+    };
+    const Row rows[] = {{fl::inventory::kSymbolSlSetTag, &g_slSetTagPatched},
+                        {fl::inventory::kSymbolSlSetTagForFrame, &g_slSetTagForFramePatched}};
+    bool      anyPatched = false;
+    for (const Row& r : rows) {
+        if (r.patched->load(std::memory_order_acquire) != 0) {
+            anyPatched = true;
+            continue;
+        }
+        if (fl::inventory::ResolveScoped(fl::inventory::kModuleSlInterposer, r.symbol) != nullptr) {
+            return;    // exported and not yet patched: the family is not whole
+        }
+    }
+    if (anyPatched) {
+        PublishHookFamily(static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS), g_upscalerParamsLive);
+    }
+}
+
 bool InstallUpscalerHooks() noexcept {
     bool any = false;
 #define FL_INSTALL_ROW(mod, sym, family) any = InstallByFamily(mod, sym, static_cast<uint32_t>(family)) || any;
     FL_HOOK_INVENTORY(FL_INSTALL_ROW)
 #undef FL_INSTALL_ROW
+    PublishParamsFamilyIfWhole();
     PublishFfxFamilyIfWhole();
     return any;
 }

@@ -87,15 +87,32 @@ if ($files.Count -eq 0) {
 
 # One entry per DISTINCT module name. Titles ship the same DLL repeatedly; the
 # question is what a module of that name exports, not how many copies exist.
+#
+# THE UNION ACROSS COPIES, since 2026-09-04, and not the first copy found. Two
+# generations of the same name coexist on this machine -- sl.interposer.dll 2.7.1
+# beside 2.8.0, which added slSetTagForFrame -- and "what a module of that name
+# exports" depends on which copy the walk happened to reach first. A row for a
+# symbol only the newer generation exports would then pass or fail Pass A on
+# directory order. Every distinct version is listed, so the oracle says which
+# generations it saw; `version` keeps the first for the existing readers.
 $modules = [ordered]@{}
 $seen = @{}
 foreach ($f in $files) {
-    if ($seen.ContainsKey($f.Name)) { $seen[$f.Name]++; continue }
-    $seen[$f.Name] = 1
     $ex = Get-Exports $f.FullName
+    $ver = (Get-Item $f.FullName).VersionInfo.FileVersion
+    if ($seen.ContainsKey($f.Name)) {
+        $seen[$f.Name]++
+        $m = $modules[$f.Name]
+        $m.exports = @(@($m.exports) + $ex | Sort-Object -Unique)
+        $m.exportCount = $m.exports.Count
+        if ($ver -and ($m.versions -notcontains $ver)) { $m.versions = @(@($m.versions) + $ver) }
+        continue
+    }
+    $seen[$f.Name] = 1
     $modules[$f.Name] = [ordered]@{
         exportCount = $ex.Count
-        version     = (Get-Item $f.FullName).VersionInfo.FileVersion
+        version     = $ver
+        versions    = @(if ($ver) { $ver })
         exports     = @($ex)
     }
 }

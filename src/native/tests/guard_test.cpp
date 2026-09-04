@@ -2919,6 +2919,82 @@ TEST_CASE("the injected Overlay measures an upscaler it can identify", "[guard][
     CloseHandle(mapping);
 }
 
+TEST_CASE("a Streamline 2.8 title that tags through slSetTagForFrame still publishes the extent",
+          "[guard][inject][shm][upscaler]") {
+    // THE ROW THAT DID NOT EXIST ON 2026-09-04 MORNING. Dying Light: The Beast ships
+    // Streamline 2.8.0, which deprecates slSetTag for slSetTagForFrame; the title
+    // published DLSS identity on every batch and the params bit on none, because the
+    // only tag row hooked the deprecated export. This fixture tags ONLY through the
+    // frame-based export, so an extent in the record can only have come from the new
+    // row -- and the exact tagged size is asserted, not "non-zero".
+    Child        child;
+    std::wstring cmd =
+        std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --sl-tag-for-frame --hold-presenting-upscaled 12";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+    Sleep(800);
+    REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    wchar_t name[128]{};
+    REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(mapping != nullptr);
+    const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    REQUIRE(base != nullptr);
+    const auto* st =
+        reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    REQUIRE(st->status == fl::FL_STATUS_READY);
+    REQUIRE(WaitForIdentityHook(st));
+    REQUIRE(WaitForHookFamily(st, static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS)));
+
+    fl::RingReader rd;
+    REQUIRE(rd.Init(base, FL_SHM_DEFAULT_CAPACITY));
+    DiscardBacklog(rd);
+    const std::vector<fl::FlFrameRecord> all = DrainAtLeast(rd, 40, 8000);
+    REQUIRE(all.size() > 20);
+
+    int claimedParams = 0;
+    int wrongExtent = 0;
+    int identified = 0;
+    for (const auto& r : all) {
+        if (r.upscaler == fl::FL_UPSCALER_DLSS) {
+            ++identified;
+        }
+        if ((r.measuredMask & fl::FL_MEASURED_UPSCALER_PARAMS) != 0u) {
+            ++claimedParams;
+            if (r.renderW != FL_TAGGED_RENDER_W || r.renderH != FL_TAGGED_RENDER_H) {
+                ++wrongExtent;
+            }
+        }
+    }
+    INFO("identified " << identified << ", params on " << claimedParams << " of " << all.size());
+    CHECK(identified > static_cast<int>(all.size()) - 3);
+    // Every record once BOTH rows' family is live and the backlog is gone -- the same
+    // equality the slSetTag case asserts, from the other export.
+    CHECK(claimedParams == static_cast<int>(all.size()));
+    CHECK(wrongExtent == 0);
+    CHECK(st->faultCount == 0);
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+}
+
 TEST_CASE("an upscaler the Overlay cannot identify is UNKNOWN, never NONE", "[guard][inject][shm][upscaler]") {
     // THE OTHER DIRECTION, and the one that makes the case above mean anything.
     // A writer that simply hardcoded FL_UPSCALER_DLSS would pass every assertion

@@ -265,8 +265,14 @@ It is the route `17_HOOK_ENGINE` reads as natural, and it fails five ways:
 1. It needs an "indirect" inventory class, which becomes an **unconditional escape hatch
    from `hookinventory-check` Pass A** — its oracle would be "a `PFun_*` exists in a
    vendored header", and `sl_core_api.h:63` declares `PFun_slSetTagForFrame` for a symbol
-   **zero measured modules export**. Any name the headers declare could be laundered past
-   the gate.
+   ~~zero measured modules export~~. Any name the headers declare could be laundered past
+   the gate. *(2026-09-04: `slSetTagForFrame` IS now exported — by `sl.interposer.dll` 2.8.0,
+   which Dying Light: The Beast ships — and it entered the inventory the ordinary way, as a row
+   Pass A checks against the measured oracle. The argument stands: the point was never that
+   this one symbol was fictional, it was that a header-declared oracle cannot tell the two
+   apart. The oracle itself needed a fix to see it: `tools/vendor-exports.ps1` took the FIRST
+   copy of each module name, and with 2.7.1 and 2.8.0 both installed the row's verdict
+   depended on directory order. It unions across copies now and lists every version seen.)*
 2. A second MinHook install site **reopens the install-after-stop window**
    `dllmain.cpp:643-646` exists to close.
 3. MinHook v1.3.4 has **no function-length oracle for a runtime-returned address**, so a
@@ -714,6 +720,14 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   call, and if built, the byte stays 0xFF and the report says *derived*.
 - **Do not** reach for `slDLSSSetOptions` via `slGetFeatureFunction`: §2b refused it on five
   grounds that have not changed, and NGX-direct `NVSDK_NGX_Parameter_GetUI` is licence-blocked.
+- **Alan Wake 2 did not run on 2026-09-04** (the owner tried every workaround; the title is
+  broken on this machine), so the measurement moved to **Dying Light: The Beast at DLSS**, the
+  first Streamline title measured whose batches carry `kFeatureDLSS` — identity `Dlss` on 4,575
+  of 4,575 batches. It read `UpscalerParams = 0` on three captures, because DL:TB ships
+  **Streamline 2.8.0, which deprecates `slSetTag` for `slSetTagForFrame`**, and only the
+  deprecated export had a row. The `slSetTagForFrame` row exists as of this entry; the DL:TB
+  DLSS rerun that reads the `render -> output` line and the quality byte is **owed**, and the
+  derived-label decision above is unchanged until it lands.
 
 #### 7b. Titles whose upscaler or frame generation is compiled into the executable
 
