@@ -260,6 +260,8 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Fixed
 
+- **A candidate with no main module yet is counted as unreadable, not dropped as absent.** `TargetResolverTests.OneInstanceResolves` went red on the hosted runner twice in one hour on 2026-09-04 with `TargetNotRunning` about a process the test had just shown was enumerable: a freshly started process can be in the snapshot before its image is mapped, `Process.MainModule` is then null, and the resolver skipped it without counting it — narrowing the set exactly the way its own comment says "could not look" must not. It is now counted like a process we lack the rights to read (so the answer is `TargetAmbiguous`, never a false `TargetNotRunning`), and the test's "visible" wait means readable, not merely enumerated.
+
 - **Two review checklists were boxes that could not fail**, in `19_SAFETY` §Review checklist and in
   the pull-request template: *"Is there a Tier-2 degradation path if the hook is unavailable?"*
   Under a two-rung ladder the answer is always yes. Replaced with something falsifiable — does the
