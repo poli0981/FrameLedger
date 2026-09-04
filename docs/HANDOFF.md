@@ -677,6 +677,106 @@ Written rationales for whatever is still ❓/⏳/◐ in §S24, and unify the gly
 disposition currently wears three (`✅ deferred` / `🅓 deferred` / `🔴 deferred`) in a
 table whose only purpose is being auditable by counting them.
 
+### 7. **START HERE** — the three things left once the FG blocker fell (2026-09-04, owner's list)
+
+P0 exit criterion 1 reads **4 of 5** as of 2026-09-04: upscaler identity, render → output,
+FG factor and RT state are measured against the titles' own menus. What follows is the
+owner's list for the next session, in the order the dependencies run, each with what makes
+it fail on unmodified `main` — because a criterion already true on `main` is decoration.
+
+#### 7a. The quality preset — the last value criterion 1 lacks
+
+*Fails on `main` because:* every real title measured reads `upscalerQuality = 0xFF`.
+Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's truth; **Alan Wake
+2 (SL 2.7.0) is the candidate that may chain it and is unmeasured** (Owner-only item 2).
+
+- **First, the cheap measurement:** one Alan Wake 2 capture at a known preset, read
+  `quality=` off the `render …  quality=…  upscaler=…` line. If it reads the preset, criterion 1
+  is 5 of 5 on that title and this item is a spike-notes entry. If it reads 0xFF too, the
+  Streamline options route yields nothing on either measured title, and the decision below is
+  live.
+- **The decision, if 0xFF everywhere:** `renderW/H ÷ outputW/H` is *exact* (Cyberpunk: 1485×835
+  at 2560×1440 = 0.58, which IS DLSS Balanced, and the menu agreed), and DLSS's preset ratios
+  are documented constants (DLAA 1.0, Quality 0.667, Balanced 0.58, Performance 0.5, Ultra
+  Performance 0.333). A label **derived** from the measured ratio — printed as *"render scale
+  58% ≈ Balanced"*, never written into `upscalerQuality`, never aggregated as the vendor enum —
+  is an inference over a measurement, and `05_DETECTION`'s rule against static hints setting
+  runtime facts does not forbid it: the input is a runtime measurement. **Whether a derived
+  label may appear beside a measured field is the owner's call**; do not build it before that
+  call, and if built, the byte stays 0xFF and the report says *derived*.
+- **Do not** reach for `slDLSSSetOptions` via `slGetFeatureFunction`: §2b refused it on five
+  grounds that have not changed, and NGX-direct `NVSDK_NGX_Parameter_GetUI` is licence-blocked.
+
+#### 7b. Titles whose upscaler or frame generation is compiled into the executable
+
+*Fails on `main` because:* the census has no module to see, the inventory has no export to
+resolve, and the report prints *"cannot include in-process generated frames"* — which on a
+statically linked FSR3-FG title is wrong in the dangerous direction. The sentence names the
+hole; it does not close it.
+
+- **Measure before costing.** No installed title has this shape: every FSR title on this
+  machine ships the `ffx_*` / `amd_fidelityfx_*` DLLs (`vendor-exports.json`, 34 modules), and
+  the six-title run found none. The catalogue that links FSR2 statically is mostly
+  2022–2023 UE4/Unity titles that took the source SDK. **Find one first.** A rationale written
+  about a title that does not exist is the kind of deferral §S24 counts against nobody.
+- **What is and is not possible, so the costing is honest.** Nothing by name: no module, no
+  export. What survives static linking is behaviour on interfaces we already hook or could:
+  FSR3's frame-generation *proxy swapchain* is created through `IDXGIFactory*::CreateSwapChain*`
+  on the shared `dxgi.dll` class vtable — visible **only at creation**, i.e. only in launch mode
+  (§S1, deferred) or on a title that recreates its swapchain on a settings change; and per-frame
+  work on the D3D12 queue (`ExecuteCommandLists` on the FG's async queue) is a cadence signal
+  with no vendor name on it, which is rung 3 at best and needs an application-frame count this
+  title cannot give. **The honest ceiling for a statically linked title in attach mode is
+  Presented FPS with the census's qualifier** — which is what ships today, with the hole named.
+- **The only cheap improvement is wording**, and it is already in: the qualifier says
+  *statically linked FSR3-FG … outside what this can see*. If a title is found, the first PR is
+  a `spike-notes` row and a `20_OPEN_QUESTIONS` §Scope entry with the measured shape, not code.
+
+#### 7c. AMD and Intel identity, measured rather than inferred — §H11's deferral has a next step
+
+*Fails on `main` because:* Lies of P with FSR 3.1 frame generation demonstrably on reads
+`upscaler: N/A … frame generation: N/A` plus a census WARNING, and Hell Is Us at FSR reads the
+same as its off run. The three AMD 3.1 modules export the same five generic names
+(`ffxCreateContext`, `ffxDispatch`, `ffxQuery`, `ffxConfigure`, `ffxDestroyContext`); XeSS
+exports `xessD3D12Init` / `xessD3D12Execute` and XeFG `xefgSwapChainD3D12InitFromSwapChain`
+(`vendor-exports.json`).
+
+1. **Run `18_GPU_VENDOR_APIS` §Checklist on both SDKs first — nobody has** (§H11 says so). The
+   FidelityFX SDK and the XeSS SDK *headers* are both published under MIT on GitHub; the XeSS
+   *binary* (`libxess.dll`) is under Intel's own licence and is never redistributed by us, the
+   same shape as `nvapi64.dll` and `sl.interposer.dll`. If the checklist clears them, vendor
+   the headers **types-only, with a consumer in the same commit** (`18_GPU_VENDOR_APIS`
+   records why an unconsumed vendoring is worse than none), and extend `hookinventory-check`
+   Pass C's forbidden-import list so a linked `amd_fidelityfx_dx12.dll` or `libxess.dll` can
+   never become a load-time dependency — the Streamline lesson, one vendor over.
+2. **AMD 3.1 (`amd_fidelityfx_dx12.dll`, the facade the game calls):** identity is in
+   `ffxCreateContextDescHeader.type` — `FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE` vs
+   `…_FRAMEGENERATION` — read from the argument of a hooked `ffxCreateContext`, which is the
+   same class of read as `slEvaluateFeature`'s `inputs` (rule 4). `ffxDispatch` with a
+   frame-generation dispatch desc fires **once per application frame** and is this vendor's
+   `slGetNewFrameToken`; an upscale dispatch desc carries `renderSize` / `upscaleSize`, which
+   is `renderW/H` exact. **Module-scope every row to the facade**: three modules export the
+   same five names, and the plugin modules are called by the facade, not by the game — an
+   unscoped hook would count each dispatch twice, straight into `fg_factor`.
+3. **AMD 3.0 (`ffx_fsr3_x64.dll`, Cyberpunk's copy):** named exports, no struct decode needed —
+   `ffxFsr3ContextDispatchUpscale` for identity and extent, `ffxFsr3DispatchFrameGeneration`
+   once per application frame.
+4. **Intel:** `xessD3D12Init` / `xessD3D12Execute` (identity; `inputWidth/Height` in the
+   execute params → `renderW/H`), and for XeFG `xefgSwapChainD3D12InitFromSwapChain` plus the
+   per-frame tag/execute call — the swapchain-proxy shape §H5 already cleared for DLSS-G and
+   FSR3, to be measured rather than assumed for Intel.
+5. **Acceptance, against the titles' own menus:** Lies of P at FSR + FG prints
+   `upscaler: Fsr3`, `frame generation: FsrFg`, and the trio at ≈ ×2 with the same
+   `presents / dispatches` arithmetic; Hell Is Us at FSR prints identity where today it prints
+   the off run's line; Cyberpunk at XeSS prints `Xess`. **A wrong preset name degrades
+   silently** — the histogram and `tokens/batch`-style second count are what make a mistake
+   visible, so build the per-vendor second count before trusting the first.
+
+**Traps carried from the Streamline work that apply verbatim:** the vendor's zero is not our
+zero (resolve at the writer); a vendor keeps a NAME and changes a SIGNATURE (`SpeaksExpectedAbi`
+needs an AMD and an Intel arm); the K = 1 / K = 4 harness pair must exist before the first
+real-title run, or a writer that counts presents instead of dispatches is green everywhere.
+
 ### Separable
 
 `fl-probe-signer` → §S19(b) → drop `-SkipIntegration`. **Not** a prerequisite of the

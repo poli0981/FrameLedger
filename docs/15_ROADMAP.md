@@ -20,6 +20,8 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > and item 4 is no longer untouched. **What did not:** item 7 is blocked on §S31, item 8 has
 > no code at all, and exit criterion 1 still reads **3 of 5** at its best (`spike-notes` §8).
 >
+> **Re-read 2026-09-04:** item 7 ✅ (the FG factor is measured, §S31 row P1), item 8's L2 half is written and measured (§M5 row R1), and exit criterion 1 reads **4 of 5** on Cyberpunk 2077 — the quality preset is the one value left, and `HANDOFF` item 7 carries the three things the next session does.
+>
 > The 08-06 block below is kept and is now wrong in one specific clause — it says the writer
 > *"records `measuredMask = FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` and nothing
 > else"*. It records upscaler identity, upscaler params, frame-generation counts and ray
