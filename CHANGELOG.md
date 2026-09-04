@@ -19,6 +19,26 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **A whole-resource tag now yields the size the tagged `sl::Resource` declares.** Streamline
+  documents a zero `extent` as "use the entire resource"; a title tagging that way stated the
+  render size nowhere the Overlay read, and Dying Light: The Beast (SL 2.8.0) still published no
+  extent on the `slSetTagForFrame` build with both tag rows live. `TagSize` in `fl_sl_inputs.h`
+  reads the extent first and, when it is zero, the Resource's own `width/height` — GUID-checked,
+  from the argument the hooked API received, on the local walk and both global-tag detours alike,
+  so the three routes cannot disagree about what a tag says. A Resource declaring no size is
+  still the honest unknown. Unit cases cover the shape, precedence of a non-zero extent over the
+  Resource, a Resource that fails the GUID check and a half-declared size; the harness tags in
+  that shape under `--sl-tag-whole-resource` and an injected case asserts the exact size arrives
+  on every record through the 2.8 export.
+
+### Changed
+
+- **`20_OPEN_QUESTIONS` §H5 has a candidate title for case 3.** Dying Light: The Beast at DLSS
+  with DLSS Frame Generation on read `presents = tokens` on four captures (the same title with
+  FSR FG read ×2; Cyberpunk on Streamline 2.7.1 read ×3.99), so the report printed `frame
+  generation: none` on a generating title. The two readings the record cannot separate and the
+  discriminator — the owner's counter — are pre-committed there.
+
 - **A row for `sl.interposer.dll!slSetTagForFrame`, Streamline 2.8's frame-based tag entry
   point.** Dying Light: The Beast ships Streamline 2.8.0, which deprecates `slSetTag` in favour of
   `slSetTagForFrame` (the frame token first, then the same tag list); the title published `Dlss`
