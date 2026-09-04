@@ -161,9 +161,7 @@ internal static class SessionReport
                   + "upscaling is off in this title's settings, or it runs through a path this build does not "
                   + "hook — measured on 3 of 5 Streamline titles — or a vendor this build does not decode)"
                 : NoHookRan("upscaler", facts.CensusRan, facts.UpscalerRuntimesLoaded)));
-        sb.Append("  render -> output: ").AppendLine(facts.UpscaleRatio is null
-            ? "N/A (the ratio is not computed yet; the raw sizes are above)"
-            : Num(facts.UpscaleRatio));
+        sb.Append("  render -> output: ").AppendLine(RenderToOutput(facts.Extent));
         sb.Append("  frame generation: ").AppendLine(facts.FgMode
             ?? (facts.FgHookRan
                 ? "N/A (a hook ran and saw no frame-generation evaluation — see the FG counts above)"
@@ -305,6 +303,25 @@ internal static class SessionReport
                           + "case 3), FG configured off while the feature is still evaluated, or evaluations "
                           + "that FAILED and were counted anyway (the hook ignores sl::Result)");
         }
+    }
+
+    /// <summary>
+    /// The extent line: two measured sizes, the ratio <c>03_METRICS</c> defines over them, and
+    /// whether the window ran at one tuple. Never a preset name — that is HANDOFF 7a's owner call.
+    /// </summary>
+    private static string RenderToOutput(UpscaleExtent? e)
+    {
+        if (e is null)
+        {
+            return "N/A (no record carried both a render size and an output size)";
+        }
+
+        string line = $"{e.RenderW}x{e.RenderH} -> {e.OutputW}x{e.OutputH} = {Num(e.Ratio)}x "
+                      + $"({e.RenderScalePercent.ToString("0", CultureInfo.InvariantCulture)}% render scale) "
+                      + $"on {Count(e.Records)} of {Count(e.Measured)} record(s)";
+        return e.DistinctGroups > 1
+            ? line + $" — SETTINGS MOVED: {Count(e.DistinctGroups)} distinct extents in the window, this is the dominant one"
+            : line;
     }
 
     private static string Num(double? v) =>
