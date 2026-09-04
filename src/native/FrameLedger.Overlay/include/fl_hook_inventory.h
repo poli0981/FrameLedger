@@ -127,6 +127,134 @@ static_assert((kFamilyEvaluateFeature & static_cast<uint32_t>(fl::FL_HOOK_FG_EVA
               "so claiming FG_EVALUATIONS here would entitle FL_MEASURED_FG_COUNTS to a detour that writes "
               "nothing into fgEvaluations");
 
+// --- AMD FidelityFX, through the ffx-api facade (2026-09-04, HANDOFF item 7c) ----
+//
+// ONE FAMILY, THREE ROWS, THREE MODULES, AND EVERY ROW IS THE SAME EXPORT NAME.
+// `ffxDispatch` is the single call an ffx-api title routes every per-frame piece
+// of work through -- the upscale, the frame-generation PREPARE, and the generated
+// batch -- and the DESCRIPTOR it is handed says which (ffxApiHeader::type, a value
+// from the vendored MIT headers). So the one detour IDENTIFIES the upscaler (an
+// UPSCALE dispatch arrived), publishes the render extent (the same descriptor's
+// renderSize: PARAMS) and COUNTS application frames (the PREPARE descriptor's
+// frameID, which the vendor documents as "must increment by exactly one for each
+// frame" -- this vendor's slGetNewFrameToken). Three families from one body, hence
+// a compound constant, and it must differ from all three single-bit values above
+// because InstallByFamily binds by EQUALITY (dllmain.cpp).
+//
+// WHY THESE THREE MODULES, AND WHY NOT A FOURTH. Measured on installed titles,
+// 2026-09-04:
+//
+//   amd_fidelityfx_dx12.dll                  SDK 1.1.x MONOLITH -- Lies of P, Cyberpunk 2077,
+//                                            Rune Factory, Black Myth: Wukong (1.0.1.41314)
+//   amd_fidelityfx_upscaler_dx12.dll         SDK 2.x effect DLL: the FSR 3.1 AND FSR 4 providers
+//   amd_fidelityfx_framegeneration_dx12.dll  SDK 2.x effect DLL: FSR 3.1 / FSR 4 frame generation
+//                                            and the frame-generation swapchain
+//   amd_fidelityfx_loader_dx12.dll           SDK 2.x LOADER: no effect code, forwards to the two above
+//
+// All four export the same five names and nothing else (docs/vendor-exports.json),
+// so the loader can reach an effect DLL only through the effect DLL's OWN exports
+// -- and a UE5 title ships the two effect DLLs with NO loader at all (Hell Is Us,
+// Expedition 33: the engine plugin compiles the MIT loader source in and calls the
+// leaves directly). Every route therefore ends at a LEAF, and the leaves are what
+// is hooked. Hooking the loader as well would count each dispatch TWICE on a
+// loader-shipping title, straight into fg_factor -- the exact defect the module
+// column exists to prevent, one vendor over. The loader's name is kept here ONLY
+// so a static_assert below can refuse it as a row, and so the fixtures can build a
+// forwarding decoy that proves the leaf count reads 1x with a loader in the chain.
+//
+// The effect-DLL split is NOT a guess about the vendor's internals: the FidelityFX
+// SDK's own getting-started text says the loader "only manages the loading of
+// effect type DLLs" and is "interface- and behavior-compatible with
+// amd_fidelityfx_dx12.dll". The monolith IS its own leaf -- SDK 1.1.x compiled the
+// providers in -- which is why it is a row and the loader is not.
+inline constexpr uint32_t kFamilyFfxDispatch = static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY) |
+                                               static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS) |
+                                               static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS);
+
+// The complement, as its own list, for the reason kFamiliesEvaluateFeatureDoesNotImplement
+// gives: a bit added above has to be REMOVED here before the build goes green, and that
+// is the moment somebody decides whether the detour actually implements the family.
+inline constexpr uint32_t kFamiliesFfxDispatchDoesNotImplement =
+    static_cast<uint32_t>(fl::FL_HOOK_PRESENT) | static_cast<uint32_t>(fl::FL_HOOK_RT_DISPATCH) |
+    static_cast<uint32_t>(fl::FL_HOOK_RT_AS_BUILD) | static_cast<uint32_t>(fl::FL_HOOK_RT_PSO) |
+    static_cast<uint32_t>(fl::FL_HOOK_PSO) | static_cast<uint32_t>(fl::FL_HOOK_COLOR_SPACE) |
+    static_cast<uint32_t>(fl::FL_HOOK_REFLEX) | static_cast<uint32_t>(fl::FL_HOOK_VRAM);
+
+static_assert((kFamilyFfxDispatch & kFamiliesFfxDispatchDoesNotImplement) == 0u,
+              "the ffxDispatch rows claim a family their detour does not implement -- hookinventory-check reads "
+              "this column as an opaque identifier and cannot see it, so a compile error is the only verdict");
+static_assert((kFamilyFfxDispatch & static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_IDENTITY)) != 0u,
+              "an UPSCALE dispatch descriptor names the upscaler, so the row must claim identity");
+static_assert((kFamilyFfxDispatch & static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS)) != 0u,
+              "the UPSCALE descriptor carries renderSize, so the row must claim params");
+static_assert((kFamilyFfxDispatch & static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS)) != 0u,
+              "the PREPARE descriptor's frameID is the application-frame count, so the row must claim FG counts");
+static_assert(kFamilyFfxDispatch != kFamilyEvaluateFeature &&
+                  kFamilyFfxDispatch != static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS) &&
+                  kFamilyFfxDispatch != static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS),
+              "InstallByFamily binds a row by EQUALITY on this value -- a collision would hand a Streamline detour "
+              "body to an AMD export, which is the neighbour's-body defect the installer exists to stop");
+
+// The leaves, in the order dllmain's per-leaf trampoline and latch arrays are indexed.
+enum FfxLeaf : uint32_t {
+    kFfxLeafMonolith = 0,           // amd_fidelityfx_dx12.dll -- SDK 1.1.x, FSR 3.1 only
+    kFfxLeafUpscaler = 1,           // amd_fidelityfx_upscaler_dx12.dll -- SDK 2.x, FSR 3.1 or FSR 4
+    kFfxLeafFrameGeneration = 2,    // amd_fidelityfx_framegeneration_dx12.dll -- SDK 2.x
+    kFfxLeafCount = 3,
+};
+
+inline constexpr const wchar_t* kFfxLeafModules[kFfxLeafCount] = {
+    L"amd_fidelityfx_dx12.dll",
+    L"amd_fidelityfx_upscaler_dx12.dll",
+    L"amd_fidelityfx_framegeneration_dx12.dll",
+};
+
+// NOT A ROW, and asserted so below. Named here for the static_assert and for the
+// forwarding decoy in tools/vendor-stubs, nowhere else.
+inline constexpr const wchar_t* kFfxLoaderModule = L"amd_fidelityfx_loader_dx12.dll";
+
+// constexpr string compares, so the bindings below are COMPILE errors rather than
+// runtime disagreements nobody runs. Case-sensitive: they compare this file's
+// spellings with each other, not a loader's answer with ours.
+constexpr bool SameW(const wchar_t* a, const wchar_t* b) noexcept {
+    while (*a != L'\0' && *a == *b) {
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
+constexpr bool SameA(const char* a, const char* b) noexcept {
+    while (*a != '\0' && *a == *b) {
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
+
+// Which leaf slot a row's module is, exactly as spelled in the table. -1 if none.
+constexpr int FfxLeafOfExact(const wchar_t* module) noexcept {
+    for (uint32_t i = 0; i < kFfxLeafCount; ++i) {
+        if (SameW(module, kFfxLeafModules[i])) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+// The runtime twin: the loader is case-insensitive about module names, so this is
+// too. dllmain's installer indexes its per-leaf storage with the result.
+inline int FfxLeafOf(const wchar_t* module) noexcept {
+    if (module == nullptr) {
+        return -1;
+    }
+    for (uint32_t i = 0; i < kFfxLeafCount; ++i) {
+        if (_wcsicmp(module, kFfxLeafModules[i]) == 0) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 // slGetNewFrameToken IS THE APPLICATION-FRAME PRODUCER (2026-09-03, HANDOFF item 3's
 // decision). Streamline hands a title one frame token per frame, and the title
 // must ask for it; the detour counts DISTINCT tokens between two presents, so a
@@ -136,10 +264,61 @@ static_assert((kFamilyEvaluateFeature & static_cast<uint32_t>(fl::FL_HOOK_FG_EVA
 // DOES carry -- that the DLSS-G plugin does not request tokens for the frames it
 // generates -- is what 20_OPEN_QUESTIONS §S31's pre-committed table exists to test
 // against a title's own x2 / x4 before a ratio near 1 may be read as "none".
+// THE THREE ffxDispatch ROWS ARE THE LEAVES, spelled as literals because Pass A's
+// parser reads literals; the static_asserts under the table bind these spellings to
+// kFfxLeafModules in both directions, so neither list can gain or lose a module alone.
 #define FL_HOOK_INVENTORY(X)                                                                                           \
     X(L"sl.interposer.dll", "slEvaluateFeature", fl::inventory::kFamilyEvaluateFeature)                                \
     X(L"sl.interposer.dll", "slSetTag", fl::FL_HOOK_UPSCALER_PARAMS)                                                   \
-    X(L"sl.interposer.dll", "slGetNewFrameToken", fl::FL_HOOK_FG_EVALUATIONS)
+    X(L"sl.interposer.dll", "slGetNewFrameToken", fl::FL_HOOK_FG_EVALUATIONS)                                          \
+    X(L"amd_fidelityfx_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                                    \
+    X(L"amd_fidelityfx_upscaler_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                           \
+    X(L"amd_fidelityfx_framegeneration_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)
+
+// THE LEAF TABLE AND THE ROWS ARE BOUND TO EACH OTHER AT COMPILE TIME, BOTH WAYS.
+// A leaf without a row would be a trampoline slot nothing installs into; a row
+// without a leaf would resolve, reach InstallByFamily, and find no slot -- and the
+// installer's answer to that is to install nothing, silently, which is the shape
+// this whole file exists to make loud.
+constexpr bool FfxDispatchRowExistsFor(const wchar_t* module) noexcept {
+#define FL_FFX_ROW_FOR(mod, sym, family)                                                                               \
+    if (SameW(mod, module) && SameA(sym, "ffxDispatch")) {                                                             \
+        return true;                                                                                                   \
+    }
+    FL_HOOK_INVENTORY(FL_FFX_ROW_FOR)
+#undef FL_FFX_ROW_FOR
+    return false;
+}
+constexpr bool EveryFfxDispatchRowIsALeaf() noexcept {
+#define FL_FFX_ROW_IS_LEAF(mod, sym, family)                                                                           \
+    if (SameA(sym, "ffxDispatch") && FfxLeafOfExact(mod) < 0) {                                                        \
+        return false;                                                                                                  \
+    }
+    FL_HOOK_INVENTORY(FL_FFX_ROW_IS_LEAF)
+#undef FL_FFX_ROW_IS_LEAF
+    return true;
+}
+constexpr bool AnyRowNames(const wchar_t* module) noexcept {
+#define FL_ANY_ROW_NAMES(mod, sym, family)                                                                             \
+    if (SameW(mod, module)) {                                                                                          \
+        return true;                                                                                                   \
+    }
+    FL_HOOK_INVENTORY(FL_ANY_ROW_NAMES)
+#undef FL_ANY_ROW_NAMES
+    return false;
+}
+static_assert(FfxDispatchRowExistsFor(kFfxLeafModules[kFfxLeafMonolith]) &&
+                  FfxDispatchRowExistsFor(kFfxLeafModules[kFfxLeafUpscaler]) &&
+                  FfxDispatchRowExistsFor(kFfxLeafModules[kFfxLeafFrameGeneration]),
+              "every ffx leaf needs its ffxDispatch row, spelled identically -- a leaf with no row is a trampoline "
+              "slot nothing installs into");
+static_assert(EveryFfxDispatchRowIsALeaf(),
+              "an ffxDispatch row names a module the leaf table does not know -- InstallByFamily would resolve it "
+              "and find no trampoline slot, and install nothing without saying so");
+static_assert(!AnyRowNames(kFfxLoaderModule),
+              "amd_fidelityfx_loader_dx12.dll is a FORWARDER and must never be a row: it reaches the effect DLLs "
+              "through their own ffxDispatch exports, so hooking it as well counts every dispatch twice, straight "
+              "into fg_factor");
 
 // Does this module speak the Streamline 2 ABI the vendored headers describe?
 //
@@ -189,12 +368,38 @@ inline bool SpeaksStreamline2(HMODULE h) noexcept {
 // passes, because "no known ABI hazard" is the honest default for a module class
 // nobody has measured a break in -- and inventing a check for one would be
 // guessing, not guarding.
+// Does this module speak the ffx-api ABI the vendored headers describe?
+//
+// A NAME CHECK, AND SAID SO. The five entry points are the whole of the ffx-api
+// surface -- a module of a leaf's name that lacks any of them is not an ffx-api
+// module at all, whatever else it is. It is deliberately NOT a version check: ffx-api
+// is designed for ABI stability across SDK generations (the same five names, the same
+// header-typed descriptors, from the 1.1.x monolith through the 2.x effect DLLs), and
+// the vendored 2.3.0 declarations decode every generation measured. The guard that
+// actually protects the read is in the detour: a descriptor is reinterpreted only
+// AFTER its head type matched a constant whose layout is identical in every tag
+// consulted, and nothing past the head is touched otherwise.
+//
+// Probe-only names, like SpeaksStreamline2's: nothing resolves or calls them, and
+// they live in this file because Pass B exempts exactly this file.
+inline bool SpeaksFfxApi(HMODULE h) noexcept {
+    return h != nullptr && GetProcAddress(h, "ffxCreateContext") != nullptr &&
+           GetProcAddress(h, "ffxDestroyContext") != nullptr && GetProcAddress(h, "ffxConfigure") != nullptr &&
+           GetProcAddress(h, "ffxQuery") != nullptr && GetProcAddress(h, "ffxDispatch") != nullptr;
+}
+
 inline bool SpeaksExpectedAbi(const wchar_t* module, HMODULE h) noexcept {
     if (module == nullptr) {
         return false;
     }
     if (_wcsicmp(module, L"sl.interposer.dll") == 0) {
         return SpeaksStreamline2(h);
+    }
+    // THE AMD ARM, by leaf name, for the same reason the Streamline arm is by name:
+    // the loader also exports all five and is not a leaf, so a prefix test would
+    // approve a module the inventory deliberately does not hook.
+    if (FfxLeafOf(module) >= 0) {
+        return SpeaksFfxApi(h);
     }
     return true;
 }

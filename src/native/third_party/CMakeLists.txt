@@ -203,3 +203,43 @@ target_include_directories(fl_streamline_headers SYSTEM INTERFACE
 # would stop the Overlay loading in every game that ships no Streamline, in the
 # loader, before any of our code runs and with no message anywhere. The Overlay
 # resolves the symbol at runtime, module-scoped, on a module the game loaded.
+
+# ---------------------------------------------------------------------------
+# AMD FidelityFX SDK headers (MIT, by exception) — VENDORED, five files, at tag
+# v2.3.0, for the SAME two reasons as Streamline's and one more.
+#
+# WHAT THIS BUYS. The three AMD modules a title ships all export the same five
+# generic names -- ffxCreateContext, ffxDestroyContext, ffxConfigure, ffxQuery,
+# ffxDispatch -- so which effect ran is not in the symbol; it is in the
+# DESCRIPTOR the game passes: ffxApiHeader::type, then renderSize and frameID at
+# offsets only the vendor's own headers can vouch for. 20_OPEN_QUESTIONS §H11
+# forbade decoding that struct "from observation", and this target is what
+# makes the decode a declaration instead of a guess. `PfnFfxDispatch` is
+#
+#   ffxReturnCode_t (*)(ffxContext* context, const ffxDispatchDescHeader* desc)
+#
+# two pointers in, a uint32 out, nothing in XMM.
+#
+# LICENCE: upstream's docs/license.md is a binary-only default licence with an
+# MIT exception list, and the list covers every file in the tree (845 of 845,
+# read off the GitHub tree API on 2026-09-04). The headers carry the grant inline
+# as well. tools/license-check.ps1 §2d asserts both per vendored file, and
+# third_party/fidelityfx/README.md records what is excluded and why -- including
+# why this is tag v2.3.0 and not the v1.1.4 that 18_GPU_VENDOR_APIS first named.
+#
+# THREE INCLUDE DIRECTORIES, NOT ONE, because upstream's headers include each
+# other by relative path and are kept in upstream's own layout so they need no
+# edit. <ffx_api.h>, <ffx_upscale.h> and <ffx_framegeneration.h> each resolve
+# from exactly one of them.
+add_library(fl_fidelityfx_headers INTERFACE)
+target_include_directories(fl_fidelityfx_headers SYSTEM INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/fidelityfx/Kits/FidelityFX/api/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fidelityfx/Kits/FidelityFX/upscalers/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fidelityfx/Kits/FidelityFX/framegeneration/include"
+)
+# NEVER target_link_libraries anything here, and there is nothing to link in any
+# case: no .lib is vendored. The entry points are declared FFX_API_ENTRY, which
+# ffx_api.h defines as __declspec(dllexport) with no import switch -- a
+# declaration that exports nothing unless something DEFINES it. FrameLedger.Overlay
+# must never define or take the address of one; hookinventory-check Pass C reads
+# the built DLL's export table as well as its imports for exactly that.

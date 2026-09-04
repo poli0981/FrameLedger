@@ -10,7 +10,8 @@ add_executable(hook-harness main.cpp proxy_swapchain.h)
 # reasoning brings in fl_hook_inventory.h from the Overlay's include directory:
 # --probe-upscaler-resolve calls the OVERLAY'S resolver, not a copy of it, or it
 # would prove a fact about GetProcAddress.
-target_link_libraries(hook-harness PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags fl_streamline_headers)
+target_link_libraries(hook-harness PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags fl_streamline_headers
+    fl_fidelityfx_headers)
 target_include_directories(hook-harness PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Overlay/include")
 target_compile_definitions(hook-harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
@@ -23,6 +24,12 @@ target_compile_definitions(hook-harness PRIVATE
     FL_STUB_SL_INTERPOSER=L"$<TARGET_FILE:fl_stub_sl_interposer>"
     FL_STUB_SL_COMMON=L"$<TARGET_FILE:fl_stub_sl_common>"
     FL_STUB_SL_INTERPOSER_V1=L"$<TARGET_FILE:fl_stub_sl_interposer_v1>"
+    # The three AMD leaves and the loader decoy (tools/vendor-stubs, same rule:
+    # absolute paths, never a name a game directory could satisfy).
+    FL_STUB_FFX_DX12=L"$<TARGET_FILE:fl_stub_ffx_dx12>"
+    FL_STUB_FFX_UPSCALER=L"$<TARGET_FILE:fl_stub_ffx_upscaler>"
+    FL_STUB_FFX_FG=L"$<TARGET_FILE:fl_stub_ffx_fg>"
+    FL_STUB_FFX_LOADER=L"$<TARGET_FILE:fl_stub_ffx_loader>"
     # Shared with fl_guard_test from src/native/CMakeLists.txt, so the fixture and
     # the assertion cannot hold different numbers.
     FL_TAGGED_RENDER_W=${FL_TAGGED_RENDER_W}
@@ -31,7 +38,8 @@ target_compile_definitions(hook-harness PRIVATE
     FL_DXR_DISPATCH_H=${FL_DXR_DISPATCH_H}
     FL_DXR_DISPATCH_D=${FL_DXR_DISPATCH_D}
 )
-add_dependencies(hook-harness fl_stub_sl_interposer fl_stub_sl_common fl_stub_sl_interposer_v1)
+add_dependencies(hook-harness fl_stub_sl_interposer fl_stub_sl_common fl_stub_sl_interposer_v1
+    fl_stub_ffx_dx12 fl_stub_ffx_upscaler fl_stub_ffx_fg fl_stub_ffx_loader)
 
 # WARP + CreateSwapChainForComposition means no GPU and no HWND are needed, so
 # these run on a hosted CI runner — which is what 20_OPEN_QUESTIONS §H4 said
@@ -105,6 +113,16 @@ add_test(NAME fl_upscaler_resolve COMMAND hook-harness --probe-upscaler-resolve)
 # sl.interposer.dll and GetModuleHandleExW resolves by name, so running this
 # inside fl_upscaler_resolve would have the two silently test each other.
 add_test(NAME fl_sl_abi_guard COMMAND hook-harness --probe-sl-abi)
+
+# AMD's version of the scoping argument, one step further along. Four modules
+# export the same five ffx-api names -- three LEAVES and the SDK 2.x LOADER that
+# forwards to two of them -- and the Overlay hooks the leaves only, because a
+# dispatch on a loader-shipping title crosses two exports of the same name and
+# hooking both would count it twice. This probe drives the Overlay's own resolver
+# against all four, and then pushes dispatches THROUGH the loader decoy to prove the
+# forwarding fixture the [ffx] injected cases rest on actually forwards -- the
+# vacuity guard for a K = 1 control that would otherwise be about nothing.
+add_test(NAME fl_ffx_resolve COMMAND hook-harness --probe-ffx-resolve)
 
 # The inputs walk against malformed input. A unit probe rather than an injected
 # case: every branch dereferences caller-supplied pointers, a fault in the real
