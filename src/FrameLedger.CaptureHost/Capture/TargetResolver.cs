@@ -94,8 +94,19 @@ internal sealed class TargetResolver : ITargetResolver
                 // A process we cannot read is NOT a match — "could not look" must not widen the set —
                 // but it is counted below so it cannot narrow one either.
                 string? image = p.MainModule?.FileName;
-                if (image is not null
-                    && string.Equals(ExecutableIdentity.Normalise(image), normalisedExePath,
+                if (image is null)
+                {
+                    // A process that is in the snapshot with NO main module yet -- it exists and has
+                    // not finished mapping its image. Measured on the hosted runner 2026-09-04, twice
+                    // in one hour, on a single freshly started instance: the resolver skipped it here
+                    // without counting it and answered TargetNotRunning about a process it had just
+                    // enumerated. "Could not look" must not narrow the set, and that includes this
+                    // shape; it is counted like a process we lack the rights to read.
+                    unreadable++;
+                    continue;
+                }
+
+                if (string.Equals(ExecutableIdentity.Normalise(image), normalisedExePath,
                         StringComparison.OrdinalIgnoreCase))
                 {
                     matches.Add(p.Id);
