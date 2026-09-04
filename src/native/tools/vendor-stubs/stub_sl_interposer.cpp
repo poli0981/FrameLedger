@@ -59,6 +59,9 @@ StubFrameToken g_tokenPool[8];
 static_assert(fl::stub::InventoryHas("slGetNewFrameToken"),
               "fl_hook_inventory.h no longer contains \"slGetNewFrameToken\", so the frame-token fixture would "
               "exercise a row the Overlay does not install.");
+static_assert(fl::stub::InventoryHas("slSetTagForFrame"),
+              "fl_hook_inventory.h no longer contains \"slSetTagForFrame\", so the frame-based tag fixture would "
+              "exercise a row the Overlay does not install.");
 static_assert(fl::stub::InventoryHas("slEvaluateFeature"),
               "fl_hook_inventory.h no longer contains \"slEvaluateFeature\", so this stub would export a name "
               "the Overlay does not look for -- the fixture would pass while proving nothing "
@@ -95,6 +98,22 @@ SL_API sl::Result slSetTag(const sl::ViewportHandle& viewport, const sl::Resourc
     (void)viewport;
     (void)tags;
     (void)numTags;
+    (void)cmdBuffer;
+    return sl::Result::eOk;
+}
+
+// THE FRAME-BASED TAG ENTRY POINT (Streamline 2.8: Dying Light: The Beast ships
+// 2.8.0, which exports this beside the deprecated slSetTag). Signature from the
+// vendored header, as above. The stub records nothing here either; the harness
+// drives it with a known extent so the injected case can assert the Overlay read
+// renderW/H off THIS route rather than off slSetTag.
+SL_API sl::Result slSetTagForFrame(const sl::FrameToken& frame, const sl::ViewportHandle& viewport,
+                                   const sl::ResourceTag* resources, uint32_t numResources,
+                                   sl::CommandBuffer* cmdBuffer) {
+    (void)frame;
+    (void)viewport;
+    (void)resources;
+    (void)numResources;
     (void)cmdBuffer;
     return sl::Result::eOk;
 }

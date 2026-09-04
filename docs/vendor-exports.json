@@ -8,6 +8,9 @@
     "amd_fidelityfx_denoiser_dx12.dll": {
       "exportCount": 5,
       "version": "1.0.1.0",
+      "versions": [
+        "1.0.1.0"
+      ],
       "exports": [
         "ffxConfigure",
         "ffxCreateContext",
@@ -20,6 +23,9 @@
     "amd_fidelityfx_dx12.dll": {
       "exportCount": 5,
       "version": "1.0.1.41314",
+      "versions": [
+        "1.0.1.41314"
+      ],
       "exports": [
         "ffxConfigure",
         "ffxCreateContext",
@@ -27,11 +33,16 @@
         "ffxDispatch",
         "ffxQuery"
       ],
-      "copiesFound": 7
+      "copiesFound": 6
     },
     "amd_fidelityfx_loader_dx12.dll": {
       "exportCount": 5,
       "version": "2.1.0.450",
+      "versions": [
+        "2.1.0.450",
+        "1.0.2.44888",
+        "2.2.0.0"
+      ],
       "exports": [
         "ffxConfigure",
         "ffxCreateContext",
@@ -39,11 +50,16 @@
         "ffxDispatch",
         "ffxQuery"
       ],
-      "copiesFound": 3
+      "copiesFound": 4
     },
     "libxess_dx11.dll": {
       "exportCount": 51,
       "version": "2.0.2.68",
+      "versions": [
+        "2.0.2.68",
+        "2.0.1.41",
+        "2.0.2.53"
+      ],
       "exports": [
         "INTC_D3D11_XessCreateContext",
         "INTC_D3D11_XessDestroyContext",
@@ -97,15 +113,68 @@
         "xessSetVelocityScale",
         "xessStartDump"
       ],
-      "copiesFound": 5
+      "copiesFound": 6
     },
     "libxess_fg.dll": {
-      "exportCount": 31,
+      "exportCount": 78,
       "version": "1.3.1.68",
+      "versions": [
+        "1.3.1.68",
+        "1.3.1.78",
+        "1.2.2.118",
+        "1.2.0.87"
+      ],
       "exports": [
+        "?xefgDebugLogMessage@@YAXPEB_W@Z",
+        "INTC_D3D11_XessCreateContext",
+        "INTC_D3D11_XessDestroyContext",
+        "INTC_D3D11_XessExecute",
+        "INTC_D3D11_XessForceLegacyScaleFactors",
+        "INTC_D3D11_XessGetExposureMultiplier",
+        "INTC_D3D11_XessGetInitParams",
+        "INTC_D3D11_XessGetInputResolution",
+        "INTC_D3D11_XessGetIntelXeFXVersion",
+        "INTC_D3D11_XessGetJitterScale",
+        "INTC_D3D11_XessGetOptimalInputResolution",
+        "INTC_D3D11_XessGetProfilingData",
+        "INTC_D3D11_XessGetVelocityScale",
+        "INTC_D3D11_XessGetVersion",
+        "INTC_D3D11_XessInit",
+        "INTC_D3D11_XessIsOptimalDriver",
+        "INTC_D3D11_XessSelectNetworkModel",
+        "INTC_D3D11_XessSetExposureMultiplier",
+        "INTC_D3D11_XessSetJitterScale",
+        "INTC_D3D11_XessSetLoggingCallback",
+        "INTC_D3D11_XessSetVelocityScale",
+        "INTC_D3D12_GetApplicationInfo",
+        "INTC_D3D12_GetGpuCrashDumpBufferInfo",
+        "INTC_D3D12_GpuCrashDumpOnCommandListCreate",
+        "INTC_D3D12_GpuCrashDumpOnCommandListDestroy",
+        "INTC_D3D12_GpuCrashDumpOnDeviceDestroy",
+        "INTC_D3D12_RegisterDriverCallbacks",
         "xefgAILGetDecision",
         "xefgAILGetVersion",
         "xefgAILSetAppXeFGVersion",
+        "xefgD3D12BuildPipelines",
+        "xefgD3D12CreateContext",
+        "xefgD3D12Execute",
+        "xefgD3D12GetInitParams",
+        "xefgD3D12GetProfilingData",
+        "xefgD3D12GetResourcesToDump",
+        "xefgD3D12Init",
+        "xefgDebugLog",
+        "xefgDebugLogMessage",
+        "xefgDestroyContext",
+        "xefgGetContextParameterP",
+        "xefgGetPipelineBuildStatus",
+        "xefgGetProperties",
+        "xefgGetVersion",
+        "xefgSelectTechnique",
+        "xefgSetColorSpace",
+        "xefgSetContextParameterF",
+        "xefgSetLoggingCallback",
+        "xefgSetSceneChangeThreshold",
+        "xefgStartDump",
         "xefgSwapChainD3D12BuildPipelines",
         "xefgSwapChainD3D12CreateContext",
         "xefgSwapChainD3D12GetInitializationParameters",
@@ -135,11 +204,17 @@
         "xefgSwapChainSetUiCompositionState",
         "xefgSwapChainTagFrameConstants"
       ],
-      "copiesFound": 5
+      "copiesFound": 6
     },
     "libxess.dll": {
       "exportCount": 72,
       "version": "2.0.2.68",
+      "versions": [
+        "2.0.2.68",
+        "2.0.1.41",
+        "1.1.0.21",
+        "2.0.2.53"
+      ],
       "exports": [
         "INTC_D3D11_XessCreateContext",
         "INTC_D3D11_XessDestroyContext",
@@ -217,8 +292,16 @@
       "copiesFound": 10
     },
     "nvngx_dlss.dll": {
-      "exportCount": 59,
+      "exportCount": 62,
       "version": "310,6,0,0",
+      "versions": [
+        "310,6,0,0",
+        "310,8,0,0",
+        "2,3,11,0",
+        "2,2,10,0",
+        "310,3,0,0",
+        "310,5,0,0"
+      ],
       "exports": [
         "NGX_SNIPPETS_GetRequiredDriverSupport",
         "NVSDK_NGX_CUDA_CreateFeature",
@@ -228,6 +311,7 @@
         "NVSDK_NGX_CUDA_Init",
         "NVSDK_NGX_CUDA_Init_Ext",
         "NVSDK_NGX_CUDA_Init_Ext1",
+        "NVSDK_NGX_CUDA_Init1",
         "NVSDK_NGX_CUDA_PopulateParameters_Impl",
         "NVSDK_NGX_CUDA_ReleaseFeature",
         "NVSDK_NGX_CUDA_Shutdown",
@@ -263,7 +347,9 @@
         "NVSDK_NGX_GetDriverVersionEx",
         "NVSDK_NGX_GetGPUArchitecture",
         "NVSDK_NGX_GetSnippetVersion",
+        "NVSDK_NGX_SetInfoCallback",
         "NVSDK_NGX_SetOverrideStatusCallback",
+        "NVSDK_NGX_SetTelemetryCallback",
         "NVSDK_NGX_SetTelemetryEvaluateCallback",
         "NVSDK_NGX_VULKAN_CreateFeature",
         "NVSDK_NGX_VULKAN_CreateFeature1",
@@ -283,8 +369,14 @@
       "copiesFound": 15
     },
     "nvngx_dlssd.dll": {
-      "exportCount": 59,
+      "exportCount": 61,
       "version": "310,6,0,0",
+      "versions": [
+        "310,6,0,0",
+        "310,7,129,0",
+        "310,3,0,0",
+        "310,5,0,0"
+      ],
       "exports": [
         "NGX_SNIPPETS_GetRequiredDriverSupport",
         "NVSDK_NGX_CUDA_CreateFeature",
@@ -294,6 +386,7 @@
         "NVSDK_NGX_CUDA_Init",
         "NVSDK_NGX_CUDA_Init_Ext",
         "NVSDK_NGX_CUDA_Init_Ext1",
+        "NVSDK_NGX_CUDA_Init1",
         "NVSDK_NGX_CUDA_PopulateParameters_Impl",
         "NVSDK_NGX_CUDA_ReleaseFeature",
         "NVSDK_NGX_CUDA_Shutdown",
@@ -329,6 +422,7 @@
         "NVSDK_NGX_GetDriverVersionEx",
         "NVSDK_NGX_GetGPUArchitecture",
         "NVSDK_NGX_GetSnippetVersion",
+        "NVSDK_NGX_SetInfoCallback",
         "NVSDK_NGX_SetOverrideStatusCallback",
         "NVSDK_NGX_SetTelemetryEvaluateCallback",
         "NVSDK_NGX_VULKAN_CreateFeature",
@@ -349,14 +443,21 @@
       "copiesFound": 8
     },
     "nvngx_dlssg.dll": {
-      "exportCount": 50,
+      "exportCount": 52,
       "version": "310,6,0,0",
+      "versions": [
+        "310,6,0,0",
+        "310,8,0,0",
+        "310,3,0,0",
+        "310,5,2,0"
+      ],
       "exports": [
         "NVSDK_NGX_CUDA_CreateFeature",
         "NVSDK_NGX_CUDA_EvaluateFeature",
         "NVSDK_NGX_CUDA_GetScratchBufferSize",
         "NVSDK_NGX_CUDA_Init",
         "NVSDK_NGX_CUDA_Init_Ext",
+        "NVSDK_NGX_CUDA_PopulateParameters_Impl",
         "NVSDK_NGX_CUDA_ReleaseFeature",
         "NVSDK_NGX_CUDA_Shutdown",
         "NVSDK_NGX_D3D11_CreateFeature",
@@ -387,6 +488,7 @@
         "NVSDK_NGX_GetDriverVersionEx",
         "NVSDK_NGX_GetGPUArchitecture",
         "NVSDK_NGX_GetSnippetVersion",
+        "NVSDK_NGX_SetInfoCallback",
         "NVSDK_NGX_SetOverrideStatusCallback",
         "NVSDK_NGX_SetTelemetryEvaluateCallback",
         "NVSDK_NGX_VULKAN_CreateFeature",
@@ -403,11 +505,21 @@
         "NVSDK_NGX_VULKAN_Shutdown",
         "NVSDK_NGX_VULKAN_Shutdown1"
       ],
-      "copiesFound": 11
+      "copiesFound": 10
     },
     "sl.common.dll": {
       "exportCount": 60,
       "version": "2,7,4,0",
+      "versions": [
+        "2,7,4,0",
+        "2,7,1,0",
+        "2,8,0,0",
+        "2,7,30,0",
+        "2,7,3,0",
+        "1.5.6.0",
+        "2,10,3,0",
+        "2,7,0,0"
+      ],
       "exports": [
         "DllMain",
         "NVSDK_NGX_D3D11_AllocateParameters",
@@ -470,20 +582,40 @@
         "NVSDK_NGX_VULKAN_Shutdown1",
         "slGetPluginFunction"
       ],
-      "copiesFound": 11
+      "copiesFound": 10
     },
     "sl.dlss_g.dll": {
       "exportCount": 2,
       "version": "2,7,4,0",
+      "versions": [
+        "2,7,4,0",
+        "2,7,1,0",
+        "2,8,0,0",
+        "2,7,30,0",
+        "2,7,3,0",
+        "1.5.6.0",
+        "2,10,3,0",
+        "2,7,0,0"
+      ],
       "exports": [
         "DllMain",
         "slGetPluginFunction"
       ],
-      "copiesFound": 11
+      "copiesFound": 10
     },
     "sl.interposer.dll": {
-      "exportCount": 261,
+      "exportCount": 269,
       "version": "2,7,4,0",
+      "versions": [
+        "2,7,4,0",
+        "2,7,1,0",
+        "2,8,0,0",
+        "2,7,30,0",
+        "2,7,3,0",
+        "1.5.6.0",
+        "2,10,3,0",
+        "2,7,0,0"
+      ],
       "exports": [
         "CreateDXGIFactory",
         "CreateDXGIFactory1",
@@ -502,18 +634,26 @@
         "slAllocateResources",
         "slEvaluateFeature",
         "slFreeResources",
+        "slGetFeatureConfiguration",
         "slGetFeatureFunction",
         "slGetFeatureRequirements",
+        "slGetFeatureSettings",
         "slGetFeatureVersion",
+        "slGetHooks",
         "slGetNativeInterface",
         "slGetNewFrameToken",
+        "slGetNumHooks",
         "slInit",
+        "slIsFeatureEnabled",
         "slIsFeatureLoaded",
         "slIsFeatureSupported",
         "slSetConstants",
         "slSetD3DDevice",
+        "slSetFeatureConstants",
+        "slSetFeatureEnabled",
         "slSetFeatureLoaded",
         "slSetTag",
+        "slSetTagForFrame",
         "slSetVulkanInfo",
         "slShutdown",
         "slUpgradeInterface",
@@ -747,29 +887,49 @@
         "vkWaitForFences",
         "vkWaitSemaphores"
       ],
-      "copiesFound": 11
+      "copiesFound": 10
     },
     "sl.pcl.dll": {
       "exportCount": 2,
       "version": "2,7,4,0",
+      "versions": [
+        "2,7,4,0",
+        "2,7,1,0",
+        "2,8,0,0",
+        "2,7,30,0",
+        "2,7,3,0",
+        "2,10,3,0",
+        "2,7,0,0"
+      ],
+      "exports": [
+        "DllMain",
+        "slGetPluginFunction"
+      ],
+      "copiesFound": 9
+    },
+    "sl.reflex.dll": {
+      "exportCount": 2,
+      "version": "2,7,4,0",
+      "versions": [
+        "2,7,4,0",
+        "2,7,1,0",
+        "2,8,0,0",
+        "2,7,30,0",
+        "2,7,3,0",
+        "1.5.6.0",
+        "2,10,3,0",
+        "2,7,0,0"
+      ],
       "exports": [
         "DllMain",
         "slGetPluginFunction"
       ],
       "copiesFound": 10
     },
-    "sl.reflex.dll": {
-      "exportCount": 2,
-      "version": "2,7,4,0",
-      "exports": [
-        "DllMain",
-        "slGetPluginFunction"
-      ],
-      "copiesFound": 11
-    },
     "ffx_backend_dx12_x64.dll": {
       "exportCount": 21,
       "version": null,
+      "versions": [],
       "exports": [
         "?ffxFrameInterpolationUiComposition@@YAHPEBUFfxPresentCallbackDescription@@@Z",
         "ffxAssertReport",
@@ -798,6 +958,7 @@
     "ffx_frameinterpolation_x64.dll": {
       "exportCount": 8,
       "version": null,
+      "versions": [],
       "exports": [
         "ffxAssertReport",
         "ffxAssertSetPrintingCallback",
@@ -813,6 +974,7 @@
     "ffx_fsr3_x64.dll": {
       "exportCount": 17,
       "version": null,
+      "versions": [],
       "exports": [
         "ffxAssertReport",
         "ffxAssertSetPrintingCallback",
@@ -837,6 +999,7 @@
     "ffx_fsr3upscaler_x64.dll": {
       "exportCount": 15,
       "version": null,
+      "versions": [],
       "exports": [
         "ffxAssertReport",
         "ffxAssertSetPrintingCallback",
@@ -859,6 +1022,7 @@
     "ffx_opticalflow_x64.dll": {
       "exportCount": 10,
       "version": null,
+      "versions": [],
       "exports": [
         "?ffxOpticalflowResourceIsNull@@YA_NUFfxResource@@@Z",
         "ffxAssertReport",
@@ -876,45 +1040,52 @@
     "sl.dlss_d.dll": {
       "exportCount": 2,
       "version": "2,7,1,0",
+      "versions": [
+        "2,7,1,0",
+        "2,7,0,0"
+      ],
       "exports": [
         "DllMain",
         "slGetPluginFunction"
       ],
-      "copiesFound": 3
+      "copiesFound": 2
     },
     "sl.dlss.dll": {
       "exportCount": 2,
       "version": "2,7,1,0",
+      "versions": [
+        "2,7,1,0",
+        "2,8,0,0",
+        "1.5.6.0",
+        "2,7,0,0"
+      ],
       "exports": [
         "DllMain",
         "slGetPluginFunction"
       ],
-      "copiesFound": 5
+      "copiesFound": 4
     },
     "sl.nis.dll": {
       "exportCount": 2,
       "version": "2,7,1,0",
+      "versions": [
+        "2,7,1,0",
+        "2,8,0,0"
+      ],
       "exports": [
         "DllMain",
         "slGetPluginFunction"
       ],
-      "copiesFound": 3
+      "copiesFound": 2
     },
     "amd_fidelityfx_framegeneration_dx12.dll": {
       "exportCount": 5,
       "version": "3.1.5.44888",
-      "exports": [
-        "ffxConfigure",
-        "ffxCreateContext",
-        "ffxDestroyContext",
-        "ffxDispatch",
-        "ffxQuery"
+      "versions": [
+        "3.1.5.44888",
+        "4.0.0.604",
+        "4.0.0.0"
       ],
-      "copiesFound": 3
-    },
-    "amd_fidelityfx_upscaler_dx12.dll": {
-      "exportCount": 5,
-      "version": "4.0.2.44888",
       "exports": [
         "ffxConfigure",
         "ffxCreateContext",
@@ -924,9 +1095,32 @@
       ],
       "copiesFound": 4
     },
+    "amd_fidelityfx_upscaler_dx12.dll": {
+      "exportCount": 5,
+      "version": "4.0.2.44888",
+      "versions": [
+        "4.0.2.44888",
+        "4.0.3.604",
+        "4.1.0.0"
+      ],
+      "exports": [
+        "ffxConfigure",
+        "ffxCreateContext",
+        "ffxDestroyContext",
+        "ffxDispatch",
+        "ffxQuery"
+      ],
+      "copiesFound": 5
+    },
     "nvngx_deepdvc.dll": {
-      "exportCount": 36,
+      "exportCount": 37,
       "version": "310,2,0,0",
+      "versions": [
+        "310,2,0,0",
+        "310,1,0,0",
+        "310,3,0,0",
+        "310,5,2,0"
+      ],
       "exports": [
         "NvOptimusEnablementCuda",
         "NVSDK_NGX_D3D11_CreateFeature",
@@ -953,6 +1147,7 @@
         "NVSDK_NGX_GetSnippetVersion",
         "NVSDK_NGX_PopulateParameters",
         "NVSDK_NGX_SetInfoCallback",
+        "NVSDK_NGX_SetOverrideStatusCallback",
         "NVSDK_NGX_SetTelemetryEvaluateCallback",
         "NVSDK_NGX_VULKAN_CreateFeature",
         "NVSDK_NGX_VULKAN_CreateFeature1",
@@ -965,20 +1160,27 @@
         "NVSDK_NGX_VULKAN_Shutdown",
         "NVSDK_NGX_VULKAN_Shutdown1"
       ],
-      "copiesFound": 6
+      "copiesFound": 5
     },
     "sl.deepdvc.dll": {
       "exportCount": 2,
       "version": "2,7,30,0",
+      "versions": [
+        "2,7,30,0",
+        "2,7,3,0",
+        "2,8,0,0",
+        "2,10,3,0"
+      ],
       "exports": [
         "DllMain",
         "slGetPluginFunction"
       ],
-      "copiesFound": 6
+      "copiesFound": 5
     },
     "ffx_fsr2_api_dx12_x64.dll": {
       "exportCount": 8,
       "version": null,
+      "versions": [],
       "exports": [
         "ffxAssertReport",
         "ffxAssertSetPrintingCallback",
@@ -994,6 +1196,7 @@
     "ffx_fsr2_api_vk_x64.dll": {
       "exportCount": 11,
       "version": null,
+      "versions": [],
       "exports": [
         "ffxAssertReport",
         "ffxAssertSetPrintingCallback",
@@ -1012,6 +1215,7 @@
     "ffx_fsr2_api_x64.dll": {
       "exportCount": 11,
       "version": null,
+      "versions": [],
       "exports": [
         "ffxAssertReport",
         "ffxAssertSetPrintingCallback",
@@ -1027,39 +1231,13 @@
       ],
       "copiesFound": 1
     },
-    "amd_fidelityfx_vk.dll": {
-      "exportCount": 5,
-      "version": "1.0.1.42386",
-      "exports": [
-        "ffxConfigure",
-        "ffxCreateContext",
-        "ffxDestroyContext",
-        "ffxDispatch",
-        "ffxQuery"
-      ],
-      "copiesFound": 1
-    },
-    "sl.directsr.dll": {
-      "exportCount": 2,
-      "version": "2,11,1,0",
-      "exports": [
-        "DllMain",
-        "slGetPluginFunction"
-      ],
-      "copiesFound": 1
-    },
-    "sl.nvperf.dll": {
-      "exportCount": 2,
-      "version": "2,11,1,0",
-      "exports": [
-        "DllMain",
-        "slGetPluginFunction"
-      ],
-      "copiesFound": 1
-    },
     "_nvngx.dll": {
       "exportCount": 75,
-      "version": "32.0.16.1088",
+      "version": "32.0.16.1664",
+      "versions": [
+        "32.0.16.1664",
+        "32.0.16.1656"
+      ],
       "exports": [
         "NVSDK_NGX_CUDA_AllocateParameters",
         "NVSDK_NGX_CUDA_CreateFeature",
@@ -1137,11 +1315,14 @@
         "NVSDK_NGX_VULKAN_Shutdown",
         "NVSDK_NGX_VULKAN_Shutdown1"
       ],
-      "copiesFound": 1
+      "copiesFound": 2
     },
     "nvngx.dll": {
       "exportCount": 59,
       "version": "30.0.14.9516",
+      "versions": [
+        "30.0.14.9516"
+      ],
       "exports": [
         "NVSDK_NGX_CUDA_AllocateParameters",
         "NVSDK_NGX_CUDA_CreateFeature",
@@ -1203,7 +1384,7 @@
         "NVSDK_NGX_VULKAN_Shutdown",
         "NVSDK_NGX_VULKAN_Shutdown1"
       ],
-      "copiesFound": 1
+      "copiesFound": 2
     }
   }
 }

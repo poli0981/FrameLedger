@@ -279,14 +279,51 @@ inline int FfxLeafOf(const wchar_t* module) noexcept {
 // because Pass A's parser reads literals; the static_asserts under the table bind
 // these spellings to kFfxLeafModules in both directions, so neither list can gain or
 // lose a module alone.
+// TWO ROWS, ONE FAMILY, TWO DETOURS -- the params family has a second row since
+// 2026-09-04. Streamline 2.8 (Dying Light: The Beast ships 2.8.0) deprecates slSetTag
+// in favour of slSetTagForFrame, which takes the frame token first and the same tag
+// list after; a 2.8 title that tags per frame never calls slSetTag, and the first
+// title measured on 2.8 published DLSS identity on 4,575 of 4,575 batches with
+// UpscalerParams on ZERO of them. The two rows share the family bit because they
+// produce the same fields from the same ResourceTag list; the installer tells them
+// apart by SYMBOL (kSymbolSlSetTagForFrame below), never by family, because their
+// signatures differ and the neighbour's body would read a FrameToken as a viewport.
+// And the family is published WHEN WHOLE -- once every one of these two symbols the
+// loaded interposer exports is patched -- not on the first row: published on the
+// first, it entitled records the second row was not yet producing (measured 38 of
+// 41 on the frame-based fixture), which is the ffx leaves' defect from #110 again.
 #define FL_HOOK_INVENTORY(X)                                                                                           \
     X(L"sl.interposer.dll", "slEvaluateFeature", fl::inventory::kFamilyEvaluateFeature)                                \
     X(L"sl.interposer.dll", "slSetTag", fl::FL_HOOK_UPSCALER_PARAMS)                                                   \
+    X(L"sl.interposer.dll", "slSetTagForFrame", fl::FL_HOOK_UPSCALER_PARAMS)                                           \
     X(L"sl.interposer.dll", "slGetNewFrameToken", fl::FL_HOOK_FG_EVALUATIONS)                                          \
     X(L"amd_fidelityfx_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                                    \
     X(L"amd_fidelityfx_upscaler_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                           \
     X(L"amd_fidelityfx_framegeneration_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                    \
     X(L"amd_fidelityfx_loader_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)
+
+// The module and the two symbols dllmain's params arm keys on: the frame-based
+// symbol picks the detour, and all three name what "whole" means when the family is
+// published. Named constants HERE, because Pass B forbids the symbol literals
+// anywhere else in the Overlay -- and bound to the table below, so a row and the
+// arm that installs it cannot drift apart.
+inline constexpr const wchar_t* kModuleSlInterposer = L"sl.interposer.dll";
+inline constexpr const char*    kSymbolSlSetTag = "slSetTag";
+inline constexpr const char*    kSymbolSlSetTagForFrame = "slSetTagForFrame";
+
+constexpr bool InventoryHasRow(const wchar_t* module, const char* symbol) noexcept {
+#define FL_ROW_HAS(mod, sym, family)                                                                                   \
+    if (SameW(mod, module) && SameA(sym, symbol)) {                                                                    \
+        return true;                                                                                                   \
+    }
+    FL_HOOK_INVENTORY(FL_ROW_HAS)
+#undef FL_ROW_HAS
+    return false;
+}
+static_assert(InventoryHasRow(kModuleSlInterposer, kSymbolSlSetTag),
+              "the params arm keys on slSetTag by this constant, and the table no longer has that row");
+static_assert(InventoryHasRow(kModuleSlInterposer, kSymbolSlSetTagForFrame),
+              "the params arm keys on slSetTagForFrame by this constant, and the table no longer has that row");
 
 // THE LEAF TABLE AND THE ROWS ARE BOUND TO EACH OTHER AT COMPILE TIME, BOTH WAYS.
 // A leaf without a row would be a trampoline slot nothing installs into; a row
