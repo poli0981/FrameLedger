@@ -61,14 +61,35 @@ public sealed class TargetResolverTests : IDisposable
         SpinWait.SpinUntil(() =>
         {
             Process[] seen = Process.GetProcessesByName(name);
-            int count = seen.Length;
+            int count = 0;
             foreach (Process p in seen)
             {
-                p.Dispose();
+                try
+                {
+                    // VISIBLE MEANS READABLE, not merely enumerated. A process can be in the
+                    // snapshot before its image is mapped, with MainModule null -- measured on
+                    // the hosted runner 2026-09-04 (OneInstanceResolves, twice in an hour): the
+                    // count below reached 1 and the resolver then saw a candidate with no image.
+                    // The resolver now counts that as unreadable rather than absent, so a test
+                    // that resolved at that instant would read TargetAmbiguous -- still not the
+                    // state under test. Wait for the state the case is about.
+                    if (p.MainModule?.FileName is not null)
+                    {
+                        count++;
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    // Not readable yet; keep waiting.
+                }
+                finally
+                {
+                    p.Dispose();
+                }
             }
 
             return count >= _children.Count;
-        }, TimeSpan.FromSeconds(10)).Should().BeTrue("every started instance must be enumerable before resolving");
+        }, TimeSpan.FromSeconds(10)).Should().BeTrue("every started instance must be enumerable AND readable before resolving");
     }
 
     private int? ResolveNow(out SessionEndReason reason)
