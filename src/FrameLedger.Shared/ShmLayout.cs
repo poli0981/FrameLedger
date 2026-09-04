@@ -122,6 +122,14 @@ public enum FlUpscaler : byte
     /// <summary>A hook ran and there was no upscaler. Moved from 0 in v3.</summary>
     None = 8,
 
+    /// <summary>
+    /// FSR, measured through the SDK 2.x upscaler DLL, version not named: that one module hosts
+    /// FSR 3.1 and FSR 4 behind the same dispatch type, and the dispatch does not say which. The
+    /// SDK 1.1.x monolith still decodes to <see cref="Fsr3"/>; <see cref="Fsr4"/> is reserved for a
+    /// writer that can actually tell. An enumerator, not a field — no layout change.
+    /// </summary>
+    FsrUnversioned = 9,
+
     /// <summary>A hook ran and could not identify what it saw. Different from "not measured".</summary>
     Unknown = 0xFF,
 }

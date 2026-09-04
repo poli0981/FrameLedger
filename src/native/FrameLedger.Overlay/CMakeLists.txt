@@ -18,13 +18,15 @@ add_library(FrameLedger.Overlay SHARED src/dllmain.cpp)
 # d3d11/dxgi: the present hook reads the SHARED class vtable off a throwaway WARP
 # composition swapchain (17_HOOK_ENGINE §Getting vtable addresses) — never a
 # hardcoded pointer, and the dummy object is released immediately.
-# fl_streamline_headers carries INCLUDE DIRECTORIES ONLY -- it is an INTERFACE
-# target with no target_link_libraries of its own, deliberately, so that naming
-# it here cannot make sl.interposer.dll a load-time dependency of this DLL. See
-# third_party/streamline/README.md: an Overlay that imports sl.interposer fails
-# to load in every game that ships no Streamline, in the loader, silently.
+# fl_streamline_headers and fl_fidelityfx_headers carry INCLUDE DIRECTORIES ONLY --
+# each is an INTERFACE target with no target_link_libraries of its own,
+# deliberately, so that naming it here cannot make sl.interposer.dll or an AMD
+# module a load-time dependency of this DLL. See third_party/streamline/README.md
+# and third_party/fidelityfx/README.md: an Overlay that imports a vendor module
+# fails to load in every game that ships no such module, in the loader, silently.
+# hookinventory-check Pass C reads the built DLL's import AND export tables.
 target_link_libraries(FrameLedger.Overlay PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags fl_hostile_env_flags minhook
-    fl_streamline_headers
+    fl_streamline_headers fl_fidelityfx_headers
     Advapi32 d3d11 d3d12 dxgi)
 set_target_properties(FrameLedger.Overlay PROPERTIES OUTPUT_NAME "FrameLedger.Overlay")
 

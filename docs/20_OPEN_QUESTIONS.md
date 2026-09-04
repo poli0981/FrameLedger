@@ -94,7 +94,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S29** | 🔴 **open, new 2026-08-05 — five ✅ and two ◐, counted off the glyphs below on 2026-08-20** | (a) ◐ **CORRECTED**: the honesty assertion *is* in the merge gate, natively (`fl_guard`, 20.58 s on CI); only the **managed** drain is ungated, and §S19(b) is **not** a prerequisite of the feature hooks — the original claim was wrong and had been used to re-order the work. **Sharpened 2026-08-06:** fixing §S19(b) alone would still gate nothing, because `build.ps1`'s `-SkipIntegration` applies `--filter 'Category!=Integration'` and excludes the class *before* the guard is ever asked. Two independent mechanisms produce one absence, and `ci.yml` must drop the switch too; (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ✅ **closed 2026-08-20**: the normative contradiction between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is settled the way the entry proposed — AS-build activity proves ray tracing is happening, *naming the technique* is what needs a DXIL scan — and rule 7 is amended in the PR that wrote the hooks. Its second half closes with it: `FL_MEASURED_RT` now has a producer (both command-list detours, installed off the game's own device), so all three conjuncts of the `No` branch are live and **`Yes` and `No` are both reachable for the first time**, proved by injection in both directions; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
 | **S30** | ✅ **closed 2026-08-15** | Answered on the title that raised it: with Ray Reconstruction on, Cyberpunk 2077 evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once**, so RR was doing the upscaling and the decode had no arm for it. Evidence rather than inference: `renderW/H` are published only on a frame that drained an evaluation and read 1485×835 = 0.58 × 2560×1440, so the scaling-input tag arrives ON the RR evaluation. Two further defects fell out — the pre-committed decision table had two holes, and the fix contaminated the census that found it (it derived the id from the decoded byte) |
 | **S31** | ✅ **resolved 2026-09-04 — row P1, and `tokens/batch = 1.00`** | Is a drained Streamline batch an application frame? **Yes.** The `slGetNewFrameToken` count (#103, #105) reads 1.00 / 2.99 / 3.99 against Cyberpunk's own off / ×3 / ×4 and 4.00 on Hell Is Us, and on every leg with batches the two counts agree to the frame. Two independent per-frame API counts are the oracle four instruments could not be. `fg_factor` is published; `none` is reachable by counting. *(The row as it stood while open:)* ◐ **row P2, 2026-08-27 — the ORACLE is retired, the QUESTION is not** | Is a drained Streamline batch an application frame? The PresentMon 2.x `FrameType` test, with its decision table pre-committed BEFORE the run and `tools/frametype-oracle.ps1` producing the input as two dimensionless ratios. **Two obstacles measured before it could be run**: the console binary will not start a trace session unelevated on the dev box (exit 6; the account is in neither Administrators nor Performance Log Users, and the running shared service does not help), and `--track_frame_type` is a **beta** option whose own help says it needs application or driver instrumentation of the Intel-PresentMon provider — so it may be as unavailable as `fl-baseline-probe` proved to be. Two of the table's six rows retire it outright. Blocks HANDOFF item 3's producer decision |
-| **H11** | 🅓 **deferred 2026-08-20, rationale written** | XeFG and FSR3-FG identity. `libxess_fg.dll` and `ffx_fsr3_x64.dll` export nameable entry points, but the newer `amd_fidelityfx_framegeneration_dx12.dll` (3.1.5, three installed titles) exports only five generic `ffx*` names — identity lives in a struct field, and hand-declaring a vendor ABI from observation is the #71 defect class with another vendor's name on it. The licence checklist has not been run on either SDK either. Cost is coverage, not correctness: such a title reports `FL_FG_UNKNOWN`, never `NONE` |
+| **H11** | ◐ **AMD ffx-api BUILT 2026-09-04; Intel closed at the census by licence; FSR 3.0 host route deferred to its own PR** | XeFG and FSR3-FG identity. The AMD half is measured: the three ffx-api leaves are hooked (never the loader), the vendored MIT headers (tag v2.3.0) decode the dispatch descriptor, and the pre-committed acceptance table below awaits the owner's three launches. Intel's SDK failed the licence checklist, so XeSS/XeFG stay at the census (§Scope decisions). `ffx_fsr3_x64.dll` (FSR 3.0, Cyberpunk only here) needs ten host headers from tag v1.1.4 and is deferred with that costing written |
 
 ~~**Six items are ❓ and one is 🚫.**~~ **Recounted 2026-08-05: TWELVE items block
 exit criterion 2, not seven, and the undercount came from reading only the ❓ rows.**
@@ -3302,9 +3302,43 @@ turns a would-be STL throw into `__fastfail`, which SEH cannot intercept
 (`spike-notes.md` §H3). The "no throwing STL in hook paths" rule is therefore
 load-bearing rather than stylistic.
 
-### H11 🅓 · XeFG and FSR3-FG have no in-policy identity route — **deferred 2026-08-20 with a written rationale**
+### H11 ◐ · XeFG and FSR3-FG identity — **AMD built 2026-09-04 through the ffx-api leaves; Intel closed by licence; FSR 3.0 host route deferred**
 
-> **The deferral has a next step as of 2026-09-04, and it is `HANDOFF` item 7c.** The Streamline
+> **BUILT, 2026-09-04, the AMD half — and the deferral's own rule was kept: header first, decode
+> second, never from observation.** `HANDOFF` item 7c. The FidelityFX headers cleared the
+> checklist and were vendored at tag **`v2.3.0`** (the tree is MIT by exception, 845 of 845 files;
+> `18_GPU_VENDOR_APIS` §AMD carries why 2.3.0 and not 1.1.4), and the Overlay now hooks `ffxDispatch`
+> on the three **leaves** — `amd_fidelityfx_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll`,
+> `amd_fidelityfx_framegeneration_dx12.dll` — and never on `amd_fidelityfx_loader_dx12.dll`, which
+> forwards to the effect DLLs through their own exports (all four modules export only the five
+> ffx-api names, so that is the only route there is) and would double every count. What it reads
+> is the descriptor's head type and, once matched, `renderSize` and `frameID`; what it publishes is
+> identity (`FSR3` from the 1.1.x monolith, `FSR_UNVERSIONED` from the 2.x upscaler DLL that hosts
+> FSR 3.1 and FSR 4 behind one type), `renderW/H`, `fgMode = FSR_FG` on a present that drained a
+> generated batch, and `fgEvaluations` from PREPARE's `frameID` counted on a new index only. The
+> K = 1 / K = 4 fixtures run on both vendor shapes with a forwarding loader decoy in the chain.
+>
+> **The owner's run, pre-committed before it happens** (one launch per leg; read the
+> `ffx dispatch census` line and the trio):
+>
+> | Row | Leg / reading | Verdict |
+> |---|---|---|
+> | **A1** | Lies of P, FSR + FG: `upscaler: Fsr3`, `frame generation: FsrFg`, `presents/frame ≈ 2.0`, `frames/upscale-drained ≈ 1.00`, `fg-dispatch/frame ≈ 1.0` | accept |
+> | **A2** | Lies of P, FSR, FG off: `presents/frame ≤ 1.05` → `none`, no `FsrFg` record, frames ≈ upscale-drained | accept |
+> | **A3** | Hell Is Us, FSR (+ FG if offered): `FSR (3.1 or 4 …)` printed; if Streamline still issues tokens, `fgEvaluations` is tokens and `frames/upscale-drained ≈ 1.00` corroborates across vendors; if tokens are 0 the latch hands the count to AMD — record which | accept, record |
+> | **R1** | A title that never prepares (count from UPSCALE dispatches): FG on still reads K, off reads 1.00 | accept, note here |
+> | **R2** | `presents/frame ≥ 1.5` with zero `FsrFg` records: the title's `frameGenerationCallback` bypasses the export → `Active (technology not identified)` | honest; follow-up, no code change |
+> | **R3** | `presents/frame ≈ 0.5·K` or below 1: a second hook in the chain — check `hooks installed`, the census, whether a loader row crept in | defect, block |
+> | **R4** | `frames/upscale-drained ≈ 2.00` with FG off: two upscale contexts per frame, or a doubled count on a title that never prepares | investigate before publishing |
+> | **R5** | UE5 with both vendors loaded and tokens ≠ prepares per frame: Streamline wins by the latch; the census line prints the disagreement | record; revisit precedence |
+>
+> **Still deferred, with the costing written:** the FSR 3.0 host route — `ffx_fsr3_x64.dll!ffxFsr3ContextDispatchUpscale`
+> / `ffxFsr3DispatchFrameGeneration`, named exports, no struct decode for identity — needs ten
+> host headers from tag `v1.1.4` (`main` dropped `ffx_fsr3.h`), whose closure reaches
+> `<mutex>`/`<shared_mutex>` through `ffx_types.h`, for exactly one installed title (Cyberpunk 2077,
+> whose default here is DLSS). Its own PR, with Cyberpunk switched to FSR 3 as the oracle.
+>
+> *The banner as it stood on the morning of 2026-09-04:* **The deferral has a next step, and it is `HANDOFF` item 7c.** The Streamline
 > work built every tool this needs — module-scoped inventory rows, types-only vendoring with a
 > consumer in the same commit, `hookinventory-check` Pass A–D, the K = 1 / K = 4 harness pair,
 > and a per-frame count validated against a title's own menu — and Lies of P (FSR 3.1 FG on,

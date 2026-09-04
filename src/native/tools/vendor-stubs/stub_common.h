@@ -56,6 +56,20 @@ constexpr bool InventoryHas(const char* name) noexcept {
     return false;
 }
 
+// Does the Overlay's inventory contain this symbol FROM THIS MODULE? The
+// module-scoped form, for a symbol several modules export: `InventoryHas("ffxDispatch")`
+// is true whichever AMD module a stub stands in for, and a stub for the LOADER --
+// which must NOT be a row -- needs to assert the negative about its own name.
+constexpr bool InventoryHasRow(const wchar_t* module, const char* symbol) noexcept {
+#define FL_STUB_MATCH_MODULE_ROW(mod, sym, family)                                                                     \
+    if (fl::inventory::SameW(mod, module) && Same(sym, symbol)) {                                                      \
+        return true;                                                                                                   \
+    }
+    FL_HOOK_INVENTORY(FL_STUB_MATCH_MODULE_ROW)
+#undef FL_STUB_MATCH_MODULE_ROW
+    return false;
+}
+
 }    // namespace fl::stub
 
 #endif    // FRAMELEDGER_STUB_COMMON_H

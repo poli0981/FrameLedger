@@ -19,6 +19,45 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **AMD identity is measured through the ffx-api leaves, and the first non-NVIDIA vendor
+  reaches the record.** HANDOFF item 7c. Lies of P at FSR 3.1 + frame generation printed
+  `upscaler: N/A … frame generation: N/A` plus a census WARNING because the three AMD modules
+  export the same five generic names and the identity lives in the descriptor the game passes
+  — which needs the vendor's headers to decode, and `20_OPEN_QUESTIONS` §H11 forbids decoding
+  it from observation. Five headers are vendored from FidelityFX-SDK **tag `v2.3.0`**,
+  types-only under upstream's `Kits/FidelityFX/` layout, with upstream's `docs/license.md`
+  verbatim: a binary-only default licence whose **MIT exception list names every one of the
+  tree's 845 files** (the signed DLLs included), the five among them, and each header carries
+  the grant inline; `license-check.ps1` §2d asserts both per vendored file. `v2.3.0` rather
+  than the `v1.1.4` `18_GPU_VENDOR_APIS` first named, because its own reversal condition
+  fired: installed titles already ship SDK 2.x effect DLLs (Hell Is Us 4.0.x, Expedition 33
+  and Dying Light: The Beast 4.0.2 + 3.1.5) and the sample dispatches `PrepareV2`, which
+  `v1.1.4` does not declare; every value and layout read is identical in both tags.
+  **Three inventory rows, one compound family, one observer, three trampolines, and the rows
+  are the LEAVES** — `amd_fidelityfx_dx12.dll` (the SDK 1.1.x monolith),
+  `amd_fidelityfx_upscaler_dx12.dll`, `amd_fidelityfx_framegeneration_dx12.dll` — **never the
+  SDK 2.x loader**, which forwards to the effect DLLs through their own exports (the only
+  route five identical export tables allow) so hooking it too would count every dispatch
+  twice, straight into `fg_factor`; a UE5 title ships the two leaves with no loader at all.
+  The detour reads the descriptor's head type and, once matched, `renderSize` (UPSCALE,
+  PREPARE) and `frameID` (PREPARE) — rule 4's class of read — and publishes: identity
+  (`FSR3` from the monolith; the new **`FL_UPSCALER_FSR_UNVERSIONED`** from the 2.x upscaler
+  DLL, which hosts FSR 3.1 and FSR 4 behind one dispatch type — an enumerator, no layout
+  change), `renderW/H` exact with quality and sharpness `0xFF` (the ffx-api dispatch carries
+  neither, so that is the true value), `fgMode = FSR_FG` on a present that drained a
+  generated batch, and `fgEvaluations` from PREPARE's `frameID` counted on a **new** index
+  only — this vendor's `slGetNewFrameToken` — falling back to the UPSCALE count on a title that
+  never prepares. Streamline keeps precedence once it has ever issued a token, so every title
+  validated on §S31 is byte-identical to before. Fixtures: three leaf stubs, a **forwarding
+  loader decoy**, `--probe-ffx-resolve` (ctest `fl_ffx_resolve`), and `--hold-presenting-ffx`
+  driven at K = 1 / K = 4 on both topologies with the PREPARE issued twice per frame — the
+  K = 1 control reads 2.0 for a writer that counts calls, or that hooks the loader.
+  `hookinventory-check` Pass C now reads the Overlay's **export table** too: `ffx_api.h`
+  declares its entry points `__declspec(dllexport)` unconditionally. Hook-path overhead: the
+  present path gains two `exchange`, two loads and a branch; the detour is one 8-byte read, a
+  switch and one RMW per dispatch (a CAS loop on PREPARE). Owner-only runs owed: Lies of P at
+  FSR + FG and FSR alone, Hell Is Us at FSR, against the table pre-committed in §H11.
+
 - **`none` is reachable by counting, §S31 is resolved, and P0's frame-generation blocker is
   gone.** The owner's second run on #105's monotone count landed on row **P1** of the table
   pre-committed in `20_OPEN_QUESTIONS` §S31: Cyberpunk 2077 off / ×3 / ×4 at `presents/tokens`

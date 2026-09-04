@@ -52,6 +52,21 @@
 //                    production call site at all
 //   --presents-per-eval K
 //                    the FG factor --hold-presenting-fg emits. 1 is the control
+//   --probe-ffx-resolve
+//                    AMD ffx-api: the Overlay's resolver picks each LEAF's own
+//                    ffxDispatch with the loader decoy present, and a dispatch
+//                    pushed through that decoy reaches exactly one leaf, once
+//   --hold-presenting-ffx N
+//                    present for N seconds dispatching through the ffx-api the way
+//                    an FSR title does: one UPSCALE and one PREPARE (issued twice,
+//                    same frameID) per application frame, one FRAMEGENERATION per
+//                    frame at K > 1, then K presents (--presents-per-eval K)
+//   --ffx-topology 1x|2x
+//                    which vendor shape --hold-presenting-ffx stands in: 2x (default)
+//                    is the SDK 2.x pair of effect DLLs behind the LOADER decoy, 1x
+//                    the SDK 1.1.x monolith sending the pre-V2 PREPARE
+//   --ffx-no-prepare drop the PREPARE dispatch: the frame-generation-OFF shape, where
+//                    the Overlay must count UPSCALE dispatches instead
 //
 // This list was incomplete for several modes before 2026-08-15 and is not the
 // authority: the strcmp chain in main() is. Kept in step because a reader looking
@@ -82,6 +97,12 @@
 // the upscaled-hold mode makes. Types only, never linked -- the same rule the
 // Overlay follows (third_party/streamline/README.md).
 #include <sl.h>
+// AMD FidelityFX, the same way and for the same reason: descriptor TYPES only, from
+// the vendored MIT headers, never linked. Used by --probe-ffx-resolve to build the
+// descriptors it pushes through the loader decoy.
+#include <ffx_api.h>
+#include <ffx_framegeneration.h>
+#include <ffx_upscale.h>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3d12.lib")
@@ -1970,6 +1991,157 @@ bool ProbeUpscalerResolve() {
 }
 
 // ---------------------------------------------------------------------------
+// AMD FidelityFX: LEAF-scoped resolution of ffxDispatch, with the LOADER in the
+// process and forwarding.
+//
+// Four modules export the same five names here, exactly as on a loader-shipping
+// title, and the property under test is fl_hook_inventory.h's: the Overlay's own
+// resolver returns each LEAF's own export, never the loader's, and refuses a module
+// of a leaf's name that does not speak the five-export ABI. The second half is a
+// VACUITY GUARD for the [ffx] injected cases: a dispatch pushed through the loader
+// decoy must arrive at exactly one leaf, counted once -- or the K = 1 control in
+// those cases would be proving something about a forwarder that did not forward.
+// ---------------------------------------------------------------------------
+using StubFfxCountFn = unsigned int(STDMETHODCALLTYPE*)(uint64_t);
+using StubFfxPlainCountFn = unsigned int(STDMETHODCALLTYPE*)();
+using StubLoaderBindFn = void(STDMETHODCALLTYPE*)(HMODULE, HMODULE);
+
+bool ProbeFfxResolve() {
+    std::printf("\n[ffx] leaf-scoped resolution of ffxDispatch, with the loader decoy present and forwarding\n");
+
+    const HMODULE monolith = LoadStubExactly(FL_STUB_FFX_DX12);
+    const HMODULE upscaler = LoadStubExactly(FL_STUB_FFX_UPSCALER);
+    const HMODULE fg = LoadStubExactly(FL_STUB_FFX_FG);
+    const HMODULE loader = LoadStubExactly(FL_STUB_FFX_LOADER);
+    const HMODULE decoy = LoadStubExactly(FL_STUB_SL_COMMON);
+    Check(monolith != nullptr,
+          "the amd_fidelityfx_dx12.dll stub (the SDK 1.1.x monolith) loaded from its absolute path");
+    Check(upscaler != nullptr, "the amd_fidelityfx_upscaler_dx12.dll stub loaded");
+    Check(fg != nullptr, "the amd_fidelityfx_framegeneration_dx12.dll stub loaded");
+    Check(loader != nullptr, "the amd_fidelityfx_loader_dx12.dll forwarding decoy loaded");
+    Check(decoy != nullptr, "the sl.common.dll decoy loaded, for the ABI arm's negative");
+    if (monolith == nullptr || upscaler == nullptr || fg == nullptr || loader == nullptr || decoy == nullptr) {
+        return false;
+    }
+
+    // VACUITY FIRST. All four really export the name -- the loader included -- so
+    // "the loader is not a row" is a decision the inventory took, not an accident
+    // of the fixture exporting nothing (stub_sl_common.cpp records that exact
+    // accident against its own first version).
+    Check(GetProcAddress(monolith, "ffxDispatch") != nullptr, "the monolith stub exports ffxDispatch");
+    Check(GetProcAddress(upscaler, "ffxDispatch") != nullptr, "the upscaler stub exports ffxDispatch");
+    Check(GetProcAddress(fg, "ffxDispatch") != nullptr, "the frame-generation stub exports ffxDispatch");
+    Check(GetProcAddress(loader, "ffxDispatch") != nullptr,
+          "the LOADER stub exports ffxDispatch too - so leaving it out of the inventory is scoping, not luck");
+    Check(fl::inventory::SpeaksFfxApi(loader),
+          "and the loader speaks all five names - refusing it is not an ABI verdict");
+
+    // The leaf table agrees with itself at runtime, case-insensitively as the loader is.
+    Check(fl::inventory::FfxLeafOf(L"amd_fidelityfx_dx12.dll") == static_cast<int>(fl::inventory::kFfxLeafMonolith),
+          "amd_fidelityfx_dx12.dll is the monolith leaf");
+    Check(fl::inventory::FfxLeafOf(L"AMD_FIDELITYFX_UPSCALER_DX12.DLL") ==
+              static_cast<int>(fl::inventory::kFfxLeafUpscaler),
+          "leaf lookup is case-insensitive, as GetModuleHandleExW is");
+    Check(fl::inventory::FfxLeafOf(L"amd_fidelityfx_framegeneration_dx12.dll") ==
+              static_cast<int>(fl::inventory::kFfxLeafFrameGeneration),
+          "amd_fidelityfx_framegeneration_dx12.dll is the frame-generation leaf");
+    Check(fl::inventory::FfxLeafOf(fl::inventory::kFfxLoaderModule) < 0, "the loader is not a leaf");
+    Check(fl::inventory::FfxLeafOf(nullptr) < 0, "a null module name is not a leaf");
+
+    // No inventory row names the loader -- walked at runtime here as well as
+    // asserted at compile time in the header, so the property has two witnesses.
+    bool loaderIsARow = false;
+#define FL_PROBE_ROW(mod, sym, family)                                                                                 \
+    if (_wcsicmp(mod, fl::inventory::kFfxLoaderModule) == 0) {                                                         \
+        loaderIsARow = true;                                                                                           \
+    }
+    FL_HOOK_INVENTORY(FL_PROBE_ROW)
+#undef FL_PROBE_ROW
+    Check(!loaderIsARow, "no FL_HOOK_INVENTORY row names amd_fidelityfx_loader_dx12.dll");
+
+    // THE PROPERTY: the Overlay's own resolver returns each leaf's OWN export.
+    void* fromMonolith = fl::inventory::ResolveScoped(L"amd_fidelityfx_dx12.dll", "ffxDispatch");
+    void* fromUpscaler = fl::inventory::ResolveScoped(L"amd_fidelityfx_upscaler_dx12.dll", "ffxDispatch");
+    void* fromFg = fl::inventory::ResolveScoped(L"amd_fidelityfx_framegeneration_dx12.dll", "ffxDispatch");
+    Check(fromMonolith == reinterpret_cast<void*>(GetProcAddress(monolith, "ffxDispatch")),
+          "ResolveScoped returned the monolith's own export");
+    Check(fromUpscaler == reinterpret_cast<void*>(GetProcAddress(upscaler, "ffxDispatch")),
+          "ResolveScoped returned the upscaler leaf's own export");
+    Check(fromFg == reinterpret_cast<void*>(GetProcAddress(fg, "ffxDispatch")),
+          "ResolveScoped returned the frame-generation leaf's own export");
+    Check(fromMonolith != nullptr && fromUpscaler != nullptr && fromFg != nullptr && fromMonolith != fromUpscaler &&
+              fromUpscaler != fromFg && fromMonolith != fromFg,
+          "three leaves, three DIFFERENT addresses - a name-only resolver could not tell them apart");
+    Check(fromUpscaler != reinterpret_cast<void*>(GetProcAddress(loader, "ffxDispatch")) &&
+              fromFg != reinterpret_cast<void*>(GetProcAddress(loader, "ffxDispatch")),
+          "and none of them is the loader's export");
+
+    // The ABI arm, both directions.
+    Check(fl::inventory::SpeaksExpectedAbi(L"amd_fidelityfx_upscaler_dx12.dll", upscaler),
+          "a leaf module exporting all five names passes the AMD arm");
+    Check(!fl::inventory::SpeaksFfxApi(decoy), "the sl.common.dll decoy does not speak ffx-api");
+    Check(!fl::inventory::SpeaksExpectedAbi(L"amd_fidelityfx_upscaler_dx12.dll", decoy),
+          "a leaf's NAME on a module without the five exports is REFUSED");
+
+    // Absent and misspelt resolve to nothing, and nothing is loaded to find out.
+    Check(fl::inventory::ResolveScoped(L"amd_fidelityfx_denoiser_dx12.dll", "ffxDispatch") == nullptr,
+          "a module not in this process resolves to nullptr rather than being loaded");
+    Check(GetModuleHandleW(L"amd_fidelityfx_denoiser_dx12.dll") == nullptr, "and it really was not loaded");
+    Check(fl::inventory::ResolveScoped(L"amd_fidelityfx_dx12.dll", "ffxDispatchX") == nullptr,
+          "a misspelt symbol resolves to nullptr - it cannot silently find a neighbour");
+
+    // THE FORWARDING FIXTURE WORKS, which the injected [ffx] cases depend on.
+    auto bind = reinterpret_cast<StubLoaderBindFn>(reinterpret_cast<void*>(GetProcAddress(loader, "FlStubLoaderBind")));
+    auto loaderDispatch =
+        reinterpret_cast<PfnFfxDispatch>(reinterpret_cast<void*>(GetProcAddress(loader, "ffxDispatch")));
+    auto forwarded =
+        reinterpret_cast<StubFfxPlainCountFn>(reinterpret_cast<void*>(GetProcAddress(loader, "FlStubLoaderForwarded")));
+    auto countUp =
+        reinterpret_cast<StubFfxCountFn>(reinterpret_cast<void*>(GetProcAddress(upscaler, "FlStubFfxDispatchCount")));
+    auto countFg =
+        reinterpret_cast<StubFfxCountFn>(reinterpret_cast<void*>(GetProcAddress(fg, "FlStubFfxDispatchCount")));
+    auto countMono =
+        reinterpret_cast<StubFfxCountFn>(reinterpret_cast<void*>(GetProcAddress(monolith, "FlStubFfxDispatchCount")));
+    Check(bind != nullptr && loaderDispatch != nullptr && forwarded != nullptr && countUp != nullptr &&
+              countFg != nullptr && countMono != nullptr,
+          "the fixtures export their binding and counting entry points");
+    if (bind == nullptr || loaderDispatch == nullptr || forwarded == nullptr || countUp == nullptr ||
+        countFg == nullptr || countMono == nullptr) {
+        return false;
+    }
+
+    // The descriptors come from the vendored structs, so the fixture and the
+    // detour agree about the layout by construction.
+    ffxDispatchDescUpscale up{};
+    up.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
+    up.renderSize.width = kTaggedRenderW;
+    up.renderSize.height = kTaggedRenderH;
+    Check(loaderDispatch(nullptr, &up.header) == FFX_API_RETURN_NO_PROVIDER,
+          "an UNBOUND loader answers NO_PROVIDER rather than forwarding into nothing");
+
+    bind(upscaler, fg);
+    Check(loaderDispatch(nullptr, &up.header) == FFX_API_RETURN_OK, "an UPSCALE dispatch through the loader succeeds");
+    Check(countUp(FFX_API_DISPATCH_DESC_TYPE_UPSCALE) == 1u, "...and reached the UPSCALER leaf exactly once");
+    Check(countFg(FFX_API_DISPATCH_DESC_TYPE_UPSCALE) == 0u, "not the frame-generation leaf");
+    Check(countMono(FFX_API_DISPATCH_DESC_TYPE_UPSCALE) == 0u,
+          "and not the monolith, which is outside the loader's chain");
+
+    ffxDispatchDescFrameGenerationPrepareV2 prep{};
+    prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2;
+    prep.frameID = 1u;
+    prep.renderSize.width = kTaggedRenderW;
+    prep.renderSize.height = kTaggedRenderH;
+    Check(loaderDispatch(nullptr, &prep.header) == FFX_API_RETURN_OK,
+          "a PREPARE_V2 dispatch through the loader succeeds");
+    Check(countFg(FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2) == 1u,
+          "...and reached the FRAME-GENERATION leaf exactly once");
+    Check(countUp(FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2) == 0u, "not the upscaler leaf");
+    Check(countUp(FFX_API_DISPATCH_DESC_TYPE_UPSCALE) == 1u, "and the upscaler's own count did not move");
+    Check(forwarded() == 2u, "the loader forwarded exactly the two calls that had a provider");
+    return g_failures == 0;
+}
+
+// ---------------------------------------------------------------------------
 // A target that EVALUATES AN UPSCALER while it presents.
 //
 // This is what turns the hook from "installs" into "fires". --probe-upscaler-resolve
@@ -2157,6 +2329,118 @@ int HoldPresentingFg(Gfx& g, int seconds, bool real, int presentsPerEval) {
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// A target that dispatches through the ffx-api the way an FSR title does.
+//
+// TWO TOPOLOGIES, because the vendor ships two. `2x` is the SDK 2.x shape: the two
+// effect-DLL leaves behind the LOADER decoy, every dispatch entering through the
+// loader's export and reaching a leaf through the leaf's -- the loader-shipping
+// titles, and the UE5 shape once the plugin's built-in loader is stood in for by
+// ours. `1x` is the SDK 1.1.x monolith: one module, no loader, PREPARE in its pre-V2
+// shape. The Overlay must read the same numbers off both, and the K = 1 control must
+// read 1.0 on both -- with the loader in the chain, a writer that hooked the loader
+// as well as the leaf reads 2.0 there.
+//
+// PER APPLICATION FRAME: one UPSCALE (renderSize = the shared tagged extent), the
+// PREPARE issued TWICE with the same frameID -- the re-issue trap, the way the token
+// fixture asks three times -- and, at K > 1, one FRAMEGENERATION dispatch carrying
+// numGeneratedFrames = K-1 as the real swapchain's callback would, then K presents.
+// --ffx-no-prepare drops the PREPARE entirely: the frame-generation-off shape, where
+// the Overlay must fall back to the UPSCALE count and K = 1 must still read 1.0.
+// ---------------------------------------------------------------------------
+int HoldPresentingFfx(Gfx& g, int seconds, bool real, int presentsPerEval, bool topology2x, bool prepare) {
+    HMODULE entry = nullptr;
+    if (topology2x) {
+        const HMODULE upscaler = LoadStubExactly(FL_STUB_FFX_UPSCALER);
+        const HMODULE fg = LoadStubExactly(FL_STUB_FFX_FG);
+        const HMODULE loader = LoadStubExactly(FL_STUB_FFX_LOADER);
+        if (upscaler == nullptr || fg == nullptr || loader == nullptr) {
+            Check(false, "the SDK 2.x stubs (two leaves and the loader decoy) loaded for the ffx hold");
+            return 1;
+        }
+        auto bind =
+            reinterpret_cast<StubLoaderBindFn>(reinterpret_cast<void*>(GetProcAddress(loader, "FlStubLoaderBind")));
+        if (bind == nullptr) {
+            Check(false, "the loader decoy exports FlStubLoaderBind");
+            return 1;
+        }
+        bind(upscaler, fg);
+        entry = loader;
+    } else {
+        entry = LoadStubExactly(FL_STUB_FFX_DX12);
+        if (entry == nullptr) {
+            Check(false, "the SDK 1.1.x monolith stub loaded for the ffx hold");
+            return 1;
+        }
+    }
+    auto dispatch = reinterpret_cast<PfnFfxDispatch>(reinterpret_cast<void*>(GetProcAddress(entry, "ffxDispatch")));
+    if (dispatch == nullptr) {
+        Check(false, "the entry module exports ffxDispatch");
+        return 1;
+    }
+
+    const int  k = presentsPerEval < 1 ? 1 : presentsPerEval;
+    const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
+    std::printf("  presenting for %d second(s) [%s], ffx-api %s, one UPSCALE%s per %d present(s)%s\n", seconds,
+                real ? "REAL" : "DXGI_PRESENT_TEST",
+                topology2x ? "SDK 2.x (two leaves behind the loader)" : "SDK 1.1.x (monolith)",
+                prepare ? " + PREPARE x2" : " (no PREPARE)", k, k > 1 ? " + one FRAMEGENERATION" : "");
+    std::printf("  renderSize %ux%u on every UPSCALE%s\n", kTaggedRenderW, kTaggedRenderH,
+                prepare ? " and PREPARE" : "");
+    std::fflush(stdout);
+
+    // Built from the vendored structs, so the fixture and the detour agree about the
+    // layout by construction. The stub reads only the head; the Overlay reads the body.
+    ffxDispatchDescUpscale up{};
+    up.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
+    up.renderSize.width = kTaggedRenderW;
+    up.renderSize.height = kTaggedRenderH;
+    up.upscaleSize.width = 1920u;
+    up.upscaleSize.height = 1080u;
+
+    // PREPARE in the shape each generation sends -- V2 for SDK 2.x, the original type
+    // for the 1.1.x monolith -- built in the V2 struct either way, because the two
+    // share their layout through renderSize (the Overlay asserts that at compile time).
+    ffxDispatchDescFrameGenerationPrepareV2 prep{};
+    prep.header.type = topology2x ? FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2
+                                  : FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+    prep.renderSize = up.renderSize;
+
+    ffxDispatchDescFrameGeneration gen{};
+    gen.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
+    gen.numGeneratedFrames = static_cast<uint32_t>(k - 1);
+
+    const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
+    long long       presented = 0;
+    long long       frames = 0;
+    uint64_t        frameId = 0;
+    while (GetTickCount64() < until) {
+        ++frameId;
+        dispatch(nullptr, &up.header);
+        if (prepare) {
+            // TWICE, SAME frameID: the SDK's own sample re-issues the prepare when its
+            // configuration changes, and the vendor's contract is about the INDEX. A
+            // writer that counted calls reads 2.0 at K = 1 here.
+            prep.frameID = frameId;
+            dispatch(nullptr, &prep.header);
+            dispatch(nullptr, &prep.header);
+        }
+        if (k > 1) {
+            gen.frameID = frameId;
+            dispatch(nullptr, &gen.header);
+        }
+        ++frames;
+        for (int i = 0; i < k; ++i) {
+            g.swapChain->Present(0, flags);
+            ++presented;
+            Sleep(8);
+        }
+    }
+    std::printf("  presented=%lld frames=%lld presentsPerEval=%d\n", presented, frames, k);
+    std::fflush(stdout);
+    return 0;
+}
+
 // What a frame IS, asserted against DXGI's own counter.
 //
 // GetLastPresentCount is the one oracle in this area that does not share the
@@ -2236,6 +2520,12 @@ int main(int argc, char** argv) {
     // apart by one assertion, or the assertion is not measuring the counter.
     int presentsPerEval = 1;
 
+    // Which vendor shape --hold-presenting-ffx stands in, and whether the title
+    // issues a PREPARE at all. Pre-pass arguments, like --presents-per-eval, so one
+    // hold mode drives every combination and the tests assert one expression.
+    bool ffxTopology2x = true;
+    bool ffxPrepare = true;
+
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0) {
             real = true;
@@ -2255,14 +2545,19 @@ int main(int argc, char** argv) {
             if (presentsPerEval < 1) {
                 presentsPerEval = 1;
             }
+        } else if (std::strcmp(argv[i], "--ffx-topology") == 0 && i + 1 < argc) {
+            ffxTopology2x = std::strcmp(argv[++i], "1x") != 0;
+        } else if (std::strcmp(argv[i], "--ffx-no-prepare") == 0) {
+            ffxPrepare = false;
         }
     }
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--plus-ui") == 0 ||
-            std::strcmp(argv[i], "--present-interval-ms") == 0 || std::strcmp(argv[i], "--presents-per-eval") == 0) {
+            std::strcmp(argv[i], "--present-interval-ms") == 0 || std::strcmp(argv[i], "--presents-per-eval") == 0 ||
+            std::strcmp(argv[i], "--ffx-topology") == 0 || std::strcmp(argv[i], "--ffx-no-prepare") == 0) {
             if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
-                std::strcmp(argv[i], "--presents-per-eval") == 0) {
+                std::strcmp(argv[i], "--presents-per-eval") == 0 || std::strcmp(argv[i], "--ffx-topology") == 0) {
                 ++i;
             }
             continue;    // consumed above
@@ -2271,6 +2566,10 @@ int main(int argc, char** argv) {
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting-fg") == 0 && i + 1 < argc) {
             ok = HoldPresentingFg(g, std::atoi(argv[++i]), real, presentsPerEval) == 0 && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting-ffx") == 0 && i + 1 < argc) {
+            ok =
+                HoldPresentingFfx(g, std::atoi(argv[++i]), real, presentsPerEval, ffxTopology2x, ffxPrepare) == 0 && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting-upscaled") == 0 && i + 1 < argc) {
             ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, sl::kFeatureDLSS) == 0 && ok;
@@ -2285,6 +2584,9 @@ int main(int argc, char** argv) {
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-upscaler-resolve") == 0) {
             ok = ProbeUpscalerResolve() && ok;
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--probe-ffx-resolve") == 0) {
+            ok = ProbeFfxResolve() && ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-sl-inputs") == 0) {
             ok = ProbeSlInputs() && ok;

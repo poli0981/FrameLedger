@@ -81,7 +81,15 @@ $vendored = @(
     # Khronos Vulkan headers, copied from SDK 1.4.357.0 rather than fetched, so
     # CI needs no ~1 GB SDK install and we compile against the same revision the
     # blast-radius test runs against. Apache-2.0 OR MIT; we ship the Apache text.
-    @{ Path = 'src/native/third_party/vulkan-headers'; Licence = 'apache-2.0.txt'; Name = 'Khronos Vulkan headers' }
+    @{ Path = 'src/native/third_party/vulkan-headers'; Licence = 'apache-2.0.txt'; Name = 'Khronos Vulkan headers' },
+
+    # AMD FidelityFX SDK headers, tag v2.3.0. MIT BY EXCEPTION: upstream's
+    # docs/license.md is a binary-only default licence followed by an exception
+    # list that places the named files under MIT -- and the list names every file
+    # in the tree (845 of 845 on 2026-09-04). §2d below asserts, per vendored
+    # file, that it is on that list and carries the grant inline; this row only
+    # asserts the licence copy exists.
+    @{ Path = 'src/native/third_party/fidelityfx'; Licence = 'fidelityfx-MIT.txt'; Name = 'AMD FidelityFX SDK headers' }
 )
 
 $licenceDir = Join-Path $RepoRoot 'legal/licenses'
@@ -198,6 +206,62 @@ if (Test-Path $slDir) {
     }
 }
 
+# --- 2d. AMD FidelityFX: MIT BY EXCEPTION, asserted file by file --------------
+#
+# THE SHAPE OF THE RISK. Upstream has no root LICENSE. docs/license.md opens with
+# a binary-only, no-reverse-engineering licence that "applies to all files except
+# as noted below", and the MIT grant lives in the exception list that follows.
+# So the question for any file vendored from that tree is not "what does the
+# root licence say" but "is THIS PATH on the list" -- and a re-sync that adds a
+# header without checking is how a file under the wrong licence arrives with the
+# directory's licence copy sitting beside it looking fine. Both halves are
+# asserted per file: on the list, and carrying the grant in its own banner.
+#
+# The list happens to cover the whole tree today (845 of 845 blobs). That is a
+# fact about one commit, not a property to rely on: the check reads the list.
+$ffxDir = Join-Path $RepoRoot 'src/native/third_party/fidelityfx'
+if (Test-Path $ffxDir) {
+    $ffxLicence = Join-Path $ffxDir 'license.md'
+    if (-not (Test-Path $ffxLicence)) {
+        $violations.Add('AMD FidelityFX is vendored but src/native/third_party/fidelityfx/license.md is missing — the MIT grant for these files is the exception list inside it, so nothing else can stand in for it')
+    }
+    else {
+        $lic = Get-Content $ffxLicence -Raw
+        if ($lic -notmatch 'except as noted below') {
+            $violations.Add('src/native/third_party/fidelityfx/license.md no longer has the "except as noted below" shape — if upstream changed its licensing model, re-run docs/18_GPU_VENDOR_APIS.md §Checklist rather than trusting this gate')
+        }
+        if ($lic -notmatch 'Permission is hereby granted, free of charge') {
+            $violations.Add('src/native/third_party/fidelityfx/license.md no longer contains the MIT permission grant')
+        }
+        $listed = @([regex]::Matches($lic, '(?m)^- `([^`]+)`\s*$') | ForEach-Object { $_.Groups[1].Value })
+        if ($listed.Count -eq 0) {
+            # NEVER A PASS: a parser matching nothing would report every vendored
+            # file as off the list, which is the right failure -- but say why.
+            $violations.Add('parsed ZERO entries from the MIT exception list in fidelityfx/license.md — either the list is gone or its shape changed, and both must fail rather than read as "nothing is licensed"')
+        }
+
+        $kits = Join-Path $ffxDir 'Kits'
+        $vendoredFiles = @(if (Test-Path $kits) { Get-ChildItem $kits -Recurse -File -ErrorAction SilentlyContinue })
+        if ($vendoredFiles.Count -eq 0) {
+            $violations.Add('src/native/third_party/fidelityfx/Kits holds no files — a vendoring directory with a licence copy and nothing under it is a claim about nothing (18_GPU_VENDOR_APIS: nothing is vendored ahead of its consumer, and nothing is disclosed ahead of being vendored)')
+        }
+        foreach ($f in $vendoredFiles) {
+            # Upstream spells the list with backslashes relative to the repository
+            # root, and this directory mirrors upstream's layout from Kits/ down.
+            $rel = [IO.Path]::GetRelativePath($ffxDir, $f.FullName).Replace('/', '\')
+            if ($listed -notcontains $rel) {
+                $violations.Add("fidelityfx/$($rel.Replace('\', '/')) is NOT on license.md's MIT exception list — the binary-only default licence would apply to it, and it may not be vendored")
+            }
+            if ($f.Extension -in '.dll', '.lib', '.exe', '.cpp', '.hlsl') {
+                $violations.Add("fidelityfx/$($rel.Replace('\', '/')) is a $($f.Extension) — only declarations are vendored from this SDK; binaries and sources are excluded whatever the list says (third_party/fidelityfx/README.md)")
+            }
+            if ($f.Extension -eq '.h' -and -not (Select-String -Path $f.FullName -Pattern 'Permission is hereby granted, free of charge' -Quiet)) {
+                $violations.Add("fidelityfx/$($rel.Replace('\', '/')) does not carry the MIT grant in its own banner — every header of interest did on 2026-09-04, so this is a file that was not checked")
+            }
+        }
+    }
+}
+
 # --- 2c. The notices file's BUNDLING claim must match the filesystem ---------
 #
 # Every other check here is keyed on the directory a component WOULD occupy, so
@@ -227,7 +291,8 @@ else {
     $claims = @(
         @{ Marker = 'NVIDIA NVAPI SDK'; Path = 'src/native/third_party/nvapi' },
         @{ Marker = 'Vulkan headers'; Path = 'src/native/third_party/vulkan-headers' },
-        @{ Marker = 'NVIDIA Streamline'; Path = 'src/native/third_party/streamline' }
+        @{ Marker = 'NVIDIA Streamline'; Path = 'src/native/third_party/streamline' },
+        @{ Marker = 'AMD FidelityFX'; Path = 'src/native/third_party/fidelityfx' }
     )
     foreach ($c in $claims) {
         $matched = @($rows | Where-Object { $_ -match [regex]::Escape($c.Marker) })

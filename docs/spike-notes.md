@@ -1690,6 +1690,27 @@ one launch per capture, consent granted after launch. Exit codes and full report
   counts FSR3 interpolations (H11), so `fg_factor` stays N/A there. The 59.9 on the DLSS run
   is a cap or vsync, not a measurement of anything this run was about.
 
+- **2026-09-04, the AMD identity PR (HANDOFF 7c), measured before the code was written.** Both
+  Steam libraries scanned to full depth for the AMD module topology, because the hook's scoping
+  depends on which module the *game* calls:
+
+  | Title | AMD modules shipped | Shape |
+  |---|---|---|
+  | Lies of P, Cyberpunk 2077, Rune Factory: Guardians of Azuma | `amd_fidelityfx_dx12.dll` 1.0.1.41314 | SDK 1.1.x **monolith** — a leaf |
+  | Black Myth: Wukong | the monolith **and** `amd_fidelityfx_loader_dx12.dll` 2.1.0 **and** `amd_fidelityfx_denoiser_dx12.dll` | mixed |
+  | Dying Light: The Beast, Kingdom Come: Deliverance II | `amd_fidelityfx_loader_dx12.dll` 1.0.2 + `amd_fidelityfx_upscaler_dx12.dll` 4.0.2 (+ `…framegeneration_dx12.dll` 3.1.5 on DL:TB) | SDK 2.x **loader + leaves** |
+  | Expedition 33 | upscaler 4.0.2 + frame generation 3.1.5, **no loader** | UE5: the plugin's built-in loader calls the leaves directly |
+  | Hell Is Us | upscaler **4.0.3** + frame generation **4.0.0** under `Plugins/FSR/Source/fidelityfx-sdk/Kits/FidelityFX/signedbin/`, **no loader** | UE5, SDK 2.1.x |
+  | Red Dead Redemption 2 | `ffx_fsr2_api_x64.dll` + `_dx12_` + `_vk_` | FSR 2, dynamic |
+  | Cyberpunk 2077 (also) | `ffx_fsr3_x64.dll`, `ffx_backend_dx12_x64.dll`, `ffx_frameinterpolation_x64.dll`, `ffx_fsr3upscaler_x64.dll`, `ffx_opticalflow_x64.dll` | FSR 3.0 host DLLs, named exports — the deferred route |
+
+  Every module in the ffx-api family exports the same five names and nothing else
+  (`vendor-exports.json`), so the loader can only reach a leaf through the leaf's own export —
+  which is why the rows are the leaves and never the loader. **No statically linked FSR title is
+  installed** (HANDOFF 7b): every FSR title above ships its DLLs. **Owed, one launch each, against
+  `20_OPEN_QUESTIONS` §H11's table:** Lies of P at FSR + FG (A1) and FSR alone (A2), Hell Is Us at
+  FSR (A3) — read the `ffx dispatch census` line and the trio.
+
 ## 10 · Telemetry layering
 
 - L1 baseline vendor-neutral:

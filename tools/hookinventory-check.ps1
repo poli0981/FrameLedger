@@ -46,6 +46,11 @@
     included for types only for exactly this reason
     (src/native/third_party/streamline/README.md).
 
+    PASS C READS THE EXPORT TABLE TOO, since 2026-09-04. The vendored ffx_api.h
+    declares its entry points __declspec(dllexport) unconditionally; a definition
+    of one inside the Overlay would announce a vendor API we do not implement,
+    with every import check green. Same failure class, other table.
+
     THAT README ASSERTED THIS CHECK EXISTED AND IT DID NOT. Recorded because it
     is the shape this repository keeps finding: a document describing a gate,
     reviewers trusting the document, and nothing behind it. Added 2026-08-14
@@ -183,6 +188,34 @@ function Get-ForbiddenImport([string[]]$ImportNames) {
     return , $bad
 }
 
+# The names a binary EXPORTS, from `dumpbin /exports` output.
+#
+# WHY THE EXPORT TABLE TOO (2026-09-04). The vendored ffx_api.h declares its five
+# entry points FFX_API_ENTRY, which it defines as __declspec(dllexport) with no
+# import switch at all. A declaration exports nothing -- but a DEFINITION anywhere
+# in the Overlay would, and the Overlay would then announce `ffxDispatch` from
+# inside somebody else's game, an API it does not implement, with every import
+# check green. Same failure class Pass C exists for, read from the other table.
+function Get-ExportName([string]$DumpbinText) {
+    $names = @()
+    foreach ($line in ($DumpbinText -split "`r?`n")) {
+        # "ordinal hint RVA name" rows: three numeric columns, then the name (a
+        # forwarder suffixes " = target", which the \S+ stops before).
+        if ($line -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\S+)') { $names += $Matches[1] }
+    }
+    return , $names
+}
+
+# Exported names FrameLedger.Overlay.dll must never carry: the vendor shapes Pass B
+# forbids as literals, applied to what the binary announces.
+function Get-ForbiddenExport([string[]]$ExportNames) {
+    $bad = @()
+    foreach ($n in $ExportNames) {
+        if ($n -match '^(sl[A-Z]|NVSDK_NGX_|xess[A-Z]|xefg[A-Z]|ffx[A-Z])') { $bad += $n }
+    }
+    return , $bad
+}
+
 # --- Self-test ---------------------------------------------------------------
 if ($SelfTest) {
     $oracle = [pscustomobject]@{
@@ -242,6 +275,20 @@ if ($SelfTest) {
            Got  = ((Get-ForbiddenImport @('libxess_fg.dll', 'ffx_fsr3_x64.dll', 'amd_fidelityfx_dx12.dll')).Count -eq 3); Want = $true }
         @{ Name = 'the match is ANCHORED - an innocent name merely CONTAINING a vendor prefix passes'
            Got  = ((Get-ForbiddenImport @('mysl.dll', 'libffx_helper.dll', 'unvngx.dll')).Count -eq 0); Want = $true }
+        @{ Name = 'the SDK 2.x AMD leaves and the loader are all caught as imports'
+           Got  = ((Get-ForbiddenImport @('amd_fidelityfx_upscaler_dx12.dll', 'amd_fidelityfx_framegeneration_dx12.dll', 'amd_fidelityfx_loader_dx12.dll')).Count -eq 3); Want = $true }
+
+        # --- AMD: one symbol, several rows ---------------------------------------
+        @{ Name = 'three rows with the SAME symbol in different modules parse as three rows'
+           Got  = ((Get-InventoryRow 'X(L"a.dll", "ffxDispatch", fl::F) X(L"b.dll", "ffxDispatch", fl::F) X(L"c.dll", "ffxDispatch", fl::F)').Count -eq 3); Want = $true }
+
+        # --- Pass C, the export table --------------------------------------------
+        @{ Name = 'dumpbin export rows parse into names, and the header and Summary do not'
+           Got  = ((Get-ExportName "    ordinal hint RVA      name`r`n`r`n          1    0 00001000 FlGuardedInject`r`n          2    1 00001040 ffxDispatch`r`n`r`n  Summary`r`n`r`n        1000 .data`r`n") -join ',') -eq 'FlGuardedInject,ffxDispatch'; Want = $true }
+        @{ Name = 'a vendor-shaped EXPORT is caught - a definition of an FFX_API_ENTRY name would announce an API we do not implement'
+           Got  = ((Get-ForbiddenExport @('FlGuardedInject', 'ffxDispatch')) -join ',') -eq 'ffxDispatch'; Want = $true }
+        @{ Name = 'our own exports are not mistaken for vendor ones'
+           Got  = ((Get-ForbiddenExport @('FlGuardedInject', 'FlStubEvaluateCount', 'DllMain')).Count -eq 0); Want = $true }
     )
 
     $bad = @()
@@ -435,7 +482,31 @@ elseif ($violations.Count -eq 0) {
             foreach ($bad in (Get-ForbiddenImport $imports)) {
                 $violations.Add("Pass C: FrameLedger.Overlay.dll IMPORTS '$bad' - the vendored headers are for types only, and a link makes that module a load-time dependency, so the Overlay would fail to load in every game that does not ship it (in the loader, before DllMain, with no message anywhere)")
             }
-            $importState = "$importCount import(s) checked"
+
+            # --- and the EXPORT table, with a positive control for the parser ------
+            #
+            # The Overlay may legitimately export nothing vendor-shaped, so "zero
+            # forbidden exports" cannot discriminate a working parser from a broken
+            # one on its own. The leaf fixture MUST export ffxDispatch (the stub
+            # defines it through the vendored header's own FFX_API_ENTRY), so the
+            # same parser is run on it first: if it cannot see that, no verdict on
+            # the Overlay's table can be trusted.
+            $exports = Get-ExportName (& $dumpbin /nologo /exports $overlayDll.FullName 2>&1 | Out-String)
+            $leafStub = Get-ChildItem $BuildDir -Recurse -Filter 'amd_fidelityfx_dx12.dll' -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            if (-not $leafStub) {
+                $violations.Add("Pass C: the amd_fidelityfx_dx12.dll leaf fixture was not found under $BuildDir, so the export parser has no positive control and 'the Overlay exports no vendor name' would be a verdict decided before the check looked")
+            }
+            else {
+                $stubExports = Get-ExportName (& $dumpbin /nologo /exports $leafStub.FullName 2>&1 | Out-String)
+                if ($stubExports -notcontains 'ffxDispatch') {
+                    $violations.Add("Pass C: the export parser did not see ffxDispatch on the leaf fixture $($leafStub.FullName), so it reads nothing - refusing rather than reporting a clean export table nobody parsed")
+                }
+            }
+            foreach ($bad in (Get-ForbiddenExport $exports)) {
+                $violations.Add("Pass C: FrameLedger.Overlay.dll EXPORTS '$bad' - the vendored headers declare these names __declspec(dllexport), and a definition in the Overlay announces a vendor API it does not implement, from inside somebody else's game")
+            }
+            $importState = "$importCount import(s) and $($exports.Count) export(s) checked"
         }
     }
 }

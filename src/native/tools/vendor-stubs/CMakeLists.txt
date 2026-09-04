@@ -19,9 +19,11 @@ function(fl_add_vendor_stub target output source)
     add_library(${target} SHARED ${source})
     set_target_properties(${target} PROPERTIES OUTPUT_NAME "${output}")
     # fl_hook_inventory.h (via fl_dxgi_vtable's sibling include dir) binds the
-    # exported name to the Overlay's; fl_streamline_headers supplies the vendor
-    # signature so the stub and the detour cannot disagree about the ABI.
-    target_link_libraries(${target} PRIVATE FrameLedger.Shm fl_native_flags fl_streamline_headers)
+    # exported name to the Overlay's; fl_streamline_headers and fl_fidelityfx_headers
+    # supply the vendor signatures so the stub and the detour cannot disagree about
+    # the ABI. Both are INTERFACE include targets and link nothing.
+    target_link_libraries(${target} PRIVATE FrameLedger.Shm fl_native_flags fl_streamline_headers
+        fl_fidelityfx_headers)
     target_include_directories(${target} PRIVATE
         "${CMAKE_SOURCE_DIR}/FrameLedger.Overlay/include"
         "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -57,3 +59,19 @@ set_target_properties(fl_stub_sl_interposer_v1 PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sl1"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sl1"
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sl1")
+
+# --- AMD FidelityFX (ffx-api) -------------------------------------------------
+#
+# THREE LEAVES AND A FORWARDER. The three modules the Overlay hooks all export the
+# same five ffx-api names (docs/vendor-exports.json), and so does the SDK 2.x
+# loader, which forwards to the two effect DLLs and is deliberately NOT an
+# inventory row. The fixture reproduces exactly that shape: the harness binds the
+# loader stub to the two 2.x leaf stubs and dispatches THROUGH it, so "the leaf
+# count reads 1x with a loader in the chain" is a property the [ffx] tests can
+# falsify rather than a comment in fl_hook_inventory.h.
+#
+# Distinct output names, so no output-directory games are needed here.
+fl_add_vendor_stub(fl_stub_ffx_dx12 "amd_fidelityfx_dx12" stub_amd_fidelityfx_dx12.cpp)
+fl_add_vendor_stub(fl_stub_ffx_upscaler "amd_fidelityfx_upscaler_dx12" stub_amd_fidelityfx_upscaler_dx12.cpp)
+fl_add_vendor_stub(fl_stub_ffx_fg "amd_fidelityfx_framegeneration_dx12" stub_amd_fidelityfx_framegeneration_dx12.cpp)
+fl_add_vendor_stub(fl_stub_ffx_loader "amd_fidelityfx_loader_dx12" stub_amd_fidelityfx_loader_dx12.cpp)

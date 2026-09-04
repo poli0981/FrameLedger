@@ -3234,6 +3234,244 @@ TEST_CASE("application-frame tokens are COUNTED, and the count tracks the fixtur
 
 namespace {
 
+// What one --hold-presenting-ffx run yields, drained after the AMD rows are live.
+struct FfxObservation {
+    std::uint32_t census = 0;
+    std::size_t   drained = 0;
+    std::uint64_t sigma = 0;    // sum of fgEvaluations over the window
+    std::uint32_t hooks = 0;
+    std::uint32_t faults = 0;
+    bool          everyRecordClaimsCounts = true;
+    bool          modeIsNeverNone = true;
+    std::size_t   measured = 0;      // records claiming FL_MEASURED_UPSCALER
+    std::size_t   identified = 0;    // records naming the EXPECTED FSR value
+    std::size_t   claimedDlss = 0;
+    std::size_t   claimedNone = 0;
+    std::size_t   paramsRecords = 0;
+    std::size_t   wrongExtent = 0;
+    std::size_t   valueWithoutBit = 0;
+    std::size_t   dishonestParams = 0;
+    std::size_t   fsrFgRecords = 0;
+};
+
+// Inject into an ffx-api target and drain a post-install window.
+//
+// ONE HELPER FOR EVERY COMBINATION -- both topologies, both K values, PREPARE on and
+// off -- for the reason ObserveFg gives: two hand-written cases let one acquire a
+// tolerance the other does not have, and the pair stops discriminating the moment
+// they differ.
+bool ObserveFfx(int presentsPerEval, bool topology2x, bool prepare, fl::FlUpscaler expected, FfxObservation& out) {
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real --presents-per-eval " +
+                       std::to_wstring(presentsPerEval) + (topology2x ? L" --ffx-topology 2x" : L" --ffx-topology 1x") +
+                       (prepare ? L"" : L" --ffx-no-prepare") + L" --hold-presenting-ffx 14";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    if (!CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                        &child.pi)) {
+        return false;
+    }
+    Sleep(800);
+    if (WaitForSingleObject(child.pi.hProcess, 0) != WAIT_TIMEOUT) {
+        return false;
+    }
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    if (!GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed()) {
+        return false;
+    }
+
+    wchar_t name[128]{};
+    if (_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) <= 0) {
+        return false;
+    }
+    HANDLE mapping = nullptr;
+    for (int i = 0; i < 100 && mapping == nullptr; ++i) {
+        mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
+        if (mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    if (mapping == nullptr) {
+        return false;
+    }
+    const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+    if (base == nullptr) {
+        CloseHandle(mapping);
+        return false;
+    }
+
+    const auto* st =
+        reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
+    for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+
+    // ONE ROW PUBLISHES ALL THREE FAMILIES, so the FG_EVALUATIONS wait is the same wait
+    // as identity's -- kept anyway, so the assertion is about the family the count is
+    // entitled by rather than about which bit happened to be set first.
+    bool ok = st->status == fl::FL_STATUS_READY && WaitForIdentityHook(st) &&
+              WaitForHookFamily(st, static_cast<uint32_t>(fl::FL_HOOK_FG_EVALUATIONS));
+    if (ok) {
+        fl::RingReader rd;
+        ok = rd.Init(base, FL_SHM_DEFAULT_CAPACITY);
+        if (ok) {
+            DiscardBacklog(rd);
+            const std::vector<fl::FlFrameRecord> all = DrainAtLeast(rd, 60, 9000);
+            out.drained = all.size();
+            for (const auto& r : all) {
+                out.sigma += r.fgEvaluations;
+                if ((r.measuredMask & fl::FL_MEASURED_FG_COUNTS) == 0u) {
+                    out.everyRecordClaimsCounts = false;
+                }
+                if (r.fgMode == fl::FL_FG_NONE) {
+                    out.modeIsNeverNone = false;
+                }
+                if (r.fgMode == fl::FL_FG_FSR_FG) {
+                    ++out.fsrFgRecords;
+                }
+                if ((r.measuredMask & fl::FL_MEASURED_UPSCALER) != 0u) {
+                    ++out.measured;
+                }
+                if (r.upscaler == expected) {
+                    ++out.identified;
+                }
+                if (r.upscaler == fl::FL_UPSCALER_DLSS) {
+                    ++out.claimedDlss;
+                }
+                if (r.upscaler == fl::FL_UPSCALER_NONE) {
+                    ++out.claimedNone;
+                }
+                if ((r.measuredMask & fl::FL_MEASURED_UPSCALER_PARAMS) != 0u) {
+                    ++out.paramsRecords;
+                    if (r.upscalerQuality == 0u || r.upscalerSharpness != 0xFFu) {
+                        ++out.dishonestParams;
+                    }
+                    if (r.renderW != FL_TAGGED_RENDER_W || r.renderH != FL_TAGGED_RENDER_H) {
+                        ++out.wrongExtent;
+                    }
+                } else if (r.renderW != 0u || r.renderH != 0u) {
+                    ++out.valueWithoutBit;
+                }
+            }
+        }
+    }
+    out.hooks = st->hooksInstalledMask;
+    out.census = st->runtimeCensus;
+    out.faults = st->faultCount;
+
+    UnmapViewOfFile(base);
+    CloseHandle(mapping);
+    return ok;
+}
+
+// The assertions every combination shares. Catch2's CHECK works from a helper, and
+// one helper is what keeps the four runs asserting ONE expression.
+void AssertFfxWindow(const FfxObservation& obs, int k) {
+    CAPTURE(obs.drained);
+    CAPTURE(obs.sigma);
+    CAPTURE(obs.measured);
+    CAPTURE(obs.identified);
+    CAPTURE(obs.paramsRecords);
+    CAPTURE(obs.fsrFgRecords);
+
+    // A COUNT OF ZERO FAILS HERE RATHER THAN DIVIDING BY IT.
+    REQUIRE(obs.sigma >= 8u);
+
+    // THE SAME TOLERANCE THE TOKEN TEST DERIVES, for the same arithmetic: each
+    // application frame is followed by exactly K presents. A writer counting PREPARE
+    // CALLS (two per frame) reads 2x here at K = 1; a writer that also hooked the
+    // loader reads 2x on the 2.x topology; a writer counting presents reads K x K.
+    const long long drained = static_cast<long long>(obs.drained);
+    const long long expected = static_cast<long long>(obs.sigma) * k;
+    const long long diff = drained > expected ? drained - expected : expected - drained;
+    CHECK(diff <= k);
+
+    CHECK(obs.everyRecordClaimsCounts);
+    CHECK(obs.modeIsNeverNone);
+    CHECK(obs.faults == 0u);
+
+    // Identity is claimed on every record once a leaf is hooked, and NAMED on the
+    // presents that drained an UPSCALE -- one per application frame, so sigma of them
+    // within a record of drain alignment. Never DLSS, never NONE.
+    CHECK(obs.measured == obs.drained);
+    CHECK(obs.identified + 1 >= obs.sigma);
+    CHECK(obs.identified <= obs.sigma + 1);
+    CHECK(obs.claimedDlss == 0u);
+    CHECK(obs.claimedNone == 0u);
+
+    // renderW/H come off the descriptor the harness built, so the EXACT tagged extent
+    // and nothing else; quality and sharpness are 0xFF on every record that claims the
+    // bit; no value leaks onto a record whose bit is clear.
+    CHECK(obs.paramsRecords + 1 >= obs.sigma);
+    CHECK(obs.wrongExtent == 0u);
+    CHECK(obs.valueWithoutBit == 0u);
+    CHECK(obs.dishonestParams == 0u);
+
+    // FSR_FG is named on the presents that drained a FRAMEGENERATION dispatch -- one
+    // per application frame at K > 1, none at all at K = 1. The K = 1 half is what
+    // stops a writer from naming frame generation off the PREPARE alone.
+    if (k > 1) {
+        CHECK(obs.fsrFgRecords + 1 >= obs.sigma);
+    } else {
+        CHECK(obs.fsrFgRecords == 0u);
+    }
+
+    // EQUALITY, not a bit test, for the reason the token test gives: the compound
+    // family constant is the one value no gate reads.
+    CHECK(obs.hooks == static_cast<std::uint32_t>(fl::FL_HOOK_PRESENT | fl::FL_HOOK_UPSCALER_IDENTITY |
+                                                  fl::FL_HOOK_UPSCALER_PARAMS | fl::FL_HOOK_FG_EVALUATIONS));
+    CHECK((obs.census & fl::FL_CENSUS_RAN) != 0u);
+    CHECK((obs.census & fl::FL_CENSUS_SL_INTERPOSER) == 0u);
+}
+
+}    // namespace
+
+TEST_CASE("FSR through the SDK 2.x leaves behind a loader: identified, extent exact, and the count tracks K",
+          "[guard][inject][shm][ffx]") {
+    // THE LOADER IS IN THE CHAIN AND IS NOT HOOKED. Every dispatch enters through the
+    // loader decoy's ffxDispatch and reaches a leaf through the leaf's, so a writer that
+    // had a row for the loader would count each one twice -- and the K = 1 control below
+    // would read 2.0 where it must read 1.0. That is the property the rows' leaf-only
+    // scoping claims, made falsifiable.
+    for (const int k : {1, 4}) {
+        CAPTURE(k);
+        FfxObservation obs;
+        REQUIRE(ObserveFfx(k, /*topology2x=*/true, /*prepare=*/true, fl::FL_UPSCALER_FSR_UNVERSIONED, obs));
+        AssertFfxWindow(obs, k);
+
+        // The census sees the two SDK 2.x leaves by name and NOT the monolith -- and
+        // the frame-generation leaf is in the FG group, so a title on this shape prints
+        // the WARNING shape only when nothing was measured, which here it was.
+        CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_UPSCALER) != 0u);
+        CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_FRAMEGENERATION) != 0u);
+        CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_DX12) == 0u);
+    }
+}
+
+TEST_CASE("the SDK 1.1.x monolith is FSR3; with no PREPARE the count falls back to UPSCALE dispatches",
+          "[guard][inject][shm][ffx]") {
+    // TWO SHAPES A 1.1.x TITLE ACTUALLY HAS. Frame generation OFF: no PREPARE is ever
+    // issued, so the application-frame count must come from the UPSCALE dispatches and
+    // K = 1 must still read 1.0 -- a writer that counted only prepares reads sigma = 0
+    // and fails the floor. Frame generation ON at x4: the pre-V2 PREPARE type, read
+    // through the V2 layout the Overlay asserts is prefix-identical.
+    for (const int k : {1, 4}) {
+        CAPTURE(k);
+        FfxObservation obs;
+        REQUIRE(ObserveFfx(k, /*topology2x=*/false, /*prepare=*/k > 1, fl::FL_UPSCALER_FSR3, obs));
+        AssertFfxWindow(obs, k);
+
+        CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_DX12) != 0u);
+        CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_UPSCALER) == 0u);
+        CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_FRAMEGENERATION) == 0u);
+    }
+}
+
+namespace {
+
 struct RtObservation {
     std::size_t   drained = 0;
     std::size_t   withAsBuild = 0;

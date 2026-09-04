@@ -418,9 +418,18 @@ internal sealed record MeasuredFacts
             FlUpscaler.RetiredRayReconstruction => null,
 
             FlUpscaler.NotReported => null,
+
+            // FSR through the SDK 2.x upscaler DLL, which hosts FSR 3.1 and FSR 4 behind one dispatch
+            // type. The enum member's name is a token; the report gets the sentence, because a reader
+            // who sees "FsrUnversioned" will ask what it means and the answer is the whole point.
+            FlUpscaler.FsrUnversioned => UpscalerFsrUnversioned,
             _ => value.ToString(),
         };
     }
+
+    /// <summary>What <see cref="Upscaler"/> carries for <see cref="FlUpscaler.FsrUnversioned"/>.</summary>
+    public const string UpscalerFsrUnversioned =
+        "FSR (3.1 or 4 — the SDK 2.x upscaler DLL hosts both, and the dispatch does not name the version)";
 
     private static Tri RayTracingOf(IReadOnlyList<FlFrameRecord> stream, FlWriterState writer)
     {
