@@ -775,8 +775,13 @@ corrections to the entry below, each of which changed what got built:**
 `FsrFg` / ×2 on Hell Is Us), Expedition 33 showed the mixed-vendor shape (FSR upscale + DLSS FG ×3
 → *active, technology not identified* at ×2.97), Cyberpunk at FSR 3 split across two AMD
 generations, and **Rune Factory turned out to be 7b's statically linked title** with the Streamline
-token count still reading ×2. **Owed after the loader row lands:** Dying Light: The Beast at
-FSR + FSR FG, KCD2 at FSR, Wukong at FSR — against row R6. **The FSR 3.0 host route
+token count still reading ×2. **Row R6 ran the same night on #111:** Dying Light: The Beast at
+FSR + FSR FG printed `FSR (3.1 or 4 …)` / `FsrFg` / `70.49 → 140.9 (×2)` with the counts agreeing
+at 1.01, KCD2 at FSR printed the identity and `none` by count at 1.00 — the loader row carries
+both, once. **Wukong at FSR read silent at the monolith AND the loader with the monolith loaded**:
+FSR upscaling compiled into its UE plugin (Rune Factory's shape) with the monolith there for frame
+generation, is the reading that fits; **owed: Wukong with FSR frame generation ON** (expect the
+Cyberpunk shape, `FsrFg` from the monolith with `upscaler: N/A`). **The FSR 3.0 host route
 (`ffx_fsr3_x64.dll`, step 3 below) is deferred to its own PR** — ten host headers from `v1.1.4`;
 Cyberpunk at FSR 3 is its oracle and already prints `FsrFg` from the monolith beside it.
 
