@@ -158,11 +158,13 @@ its own **termination** clause — two of step 2's needles. The headers under `i
 carry no MIT text; each opens *"Intel copyrighted materials … you may not use, modify, copy,
 publish, distribute … without Intel's prior written permission."* Step 3 therefore binds:
 **do not vendor, and do not re-declare the API.** What remains in policy for Intel is the
-census (module presence by name) and, if the owner wants it, **counting calls to a named export
-without declaring its signature** — a register-preserving thunk that increments a counter and
-jumps to the original reads no argument and declares no type; it is the one route that is
-neither a vendoring nor a re-declaration, and it is an owner decision because it needs an
-assembly source in the Overlay's build.
+census: module presence by name, nothing more. **A signature-free call counter — a
+register-preserving thunk on a named export that increments and jumps — was considered and
+refused the same day (delegated by the owner, decided 2026-09-04).** It declares no type and
+reads no argument, but installing it inline-patches Intel's code inside the game process, and
+the same licence forbids *"any modification"*; the census is the answer NGX got and Intel gets
+the same one. Reversal condition: Intel publishing the headers under a licence that clears the
+checklist, at which point this paragraph is re-run, not argued around.
 
 ### Checklist before adding any vendor SDK
 
