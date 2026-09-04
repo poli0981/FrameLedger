@@ -1,39 +1,38 @@
-// THE FORWARDING DECOY. A module named `amd_fidelityfx_loader_dx12.dll`, exporting
-// the SAME five names as the leaves -- and it must never be hooked.
+// THE LOADER STAND-IN. A module named `amd_fidelityfx_loader_dx12.dll`, exporting
+// the SAME five names as the leaves, forwarding to the two SDK 2.x leaf stubs --
+// and, since the evening of 2026-09-04, an inventory row like them.
 //
-// WHY A FORWARDER AND NOT A PLAIN DECOY. stub_sl_common.cpp's decoy proves module
-// scoping by exporting a name from the wrong module. The AMD hazard is one step
-// further along: on a loader-shipping title (Dying Light: The Beast, Kingdom Come II,
-// Black Myth: Wukong) the game calls the LOADER's ffxDispatch, and the loader
-// calls the EFFECT DLL's ffxDispatch -- the only route it has, since the effect
-// DLLs export nothing else. Every logical dispatch therefore crosses TWO exports of
-// the same name, and a writer that hooked both would count each one twice, straight
-// into fg_factor (03_METRICS: fg_factor = presents / F_app, so a doubled count
-// HALVES the factor -- reporting x2 frame generation as none). The inventory hooks
-// the leaves only, and this stub is what makes "the leaf count reads 1x with a
-// loader in the chain" a property a test can falsify: the harness binds it to the
-// two SDK 2.x leaf stubs and dispatches THROUGH it, and the leaf counters and the
-// Overlay's records had better agree with the number of calls the harness made.
+// WHAT WAS MEASURED, AND WHAT IT REVERSED. This file first shipped as a decoy that
+// must never be hooked, on the argument that the effect DLLs export only the five
+// ffx-api names, so the real loader could reach them only through their exports,
+// and hooking both would count each dispatch twice. Then three loader-shipping
+// titles ran FSR under the leaf-only build -- Dying Light: The Beast (FSR + FSR
+// frame generation), Kingdom Come: Deliverance II, Black Myth: Wukong -- and every
+// one produced ZERO dispatches at any leaf export while the leaves sat in the
+// census. The game calls the loader's export; however the signed loader reaches
+// its providers afterwards, it is not through the leaves' ffxDispatch. So the
+// loader is where those titles' calls arrive, and it is a row.
 //
-// The negative is asserted at compile time, not merely by the fixture: the loader's
-// name is bound to fl::inventory::kFfxLoaderModule, and both fl_hook_inventory.h
-// and this file refuse a row for it.
+// THIS STUB THEREFORE FORWARDS THE WAY THE MEASUREMENT SAYS: through the leaves'
+// FrameLedger-named DIRECT entry (FlStubFfxDispatchDirect), never through their
+// export. That is what makes the K = 1 control in the [ffx] cases discriminating
+// with all four modules hooked: a loader that DID re-enter a leaf's export would
+// be counted at both, and the control would read 2x. The leaves also count export
+// entries separately (FlStubFfxExportCalls), so --probe-ffx-resolve asserts the
+// forward did not touch the export at all.
 //
-// IT IS A FIXTURE, NOT A CLAIM ABOUT THE REAL LOADER'S INTERNALS. What is measured
-// is the export tables (docs/vendor-exports.json: five names, all four modules) and
-// the SDK's own description of the loader as containing no effect code; how the
-// signed binary routes internally is not ours to read, and it does not matter
-// here: with only those five exports, forwarding is the only way through.
+// IT IS A FIXTURE, NOT A CLAIM ABOUT THE REAL LOADER'S INTERNALS beyond the one
+// measured fact: the leaf exports stay silent behind it.
 
 #include <ffx_api.h>
 
 #include "stub_common.h"
 
-static_assert(!fl::stub::InventoryHasRow(fl::inventory::kFfxLoaderModule, "ffxDispatch"),
-              "amd_fidelityfx_loader_dx12.dll became an inventory row -- hooking the loader AND a leaf counts every "
-              "dispatch twice on a loader-shipping title, straight into fg_factor");
-static_assert(fl::inventory::FfxLeafOfExact(fl::inventory::kFfxLoaderModule) < 0,
-              "the loader is not a leaf, and the leaf table must not say otherwise");
+static_assert(fl::stub::InventoryHasRow(fl::inventory::kFfxLoaderModule, "ffxDispatch"),
+              "amd_fidelityfx_loader_dx12.dll lost its inventory row -- on a loader-shipping title the game calls "
+              "THIS module's export and the leaves stay silent (measured 2026-09-04), so those titles would read N/A");
+static_assert(fl::inventory::FfxLeafOfExact(fl::inventory::kFfxLoaderModule) == fl::inventory::kFfxLeafLoader,
+              "the loader's slot in the module table moved");
 
 namespace {
 
@@ -58,7 +57,9 @@ void Bind(Bound& b, HMODULE h) {
     b.destroy = reinterpret_cast<PfnFfxDestroyContext>(reinterpret_cast<void*>(GetProcAddress(h, "ffxDestroyContext")));
     b.configure = reinterpret_cast<PfnFfxConfigure>(reinterpret_cast<void*>(GetProcAddress(h, "ffxConfigure")));
     b.query = reinterpret_cast<PfnFfxQuery>(reinterpret_cast<void*>(GetProcAddress(h, "ffxQuery")));
-    b.dispatch = reinterpret_cast<PfnFfxDispatch>(reinterpret_cast<void*>(GetProcAddress(h, "ffxDispatch")));
+    // DISPATCH GOES THROUGH THE DIRECT ENTRY, NOT THE EXPORT -- see the header comment.
+    b.dispatch =
+        reinterpret_cast<PfnFfxDispatch>(reinterpret_cast<void*>(GetProcAddress(h, "FlStubFfxDispatchDirect")));
 }
 
 // Route by EFFECT ID, which is what the real loader's provider lookup keys on
@@ -135,8 +136,9 @@ FFX_API_ENTRY ffxReturnCode_t ffxQuery(ffxContext* context, ffxQueryDescHeader* 
     return b->query(context, desc);
 }
 
-// The same name the leaves export, one hop earlier. If the Overlay ever hooks this
-// one, the K = 1 control in the [ffx] tests reads 2x and goes red.
+// The same name the leaves export, one hop earlier -- and hooked, since the measurement.
+// The forward below reaches the leaf's DIRECT entry, so with all four modules hooked the
+// Overlay sees this dispatch exactly once.
 FFX_API_ENTRY ffxReturnCode_t ffxDispatch(ffxContext* context, const ffxDispatchDescHeader* desc) {
     if (desc == nullptr) {
         return FFX_API_RETURN_ERROR_PARAMETER;

@@ -769,10 +769,11 @@ constexpr uint64_t kTagValid = 1ull << 32;
 
 // --- AMD FidelityFX through the ffx-api leaves (HANDOFF item 7c, 2026-09-04) -----
 //
-// ONE OBSERVER, THREE TRAMPOLINES. The three leaves in fl_hook_inventory.h each
-// export their own ffxDispatch, so each needs its own MinHook target, its own
-// trampoline and its own liveness latch -- and one observer, because what the detour
-// does with a descriptor does not depend on which leaf it arrived at.
+// ONE OBSERVER, FOUR TRAMPOLINES. The four modules in fl_hook_inventory.h -- three
+// leaves and the SDK 2.x loader -- each export their own ffxDispatch, so each needs
+// its own MinHook target, its own trampoline and its own liveness latch -- and one
+// observer, because what the detour does with a descriptor does not depend on which
+// module it arrived at.
 //
 // WHAT IS READ, AND FROM WHERE (CLAUDE.md rule 4). Only the descriptor the title
 // passed to the API we hooked: its head type, and -- once the type has matched a
@@ -1121,8 +1122,8 @@ void ObserveFfxDispatch(uint32_t leaf, const ffxDispatchDescHeader* desc) noexce
     }
 }
 
-// Three trampolines from one template, one per leaf slot: MinHook needs a distinct
-// detour address per patched target, and the leaf index is what lets the trampoline
+// Four trampolines from one template, one per module slot: MinHook needs a distinct
+// detour address per patched target, and the slot index is what lets the trampoline
 // find its own original. Every argument forwarded untouched, the original called
 // exactly once on every path including the fault path.
 template <uint32_t Leaf>
@@ -1144,6 +1145,8 @@ void* FfxDispatchDetour(uint32_t leaf) noexcept {
         return reinterpret_cast<void*>(&Hook_FfxDispatchT<fl::inventory::kFfxLeafUpscaler>);
     case fl::inventory::kFfxLeafFrameGeneration:
         return reinterpret_cast<void*>(&Hook_FfxDispatchT<fl::inventory::kFfxLeafFrameGeneration>);
+    case fl::inventory::kFfxLeafLoader:
+        return reinterpret_cast<void*>(&Hook_FfxDispatchT<fl::inventory::kFfxLeafLoader>);
     default:
         return nullptr;
     }
@@ -1365,8 +1368,8 @@ bool InstallByFamily(const wchar_t* module, const char* symbol, uint32_t family)
                           reinterpret_cast<void**>(&g_origSlGetNewFrameToken), g_frameTokensLive);
     }
     if (family == fl::inventory::kFamilyFfxDispatch) {
-        // THREE ROWS, ONE ARM: the row's MODULE picks the trampoline and the latch slot,
-        // because the three leaves export the same name and each must be patched at its
+        // FOUR ROWS, ONE ARM: the row's MODULE picks the trampoline and the latch slot,
+        // because the four modules export the same name and each must be patched at its
         // own address. Per-leaf latches rather than one, so that on a UE5 title -- two
         // leaves, loaded in whatever order the engine's plugin loads them -- the watchdog
         // keeps trying the leaf that is not in yet after the other one is.
@@ -1795,15 +1798,16 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
             // giving RR its own upscaler value would resurrect the conflation v3 removed.
             rec.upscaler = FL_UPSCALER_DLSS;
         } else if (ffxUpscales != 0u) {
-            // AN UPSCALE DISPATCH REACHED AN ffx-api LEAF THIS PRESENT, and which leaf
+            // AN UPSCALE DISPATCH REACHED AN ffx-api MODULE THIS PRESENT, and which one
             // decides the byte. The SDK 1.1.x monolith (amd_fidelityfx_dx12.dll) hosts
             // FSR 3.1 and nothing else, so it is FSR3 as a fact. The SDK 2.x upscaler
             // DLL hosts FSR 3.1 AND FSR 4 behind the same UPSCALE type, the provider is
             // chosen at context creation by an opaque version id, and the dispatch does
-            // not carry it -- so from that leaf the honest byte is "FSR, version not
-            // named" (fl_shm.h §FL_UPSCALER_FSR_UNVERSIONED): FSR3 would be right on
-            // every non-RDNA4 machine and a fabrication on one, and UNKNOWN would print
-            // the very N/A this arm exists to remove.
+            // not carry it -- so from that leaf, and from the SDK 2.x loader that fronts
+            // it, the honest byte is "FSR, version not named" (fl_shm.h
+            // §FL_UPSCALER_FSR_UNVERSIONED): FSR3 would be right on every non-RDNA4
+            // machine and a fabrication on one, and UNKNOWN would print the very N/A
+            // this arm exists to remove.
             rec.upscaler = g_ffxUpscaleLeaf.load(std::memory_order_relaxed) == fl::inventory::kFfxLeafMonolith + 1u
                                ? static_cast<uint8_t>(FL_UPSCALER_FSR3)
                                : static_cast<uint8_t>(FL_UPSCALER_FSR_UNVERSIONED);

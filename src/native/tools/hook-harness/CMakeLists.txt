@@ -24,7 +24,7 @@ target_compile_definitions(hook-harness PRIVATE
     FL_STUB_SL_INTERPOSER=L"$<TARGET_FILE:fl_stub_sl_interposer>"
     FL_STUB_SL_COMMON=L"$<TARGET_FILE:fl_stub_sl_common>"
     FL_STUB_SL_INTERPOSER_V1=L"$<TARGET_FILE:fl_stub_sl_interposer_v1>"
-    # The three AMD leaves and the loader decoy (tools/vendor-stubs, same rule:
+    # The three AMD leaves and the loader stand-in (tools/vendor-stubs, same rule:
     # absolute paths, never a name a game directory could satisfy).
     FL_STUB_FFX_DX12=L"$<TARGET_FILE:fl_stub_ffx_dx12>"
     FL_STUB_FFX_UPSCALER=L"$<TARGET_FILE:fl_stub_ffx_upscaler>"
@@ -115,13 +115,13 @@ add_test(NAME fl_upscaler_resolve COMMAND hook-harness --probe-upscaler-resolve)
 add_test(NAME fl_sl_abi_guard COMMAND hook-harness --probe-sl-abi)
 
 # AMD's version of the scoping argument, one step further along. Four modules
-# export the same five ffx-api names -- three LEAVES and the SDK 2.x LOADER that
-# forwards to two of them -- and the Overlay hooks the leaves only, because a
-# dispatch on a loader-shipping title crosses two exports of the same name and
-# hooking both would count it twice. This probe drives the Overlay's own resolver
-# against all four, and then pushes dispatches THROUGH the loader decoy to prove the
-# forwarding fixture the [ffx] injected cases rest on actually forwards -- the
-# vacuity guard for a K = 1 control that would otherwise be about nothing.
+# export the same five ffx-api names -- three LEAVES and the SDK 2.x LOADER -- and
+# the Overlay hooks all four, because a game calls whichever it shipped against and
+# the loader was MEASURED not to re-enter the leaves' exports (three loader titles at
+# FSR, zero leaf dispatches, 2026-09-04). This probe drives the Overlay's own resolver
+# against all four, then pushes dispatches THROUGH the loader stand-in and asserts
+# they reached exactly one leaf, once, and touched no leaf export -- the vacuity guard
+# for a K = 1 control that would otherwise be about nothing.
 add_test(NAME fl_ffx_resolve COMMAND hook-harness --probe-ffx-resolve)
 
 # The inputs walk against malformed input. A unit probe rather than an injected
