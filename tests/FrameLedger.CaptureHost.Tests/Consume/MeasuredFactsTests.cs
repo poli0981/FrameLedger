@@ -140,6 +140,43 @@ public sealed partial class MeasuredFactsTests
         text.Should().Contain("frame generation: DlssG");
     }
 
+    [Fact]
+    public void TheRenderedReportSaysNoneWhenTheCountSaysEveryPresentWasAnApplicationFrame()
+    {
+        // 08_UI's bare `144 FPS` shape, reachable since 2026-09-04 (§S31 row P1). No pair, no
+        // factor, no qualifier — and never the word "Native" beside a lone number.
+        List<FlFrameRecord> stream = [];
+        ulong qpc = 1_000_000;
+        long step = Stopwatch.Frequency / 84;
+        for (int f = 0; f < 200; f++)
+        {
+            stream.Add(new FlFrameRecord
+            {
+                Qpc = qpc,
+                SwapchainId = 1,
+                MeasuredMask = (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs | FlMeasured.Fg | FlMeasured.FgCounts),
+                FgEvaluations = 1,
+                FgMode = (byte)FlFgMode.Unknown,
+            });
+            qpc += (ulong)step;
+        }
+
+        var writer = new FlWriterState
+        {
+            HooksInstalledMask = (uint)(FlHookFamily.Present | FlHookFamily.UpscalerIdentity | FlHookFamily.FgEvaluations),
+            RuntimeCensus = (uint)(FlRuntimeCensus.Ran | FlRuntimeCensus.SlInterposer | FlRuntimeCensus.NvngxDlssG),
+        };
+        MeasuredFacts facts = MeasuredFacts.From(stream, writer, Stopwatch.Frequency, 0, 0, FgWindow.From(stream, Stopwatch.Frequency));
+        string text = SessionReport.Render(facts);
+
+        facts.FgMode.Should().Be(MeasuredFacts.FgNone);
+        facts.FgFactor.Should().BeApproximately(1.0, 0.01);
+        text.Should().Contain("  FPS: ").And.Contain("frame generation: none");
+        text.Should().NotContain("Native FPS").And.NotContain("Presented FPS").And.NotContain("MAY include");
+        FgFactorShape().IsMatch(text).Should().BeFalse("none prints no factor");
+        text.Should().Contain("frame generation: None");
+    }
+
     /// <summary>The shape the one measured route produces: batches drain, evaluations never do.</summary>
     private static List<FlFrameRecord> BatchStream(int appFrames, int k, ref ulong qpc)
     {

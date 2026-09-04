@@ -40,13 +40,25 @@ internal static class SessionReport
         // would then be false, a reader could not even check it. So when there is a factor,
         // all three come off the window; when there is not, one labelled number and the
         // reason are all that may be said.
-        if (facts.Fg?.Factor is not null)
+        if (facts.Fg?.IsActive == true)
         {
             FgWindow w = facts.Fg;
             sb.Append("  Native FPS: ").Append(Num(w.NativeFps))
               .Append(" -> Displayed FPS: ").Append(Num(w.DisplayedFps))
               .Append(" (x").Append(Num(w.Factor)).Append(" FG)")
               .Append("   over ").Append(Count(w.Presents)).AppendLine(" present(s)");
+        }
+        else if (facts.Fg?.IsNone == true)
+        {
+            // THE THIRD SHAPE, reachable since 2026-09-04: 08_UI's bare `144 FPS`. No pair, no
+            // factor, no qualifier — the count measured that every present carried an
+            // application frame, which is the one negative this report may state outright.
+            FgWindow w = facts.Fg;
+            sb.Append("  FPS: ").Append(Num(w.NativeFps))
+              .Append("   over ").Append(Count(w.Presents)).AppendLine(" present(s)");
+            sb.Append("    frame generation: none — ").Append(Count(w.Evaluations))
+              .Append(" application frame(s) counted (slGetNewFrameToken) against ").Append(Count(w.Presents))
+              .AppendLine(" present(s); every present carried an application frame");
         }
         else
         {

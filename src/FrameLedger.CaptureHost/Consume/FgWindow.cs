@@ -332,28 +332,46 @@ internal sealed record FgWindow
             return nonUniform;
         }
 
-        // A RATIO NEAR 1 IS NOT PUBLISHABLE YET, and the reason is the one premise this
-        // producer carries. presents / tokens reads 1.0 either because the title generated
-        // no frames OR because the DLSS-G plugin requested a token for every frame it
-        // generated — and from inside the process those are the same number. A ratio at or
-        // above the cadence threshold cannot be produced by the second explanation, so it is
-        // publishable now; the first has to wait for the owner's off / ×2 / ×4 run to land on
-        // row P1 of the table in 20_OPEN_QUESTIONS §S31. Until then this line is what keeps
-        // "300 → 300 (×1.0 FG)" — the forbidden number with a confident label — off the report.
+        // A RATIO NEAR 1 IS PUBLISHABLE SINCE 2026-09-04, and it took a measurement to make it
+        // so. Until then this clause refused anything below the cadence threshold, because
+        // "no frames were generated" and "the DLSS-G plugin requested a token for every frame
+        // it generated" read the same 1.0 from inside the process. The owner's run landed on
+        // row P1 of 20_OPEN_QUESTIONS §S31 — Cyberpunk 2077 off / ×3 / ×4 at 1.00 / 2.99 / 3.99
+        // and Hell Is Us ×4 at 4.00 — so the second explanation is excluded on the title that
+        // would have shown it, and 1.0 means what it says: every present carried an
+        // application frame. That is `none`, the one negative 03_METRICS lets a consumer
+        // aggregate, reached by COUNTING rather than by a hook that happened to see nothing.
+        //
+        // What is still refused is the band between: a steady 1.05–1.5 is not a configuration
+        // any vendor ships, and a window that mixed states would usually have failed the
+        // uniformity check above. Naming it would be guessing.
         double factor = w.Presents / (double)w.Evaluations;
-        return factor < PublishableFactor
-            ? $"presents/tokens = {factor.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)} reads as "
-              + "no frame generation, and that reading is NOT publishable until the slGetNewFrameToken premise is "
-              + "validated against a title's own ×2 / ×4 (20_OPEN_QUESTIONS §S31, row P1) — a plugin that requested "
-              + "a token for every generated frame would read the same"
+        return factor > NoneCeiling && factor < ActiveThreshold
+            ? $"presents/tokens = {factor.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)} sits "
+              + $"between the `none` ceiling ({NoneCeiling.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}) "
+              + $"and the cadence threshold ({ActiveThreshold.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}) "
+              + "— not a configuration this consumer can name"
             : null;
     }
 
     /// <summary>
-    /// The smallest factor this consumer publishes: <c>03_METRICS</c>' cadence threshold. Below it
-    /// the ratio is consistent with the one premise the token producer has not yet had tested.
+    /// At or above this, frame generation is ACTIVE: <c>03_METRICS</c>' cadence threshold, and the
+    /// value below which the one premise of the token producer could not be told apart from
+    /// "none" until row P1 landed.
     /// </summary>
-    public const double PublishableFactor = 1.5;
+    public const double ActiveThreshold = 1.5;
+
+    /// <summary>
+    /// At or below this, frame generation is <c>none</c>: every present carried an application
+    /// frame. Measured 1.00 on two off legs; the 5% is drain jitter at the window's edges.
+    /// </summary>
+    public const double NoneCeiling = 1.05;
+
+    /// <summary><c>none</c>, reached by counting: a published factor at or below <see cref="NoneCeiling"/>.</summary>
+    public bool IsNone => Factor is double f && f <= NoneCeiling;
+
+    /// <summary>Frame generation is active: a published factor at or above <see cref="ActiveThreshold"/>.</summary>
+    public bool IsActive => Factor is double f && f >= ActiveThreshold;
 
     /// <summary>The first reason <see cref="PresentsPerBatch"/> may not be read, or null.</summary>
     /// <remarks>

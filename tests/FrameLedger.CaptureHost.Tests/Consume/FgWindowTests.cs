@@ -65,6 +65,51 @@ public sealed class FgWindowTests
     }
 
     [Fact]
+    public void AFactorOfOneIsPublishedAsNoneSinceRowP1Landed()
+    {
+        // 2026-09-04: Cyberpunk 2077's off leg read 1.00 on the same build whose ×3 / ×4 legs
+        // read 2.99 / 3.99, which excludes the one explanation that made 1.0 unpublishable.
+        FgWindow w = FgWindow.From(FgStream(appFrames: 80, k: 1), Stopwatch.Frequency);
+
+        w.Refusal.Should().BeNull();
+        w.Factor.Should().BeApproximately(1.0, 0.01);
+        w.IsNone.Should().BeTrue();
+        w.IsActive.Should().BeFalse();
+        w.Evaluations.Should().Be(w.Presents, "none means the two counts agree");
+    }
+
+    [Fact]
+    public void ASteadyRatioBetweenNoneAndTheCadenceThresholdIsRefusedAsUnnameable()
+    {
+        // 1.25 in every bucket: uniform, so the mixed-window guard is silent, and no vendor
+        // ships a ×1.25. Naming it would be a guess in either direction.
+        List<FlFrameRecord> stream = [];
+        ulong qpc = 1_000_000;
+        for (int f = 0; f < 160; f++)
+        {
+            int presents = f % 4 == 3 ? 2 : 1;
+            for (int p = 0; p < presents; p++)
+            {
+                stream.Add(new FlFrameRecord
+                {
+                    Qpc = qpc,
+                    SwapchainId = 1,
+                    MeasuredMask = (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs | FlMeasured.Fg | FlMeasured.FgCounts),
+                    FgEvaluations = (byte)(p == 0 ? 1 : 0),
+                    FgMode = (byte)FlFgMode.Unknown,
+                });
+                qpc += (ulong)_step;
+            }
+        }
+
+        FgWindow w = FgWindow.From(stream, Stopwatch.Frequency);
+
+        w.Factor.Should().BeNull();
+        w.IsNone.Should().BeFalse();
+        w.Refusal.Should().Contain("between the `none` ceiling");
+    }
+
+    [Fact]
     public void AFactorIsPublishedWhenEveryRefusalPasses()
     {
         FgWindow w = FgWindow.From(FgStream(appFrames: 40, k: 4), Stopwatch.Frequency);

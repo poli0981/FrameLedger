@@ -328,7 +328,18 @@ than cutting a segment.
 
 </details>
 
-### ~~3. Frame generation~~ — the producer is CHOSEN and BUILT (2026-09-03); the run that validates it is the owner's
+### ~~3. Frame generation~~ — VALIDATED 2026-09-04 (§S31 row P1), and the item is done
+
+**Do not start here.** The run landed on P1 — 1.00 / 2.99 / 3.99 on Cyberpunk's own
+off / ×3 / ×4, 4.00 on Hell Is Us — after run 1 landed on P4 and #105 keyed the count on a
+NEW frame index. `fg_factor` is published, `none` is reachable by counting, and
+`tokens/batch = 1.00` answered §S31's own question on the way. Status is in `CHANGELOG.md`
+and §S24; what belongs here is that **P0 exit criterion 1's FG factor is no longer the
+blocker** — the remaining gap in that criterion is the quality preset, a title property on
+Cyberpunk and an unmeasured one on Alan Wake 2 (Owner-only item 2).
+
+<details>
+<summary>The entry as it stood while the run was owed</summary>
 
 **Do not start here.** `sl.interposer.dll!slGetNewFrameToken` is the application-frame
 producer: an inventory row, a detour that counts distinct tokens between presents, and
@@ -337,6 +348,8 @@ said so; the pre-committed table is `20_OPEN_QUESTIONS` §S31 and the owner-only
 Cyberpunk 2077 off / ×2 / ×4 plus Hell Is Us ×4. **A ratio near 1 is not published until row
 P1 lands** — the sequencing consequence, and the reason `none` is the PR after that run, not
 this one. The entry below is kept for the route reasoning it carries.
+
+</details>
 
 <details>
 <summary>The entry as it stood while the producer was unchosen</summary>
@@ -772,9 +785,12 @@ reference comes out.~~ — **L2 was written, 2026-09-03.** The obligation now bu
    them, forever. Land the skip-shim (drop `paths:`, short-circuit inside the job) first;
    the setting is the owner's.
 2. **Real-title verification runs** for the upscaler/FG/RT work, against each game's own
-   settings menu. **Live as of 2026-09-03:** the `slGetNewFrameToken` producer's table —
+   settings menu. ~~**Live as of 2026-09-03:** the `slGetNewFrameToken` producer's table —
    Cyberpunk 2077 off / ×2 / ×4 and Hell Is Us DLSS + FG ×4, one launch each, reading
-   `presents/tokens` off the `FG counts:` line against §S31's rows P1–P4.
+   `presents/tokens` off the `FG counts:` line against §S31's rows P1–P4.~~ **Run twice,
+   2026-09-03 (P4) and 2026-09-04 (P1); done.** What is still owed here is the **quality
+   preset** on a title that chains `sl::DLSSOptions` — Alan Wake 2 is the candidate — and
+   the DLSS-G identity on a title where `kFeatureDLSS_G` is evaluated, if one exists.
 3. **Which titles** go in `blockedExecutables` — a product decision with false-refusal
    consequences. The list ships empty until it is taken.
 

@@ -61,14 +61,33 @@ internal sealed record MeasuredFacts
     /// <summary>Null, never 1.0, and never <c>—</c> dressed up as a measurement.</summary>
     public double? FgFactor => Fg?.Factor;
 
-    /// <summary>Null when no FG-identity hook ran. NOT the string "none".</summary>
+    /// <summary>
+    /// The technology named by the identity hook, else what the COUNT says: <c>None</c> when a
+    /// published factor sits at 1, <c>Active (technology not identified)</c> when it clears the
+    /// cadence threshold, null when neither is measured.
+    /// </summary>
     /// <remarks>
-    /// <c>03_METRICS</c> §Frame Generation's ladder ends "otherwise <c>fg_mode = none</c>",
-    /// which applied to a present-only writer turns "nobody looked" into an
-    /// affirmative negative. The ladder needs a rung 0 — mask bit clear ⇒ N/A —
-    /// before rung 4 is reachable, and that correction lands in the same PR.
+    /// <para>
+    /// <c>03_METRICS</c>'s ladder ends "otherwise <c>fg_mode = none</c>", and rung 0 keeps a
+    /// present-only writer from turning "nobody looked" into that negative. <b><c>none</c> is
+    /// reachable since 2026-09-04</b>, by counting: the token producer's off leg read 1.00 on the
+    /// title whose ×3 / ×4 legs read 2.99 / 3.99 (§S31 row P1), so a factor of 1 is the measured
+    /// statement that every present carried an application frame.
+    /// </para>
+    /// <para>
+    /// Identity wins when present. A factor above the cadence threshold with no identity is
+    /// <c>03_METRICS</c>' rung 3 — frame generation is happening and this writer cannot name the
+    /// vendor, which on a UE5 title with Streamline and FidelityFX both loaded is the honest
+    /// answer.
+    /// </para>
     /// </remarks>
     public string? FgMode { get; init; }
+
+    /// <summary>The string <see cref="FgMode"/> carries for a counted negative.</summary>
+    public const string FgNone = "None";
+
+    /// <summary>The string <see cref="FgMode"/> carries for rung 3: active, vendor not identified.</summary>
+    public const string FgActiveUnidentified = "Active (technology not identified)";
 
     /// <summary>Null when <see cref="FlMeasured.Upscaler"/> is clear or the value is UNKNOWN.</summary>
     public string? Upscaler { get; init; }
@@ -173,7 +192,7 @@ internal sealed record MeasuredFacts
             SecondsObserved = seconds,
 
             Fg = fg,
-            FgMode = FgModeOf(stream),
+            FgMode = FgModeOf(stream) ?? (fg?.IsNone == true ? FgNone : fg?.IsActive == true ? FgActiveUnidentified : null),
             UpscalerHookRan = RecordWindow.ClaimedSuffixStart(
                 stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler)) < stream.Count,
             FgHookRan = RecordWindow.ClaimedSuffixStart(
