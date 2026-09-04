@@ -248,15 +248,15 @@ if (Test-Path $ffxDir) {
         foreach ($f in $vendoredFiles) {
             # Upstream spells the list with backslashes relative to the repository
             # root, and this directory mirrors upstream's layout from Kits/ down.
-            $rel = [IO.Path]::GetRelativePath($ffxDir, $f.FullName).Replace('/', '')
+            $rel = [IO.Path]::GetRelativePath($ffxDir, $f.FullName).Replace('/', '\')
             if ($listed -notcontains $rel) {
-                $violations.Add("fidelityfx/$($rel.Replace('', '/')) is NOT on license.md's MIT exception list — the binary-only default licence would apply to it, and it may not be vendored")
+                $violations.Add("fidelityfx/$($rel.Replace('\', '/')) is NOT on license.md's MIT exception list — the binary-only default licence would apply to it, and it may not be vendored")
             }
             if ($f.Extension -in '.dll', '.lib', '.exe', '.cpp', '.hlsl') {
-                $violations.Add("fidelityfx/$($rel.Replace('', '/')) is a $($f.Extension) — only declarations are vendored from this SDK; binaries and sources are excluded whatever the list says (third_party/fidelityfx/README.md)")
+                $violations.Add("fidelityfx/$($rel.Replace('\', '/')) is a $($f.Extension) — only declarations are vendored from this SDK; binaries and sources are excluded whatever the list says (third_party/fidelityfx/README.md)")
             }
             if ($f.Extension -eq '.h' -and -not (Select-String -Path $f.FullName -Pattern 'Permission is hereby granted, free of charge' -Quiet)) {
-                $violations.Add("fidelityfx/$($rel.Replace('', '/')) does not carry the MIT grant in its own banner — every header of interest did on 2026-09-04, so this is a file that was not checked")
+                $violations.Add("fidelityfx/$($rel.Replace('\', '/')) does not carry the MIT grant in its own banner — every header of interest did on 2026-09-04, so this is a file that was not checked")
             }
         }
     }
