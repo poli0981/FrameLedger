@@ -57,7 +57,8 @@ internal static class SessionReport
             sb.Append("  FPS: ").Append(Num(w.NativeFps))
               .Append("   over ").Append(Count(w.Presents)).AppendLine(" present(s)");
             sb.Append("    frame generation: none — ").Append(Count(w.Evaluations))
-              .Append(" application frame(s) counted (slGetNewFrameToken) against ").Append(Count(w.Presents))
+              .Append(" application frame(s) counted (slGetNewFrameToken, or an ffx-api PREPARE / UPSCALE dispatch) against ")
+              .Append(Count(w.Presents))
               .AppendLine(" present(s); every present carried an application frame");
         }
         else
@@ -155,9 +156,10 @@ internal static class SessionReport
         // three rather than picking the one that flatters the hook.
         sb.Append("  upscaler: ").AppendLine(facts.Upscaler
             ?? (facts.UpscalerHookRan
-                ? "N/A (Streamline is loaded and slEvaluateFeature never carried an identifiable feature: "
+                ? "N/A (an upscaler hook ran — Streamline's slEvaluateFeature and/or an ffx-api leaf's ffxDispatch — "
+                  + "and no evaluation this build decodes arrived: "
                   + "upscaling is off in this title's settings, or it runs through a path this build does not "
-                  + "hook — measured on 3 of 5 titles — or a vendor this build does not decode)"
+                  + "hook — measured on 3 of 5 Streamline titles — or a vendor this build does not decode)"
                 : NoHookRan("upscaler", facts.CensusRan, facts.UpscalerRuntimesLoaded)));
         sb.Append("  render -> output: ").AppendLine(facts.UpscaleRatio is null
             ? "N/A (the ratio is not computed yet; the raw sizes are above)"

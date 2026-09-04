@@ -215,7 +215,7 @@ internal static class Program
 
         // WHICH FEATURE IDS ACTUALLY ARRIVED. §S30's "print them first", and the input to the
         // decision table pre-committed in 20_OPEN_QUESTIONS before this run happens.
-        HostConsole.Line(SlCensus.From(dominant).Describe());
+        PrintDispatchCensuses(dominant);
         HostConsole.Line(RtCensus(dominant));
 
         // The RAW values, so a real-title run can be checked against the game's own settings.
@@ -230,6 +230,18 @@ internal static class Program
         }
 
         HostConsole.Line(SessionReport.Render(facts));
+    }
+
+    /// <summary>Which vendor dispatches actually arrived, one census per vendor route.</summary>
+    /// <remarks>
+    /// The Streamline census is §S30's "print them first". The AMD census is the second count
+    /// HANDOFF 7c asks for before the first is trusted: PREPARE frames against UPSCALE
+    /// dispatches, 1.00 when they agree and 2.00 when a writer has doubled one of them.
+    /// </remarks>
+    private static void PrintDispatchCensuses(IReadOnlyList<FlFrameRecord> dominant)
+    {
+        HostConsole.Line(SlCensus.From(dominant).Describe());
+        HostConsole.Line(FfxCensus.From(dominant).Describe());
     }
 
     /// <summary>The loop and its four collaborators, wired the only way this host allows.</summary>

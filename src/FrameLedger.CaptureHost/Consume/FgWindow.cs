@@ -321,7 +321,8 @@ internal sealed record FgWindow
 
         if (w.Evaluations == 0)
         {
-            return "no application-frame token was counted in the window (slGetNewFrameToken) — a data gap, "
+            return "no application-frame token was counted in the window (slGetNewFrameToken, or an ffx-api "
+                   + "PREPARE / UPSCALE dispatch) — a data gap, "
                    + "and treating it as 'no frame generation' is how fg_factor becomes 1.0";
         }
 
