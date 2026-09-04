@@ -39,12 +39,40 @@ public sealed class TargetResolverTests : IDisposable
         return p;
     }
 
+    /// <summary>
+    /// A freshly started process is not always in <c>GetProcessesByName</c>'s snapshot yet.
+    /// Measured on the hosted runner 2026-09-04: two instances started back to back, the
+    /// resolver enumerated one, and "two untyped refuse" resolved to the one it saw. Wait for
+    /// the state rather than the clock (HANDOFF §Traps: no budget sized on a machine's rate).
+    /// </summary>
+    private void WaitUntilAllVisible()
+    {
+        string name = Path.GetFileNameWithoutExtension(_exe);
+        SpinWait.SpinUntil(() =>
+        {
+            Process[] seen = Process.GetProcessesByName(name);
+            int count = seen.Length;
+            foreach (Process p in seen)
+            {
+                p.Dispose();
+            }
+
+            return count >= _children.Count;
+        }, TimeSpan.FromSeconds(10)).Should().BeTrue("every started instance must be enumerable before resolving");
+    }
+
+    private int? ResolveNow(out SessionEndReason reason)
+    {
+        WaitUntilAllVisible();
+        return new TargetResolver().Resolve(ExecutableIdentity.Normalise(_exe), out reason);
+    }
+
     [Fact]
     public void OneInstanceResolves()
     {
         Process only = Start("/c ping -n 30 127.0.0.1 > nul");
 
-        int? pid = new TargetResolver().Resolve(ExecutableIdentity.Normalise(_exe), out SessionEndReason reason);
+        int? pid = ResolveNow(out SessionEndReason reason);
 
         reason.Should().Be(SessionEndReason.Running);
         pid.Should().Be(only.Id);
@@ -56,7 +84,7 @@ public sealed class TargetResolverTests : IDisposable
         Start("/c ping -n 30 127.0.0.1 > nul");
         Start("/c ping -n 30 127.0.0.1 > nul & rem second");
 
-        int? pid = new TargetResolver().Resolve(ExecutableIdentity.Normalise(_exe), out SessionEndReason reason);
+        int? pid = ResolveNow(out SessionEndReason reason);
 
         pid.Should().BeNull();
         reason.Should().Be(SessionEndReason.TargetAmbiguous, "an ordinary title running twice is still a guess");
@@ -70,7 +98,7 @@ public sealed class TargetResolverTests : IDisposable
         Process gpu = Start("/c ping -n 30 127.0.0.1 > nul & rem --type=gpu-process");
         Start("/c ping -n 30 127.0.0.1 > nul & rem browser");
 
-        int? pid = new TargetResolver().Resolve(ExecutableIdentity.Normalise(_exe), out SessionEndReason reason);
+        int? pid = ResolveNow(out SessionEndReason reason);
 
         reason.Should().Be(SessionEndReason.Running);
         pid.Should().Be(gpu.Id);
@@ -85,7 +113,7 @@ public sealed class TargetResolverTests : IDisposable
         Start("/c ping -n 30 127.0.0.1 > nul & rem --type=utility");
         Start("/c ping -n 30 127.0.0.1 > nul & rem --type=renderer");
 
-        int? pid = new TargetResolver().Resolve(ExecutableIdentity.Normalise(_exe), out SessionEndReason reason);
+        int? pid = ResolveNow(out SessionEndReason reason);
 
         reason.Should().Be(SessionEndReason.Running);
         pid.Should().Be(browser.Id);
@@ -97,7 +125,7 @@ public sealed class TargetResolverTests : IDisposable
         Start("/c ping -n 30 127.0.0.1 > nul & rem --type=gpu-process");
         Start("/c ping -n 30 127.0.0.1 > nul & rem --type=gpu-process");
 
-        int? pid = new TargetResolver().Resolve(ExecutableIdentity.Normalise(_exe), out SessionEndReason reason);
+        int? pid = ResolveNow(out SessionEndReason reason);
 
         pid.Should().BeNull();
         reason.Should().Be(SessionEndReason.TargetAmbiguous);
