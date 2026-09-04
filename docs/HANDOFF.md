@@ -757,12 +757,16 @@ exports `xessD3D12Init` / `xessD3D12Execute` and XeFG `xefgSwapChainD3D12InitFro
    **rejected.** Intel Simplified Software License (binary-only grant, no reverse engineering,
    termination), and the headers themselves forbid copying without Intel's permission, so
    step 3 binds — no vendoring and **no re-declaration** of `xessD3D12Execute` or
-   `xefgSwapChain*`. Intel stays at the census unless the owner takes the one route left in
-   policy: a signature-free call counter on a named export (a register-preserving thunk that
-   increments and jumps; needs an assembly source in the Overlay's build). That is an owner
-   decision, not a default.
-   What this means for 7c: **it is AMD identity plus an Intel decision, not two symmetrical
-   vendorings.** Step 4 below is written for the counter and is conditional on that ruling.
+   `xefgSwapChain*`. **Intel stays at the census — decided 2026-09-04, delegated by the owner
+   and taken.** The one route that looked left in policy, a signature-free call counter on a
+   named export, was weighed and refused: the thunk declares nothing, but installing it still
+   inline-patches Intel's code inside the game process, and the same licence forbids *"any
+   modification"*. FrameLedger has never patched a restricted-licence vendor binary — the NGX
+   answer was the census, not a cleverer hook — and Intel gets the same answer. It would also
+   have been the only hook entry outside `FL_HOOK_GUARD` and a second language in the
+   Overlay's build, for `Xess` identity alone with no render extents, on a vendor with no
+   test hardware here. `20_OPEN_QUESTIONS` §Scope decisions carries the row and the reversal
+   condition (Intel relicensing the headers). **So 7c is AMD identity, full stop.**
 2. **AMD 3.1 (`amd_fidelityfx_dx12.dll`, the facade the game calls):** identity is in
    `ffxCreateContextDescHeader.type` — `FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE` vs
    `…_FRAMEGENERATION` — read from the argument of a hooked `ffxCreateContext`, which is the
@@ -775,20 +779,18 @@ exports `xessD3D12Init` / `xessD3D12Execute` and XeFG `xefgSwapChainD3D12InitFro
 3. **AMD 3.0 (`ffx_fsr3_x64.dll`, Cyberpunk's copy):** named exports, no struct decode needed —
    `ffxFsr3ContextDispatchUpscale` for identity and extent, `ffxFsr3DispatchFrameGeneration`
    once per application frame.
-4. **Intel — only if the owner rules for the signature-free counter (step 1).** Without a
-   declared `xessD3D12Execute` there is no `inputWidth/Height` read, so `renderW/H` stays
-   `NOT_REPORTED` for XeSS *by licence, not by ignorance* — say so in the report line. What
-   a counter gives: `Xess` identity from *calls observed* to `xessD3D12Execute` (presence in
-   the census is not identity — Cyberpunk loads `libxess.dll` at DLSS), and for XeFG a
-   per-application-frame count from the `xefgSwapChainD3D12Tag*` / execute export, the
-   swapchain-proxy shape §H5 already cleared for DLSS-G and FSR3 — measured, not assumed, and
-   the K = 1 / K = 4 harness pair applies. If the owner rules against, Intel's line is the
-   census sentence and nothing more, which rule 6's amendment already permits.
+4. **Intel — closed at the census (step 1).** No hook on any `libxess*.dll` export. The
+   report line for an Intel title is what the writer already produces: upscaler
+   `NOT_REPORTED`, and if `libxess_fg.dll` is in the census, Presented FPS with the *"MAY
+   include generated frames"* qualifier rule 6's amendment requires. `renderW/H` stays
+   `NOT_REPORTED` for XeSS *by licence, not by ignorance* — the report's wording should say
+   so, which is a string change, not a hook. Note that census presence is not identity:
+   Cyberpunk loads `libxess.dll` at DLSS, so the census must never be read as *"XeSS on"*.
 5. **Acceptance, against the titles' own menus:** Lies of P at FSR + FG prints
    `upscaler: Fsr3`, `frame generation: FsrFg`, and the trio at ≈ ×2 with the same
    `presents / dispatches` arithmetic; Hell Is Us at FSR prints identity where today it prints
-   the off run's line; Cyberpunk at XeSS prints `Xess` (counter route) or the census
-   sentence with `libxess.dll` named (no-counter route). **A wrong preset name degrades
+   the off run's line; Cyberpunk at XeSS prints upscaler `NOT_REPORTED` and the census
+   sentence with `libxess.dll` named, and nothing that reads as identity. **A wrong preset name degrades
    silently** — the histogram and `tokens/batch`-style second count are what make a mistake
    visible, so build the per-vendor second count before trusting the first.
 
