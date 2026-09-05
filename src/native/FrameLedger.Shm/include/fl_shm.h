@@ -433,6 +433,52 @@ constexpr uint32_t FL_CENSUS_UPSCALER_FAMILIES = FL_CENSUS_SL_INTERPOSER | FL_CE
 static_assert((FL_CENSUS_FG_FAMILIES & FL_CENSUS_UPSCALER_FAMILIES) == 0u, "a runtime is one kind or the other");
 static_assert(((FL_CENSUS_FG_FAMILIES | FL_CENSUS_UPSCALER_FAMILIES) & FL_CENSUS_RAN) == 0u, "RAN is not a family");
 
+// ---------------------------------------------------------------------------
+// FlWriterState::slTagCensus — WHICH Streamline buffer types the title tagged, on
+// WHICH route (2026-09-05, 20_OPEN_QUESTIONS §H5).
+//
+// WHY. The two global-tag detours (slSetTag, slSetTagForFrame) and the local walk
+// through slEvaluateFeature's inputs read one tag type -- kBufferTypeScalingInputColor,
+// for renderW/H -- and dropped every other tag on the floor. Streamline's DLSS-G
+// programming guide §5.0 says a title running DLSS Frame Generation MUST tag the
+// HUD-less colour and UI buffers every frame through exactly those calls; a title
+// running super-resolution alone never tags them (they are inputs to nothing else the
+// title evaluates through Streamline except Reflex 2's late warp, which generates no
+// frames). So the types a title tags are a per-frame statement, from an argument of
+// an API already hooked (CLAUDE.md rule 4), of WHICH Streamline feature it is
+// feeding -- which is the identity `kFeatureDLSS_G` evaluations were supposed to
+// give and never did on any measured title. The session word here says which types
+// arrived on which route; the per-present half lands in fgMode (FL_FG_DLSS_G on a
+// present that drained a HUD-less or UI tag) and the consumer combines it with the
+// COUNT, which alone decides `none`.
+//
+// OR-only, watchdog-published from a process-local word, like runtimeCensus. Nine
+// type bits per route, three routes. Took reserved[0] additively (no layout bump):
+// a writer from before it is refused by the build-id handshake before any reader
+// could see a 0 here, and 0 means "no tag of any type was seen".
+// ---------------------------------------------------------------------------
+enum FlSlTagType : uint32_t {
+    FL_SL_TAG_DEPTH = 1u << 0,             // kBufferTypeDepth
+    FL_SL_TAG_MOTION_VECTORS = 1u << 1,    // kBufferTypeMotionVectors
+    FL_SL_TAG_HUDLESS = 1u << 2,           // kBufferTypeHUDLessColor      -- a DLSS-G input
+    FL_SL_TAG_SCALING_INPUT = 1u << 3,     // kBufferTypeScalingInputColor -- renderW/H's source
+    FL_SL_TAG_SCALING_OUTPUT = 1u << 4,    // kBufferTypeScalingOutputColor
+    FL_SL_TAG_UI_COLOR_ALPHA = 1u << 5,    // kBufferTypeUIColorAndAlpha   -- a DLSS-G input
+    FL_SL_TAG_UI_ALPHA = 1u << 6,          // kBufferTypeUIAlpha           -- a DLSS-G input (newer SDKs)
+    FL_SL_TAG_BACKBUFFER = 1u << 7,        // kBufferTypeBackbuffer
+    FL_SL_TAG_OTHER = 1u << 8,             // any other BufferType
+};
+constexpr uint32_t FL_SL_TAG_TYPE_BITS = 9;
+constexpr uint32_t FL_SL_TAG_TYPE_MASK = (1u << FL_SL_TAG_TYPE_BITS) - 1u;
+// The routes, as bit-field shifts into slTagCensus.
+constexpr uint32_t FL_SL_TAG_ROUTE_GLOBAL = 0;                          // slSetTag
+constexpr uint32_t FL_SL_TAG_ROUTE_FRAME = FL_SL_TAG_TYPE_BITS;         // slSetTagForFrame
+constexpr uint32_t FL_SL_TAG_ROUTE_LOCAL = 2u * FL_SL_TAG_TYPE_BITS;    // slEvaluateFeature's inputs
+// The DLSS-G-only inputs: tagged, they say the title is feeding frame generation.
+constexpr uint32_t FL_SL_TAG_DLSSG_INPUTS = FL_SL_TAG_HUDLESS | FL_SL_TAG_UI_COLOR_ALPHA | FL_SL_TAG_UI_ALPHA;
+static_assert(3u * FL_SL_TAG_TYPE_BITS <= 32u, "three routes of type bits must fit the census word");
+static_assert((FL_SL_TAG_DLSSG_INPUTS & ~FL_SL_TAG_TYPE_MASK) == 0u, "the DLSS-G inputs are type bits");
+
 // bits in FlFrameRecord::measuredMask — which fields were MEASURED this frame.
 //
 // The zero-defaults elsewhere in the record are affirmative negatives:
@@ -636,7 +682,12 @@ struct alignas(64) FlWriterState {
     // before any reader could see a 0 here.
     uint32_t runtimeCensus;    // @40
 
-    uint32_t reserved[5];    // @44..63  must be zero; room for additive fields
+    // FlSlTagType bits per route (see the enum). Watchdog-published, OR-only. Took
+    // reserved[0] on 2026-09-05 the way runtimeCensus took it on 2026-09-03: additive,
+    // no layout bump, refused-before-read by the build-id handshake.
+    uint32_t slTagCensus;    // @44
+
+    uint32_t reserved[4];    // @48..63  must be zero; room for additive fields
 
     // NOTE: there is deliberately no droppedRecords here. The writer has no
     // reader index and cannot know whether the slot it overwrites was ever
@@ -826,7 +877,8 @@ static_assert(offsetof(FlWriterState, hooksInstalledMask) == 28);
 static_assert(offsetof(FlWriterState, rtStateObjectsCreated) == 32);
 static_assert(offsetof(FlWriterState, rasterPsoCreated) == 36);
 static_assert(offsetof(FlWriterState, runtimeCensus) == 40);
-static_assert(offsetof(FlWriterState, reserved) == 44);
+static_assert(offsetof(FlWriterState, slTagCensus) == 44);
+static_assert(offsetof(FlWriterState, reserved) == 48);
 
 static_assert(offsetof(FlControlBlock, pauseRequested) == 0);
 static_assert(offsetof(FlControlBlock, unhookRequested) == 4);

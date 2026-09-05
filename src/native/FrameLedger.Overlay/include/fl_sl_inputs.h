@@ -23,6 +23,7 @@
 #define FRAMELEDGER_FL_SL_INPUTS_H
 
 #include <cstdint>
+#include <fl_shm.h>
 #include <sl.h>
 // AFTER sl.h, deliberately: sl_dlss.h has NO includes of its own -- verified on
 // the upstream file, its closure is empty -- and relies on sl.h having been
@@ -51,10 +52,42 @@ inline constexpr uint32_t kMaxInputs = 32;
 // frozen game with our DLL in it.
 inline constexpr uint32_t kMaxChain = 8;
 
+// Which FlSlTagType bit a Streamline BufferType maps to. Every type maps to SOMETHING
+// -- FL_SL_TAG_OTHER for the ones the census does not name -- so a tag list of any
+// content leaves a mark, and "no bits" can only mean "no tags".
+inline constexpr uint32_t TagTypeBit(sl::BufferType type) noexcept {
+    switch (type) {
+    case sl::kBufferTypeDepth:
+        return fl::FL_SL_TAG_DEPTH;
+    case sl::kBufferTypeMotionVectors:
+        return fl::FL_SL_TAG_MOTION_VECTORS;
+    case sl::kBufferTypeHUDLessColor:
+        return fl::FL_SL_TAG_HUDLESS;
+    case sl::kBufferTypeScalingInputColor:
+        return fl::FL_SL_TAG_SCALING_INPUT;
+    case sl::kBufferTypeScalingOutputColor:
+        return fl::FL_SL_TAG_SCALING_OUTPUT;
+    case sl::kBufferTypeUIColorAndAlpha:
+        return fl::FL_SL_TAG_UI_COLOR_ALPHA;
+    case sl::kBufferTypeUIAlpha:
+        return fl::FL_SL_TAG_UI_ALPHA;
+    case sl::kBufferTypeBackbuffer:
+        return fl::FL_SL_TAG_BACKBUFFER;
+    default:
+        return fl::FL_SL_TAG_OTHER;
+    }
+}
+static_assert(TagTypeBit(sl::kBufferTypeHUDLessColor) == fl::FL_SL_TAG_HUDLESS, "the DLSS-G input maps to its bit");
+static_assert(TagTypeBit(static_cast<sl::BufferType>(9999)) == fl::FL_SL_TAG_OTHER, "an unknown type still marks");
+
 struct ScanResult {
     uint16_t renderW = 0;
     uint16_t renderH = 0;
     bool     found = false;
+
+    // Every readable ResourceTag's type, as FlSlTagType bits -- the local route's
+    // contribution to FlWriterState::slTagCensus and to the per-present DLSS-G mark.
+    uint32_t tagTypes = 0;
 
     // The vendor's own DLSSMode value, or 0xFF for "a hook ran and could not
     // tell". NEVER 0: fl_shm.h has no in-band "not measured" for
@@ -178,6 +211,7 @@ inline ScanResult FindScalingInputExtent(const sl::BaseStructure** inputs, uint3
             // property of the title rather than of what it is doing.
             if (IsReadableResourceTag(s)) {
                 const auto* tag = static_cast<const sl::ResourceTag*>(s);
+                out.tagTypes |= TagTypeBit(tag->type);
                 if (tag->type == sl::kBufferTypeScalingInputColor && !out.found) {
                     uint32_t w = 0;
                     uint32_t h = 0;

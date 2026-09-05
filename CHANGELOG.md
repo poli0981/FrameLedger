@@ -17,6 +17,27 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Added
+
+- **DLSS Frame Generation is NAMED, from the tags the title already sends.** On every NVIDIA title measured
+  the count was right and the technology unnamed — `Active (technology not identified)` on Cyberpunk at
+  MFG ×3 and on the three UE titles at ×4 — because `kFeatureDLSS_G` is never evaluated through the export
+  the identity hook owns. Streamline's DLSS-G programming guide §5.0 requires a title running frame
+  generation to tag the HUD-less colour and UI buffers every frame through `slSetTag` /
+  `slSetTagForFrame` / `slEvaluateFeature`'s inputs — the three tag routes this build already hooks and
+  read one tag type from. The detours now record every tag's TYPE (rule 4: the same argument), a
+  HUD-less or UI tag drained by a present marks it `FL_FG_DLSS_G`, and `FlWriterState.slTagCensus` (took
+  `reserved[0]`, no layout bump) says which types arrived on which route for the session; the report
+  prints it as `Streamline tag census: global=[…] frame=[…] local=[…]`. **Identity only:** the consumer's
+  rule is the count decides `none`, identity decides the name — an active count beside the mark prints
+  `frame generation: DlssG`; a counted 1.0 beside it prints `none` with the inputs noted; the withheld
+  shape (§H5) keeps its N/A and says the title is feeding frame generation. Two injected cases send the
+  DLSS-G list through each global export with no `kFeatureDLSS_G` evaluation and assert the mark on every
+  record and the census on the right route; the existing tag cases assert its absence. `slDLSSGGetState`
+  — the API the guide names for the presented count — is refused and the reason recorded in `03_METRICS`:
+  the call resets the plugin's counter a title may read for its own FPS display, and the header marks it
+  not thread safe.
+
 ### Fixed
 
 - **`render -> output` prints under frame generation.** `UpscaleExtent` keyed its window on the

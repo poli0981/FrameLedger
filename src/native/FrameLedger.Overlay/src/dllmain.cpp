@@ -909,7 +909,23 @@ static_assert(offsetof(fsr3host::FfxFsr3DispatchUpscaleDescription, renderSize) 
 // stands -- is handled at the consumer end in RecordPresent: renderW/H are only
 // published on a frame where an evaluation was actually seen. Tag alone is never
 // enough.
-void NoteTags(const sl::ResourceTag* tags, uint32_t numTags) noexcept {
+// WHICH TYPES the title tagged, on which route -- the identity half of frame
+// generation (fl_shm.h §slTagCensus). Two words: the per-present one, drained with
+// exchange(0) in RecordPresent like g_slSeen so a HUD-less tag cannot outlive the
+// frame it was set for (Streamline's lifecycle for it is eValidUntilPresent), and the
+// session one, OR-only, published by the watchdog like the runtime census.
+std::atomic<uint32_t> g_slTagTypes{0};
+std::atomic<uint32_t> g_slTagCensus{0};
+
+void NoteTagTypes(uint32_t typeBits, uint32_t routeShift) noexcept {
+    if (typeBits == 0u) {
+        return;
+    }
+    g_slTagTypes.fetch_or(typeBits, std::memory_order_relaxed);
+    g_slTagCensus.fetch_or((typeBits & FL_SL_TAG_TYPE_MASK) << routeShift, std::memory_order_relaxed);
+}
+
+void NoteTags(const sl::ResourceTag* tags, uint32_t numTags, uint32_t routeShift) noexcept {
     // A null list REMOVES tags (sl_core_api.h: "set to null to remove the
     // specified tag"). Forgetting this is how renderW/H would latch a stale
     // resolution across a settings change.
@@ -924,11 +940,19 @@ void NoteTags(const sl::ResourceTag* tags, uint32_t numTags) noexcept {
     constexpr uint32_t kMaxTags = 64;
     const uint32_t     n = numTags < kMaxTags ? numTags : kMaxTags;
 
+    // EVERY tag's TYPE is recorded, and only the scaling input's SIZE is read. The
+    // first version of this walked to the scaling input and returned, dropping every
+    // other tag on the floor -- and the HUD-less and UI tags it dropped are the ones
+    // that say a title is feeding DLSS Frame Generation (fl_shm.h §slTagCensus).
+    uint32_t types = 0;
+    bool     extentDone = false;
     for (uint32_t i = 0; i < n; ++i) {
         const sl::ResourceTag& t = tags[i];
-        if (t.type != sl::kBufferTypeScalingInputColor) {
+        types |= fl::slinputs::TagTypeBit(t.type);
+        if (t.type != sl::kBufferTypeScalingInputColor || extentDone) {
             continue;
         }
+        extentDone = true;
         // The extent, or -- when the title tagged the whole resource -- the size the
         // Resource itself declares; fl_sl_inputs.h's TagSize is the one reading of a
         // tag all three routes share. Neither present is the honest unknown fl_shm.h
@@ -937,19 +961,19 @@ void NoteTags(const sl::ResourceTag* tags, uint32_t numTags) noexcept {
         uint32_t h = 0;
         if (!fl::slinputs::TagSize(t, w, h)) {
             g_tagExtent.store(0, std::memory_order_release);
-            return;
+            continue;
         }
         g_tagExtent.store(static_cast<uint64_t>(w) | (static_cast<uint64_t>(h) << 16) | kTagValid,
                           std::memory_order_release);
-        return;
     }
+    NoteTagTypes(types, routeShift);
 }
 
 sl::Result STDMETHODCALLTYPE Hook_SlSetTag(const sl::ViewportHandle& viewport, const sl::ResourceTag* tags,
                                            uint32_t numTags, sl::CommandBuffer* cmdBuffer) {
     FL_HOOK_GUARD({
         if (MayObserve()) {
-            NoteTags(tags, numTags);
+            NoteTags(tags, numTags, FL_SL_TAG_ROUTE_GLOBAL);
         }
     })
     // ALWAYS exactly once, on every path including the fault path, with every
@@ -966,7 +990,7 @@ sl::Result STDMETHODCALLTYPE Hook_SlSetTagForFrame(const sl::FrameToken& frame, 
                                                    sl::CommandBuffer* cmdBuffer) {
     FL_HOOK_GUARD({
         if (MayObserve()) {
-            NoteTags(tags, numTags);
+            NoteTags(tags, numTags, FL_SL_TAG_ROUTE_FRAME);
         }
     })
     return g_origSlSetTagForFrame(frame, viewport, tags, numTags, cmdBuffer);
@@ -1033,6 +1057,8 @@ sl::Result STDMETHODCALLTYPE Hook_SlEvaluateFeature(sl::Feature feature, const s
             // rather than to the viewport, so it cannot be older than the frame
             // being measured.
             const auto scan = fl::slinputs::FindScalingInputExtent(inputs, numInputs);
+            // Every tag TYPE the walk saw, on the local route (fl_shm.h §slTagCensus).
+            NoteTagTypes(scan.tagTypes, FL_SL_TAG_ROUTE_LOCAL);
             if (scan.found) {
                 g_tagExtent.store(static_cast<uint64_t>(scan.renderW) | (static_cast<uint64_t>(scan.renderH) << 16) |
                                       kTagValid,
@@ -1410,6 +1436,21 @@ void PublishRuntimeCensus() noexcept {
     }
     const uint32_t            seen = fl::inventory::ObserveRuntimeModules();
     std::atomic_ref<uint32_t> census{g_state->runtimeCensus};
+    census.fetch_or(seen, std::memory_order_relaxed);
+}
+
+// The tag census, on the same tick and by the same rule: OR-only, from the
+// process-local word the three tag routes accumulate into, so region 2 takes one
+// write a second rather than one per tag list (fl_shm.h §slTagCensus).
+void PublishSlTagCensus() noexcept {
+    if (g_state == nullptr) {
+        return;
+    }
+    const uint32_t seen = g_slTagCensus.load(std::memory_order_relaxed);
+    if (seen == 0u) {
+        return;
+    }
+    std::atomic_ref<uint32_t> census{g_state->slTagCensus};
     census.fetch_or(seen, std::memory_order_relaxed);
 }
 
@@ -1814,6 +1855,7 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
         // The census, on the same tick. After the installers so that a module which
         // appeared this second is both hooked and counted in the same pass.
         PublishRuntimeCensus();
+        PublishSlTagCensus();
 
         // Supervision loss. guardTicks counts COMPLETED guard evaluations, not
         // seconds, so a stalled guard loop stops it advancing even while the
@@ -1927,6 +1969,10 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     // after the user turned it off mid-session, which is precisely the
     // mid-session settings change 03_METRICS §Upscaling segments on.
     const uint32_t seen = g_slSeen.exchange(0, std::memory_order_acq_rel);
+    // The tag TYPES set since the last present, on any route. ALWAYS drained, like the
+    // AMD word below: a HUD-less tag is valid until the frame it was set for is
+    // presented, and a word that outlived that frame would mark the wrong present.
+    const uint32_t tagged = g_slTagTypes.exchange(0, std::memory_order_acq_rel);
 
     // The AMD word and count, drained beside the Streamline word and for the same
     // reason. ALWAYS drained, whether or not anything below reads them: a count that
@@ -2175,6 +2221,17 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
         if ((ffx & FL_FFX_SEEN_FG_DISPATCH) != 0u) {
             mode = FL_FG_FSR_FG;
         } else if (evals != 0u) {
+            mode = FL_FG_DLSS_G;
+        } else if ((tagged & FL_SL_TAG_DLSSG_INPUTS) != 0u) {
+            // THE TAGS SAY IT, since 2026-09-05. A HUD-less or UI buffer tagged through
+            // Streamline since the last present is an input to DLSS Frame Generation and
+            // to nothing else the title evaluates through Streamline that generates
+            // frames (fl_shm.h §slTagCensus; the DLSS-G programming guide §5.0 requires
+            // them). Read off the argument of an API already hooked, on whichever of the
+            // three tag routes the title uses -- which is what kFeatureDLSS_G evaluations
+            // were supposed to give and gave on no measured title. IDENTITY ONLY: whether
+            // frames were generated is still the consumer's verdict from the COUNT, and a
+            // count of 1.0 beside this mark prints `none` (inputs fed, nothing generated).
             mode = FL_FG_DLSS_G;
         }
         rec.fgMode = mode;

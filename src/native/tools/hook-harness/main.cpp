@@ -58,6 +58,10 @@
 //   --sl-tag-whole-resource
 //                    make --hold-presenting-upscaled tag with a ZERO extent and the
 //                    size on the Resource instead (the whole-resource shape)
+//   --sl-tag-dlssg-inputs
+//                    make --hold-presenting-upscaled tag depth, motion vectors, HUD-less
+//                    and UI beside the scaling input -- the list a DLSS-G title sends
+//                    every frame -- with NO kFeatureDLSS_G evaluation
 //   --probe-ffx-resolve
 //                    AMD ffx-api: the Overlay's resolver picks each LEAF's own
 //                    ffxDispatch with the loader decoy present, and a dispatch
@@ -2297,7 +2301,8 @@ using StubTokenFn = sl::Result(STDMETHODCALLTYPE*)(sl::FrameToken*&, const uint3
 
 alignas(16) unsigned char g_dummyFrameToken[64]{};
 
-int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature, bool tagForFrame, bool wholeResource) {
+int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature, bool tagForFrame, bool wholeResource,
+                           bool dlssgInputs) {
     const HMODULE stub = LoadStubExactly(FL_STUB_SL_INTERPOSER);
     if (stub == nullptr) {
         Check(false, "the sl.interposer.dll stub loaded for the upscaled hold");
@@ -2351,12 +2356,26 @@ int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature, 
                            sl::ResourceLifecycle::eValidUntilPresent, wholeResource ? &zero : &extent);
     sl::ViewportHandle viewport{0u};
 
+    // THE DLSS-G SHAPE: the same list a title running DLSS Frame Generation sends every
+    // frame (DLSS-G programming guide §5.0) -- depth, motion vectors, HUD-less colour and
+    // UI colour+alpha beside the scaling input. No kFeatureDLSS_G is evaluated here, so a
+    // record naming DLSS_G can only have come from the tags' TYPES.
+    sl::ResourceTag depthTag(nullptr, sl::kBufferTypeDepth, sl::ResourceLifecycle::eValidUntilPresent, &extent);
+    sl::ResourceTag mvecTag(nullptr, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilPresent, &extent);
+    sl::ResourceTag hudlessTag(nullptr, sl::kBufferTypeHUDLessColor, sl::ResourceLifecycle::eValidUntilPresent,
+                               &extent);
+    sl::ResourceTag uiTag(nullptr, sl::kBufferTypeUIColorAndAlpha, sl::ResourceLifecycle::eValidUntilPresent, &extent);
+    sl::ResourceTag list[5] = {depthTag, mvecTag, tag, hudlessTag, uiTag};
+    const sl::ResourceTag* tags = dlssgInputs ? list : &tag;
+    const uint32_t         numTags = dlssgInputs ? 5u : 1u;
+
     const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
     std::printf("  presenting for %d second(s) [%s], evaluating feature %u before each present\n", seconds,
                 real ? "REAL" : "DXGI_PRESENT_TEST", static_cast<unsigned>(feature));
-    std::printf("  tagged kBufferTypeScalingInputColor %s %ux%u through %s\n",
+    std::printf("  tagged kBufferTypeScalingInputColor %s %ux%u through %s%s\n",
                 wholeResource ? "whole resource, Resource size" : "extent", kTaggedRenderW, kTaggedRenderH,
-                tagForFrame ? "slSetTagForFrame (Streamline 2.8, frame-based)" : "slSetTag");
+                tagForFrame ? "slSetTagForFrame (Streamline 2.8, frame-based)" : "slSetTag",
+                dlssgInputs ? ", beside depth, motion vectors, HUD-less and UI (the DLSS-G inputs)" : "");
     std::fflush(stdout);
 
     const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
@@ -2367,9 +2386,9 @@ int HoldPresentingUpscaled(Gfx& g, int seconds, bool real, sl::Feature feature, 
         // and the order that matters: the extent must be in place before the
         // evaluation the Overlay attributes it to.
         if (tagForFrame) {
-            setTagForFrame(g_dummyFrameToken, viewport, &tag, 1, nullptr);
+            setTagForFrame(g_dummyFrameToken, viewport, tags, numTags, nullptr);
         } else {
-            setTag(viewport, &tag, 1, nullptr);
+            setTag(viewport, tags, numTags, nullptr);
         }
         // ONE EVALUATION PER PRESENT, which is what a real upscaled title does
         // and what makes the drained record's identity checkable frame by frame.
@@ -2751,6 +2770,7 @@ int main(int argc, char** argv) {
     bool        ffxPrepare = true;
     bool        slTagForFrame = false;
     bool        slTagWholeResource = false;
+    bool        slTagDlssgInputs = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0) {
@@ -2784,6 +2804,8 @@ int main(int argc, char** argv) {
             slTagForFrame = true;
         } else if (std::strcmp(argv[i], "--sl-tag-whole-resource") == 0) {
             slTagWholeResource = true;
+        } else if (std::strcmp(argv[i], "--sl-tag-dlssg-inputs") == 0) {
+            slTagDlssgInputs = true;
         }
     }
 
@@ -2791,7 +2813,8 @@ int main(int argc, char** argv) {
         if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--plus-ui") == 0 ||
             std::strcmp(argv[i], "--present-interval-ms") == 0 || std::strcmp(argv[i], "--presents-per-eval") == 0 ||
             std::strcmp(argv[i], "--ffx-topology") == 0 || std::strcmp(argv[i], "--ffx-no-prepare") == 0 ||
-            std::strcmp(argv[i], "--sl-tag-for-frame") == 0 || std::strcmp(argv[i], "--sl-tag-whole-resource") == 0) {
+            std::strcmp(argv[i], "--sl-tag-for-frame") == 0 || std::strcmp(argv[i], "--sl-tag-whole-resource") == 0 ||
+            std::strcmp(argv[i], "--sl-tag-dlssg-inputs") == 0) {
             if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
                 std::strcmp(argv[i], "--presents-per-eval") == 0 || std::strcmp(argv[i], "--ffx-topology") == 0) {
                 ++i;
@@ -2808,7 +2831,7 @@ int main(int argc, char** argv) {
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting-upscaled") == 0 && i + 1 < argc) {
             ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, sl::kFeatureDLSS, slTagForFrame,
-                                        slTagWholeResource) == 0 &&
+                                        slTagWholeResource, slTagDlssgInputs) == 0 &&
                  ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting-upscaled-unknown") == 0 && i + 1 < argc) {
@@ -2818,7 +2841,7 @@ int main(int argc, char** argv) {
             // never report FL_UPSCALER_NONE, which is the only state that may be
             // aggregated as a negative. 0xF00D is not a Streamline feature.
             ok = HoldPresentingUpscaled(g, std::atoi(argv[++i]), real, static_cast<sl::Feature>(0xF00Du), slTagForFrame,
-                                        slTagWholeResource) == 0 &&
+                                        slTagWholeResource, slTagDlssgInputs) == 0 &&
                  ok;
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--probe-upscaler-resolve") == 0) {
