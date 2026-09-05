@@ -36,6 +36,13 @@ internal static class CensusNames
         (FlRuntimeCensus.AmdFfxDx12, "amd_fidelityfx_dx12.dll"),
     ];
 
+    /// <summary>
+    /// Every module FILE name the census can answer for — the <c>a / b</c> pairs above split into
+    /// their members — so a module snapshot asks about exactly the set the census names.
+    /// </summary>
+    public static IReadOnlyList<string> ModuleFileNames { get; } =
+        _names.SelectMany(n => n.Name.Split(" / ", StringSplitOptions.RemoveEmptyEntries)).ToArray();
+
     /// <summary>Comma-separated module names for the set family bits; <c>-</c> when none.</summary>
     public static string Describe(FlRuntimeCensus bits)
     {

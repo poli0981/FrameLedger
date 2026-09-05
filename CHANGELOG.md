@@ -39,6 +39,24 @@ GitHub release body, so a missing section will mean an empty release note.
   topologies `fsr3host` / `fsr3host+mono`, an `[ffx]` injected case at K = 1 (the row's double-count
   control) and K ∈ {1, 4} beside the monolith, and a consumer case for Cyberpunk's shape. Owed: the
   owner's acceptance run, rows B1–B4 in §H11.
+- **The report names the loaded vendor runtimes with their FILE versions, and a counted `none` is
+  WITHHELD on the one shape measured to be wrong.** Dying Light: The Beast (Streamline 2.8.0) read
+  `presents = tokens` five times with DLSS Frame Generation ON, and the owner's reading on 2026-09-05
+  settled which way to read it: the title runs at DLSS ×4, the frames this hook records are the
+  native ones, and the generated presents never reach the `Present` bodies the Overlay patches
+  (`20_OPEN_QUESTIONS` §H5 case 3, realised). The census could not have said so — it records module
+  NAMES, and Cyberpunk 2077 on 2.7.1 reads ×3.99 through the same hook — so the capture host now takes
+  an out-of-process module snapshot beside every guard scan (`Process.Modules` + the file's version
+  resource, the same documented module list the guard already enumerates; no game memory, no layout
+  change, nothing on the present path) and prints one `module:` line per census-named module with
+  version and path. `MeasuredFacts` withholds `none` when `sl.dlss_g.dll` — the Streamline plugin that
+  would be doing the presenting, NOT `nvngx_dlssg.dll`, which every validated `none` also has loaded —
+  is in the census beside an interposer at or above 2.8.0 (or one whose version could not be read), and
+  the report falls through to `Presented FPS` with a qualifier that says the number counts APPLICATION
+  frames and that the Displayed rate is unknown. Every validated `none` (Cyberpunk off / ×3 / ×4,
+  Expedition 33 and Lies of P with frame generation off) is byte-identical, and eight cases pin that.
+  The gate is interim: §H5 pre-commits the owner's session (DL:TB FG off / FG ×4, Cyberpunk MFG ×4,
+  PresentMon elevated beside each) and the row on which it is withdrawn.
 
 - **A whole-resource tag now yields the size the tagged `sl::Resource` declares.** Streamline
   documents a zero `extent` as "use the entire resource"; a title tagging that way stated the

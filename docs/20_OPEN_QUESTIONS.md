@@ -3162,6 +3162,84 @@ probe never showed a deadlock.
 > version is ours to read — it is a module in our process, not game memory), or a second
 > present sink is the owner's decision after the reading. **What is NOT in doubt:** the
 > Streamline tag row (`slSetTagForFrame`, #115) is unrelated — this is about presents.
+>
+> ### THE READING, 2026-09-05 — reading (a), and what landed on it
+>
+> The owner, verbatim: *"Trong game là DLSS X 4, steam đã hiện dlss, frame ghi nhận được
+> native/frame gốc chưa frame gen."* — the title is at DLSS ×4 (multi-frame generation), the Steam
+> overlay shows DLSS, and the frames this hook records are the native ones, before frame
+> generation. That is reading **(a)**: case 3 realised on Streamline 2.8.0. The numeric counter
+> value was not part of the reading and is the first thing the session below writes down.
+>
+> **The record already corroborated it, in a field nobody had read for this purpose.** The RT
+> census on the DLSS ×4 runs reads **97.1 % of all presents RT-active**; the same title with FSR
+> frame generation ×2 reads **54.6 %** — generated presents carry no ray-tracing work, so at ×2
+> half of them are RT-silent. A window in which every present carries RT work is a window that
+> holds no generated presents. Both readings of the count predicted that; only the owner's
+> reading says which.
+>
+> **What landed (PR-A1, C# only, nothing on the present path):**
+>
+> - The capture host takes an **out-of-process module snapshot** beside every guard scan —
+>   `Process.Modules`, the loader's list through documented PSAPI, the same read the guard
+>   already performs on every target — and the file's version resource on the path it names.
+>   The report prints one `module:` line per census-named module (version, path). The census
+>   cannot carry a version without a layout change; this can, at no cost in the hook.
+> - `MeasuredFacts` **withholds `none`** when `sl.dlss_g.dll` is in the census beside an
+>   interposer whose file version is ≥ 2.8.0 or could not be read, and the report prints
+>   `Presented FPS` with a qualifier: the number counts APPLICATION frames; whether frames were
+>   generated, and the Displayed rate, are unknown. **The key is the Streamline plugin, not
+>   `nvngx_dlssg.dll`:** every validated `none` on this machine — Cyberpunk off / ×3 / ×4 at 2.7.1
+>   (census `0x5793D`), Expedition 33 and Lies of P with frame generation off — has the NGX
+>   module loaded and the plugin bit CLEAR; every DL:TB run (`0x25F0F` / `0x25F4F`) has it SET.
+>   The gate leaves each validated result byte-identical, and eight consumer cases pin that.
+> - **Cost, pre-committed:** DL:TB at DLSS with frame generation **off** also reads withheld if
+>   the plugin is a startup-time load on this title. Leg 0 below measures which.
+>
+> **The session, pre-committed before it runs.** One owner session, one launch per leg, the
+> capture host as built plus **PresentMon 2.5.1 console, elevated, concurrently** (it is retired
+> as a shipped rung — §S31 row P2 — and is still the one instrument on this box that counts
+> presents from the kernel's side; on Cyberpunk it counted every generated present at the same
+> rate as this hook), plus the title's own FPS counter and the Steam overlay counter read by
+> eye mid-capture and written down **as numbers**. Read off our report: `FPS:` / `Presented FPS`,
+> `FG counts` (`presents=`, `tokens=`, `streams=`), the `module:` lines. Read off PresentMon:
+> rows over span, the number of distinct `SwapChainAddress` values, `PresentRuntime` and
+> `PresentMode`.
+>
+> | Leg | Title / setting | What it settles |
+> |---|---|---|
+> | 0 | DL:TB, DLSS, DLSS FG **off** | whether `sl.dlss_g.dll` is in the census with FG off (per-setting vs startup); ours ≈ PresentMon ≈ counter ≈ 1× |
+> | 1 | DL:TB, DLSS, DLSS FG **×4** | the discriminating leg |
+> | 2 | Cyberpunk 2077, DLSS, MFG ×4 (Streamline 2.7.1) | control on the same build: ours ≈ PresentMon ≈ 4× tokens, `x3.99 FG` printed, `module: sl.interposer.dll 2.7.1.0`, plugin bit clear |
+>
+> Leg 1's rows (ours = `presents / span`; PM = PresentMon rows / span; C = the counter; ≈ = within 5 %):
+>
+> | Row | Reading | Meaning | Action |
+> |---|---|---|---|
+> | **P1** | PM ≈ 4× ours, C ≈ PM | generated presents reach the kernel on a path **outside** the `CDXGISwapChain::Present/Present1` bodies the Overlay inline-patches — case 3 realised | gate stays; a second present sink is costed (candidates below) and the route is the owner's; PresentMon's `SwapChainAddress` count says whether it is a second chain (2 addresses against our `streams=1`) or the same chain by another entry (1) |
+> | **P2** | PM ≈ ours ≈ C ≈ 1× | the title was not generating despite the setting | **withdraw the gate** (keep the `module:` lines); `none` was right; case 3 stays unrealised; the owner checks the setting |
+> | **P3** | PM ≈ ours ≈ 1×, C ≈ 4× | frames displayed without a kernel-visible present per frame (driver pacing / flip metering), or the counter reports a target rather than a measurement | keep the wording ("Displayed unknown"); no in-process or kernel sink would help; only a vendor read could corroborate |
+> | **P4** | ours ≈ 4× tokens on the rerun | the five earlier runs were not generating, or the title changed — compare the `module:` versions and the exe fingerprint against the 00:53 run | withdraw the gate; localise what changed |
+> | **P5** | PM ≈ 2×, or two `SwapChainAddress` values with ours `streams=1` | a second chain or a mixed path | stop and localise before deciding |
+> | **P6** | elevation refused / a leg unrun | nothing measured | not a result — P2 is not inferred from silence |
+>
+> Leg 0's own row: if `sl.dlss_g.dll` is **absent** with FG off, the census bit is per-setting on
+> this title and the gate is sharper than its cost paragraph feared (consider dropping the version
+> conjunct); if present, the interim cost stands as written.
+>
+> **Second-present-sink candidates for P1 / P5, one line each, none chosen:** MinHook inline
+> patches on the `gdi32.dll` D3DKMT thunks (`D3DKMTPresent`, `D3DKMTPresentMultiPlaneOverlay3`,
+> `D3DKMTSubmitPresentToHwQueue`) — in-process, no elevation, argument reads only, but
+> semi-documented structs that move between Windows builds and more patched bytes on the most
+> anti-cheat-sensitive path; an ETW `Microsoft-Windows-DxgKrnl` consumer in the capture host
+> (what PresentMon reads) — exact per-pid kernel count, costs **elevation**, which is §G's Tier-2
+> question re-entering; an `IDXGIFactory2::CreateSwapChain*` hook (`17_HOOK_ENGINE` ⏳) — sees a
+> second chain at creation only, i.e. launch mode (§S1); in-hook `IDXGISwapChain::GetLastPresentCount`
+> sampling — a same-chain localiser only, and a hot-path virtual call with two reserved words
+> behind it. NVAPI has no present count outside present barrier; `NvAPI_NGX_GetNGXOverrideState`
+> (R570, by PID) reports the driver's DLSS override state and multi-frame target, which is
+> corroboration rather than a count — an optional `fl-probe-nvapi --ngx-state <pid>` reading on
+> Legs 2 then 1, never a gate input.
 
 > ### NARROWED, NOT CLOSED — five real-title captures, 2026-08-15
 >

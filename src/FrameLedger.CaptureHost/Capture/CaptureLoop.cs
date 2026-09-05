@@ -1,5 +1,6 @@
 using FrameLedger.Application.AntiCheat;
 using FrameLedger.Application.Consent;
+using FrameLedger.CaptureHost.Consume;
 using FrameLedger.Domain.AntiCheat;
 using FrameLedger.Domain.Consent;
 using FrameLedger.Infrastructure.Ipc;
@@ -28,7 +29,8 @@ internal sealed class CaptureLoop(
     ITargetResolver resolver,
     Func<int, ITargetLiveness?> liveness,
     Func<int, (ICaptureSink? Sink, ShmAttachRefusal Refusal)> attach,
-    CaptureOptions options)
+    CaptureOptions options,
+    Func<int, RuntimeModuleSet>? modules = null)
 {
     /// <summary>Start one session, or say why not.</summary>
     /// <remarks>
@@ -158,11 +160,13 @@ internal sealed class CaptureLoop(
         var records = new List<FlFrameRecord>();
         var gaps = new List<ulong>();
         var focus = new FocusTally();
-        SessionEndReason end = await SuperviseAsync(pid, alive, sink, supervisor, records, gaps, focus, ct)
+        var loaded = new ModuleTally(modules);
+        SessionEndReason end = await SuperviseAsync(pid, alive, sink, supervisor, records, gaps, focus, loaded, ct)
             .ConfigureAwait(false);
 
         return new CaptureResult
         {
+            RuntimeModules = loaded.Set,
             Reason = end,
             Verdict = verdict,
             AttachRefusal = ShmAttachRefusal.Ok,
@@ -213,12 +217,11 @@ internal sealed class CaptureLoop(
     /// </remarks>
     private async Task<SessionEndReason> SuperviseAsync(int pid, ITargetLiveness alive, ICaptureSink sink,
         GuardSupervisor supervisor, List<FlFrameRecord> records, IList<ulong> gaps, FocusTally focus,
-        CancellationToken ct)
+        ModuleTally loaded, CancellationToken ct)
     {
         var buffer = new FlFrameRecord[512];
 
-        bool mayContinue = await supervisor.ScanOnceAsync(pid, ct).ConfigureAwait(false);
-        sink.PublishGuardResult(supervisor.CompletedEvaluations, supervisor.UnhookRequested);
+        bool mayContinue = await ScanAsync(pid, sink, supervisor, loaded, ct).ConfigureAwait(false);
 
         DateTimeOffset nextScan = DateTimeOffset.UtcNow + options.ScanInterval;
         DateTimeOffset attachSettledAt = DateTimeOffset.UtcNow + options.AttachBudget;
@@ -250,7 +253,7 @@ internal sealed class CaptureLoop(
             {
                 try
                 {
-                    mayContinue = await supervisor.ScanOnceAsync(pid, ct).ConfigureAwait(false);
+                    mayContinue = await ScanAsync(pid, sink, supervisor, loaded, ct).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -258,12 +261,15 @@ internal sealed class CaptureLoop(
                     break;
                 }
 
-                sink.PublishGuardResult(supervisor.CompletedEvaluations, supervisor.UnhookRequested);
                 nextScan = DateTimeOffset.UtcNow + options.ScanInterval;
             }
 
             await Task.Delay(options.DrainInterval, ct).ConfigureAwait(false);
         }
+
+        // ONE LAST SNAPSHOT before the last drain, so a module that loaded after the final scan is
+        // still named; on TargetExited it reads nothing, which the tally counts rather than hides.
+        loaded.Take(pid);
 
         // ONE LAST DRAIN ON EVERY PATH, including the faulted one — that is the whole point of catching
         // the mid-loop throw rather than letting it leave the method. Then let go promptly: holding the
@@ -271,6 +277,37 @@ internal sealed class CaptureLoop(
         // ERROR_ALREADY_EXISTS creating its ring and refuse to start at all.
         DrainInto(sink, buffer, gaps, records);
         return Conclude(end, faulted, mayContinue);
+    }
+
+    /// <summary>One guard scan: evaluate, publish the supervisor's own count, then snapshot the modules.</summary>
+    /// <remarks>
+    /// <b>The module snapshot rides beside the guard scan, never on its own cadence.</b> The scan is
+    /// the moment this host already enumerates the target's modules, and a vendor runtime that loads
+    /// late (a title enabling frame generation from its menu) is caught by the next scan the way the
+    /// Overlay's watchdog catches it on the next tick. The scan's exception propagates: the caller
+    /// decides whether a throw ends the session or only the supervision.
+    /// </remarks>
+    private static async Task<bool> ScanAsync(int pid, ICaptureSink sink, GuardSupervisor supervisor,
+        ModuleTally loaded, CancellationToken ct)
+    {
+        bool mayContinue = await supervisor.ScanOnceAsync(pid, ct).ConfigureAwait(false);
+        sink.PublishGuardResult(supervisor.CompletedEvaluations, supervisor.UnhookRequested);
+        loaded.Take(pid);
+        return mayContinue;
+    }
+
+    /// <summary>Accumulates module snapshots; a loop built without a source takes none.</summary>
+    private sealed class ModuleTally(Func<int, RuntimeModuleSet>? source)
+    {
+        public RuntimeModuleSet Set { get; private set; } = RuntimeModuleSet.Empty;
+
+        public void Take(int pid)
+        {
+            if (source is not null)
+            {
+                Set = Set.Merge(source(pid));
+            }
+        }
     }
 
     /// <summary>

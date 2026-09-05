@@ -234,6 +234,20 @@ F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the 
 > Streamline batch is an application frame on that title — with a second count rather than an
 > oracle.
 >
+> **And one shape on which the counted `none` is WITHHELD, measured 2026-09-04/05.** Dying Light:
+> The Beast ships Streamline **2.8.0**; five captures at DLSS with DLSS Frame Generation ON read
+> `presents = tokens` (1.00), and the owner's reading settled it: the title runs at ×4, the frames
+> this hook records are the native ones, the generated presents never reach the `Present` bodies
+> the Overlay patches (`20_OPEN_QUESTIONS` §H5 case 3). On that shape the count is right about the
+> application frames and wrong about the presents, and a `none` computed from it is the affirmative
+> negative this document forbids. So the consumer withholds `none` — and prints **Presented FPS** with
+> a qualifier saying the number counts *application* frames and the Displayed rate is unknown — when
+> `sl.dlss_g.dll` is in the census beside an interposer whose **file version** (read out of process by
+> the capture host, never by the hook) is ≥ 2.8.0 or unreadable. **The key is the Streamline plugin,
+> not `nvngx_dlssg.dll`:** every validated `none` above has the NGX module loaded and the plugin bit
+> clear, so the gate leaves each of them byte-identical. It is interim: §H5 pre-commits the session
+> that keeps, narrows or withdraws it.
+>
 > **What `fgMode` still is.** Identity — `DLSS_G` when a `kFeatureDLSS_G` evaluation drained,
 > `UNKNOWN` otherwise — from the evaluate detour, unchanged. A factor ≥ 1.5 with `UNKNOWN`
 > identity is *frame generation active, technology not identified*, which on a UE5 title with

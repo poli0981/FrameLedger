@@ -48,11 +48,16 @@ internal static class SessionReport
               .Append(" (x").Append(Num(w.Factor)).Append(" FG)")
               .Append("   over ").Append(Count(w.Presents)).AppendLine(" present(s)");
         }
-        else if (facts.Fg?.IsNone == true)
+        else if (facts.Fg?.IsNone == true && facts.NoneWithheld is null)
         {
             // THE THIRD SHAPE, reachable since 2026-09-04: 08_UI's bare `144 FPS`. No pair, no
             // factor, no qualifier — the count measured that every present carried an
             // application frame, which is the one negative this report may state outright.
+            //
+            // UNLESS IT IS WITHHELD. On Streamline 2.8 with sl.dlss_g.dll loaded the same count read
+            // 1.00 five times while the title was generating (§H5 case 3), so that shape falls
+            // through to the Presented line and its qualifier says why. MeasuredFacts owns the
+            // decision; this branch only honours it.
             FgWindow w = facts.Fg;
             sb.Append("  FPS: ").Append(Num(w.NativeFps))
               .Append("   over ").Append(Count(w.Presents)).AppendLine(" present(s)");
@@ -63,18 +68,7 @@ internal static class SessionReport
         }
         else
         {
-            // PRESENTED FPS, the name for the one number that stands alone (03_METRICS §Core
-            // definitions, 2026-09-03). Numerically it is Displayed FPS; the name changes because
-            // "Displayed" is half of a pair, and printing half a pair invites the reader to supply
-            // the other half. The qualifier under it is mandatory, and which one is printed is the
-            // census's whole job.
-            sb.Append("  Presented FPS: ").Append(Num(facts.DisplayedFps))
-              .Append("   over ").Append(Count(facts.PresentsObserved)).AppendLine(" present(s)");
-            sb.Append("    ").AppendLine(FgQualifier(facts));
-            if (facts.Fg?.Refusal is not null)
-            {
-                sb.Append("    no FG factor: ").AppendLine(facts.Fg.Refusal);
-            }
+            AppendPresented(sb, facts);
         }
 
         AppendFgDiagnostics(sb, facts.Fg);
@@ -82,6 +76,29 @@ internal static class SessionReport
         AppendWarnings(sb, facts);
 
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// PRESENTED FPS, the name for the one number that stands alone (03_METRICS §Core definitions,
+    /// 2026-09-03). Numerically it is Displayed FPS; the name changes because "Displayed" is half of
+    /// a pair, and printing half a pair invites the reader to supply the other half. The qualifier
+    /// under it is mandatory, and which one is printed is the census's whole job.
+    /// </summary>
+    private static void AppendPresented(StringBuilder sb, MeasuredFacts facts)
+    {
+        sb.Append("  Presented FPS: ").Append(Num(facts.DisplayedFps))
+          .Append("   over ").Append(Count(facts.PresentsObserved)).AppendLine(" present(s)");
+        sb.Append("    ").AppendLine(FgQualifier(facts));
+        if (facts.NoneWithheld is not null)
+        {
+            sb.AppendLine("    frame generation: NOT stated — the FG counts below are the record; the discriminator "
+                          + "is the title's own counter beside this line (§H5)");
+        }
+
+        if (facts.Fg?.Refusal is not null)
+        {
+            sb.Append("    no FG factor: ").AppendLine(facts.Fg.Refusal);
+        }
     }
 
     /// <summary>Defects in the DATA, each attributed to where it came from, never averaged in.</summary>
@@ -119,6 +136,20 @@ internal static class SessionReport
     /// </remarks>
     private static string FgQualifier(MeasuredFacts facts)
     {
+        // THE WITHHELD SHAPE COMES FIRST, because the WARNING below it reads in the wrong
+        // direction for this case. "MAY include generated frames; read it as Displayed" is right
+        // when nothing was counted; here the count says the presents ARE the application frames
+        // and the generated ones are the number nobody has. Displayed is what is unknown.
+        if (facts.NoneWithheld is not null)
+        {
+            return "WARNING: the count read presents = application frames (1.00) and `none` is WITHHELD — "
+                   + facts.NoneWithheld
+                   + ". 20_OPEN_QUESTIONS §H5 case 3: on this shape the generated presents may never reach the "
+                   + "Present bodies this hook patches, so this number counts APPLICATION frames; whether frames were "
+                   + "generated, and the Displayed rate, are unknown. Read it as the application-frame rate, never "
+                   + "as Displayed";
+        }
+
         if (!facts.CensusRan)
         {
             return "frame generation: NOT measured, and the runtime census did not run — this number is presents, "
