@@ -19,6 +19,15 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **A stall diagnostic in the report, placed against FrameLedger's own touches on the target.** The
+  owner saw Cyberpunk 2077 fall to 1 FPS for about a second under capture (2026-09-05) and the report
+  could say nothing about whose it was. The capture host now records the QPC moment of every guard scan
+  and module snapshot (`CaptureResult.TouchQpc`, the records' own clock), and `StallReport` prints the
+  three longest present-to-present intervals with their session time and the nearest host touch: a
+  touch inside or within 1 s names FrameLedger a SUSPECT and asks for a longer run on the 30 s cadence;
+  a far one says *not ours*. It counts intervals at or over 100 ms and calls itself a diagnostic — it is
+  not `03_METRICS`' stutter, which P2's calculators own. Four cases pin the placement.
+
 - **DLSS Frame Generation is NAMED, from the tags the title already sends.** On every NVIDIA title measured
   the count was right and the technology unnamed — `Active (technology not identified)` on Cyberpunk at
   MFG ×3 and on the three UE titles at ×4 — because `kFeatureDLSS_G` is never evaluated through the export

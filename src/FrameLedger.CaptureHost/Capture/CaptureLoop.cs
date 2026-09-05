@@ -167,6 +167,7 @@ internal sealed class CaptureLoop(
         return new CaptureResult
         {
             RuntimeModules = loaded.Set,
+            TouchQpc = loaded.TouchQpc,
             Reason = end,
             Verdict = verdict,
             AttachRefusal = ShmAttachRefusal.Ok,
@@ -301,8 +302,17 @@ internal sealed class CaptureLoop(
     {
         public RuntimeModuleSet Set { get; private set; } = RuntimeModuleSet.Empty;
 
+        /// <summary>
+        /// When this host touched the target — a guard scan just completed, and the module snapshot
+        /// is about to run — as QPC ticks (<see cref="System.Diagnostics.Stopwatch.GetTimestamp"/> is
+        /// QueryPerformanceCounter on Windows, the clock the records carry). Recorded whether or not a
+        /// snapshot source exists, because it is the stall diagnostic's alibi, not the snapshot's.
+        /// </summary>
+        public List<long> TouchQpc { get; } = [];
+
         public void Take(int pid)
         {
+            TouchQpc.Add(System.Diagnostics.Stopwatch.GetTimestamp());
             if (source is not null)
             {
                 Set = Set.Merge(source(pid));

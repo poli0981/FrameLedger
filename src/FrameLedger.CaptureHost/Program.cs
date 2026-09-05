@@ -190,6 +190,9 @@ internal static class Program
         HostConsole.Line($"  records: {result.Records.Count} ({dominant.Count} on the dominant stream), " +
                           $"{segments.Count} segment(s), gaps {result.TotalGaps}, dropped {result.TotalDropped}");
         HostConsole.Line(FocusNote(result));
+        // The longest raw intervals, placed against the moments this host touched the target: the
+        // owner saw a one-second drop to 1 FPS under capture and nothing here could say whose it was.
+        HostConsole.Line(StallReport.From(dominant, Stopwatch.Frequency, result.TouchQpc).Describe());
 
         // WHICH HOOKS THE WRITER ACTUALLY INSTALLED, and it is not cosmetic.
         //
