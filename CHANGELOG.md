@@ -47,6 +47,14 @@ GitHub release body, so a missing section will mean an empty release note.
   the call resets the plugin's counter a title may read for its own FPS display, and the header marks it
   not thread safe.
 
+### Changed
+
+- **The tag route is measured on real titles** (docs): the owner's evening run on #121 read `frame generation:
+  DlssG` on Hell Is Us, Expedition 33, Wukong, Rune Factory and Cyberpunk — every Streamline title tags the
+  DLSS-G inputs through a route this build hooks — and Dying Light: The Beast's census shows the title tags its
+  scaling input through `slSetTagForFrame` with no size, which closes HANDOFF 7a's last question without a
+  layout bump. `spike-notes` §9 carries the table; §H5 records the pre-commitment as landed.
+
 ### Fixed
 
 - **`render -> output` prints under frame generation.** `UpscaleExtent` keyed its window on the

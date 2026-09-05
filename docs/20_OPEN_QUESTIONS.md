@@ -3277,6 +3277,17 @@ probe never showed a deadlock.
 > generation"* beside the withheld count. Lies of P at DLSS (no Streamline tokens at all) → unchanged:
 > the super-resolution identity on NGX-direct titles is what the NVAPI probe above is for.
 >
+> **LANDED 2026-09-05 evening, on the owner's run on #121 (`spike-notes` §9):** `frame generation: DlssG` on
+> Hell Is Us (×4, twice), Expedition 33 (×1.97), Wukong (×4), Rune Factory (×3.98) and Cyberpunk — every
+> Streamline title tags the DLSS-G inputs through a route this build hooks (the UE plugin and Cyberpunk 2.7.1
+> globally, DL:TB 2.8 through `slSetTagForFrame`), so the identity is measured six of six and *"technology
+> not identified"* is gone from all of them. DL:TB's withheld line now says *"FEEDING frame generation"*
+> beside the count it cannot make; its census also shows a `scaling-in` tag on the frame route with
+> `UpscalerParams` still 0 — the tag carries no size on this title, which closes 7a's last question without
+> the layout bump it was thought to need. Cyberpunk's factor was refused on that run (bucket 1 at 3.0 against
+> 1.67 overall, `tokens/batch 2.97`): a mixed session, refused as designed rather than averaged. **What is
+> left on NVIDIA is one thing: `upscaler: N/A` on the NGX-direct titles** — the probe above.
+>
 > Leg 1's rows (ours = `presents / span`; PM = PresentMon rows / span; C = the counter; ≈ = within 5 %):
 >
 > | Row | Reading | Meaning | Action |
