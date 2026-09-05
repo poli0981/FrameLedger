@@ -3317,6 +3317,22 @@ probe never showed a deadlock.
 > | **P5-DXGI** | 0 < r < 2.5, or r ≠ 0 with `streams > 1` | a mixed path or a second chain | stop and localise; the number is printed, never averaged into a factor |
 > | **P2/P4** | r ≈ 0 with ours ≈ 4× tokens, or the count itself moved | as the kernel rows say: not generating, or the title changed | the kernel rows above decide |
 >
+> **LANDED 2026-09-05 night, on the owner's run on #124 (`spike-notes` §9): row P1-DXGI, twice.** DL:TB at
+> DLSS FG ×4 read `unseen=12204 over samples=4136 (2.95)` at 21:56 and `unseen=12741 over samples=4392
+> (2.90)` at 22:06 — DXGI counted 3.9× the presents this hook did, on the SAME chain, which is the owner's
+> ~300 against ours ~75 from the afternoon, now measured in-process. The two controls read 0.00: Hell Is Us
+> (Streamline **2.7.3**, `79.89 → 308.14 (×3.86)` through the patched bodies, 18,207 samples) and the
+> owner's new title, the **Onimusha: Way of the Sword demo on Streamline 2.10.3** (`60.04 → 220.33
+> (×3.67)`, `DlssG`, `upscaler: Dlss`, 12,914 samples, 0 unseen). So **2.8.0's pacer is the odd one** —
+> 2.7.x before it and 2.10.x after it present the generated frames through `Present`'s body — and the
+> "`sl.interposer.dll` + `sl.common.dll` must be loaded on ≥ 2.8" lead is closed by 2.10.3, which injects,
+> tags on the frame route and counts exactly like 2.7. **The pre-committed action is built:** the record
+> carries `dxgiUnseen` (@52, `FL_MEASURED_DXGI_PRESENTS`), the window counts `Displayed = hooked +
+> unseen` and prints *"Displayed is DXGI-COUNTED"* on its own line, `presents/batch` takes the same
+> numerator, and `none` withdraws on DL:TB by count (`03_METRICS` §Displayed may be DXGI-COUNTED). Expected
+> on DL:TB's next capture: the trio at ≈ ×3.9 with the label, no withheld line, `frame generation: DlssG`.
+> Which body the 2.8.0 pacer reaches stays unlocalised, as the row said.
+>
 > Leg 1's rows (ours = `presents / span`; PM = PresentMon rows / span; C = the counter; ≈ = within 5 %):
 >
 > | Row | Reading | Meaning | Action |

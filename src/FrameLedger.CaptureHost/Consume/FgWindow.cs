@@ -61,6 +61,30 @@ internal sealed record FgWindow
     /// <summary>Records whose count hit the byte's ceiling.</summary>
     public required int Saturated { get; init; }
 
+    /// <summary>
+    /// Σ <c>dxgiUnseen</c> over the records that claim <see cref="FlMeasured.DxgiPresents"/>: presents DXGI
+    /// counted on the hooked chain that this hook never saw. 0 on every title measured except Dying Light:
+    /// The Beast on Streamline 2.8.0, where it is ≈ 3 × <see cref="Presents"/> at DLSS FG ×4 (§H5 row P1-DXGI).
+    /// </summary>
+    public required long DxgiUnseen { get; init; }
+
+    /// <summary>Records claiming <see cref="FlMeasured.DxgiPresents"/> — the byte's own denominator.</summary>
+    public required int DxgiClaiming { get; init; }
+
+    /// <summary>Records whose <c>dxgiUnseen</c> hit 255, the saturation sentinel; any means a refusal.</summary>
+    public required int DxgiSaturated { get; init; }
+
+    /// <summary>
+    /// The presents the window counts as DISPLAYED: the ones this hook timed plus the ones DXGI counted on the
+    /// same chain and this hook never saw. Equal to <see cref="Presents"/> on every title where DXGI and the hook
+    /// agree, and the numerator of <see cref="Factor"/>, <see cref="DisplayedFps"/> and
+    /// <see cref="PresentsPerBatch"/> — never of a frame-time distribution, which has no timestamps for them.
+    /// </summary>
+    public long DisplayedPresents => Presents + DxgiUnseen;
+
+    /// <summary>True when Displayed is a count DXGI made rather than this hook — the report must say so.</summary>
+    public bool DxgiCounted => DxgiUnseen > 0;
+
     /// <summary>How many records carried 0, 1, 2 … evaluations. Index is the value.</summary>
     public required IReadOnlyList<int> Histogram { get; init; }
 
@@ -86,11 +110,11 @@ internal sealed record FgWindow
 
     /// <summary><c>presents / Σ evaluations</c>, or null.</summary>
     public double? Factor =>
-        Refusal is null && Evaluations > 0 ? Presents / (double)Evaluations : null;
+        Refusal is null && Evaluations > 0 ? DisplayedPresents / (double)Evaluations : null;
 
     /// <summary><c>F_disp</c> over this window's own intervals.</summary>
     public double? DisplayedFps =>
-        Refusal is null && Seconds > 0 && Presents > 1 ? (Presents - 1) / Seconds : null;
+        Refusal is null && Seconds > 0 && DisplayedPresents > 1 ? (DisplayedPresents - 1) / Seconds : null;
 
     /// <summary><c>F_app</c>, counted rather than derived.</summary>
     public double? NativeFps => Refusal is null && Seconds > 0 ? Evaluations / Seconds : null;
@@ -129,7 +153,7 @@ internal sealed record FgWindow
     /// <see cref="BatchRefusal"/>; it is never published as <c>fg_factor</c>, and
     /// <see cref="Factor"/> stays keyed on counted evaluations.
     /// </remarks>
-    public double? PresentsPerBatch => Batches > 0 ? Presents / (double)Batches : null;
+    public double? PresentsPerBatch => Batches > 0 ? DisplayedPresents / (double)Batches : null;
 
     /// <summary>
     /// Why <see cref="PresentsPerBatch"/> may not be read as one configuration's number, or
@@ -178,6 +202,9 @@ internal sealed record FgWindow
         Unidentified = 0,
         Streams = 0,
         Saturated = 0,
+        DxgiUnseen = 0,
+        DxgiClaiming = 0,
+        DxgiSaturated = 0,
         Histogram = [],
         BucketFactors = [],
         BatchFactors = [],
@@ -205,6 +232,7 @@ internal sealed record FgWindow
         int batches = 0;
         int unidentified = 0;
         int saturated = 0;
+        (long dxgiUnseen, int dxgiClaiming, int dxgiSaturated) = TallyDxgi(all, start);
 
         for (int i = start; i < all.Count; i++)
         {
@@ -242,11 +270,42 @@ internal sealed record FgWindow
             Unidentified = unidentified,
             Streams = streams.Count,
             Saturated = saturated,
+            DxgiUnseen = dxgiUnseen,
+            DxgiClaiming = dxgiClaiming,
+            DxgiSaturated = dxgiSaturated,
             Histogram = histogram,
             BucketFactors = BucketsOf(all, start, EvaluationWeight),
             BatchFactors = BucketsOf(all, start, BatchWeight),
             Refusal = null,
         };
+    }
+
+    /// <summary>
+    /// Σ <c>dxgiUnseen</c>, the records claiming it, and the ones at the 255 sentinel — the DXGI half of
+    /// the tally, in its own pass because it is its own measurement (<c>fl_shm.h</c> §dxgiUnseen).
+    /// </summary>
+    private static (long Unseen, int Claiming, int Saturated) TallyDxgi(IReadOnlyList<FlFrameRecord> all, int start)
+    {
+        long unseen = 0;
+        int claiming = 0;
+        int saturated = 0;
+        for (int i = start; i < all.Count; i++)
+        {
+            FlFrameRecord r = all[i];
+            if (!((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.DxgiPresents))
+            {
+                continue;
+            }
+
+            claiming++;
+            unseen += r.DxgiUnseen;
+            if (r.DxgiUnseen == byte.MaxValue)
+            {
+                saturated++;
+            }
+        }
+
+        return (unseen, claiming, saturated);
     }
 
     /// <summary>
@@ -276,16 +335,25 @@ internal sealed record FgWindow
             int lo = start + (int)((long)n * b / _buckets);
             int hi = start + (int)((long)n * (b + 1) / _buckets);
             long sigma = 0;
+            long displayed = 0;
             for (int i = lo; i < hi; i++)
             {
                 sigma += weight(all[i]);
+                displayed += 1 + Unseen(all[i]);
             }
 
-            factors.Add(sigma > 0 ? (hi - lo) / (double)sigma : double.PositiveInfinity);
+            // The SAME numerator the window publishes: a DXGI-counted present belongs to the
+            // bucket of the hooked present that read it, so a session where the 2.8 pacer
+            // stopped mid-way fails uniformity exactly as one where tokens stopped would.
+            factors.Add(sigma > 0 ? displayed / (double)sigma : double.PositiveInfinity);
         }
 
         return factors;
     }
+
+    /// <summary><c>dxgiUnseen</c> where the record claims it, else 0 — an unclaimed byte is nobody's count.</summary>
+    private static long Unseen(FlFrameRecord r) =>
+        ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.DxgiPresents) ? r.DxgiUnseen : 0L;
 
     /// <summary>The first reason a factor may not be published, or null.</summary>
     /// <remarks>
@@ -293,6 +361,27 @@ internal sealed record FgWindow
     /// consumer would otherwise have printed as a measurement.
     /// </remarks>
     private static string? RefusalFor(FgWindow w)
+    {
+        if (RefusalForRecordSet(w) is string aboutTheRecords)
+        {
+            return aboutTheRecords;
+        }
+
+        if (w.Evaluations == 0)
+        {
+            return "no application-frame token was counted in the window (slGetNewFrameToken, or an ffx-api "
+                   + "PREPARE / UPSCALE dispatch) — a data gap, "
+                   + "and treating it as 'no frame generation' is how fg_factor becomes 1.0";
+        }
+
+        return RefusalForRatio(w);
+    }
+
+    /// <summary>
+    /// Facts about the record SET that refuse a factor before anything is divided: attribution, and the
+    /// two saturation sentinels.
+    /// </summary>
+    private static string? RefusalForRecordSet(FgWindow w)
     {
         // ATTRIBUTION FIRST, AND THE ORDER IS THE FIX. These two are facts about the record
         // set and hold whether or not anything was counted — but they used to sit BELOW the
@@ -319,14 +408,19 @@ internal sealed record FgWindow
                    + "saturation sentinel rather than a count — dividing by it would report a floor";
         }
 
-        if (w.Evaluations == 0)
+        if (w.DxgiSaturated > 0)
         {
-            return "no application-frame token was counted in the window (slGetNewFrameToken, or an ffx-api "
-                   + "PREPARE / UPSCALE dispatch) — a data gap, "
-                   + "and treating it as 'no frame generation' is how fg_factor becomes 1.0";
+            return $"{w.DxgiSaturated} record(s) hit the dxgiUnseen ceiling of 255, which is a saturation "
+                   + "sentinel rather than a count — DXGI counted more presents than the byte can carry";
         }
 
-        string? nonUniform = NonUniform(w.BucketFactors, w.Presents / (double)w.Evaluations, w.Presents,
+        return null;
+    }
+
+    /// <summary>The refusals that need the ratio itself: uniformity, then the unnameable band.</summary>
+    private static string? RefusalForRatio(FgWindow w)
+    {
+        string? nonUniform = NonUniform(w.BucketFactors, w.DisplayedPresents / (double)w.Evaluations, w.Presents,
                                         "the frame-generation state");
         if (nonUniform is not null)
         {
@@ -346,7 +440,7 @@ internal sealed record FgWindow
         // What is still refused is the band between: a steady 1.05–1.5 is not a configuration
         // any vendor ships, and a window that mixed states would usually have failed the
         // uniformity check above. Naming it would be guessing.
-        double factor = w.Presents / (double)w.Evaluations;
+        double factor = w.DisplayedPresents / (double)w.Evaluations;
         return factor > NoneCeiling && factor < ActiveThreshold
             ? $"presents/tokens = {factor.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)} sits "
               + $"between the `none` ceiling ({NoneCeiling.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}) "
@@ -405,7 +499,7 @@ internal sealed record FgWindow
                    + "so a batch belonging to one stream can be drained by another's present";
         }
 
-        return NonUniform(w.BatchFactors, w.Presents / (double)w.Batches, w.Presents,
+        return NonUniform(w.BatchFactors, w.DisplayedPresents / (double)w.Batches, w.Presents,
                           "the presents-per-batch ratio");
     }
 

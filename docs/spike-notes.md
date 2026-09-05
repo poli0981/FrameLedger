@@ -1823,6 +1823,25 @@ one launch per capture, consent granted after launch. Exit codes and full report
   lesson). The owner's settings for that run are recorded when known; the earlier 14:01 run at MFG ×3 read
   `×2.98` with `tokens/batch 1.00` on the same title.
 
+- **2026-09-05 night, the owner's run on #124 (the DXGI present counter) — DL:TB twice, Hell Is Us, and a
+  new title, the Onimusha: Way of the Sword demo on Streamline 2.10.3.** `20_OPEN_QUESTIONS` §H5 row
+  P1-DXGI landed on the first title and both controls read zero:
+
+  | Title / Streamline | Trio or Presented | `DXGI present counter:` | `frame generation:` |
+  |---|---|---|---|
+  | **Dying Light: The Beast**, 2.8.0, DLSS FG ×4 (21:56) | `Presented FPS 69.99` (withheld) | `unseen=12204 over samples=4136 (2.95)` | N/A (withheld) + *FEEDING* |
+  | **Dying Light: The Beast**, 2.8.0, DLSS FG ×4 (22:06) | `Presented FPS 73.19` (withheld) | `unseen=12741 over samples=4392 (2.90)` | same |
+  | **Hell Is Us**, 2.7.3, DLSS + FG ×4 | `79.89 → 308.14 (×3.86)` | `unseen=0 over samples=18207` | `DlssG` |
+  | **Onimusha: Way of the Sword demo**, **2.10.3**, DLSS + FG | `60.04 → 220.33 (×3.67)` | `unseen=0 over samples=12914` | `DlssG`, `upscaler: Dlss`, RT Yes (27.1 %) |
+
+  The 2.8.0 pacer presents on the hooked chain through a body the inline patches do not cover; 2.7.3 and
+  2.10.3 present through the body they do. The owner's "`sl.interposer.dll` + `sl.common.dll` must be
+  loaded on ≥ 2.8" lead is closed by the 2.10.3 title: it injects, tags on the frame route (`depth, mvec,
+  hudless, scaling-in, scaling-out, ui-color-alpha, backbuffer, other`) and counts like 2.7. Onimusha's
+  `render -> output: N/A` with `UpscalerParams 0/13014` is DL:TB's shape again — the frame-route tags carry
+  no size on D3D12, where `sl::Resource` declares none. The PR after #124 turns the 2.8.0 reading into a
+  DXGI-COUNTED Displayed (`03_METRICS` §Displayed may be DXGI-COUNTED).
+
 ## 10 · Telemetry layering
 
 - L1 baseline vendor-neutral:

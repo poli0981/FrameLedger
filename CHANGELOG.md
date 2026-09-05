@@ -19,6 +19,24 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **Displayed FPS counted by DXGI where the hook cannot count it — the 2.8.0 pacer's presents.** The
+  owner's run on the DXGI counter landed `20_OPEN_QUESTIONS` §H5 row P1-DXGI twice: Dying Light: The
+  Beast at DLSS Frame Generation ×4 on Streamline 2.8.0 reads 2.90 and 2.95 presents per hooked present
+  that DXGI counted on the same chain and the inline patches never saw, while Streamline 2.7.3 (Hell Is
+  Us, ×3.86) and 2.10.3 (the Onimusha: Way of the Sword demo, ×3.67) read 0.00 — their generated frames
+  come through the patched bodies. So the record now carries `dxgiUnseen` (@52, from the reserved word,
+  under `FL_MEASURED_DXGI_PRESENTS`, no layout bump; mirror and `fl-layout-dump` follow), and the
+  consumer's window counts `Displayed = hooked + Σ dxgiUnseen` — in the rule-6 trio, in `presents/batch`
+  and in the uniformity buckets, never in a frame-time distribution — printing *"Displayed is
+  DXGI-COUNTED"* on its own line whenever the sum is above zero, because that number is a count DXGI
+  made rather than this hook. `none` withdraws on that title by count; a saturated byte is refused like
+  a saturated `fgEvaluations`; a byte under a clear bit is an honesty violation. A present the hook SAW and
+  declined — a paused session — is not an unseen present: every declined present bumps an epoch that
+  invalidates the chain's last reading, which the paused-session integration case caught (the first record
+  after a resume claimed the whole pause, 0x55, before the guard). On every other title
+  the window is byte-identical (five cases pin it; the injected `[fg]` case checks the byte is claimed
+  and zero on the harness). `03_METRICS` §Displayed may be DXGI-COUNTED carries the rule.
+
 - **DXGI's own present counter against the hook's, in the writer state and the report.** On the one shape
   where `none` is withheld (Streamline ≥ 2.8 with `sl.dlss_g.dll` loaded, Dying Light: The Beast), the
   open question was whether the closed pacer's generated presents reach DXGI through a body the inline

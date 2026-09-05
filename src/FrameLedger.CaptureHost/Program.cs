@@ -266,9 +266,9 @@ internal static class Program
 
         double per = writer.DxgiPresentsUnseen / (double)writer.DxgiPresentSamples;
         string reading = writer.DxgiPresentsUnseen == 0
-            ? "DXGI counted nothing this hook did not: whatever generates frames on this title presents below DXGI or on another object"
+            ? "DXGI counted nothing this hook did not: frame generation was off, or whatever generates frames on this title presents below DXGI or on another object"
             : per >= 0.5
-                ? "DXGI counted presents this hook never saw on the SAME chain - a pacer presenting through a body the inline patches do not cover; the generated presents ARE DXGI presents here and this counter can count them"
+                ? "DXGI counted presents this hook never saw on the SAME chain - a pacer presenting through a body the inline patches do not cover; the generated presents ARE DXGI presents here and Displayed above is DXGI-counted from them"
                 : "a few presents reached DXGI outside this hook - too few for a pacer, read the number rather than the ratio";
         return $"  DXGI present counter: unseen={writer.DxgiPresentsUnseen} over samples={writer.DxgiPresentSamples} " +
                $"({per.ToString("0.00", CultureInfo.InvariantCulture)} unseen per hooked present) - {reading}";

@@ -343,7 +343,7 @@ internal sealed record MeasuredFacts
         var allowed = FlMeasured.None;
         if (hooks.HasFlag(FlHookFamily.Present))
         {
-            allowed |= FlMeasured.OutputRes | FlMeasured.PresentArgs;
+            allowed |= FlMeasured.OutputRes | FlMeasured.PresentArgs | FlMeasured.DxgiPresents;
         }
 
         if (hooks.HasFlag(FlHookFamily.UpscalerIdentity))
@@ -410,6 +410,13 @@ internal sealed record MeasuredFacts
         }
 
         if (!mask.HasFlag(FlMeasured.Fg) && r.FgMode != (byte)FlFgMode.NotReported)
+        {
+            return false;
+        }
+
+        // dxgiUnseen has no in-band sentinel either — 0 is DXGI agreeing with the hook — so a
+        // value under a clear bit is the same defect as an unclaimed count.
+        if (!mask.HasFlag(FlMeasured.DxgiPresents) && r.DxgiUnseen != 0)
         {
             return false;
         }

@@ -568,13 +568,20 @@ enum FlMeasured : uint16_t {
     // must be able to say so.
     FL_MEASURED_FG_COUNTS = 1u << 10,
 
-    // bits 11-15 reserved. Writers leave them zero; readers must IGNORE them
+    // dxgiUnseen @52 (2026-09-05, 20_OPEN_QUESTIONS §H5 row P1-DXGI): the present hook
+    // read IDXGISwapChain::GetLastPresentCount at this present AND at the previous
+    // hooked present on the same chain, so the byte is a measurement -- a zero
+    // included. Clear on the first hooked present of every chain, where there is no
+    // previous value to difference against, and whenever the read failed.
+    FL_MEASURED_DXGI_PRESENTS = 1u << 11,
+
+    // bits 12-15 reserved. Writers leave them zero; readers must IGNORE them
     // rather than validate them as zero.
     //
     // BE PRECISE ABOUT WHAT THAT BUYS, because the tempting claim is false: it
     // does NOT mean a future field can be added without a layout bump. Any new
     // field also needs a byte, and every byte of this record is allocated except
-    // `reserved` @52 -- and FlShmHandshake::recordSize plus the layout version are
+    // `reserved` @53..55 -- and FlShmHandshake::recordSize plus the layout version are
     // compared before a reader looks at anything, so an old reader refuses a new
     // writer outright and never gets as far as an unknown bit. What the reserve
     // actually buys is that existing offsets do not move, which keeps the diff,
@@ -832,7 +839,22 @@ struct alignas(64) FlFrameRecord {
     // and layoutVersion are compared before a reader looks at anything, so an old
     // reader refuses a new writer and never reaches an unknown field. What it buys
     // is that existing offsets do not move, which keeps the next diff small.
-    uint32_t reserved;    // @52
+    // @52 -- DXGI'S OWN COUNT OF THIS CHAIN'S PRESENTS SINCE THE PREVIOUS HOOKED ONE,
+    // beyond that one (2026-09-05, 20_OPEN_QUESTIONS §H5 row P1-DXGI). The per-present
+    // form of FlWriterState.dxgiPresentsUnseen: the delta of GetLastPresentCount between
+    // two consecutive hooked presents on the same chain, minus the one present the hook
+    // saw. Measured 2.90 and 2.95 per hooked present on Dying Light: The Beast
+    // (Streamline 2.8.0, DLSS Frame Generation x4) and 0 on every other title (Streamline
+    // 2.7.3 and 2.10.3 present their generated frames through the patched bodies) -- so
+    // on that shape the generated presents ARE DXGI presents, reaching a body the inline
+    // patches do not cover, and the consumer counts Displayed = hooked + this, labelled
+    // DXGI-COUNTED. Per record rather than per session so the consumer's uniformity
+    // buckets see it. SATURATES AT 255: a NUMERATOR, so a wrap would read low rather than
+    // high, but 255 is still a sentinel the consumer refuses rather than a count. Took the
+    // first byte of v3's reserved word; additive, no offset moved, no layout bump.
+    uint8_t dxgiUnseen;    // @52
+
+    uint8_t reserved[3];    // @53..55  MUST BE ZERO
 
     // Seqlock counter. Monotonic per slot and NEVER reset, so a full lap of
     // the ring always changes it — otherwise a reader stalled exactly one lap
@@ -924,7 +946,8 @@ static_assert(offsetof(FlFrameRecord, upscalerSharpness) == 42);
 static_assert(offsetof(FlFrameRecord, fgEvaluations) == 43);
 static_assert(offsetof(FlFrameRecord, vramUsedMb) == 44);
 static_assert(offsetof(FlFrameRecord, reflexLatencyUs) == 48);
-static_assert(offsetof(FlFrameRecord, reserved) == 52);
+static_assert(offsetof(FlFrameRecord, dxgiUnseen) == 52);
+static_assert(offsetof(FlFrameRecord, reserved) == 53);
 static_assert(offsetof(FlFrameRecord, seq) == 56);
 static_assert(offsetof(FlFrameRecord, swapchainId) == 60);
 
@@ -940,7 +963,6 @@ static_assert(offsetof(FlFrameRecord, swapchainId) == 60, "07_IPC pins the paylo
 static_assert(offsetof(FlFrameRecord, qpc) % 8 == 0);
 static_assert(offsetof(FlFrameRecord, measuredMask) % 2 == 0);
 static_assert(offsetof(FlFrameRecord, vramUsedMb) % 4 == 0);
-static_assert(offsetof(FlFrameRecord, reserved) % 4 == 0);
 static_assert(offsetof(FlFrameRecord, seq) % 4 == 0);
 
 // The regions must not overlap, and the ring must stay 64-aligned.

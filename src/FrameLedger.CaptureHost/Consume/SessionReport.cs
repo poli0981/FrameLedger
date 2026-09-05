@@ -46,7 +46,17 @@ internal static class SessionReport
             sb.Append("  Native FPS: ").Append(Num(w.NativeFps))
               .Append(" -> Displayed FPS: ").Append(Num(w.DisplayedFps))
               .Append(" (x").Append(Num(w.Factor)).Append(" FG)")
-              .Append("   over ").Append(Count(w.Presents)).AppendLine(" present(s)");
+              .Append("   over ").Append(Count(w.DisplayedPresents)).AppendLine(" present(s)");
+            if (w.DxgiCounted)
+            {
+                // A COUNT DXGI MADE, NOT THIS HOOK, and the line says so before anyone reads the
+                // trio: those presents have no timestamps here, so they may stand in a rate and
+                // a factor and never in a frame-time distribution (03_METRICS §Counting).
+                sb.Append("    Displayed is DXGI-COUNTED: ").Append(Count(w.DxgiUnseen))
+                  .Append(" of those present(s) were counted by IDXGISwapChain::GetLastPresentCount on the hooked ")
+                  .Append("chain and never reached this hook (").Append(Count(w.Presents))
+                  .AppendLine(" hooked) — a count DXGI made, not this hook; 20_OPEN_QUESTIONS §H5 row P1-DXGI");
+            }
         }
         else if (facts.Fg?.IsNone == true && facts.NoneWithheld is null)
         {
@@ -157,8 +167,8 @@ internal static class SessionReport
                            ? ". DXGI's own counter on this chain saw " + unseen.ToString("0.00", CultureInfo.InvariantCulture)
                              + " present(s) per hooked present that this hook did not - the generated presents ARE DXGI presents "
                              + "reaching a body the inline patches do not cover (§H5 row P1-DXGI)"
-                           : ". DXGI's own counter on this chain saw nothing this hook did not - whatever generates frames presents "
-                             + "below DXGI or on another object (§H5 row P3)"
+                           : ". DXGI's own counter on this chain saw nothing this hook did not - frame generation was off, or "
+                             + "whatever generates frames presents below DXGI or on another object (§H5 row P3)"
                        : "");
         }
 
@@ -254,6 +264,7 @@ internal static class SessionReport
         // record 0 while this one starts after the lazy-install prefix — and the resulting rate
         // moved across 78.6-83 on window choice alone, ten times the residual that draft quoted.
         sb.Append("    FG counts: presents=").Append(Count(w.Presents))
+          .Append(" dxgi-unseen=").Append(Count(w.DxgiUnseen))
           .Append(" batches=").Append(Count(w.Batches))
           .Append(" tokens=").Append(Count(w.Evaluations))
           .Append(" streams=").Append(Count(w.Streams))
