@@ -183,7 +183,8 @@ internal static class Program
         // and refuses outright when the span holds more than one stream.
         FgWindow fg = FgWindow.From(result.Records, Stopwatch.Frequency);
         MeasuredFacts facts = MeasuredFacts.From(
-            dominant, result.WriterState, Stopwatch.Frequency, result.TotalGaps, result.TotalDropped, fg);
+            dominant, result.WriterState, Stopwatch.Frequency, result.TotalGaps, result.TotalDropped, fg,
+            result.RuntimeModules);
 
         HostConsole.Line($"  guard ticks published: {result.GuardTicksPublished}");
         HostConsole.Line($"  records: {result.Records.Count} ({dominant.Count} on the dominant stream), " +
@@ -201,12 +202,7 @@ internal static class Program
         int withParams = dominant.Count(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.UpscalerParams));
         HostConsole.Line($"  hooks installed: {(FlHookFamily)result.WriterState.HooksInstalledMask}" +
                           $"   apiMask=0x{result.WriterState.ApiMask:X}   rtTier={result.WriterState.RtTier}");
-        // The census, raw and named, beside the hooks: a real-title run has to be able to say
-        // which module names the loader answered for, not just which qualifier was chosen.
-        var census = (FlRuntimeCensus)result.WriterState.RuntimeCensus;
-        HostConsole.Line($"  runtime census: 0x{result.WriterState.RuntimeCensus:X}  ran={census.HasFlag(FlRuntimeCensus.Ran)}  " +
-                          $"fg=[{CensusNames.Describe(census & FlRuntimeCensusFamilies.Fg)}]  " +
-                          $"upscaler=[{CensusNames.Describe(census & FlRuntimeCensusFamilies.Upscaler)}]");
+        PrintCensus(result);
 
         HostConsole.Line(WriterNote(result));
         HostConsole.Line($"  records carrying Upscaler={withUpscaler}/{dominant.Count}  " +
@@ -230,6 +226,35 @@ internal static class Program
         }
 
         HostConsole.Line(SessionReport.Render(facts));
+    }
+
+    /// <summary>
+    /// The census, raw and named, beside the hooks — a real-title run has to be able to say which
+    /// module names the loader answered for, not just which qualifier was chosen — and then the same
+    /// modules with their FILE versions and paths, from outside the process: the census cannot tell
+    /// 2.7.1 from 2.8.0, and §H5 case 3 turns on exactly that. A path under the driver store rather
+    /// than the game directory is how a DLSS override shows up here.
+    /// </summary>
+    private static void PrintCensus(CaptureResult result)
+    {
+        var census = (FlRuntimeCensus)result.WriterState.RuntimeCensus;
+        HostConsole.Line($"  runtime census: 0x{result.WriterState.RuntimeCensus:X}  ran={census.HasFlag(FlRuntimeCensus.Ran)}  " +
+                          $"fg=[{CensusNames.Describe(census & FlRuntimeCensusFamilies.Fg)}]  " +
+                          $"upscaler=[{CensusNames.Describe(census & FlRuntimeCensusFamilies.Upscaler)}]");
+        PrintRuntimeModules(result.RuntimeModules);
+    }
+
+    /// <summary>One line per census-named module the target had loaded, version and path beside it.</summary>
+    private static void PrintRuntimeModules(RuntimeModuleSet modules)
+    {
+        HostConsole.Line($"  runtime modules: {modules.Modules.Count} of {CensusNames.ModuleFileNames.Count} " +
+                          $"census-named modules resolved over {modules.Snapshots} snapshot(s), " +
+                          $"{modules.Unreadable} unreadable");
+        foreach (RuntimeModuleInfo m in modules.Modules.OrderBy(m => m.FileName, StringComparer.OrdinalIgnoreCase))
+        {
+            string version = m.Parsed?.ToString() ?? "(no version resource)";
+            HostConsole.Line($"    module: {m.FileName}  {version}  {m.Path}");
+        }
     }
 
     /// <summary>Which vendor dispatches actually arrived, one census per vendor route.</summary>
@@ -272,7 +297,8 @@ internal static class Program
                 // --seconds is an operator taking a bounded measurement, and CaptureLoop
                 // already honoured MaxDuration -- nothing could set it.
                 MaxDuration = seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero,
-            });
+            },
+            pid => RuntimeModuleSnapshot.Take(pid, CensusNames.ModuleFileNames));
     }
 
     /// <summary>

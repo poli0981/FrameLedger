@@ -89,6 +89,51 @@ internal sealed record MeasuredFacts
     /// <summary>The string <see cref="FgMode"/> carries for rung 3: active, vendor not identified.</summary>
     public const string FgActiveUnidentified = "Active (technology not identified)";
 
+    /// <summary>The prefix <see cref="FgMode"/> carries when a counted 1.0 is NOT allowed to become <c>none</c>.</summary>
+    public const string FgNoneWithheldPrefix = "N/A (`none` withheld — ";
+
+    /// <summary>
+    /// The Streamline interposer version from which a counted 1.0 beside a loaded DLSS-G plugin is
+    /// withheld from <c>none</c>: Dying Light: The Beast ships 2.8.0 and measured that shape five times.
+    /// </summary>
+    public static readonly Version StreamlineNoneWithheldFrom = new(2, 8, 0);
+
+    /// <summary>
+    /// Why a counted <c>none</c> was not published, or null when it was. <c>20_OPEN_QUESTIONS</c> §H5 case 3.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The shape, measured five times on Dying Light: The Beast (Streamline 2.8.0, 2026-09-04/05):</b>
+    /// DLSS Frame Generation ON in the title's menu, <c>presents = tokens</c> on every capture, and the
+    /// report printed <c>frame generation: none</c>. The owner's reading on 2026-09-05: the title runs at
+    /// DLSS ×4, the Steam overlay shows DLSS, and the frames this hook records are the native ones. So
+    /// on that shape the count is right about the application frames and wrong about the presents —
+    /// the generated ones never reach the <c>Present</c> bodies the Overlay patches — and a <c>none</c>
+    /// computed from it is the affirmative negative CLAUDE.md rule 6 forbids.
+    /// </para>
+    /// <para>
+    /// <b>Keyed on <c>sl.dlss_g.dll</c>, the Streamline plugin that would be doing the presenting — NOT on
+    /// <c>nvngx_dlssg.dll</c>.</b> Every validated <c>none</c> on this machine has the plugin bit CLEAR:
+    /// Cyberpunk 2077 off / ×3 / ×4 on Streamline 2.7.1 (census <c>0x5793D</c>, <c>nvngx_dlssg.dll</c>
+    /// loaded, ×3.99 visible to this hook), Expedition 33 and Lies of P with frame generation off
+    /// (<c>0x27945</c>-shaped words). Every Dying Light: The Beast run has it SET (<c>0x25F0F</c> /
+    /// <c>0x25F4F</c>). A key on <c>nvngx_dlssg.dll</c> would have turned three validated results into
+    /// warnings; this key leaves every one of them byte-identical.
+    /// </para>
+    /// <para>
+    /// <b>And on the interposer's version, read from the file, ≥ 2.8.0.</b> A 2.7 title that loads the
+    /// plugin keeps <c>none</c> — it is what Cyberpunk would be if it loaded it. A plugin loaded beside
+    /// an interposer whose version could not be read is withheld with its own reason: an N/A over a
+    /// <c>none</c> this consumer cannot discriminate. <b>Interim, and its cost is pre-committed:</b> the
+    /// same title with frame generation OFF reads withheld too if the plugin is a startup-time load;
+    /// §H5's Leg 0 measures which, and the gate is withdrawn or narrowed on that reading.
+    /// </para>
+    /// </remarks>
+    public string? NoneWithheld { get; init; }
+
+    /// <summary>The Streamline interposer's file version, when a module snapshot saw it.</summary>
+    public Version? InterposerVersion { get; init; }
+
     /// <summary>Null when <see cref="FlMeasured.Upscaler"/> is clear or the value is UNKNOWN.</summary>
     public string? Upscaler { get; init; }
 
@@ -185,7 +230,7 @@ internal sealed record MeasuredFacts
     /// overstates the factor. <see cref="FgWindow"/> owns that decision and its refusals.
     /// </remarks>
     public static MeasuredFacts From(IReadOnlyList<FlFrameRecord> stream, FlWriterState writer,
-        long qpcFrequency, long totalGaps, long totalDropped, FgWindow? fg = null)
+        long qpcFrequency, long totalGaps, long totalDropped, FgWindow? fg = null, RuntimeModuleSet? modules = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(qpcFrequency);
@@ -202,18 +247,26 @@ internal sealed record MeasuredFacts
         var entitled = EntitledBy((FlHookFamily)writer.HooksInstalledMask);
         int violations = stream.Count(r => !IsHonest(r, entitled));
 
+        var census = (FlRuntimeCensus)writer.RuntimeCensus;
+        string? withheld = fg?.IsNone == true ? WithholdNone(census, modules) : null;
+
         return new MeasuredFacts
         {
             PresentsObserved = stream.Count,
             SecondsObserved = seconds,
 
             Fg = fg,
-            FgMode = FgModeOf(stream) ?? (fg?.IsNone == true ? FgNone : fg?.IsActive == true ? FgActiveUnidentified : null),
+            FgMode = FgModeOf(stream)
+                     ?? (fg?.IsNone == true
+                         ? (withheld is null ? FgNone : FgNoneWithheldPrefix + withheld + ")")
+                         : fg?.IsActive == true ? FgActiveUnidentified : null),
+            NoneWithheld = withheld,
+            InterposerVersion = modules?.VersionOf(_slInterposerFileName),
             UpscalerHookRan = RecordWindow.ClaimedSuffixStart(
                 stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler)) < stream.Count,
             FgHookRan = RecordWindow.ClaimedSuffixStart(
                 stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Fg)) < stream.Count,
-            RuntimeCensus = (FlRuntimeCensus)writer.RuntimeCensus,
+            RuntimeCensus = census,
 
             Extent = UpscaleExtent.From(stream),
             Upscaler = UpscalerOf(stream),
@@ -355,6 +408,32 @@ internal sealed record MeasuredFacts
         // without claiming the measurement is contradicting itself, and it is the shape a drain
         // that cleared one word and not the other would produce.
         return mask.HasFlag(FlMeasured.Rt) || ((FlRtFlags)r.RtFlags == FlRtFlags.None && r.DispatchRaysVolume == 0);
+    }
+
+    private const string _slInterposerFileName = "sl.interposer.dll";
+
+    /// <summary>
+    /// The one shape on which a counted 1.0 may not be published as <c>none</c> — see
+    /// <see cref="NoneWithheld"/> for the measurement and the choice of key.
+    /// </summary>
+    private static string? WithholdNone(FlRuntimeCensus census, RuntimeModuleSet? modules)
+    {
+        if (!census.HasFlag(FlRuntimeCensus.Ran) || !census.HasFlag(FlRuntimeCensus.SlDlssG))
+        {
+            return null;
+        }
+
+        Version? v = modules?.VersionOf(_slInterposerFileName);
+        if (v is null)
+        {
+            return "sl.dlss_g.dll (Streamline's DLSS Frame Generation plugin) is loaded and sl.interposer.dll's file "
+                   + "version could not be read, so the discriminator 20_OPEN_QUESTIONS §H5 names is missing";
+        }
+
+        return v >= StreamlineNoneWithheldFrom
+            ? $"sl.dlss_g.dll (Streamline's DLSS Frame Generation plugin) is loaded on sl.interposer.dll {v}, the shape "
+              + "Dying Light: The Beast measured five times with the title's frame generation ON while presents = tokens"
+            : null;
     }
 
     /// <summary>Which frame-generation technology ran, or null. NEVER the string "none".</summary>

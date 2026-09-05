@@ -1,3 +1,4 @@
+using FrameLedger.CaptureHost.Consume;
 using FrameLedger.Domain.AntiCheat;
 using FrameLedger.Shared;
 
@@ -44,4 +45,11 @@ internal sealed record CaptureResult
     /// configured for ×2.
     /// </remarks>
     public long ForegroundTicks { get; init; }
+
+    /// <summary>
+    /// The census-named modules the target had loaded, with their file versions, merged over every
+    /// snapshot the loop took beside a guard scan. <see cref="RuntimeModuleSet.Empty"/> when the loop
+    /// had no snapshot source.
+    /// </summary>
+    public RuntimeModuleSet RuntimeModules { get; init; } = RuntimeModuleSet.Empty;
 }

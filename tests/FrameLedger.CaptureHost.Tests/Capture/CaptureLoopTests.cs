@@ -3,6 +3,7 @@ using FrameLedger.Application.AntiCheat;
 using FrameLedger.Application.Consent;
 using FrameLedger.CaptureHost.Capture;
 using FrameLedger.CaptureHost.Consent;
+using FrameLedger.CaptureHost.Consume;
 using FrameLedger.Domain.AntiCheat;
 using FrameLedger.Domain.Consent;
 using FrameLedger.Infrastructure.Ipc;
@@ -216,6 +217,67 @@ public sealed class CaptureLoopTests : IDisposable
                 AttachBudget = TimeSpan.FromMilliseconds(50),
                 MaxDuration = TimeSpan.FromMilliseconds(120),
             });
+
+    [Fact]
+    public async Task TheModuleSnapshotIsTakenBesideEveryGuardScanAndOnceMoreBeforeTheLastDrain()
+    {
+        // The snapshot rides on the scan's cadence, never its own: one directly after each publish,
+        // and one more after the loop exits so a module that loaded after the final scan is still
+        // named. The sink's ordered event list is what makes the "directly after" observable.
+        var guard = new CountingGuard();
+        using var sink = new FakeSink();
+        int snapshots = 0;
+        var loop = new CaptureLoop(
+            await StoreWithAsync(), new HookedCaptureGate(guard), guard, new FixedResolver(_pid, SessionEndReason.Running),
+            _ => new FakeLiveness(),
+            _ => (sink, ShmAttachRefusal.Ok),
+            new CaptureOptions
+            {
+                DrainInterval = TimeSpan.FromMilliseconds(1),
+                ScanInterval = TimeSpan.FromMilliseconds(5),
+                AttachBudget = TimeSpan.FromMilliseconds(50),
+                MaxDuration = TimeSpan.FromMilliseconds(120),
+            },
+            pid =>
+            {
+                pid.Should().Be(_pid);
+                snapshots++;
+                sink.Events.Add("modules");
+                return new RuntimeModuleSet(
+                    [new RuntimeModuleInfo("sl.interposer.dll", @"C:\Games\Title\sl.interposer.dll", "2,8,0,0", new Version(2, 8, 0, 0))],
+                    Snapshots: 1, Unreadable: 0);
+            });
+
+        CaptureResult r = await loop.RunAsync(_exe, Fingerprint, "payload.dll", TestContext.Current.CancellationToken);
+
+        snapshots.Should().Be(sink.Published.Count + 1, "one per scan, plus the one before the last drain");
+        r.RuntimeModules.Snapshots.Should().Be(snapshots);
+        r.RuntimeModules.Unreadable.Should().Be(0);
+        r.RuntimeModules.VersionOf("sl.interposer.dll").Should().Be(new Version(2, 8, 0, 0));
+        r.RuntimeModules.Modules.Should().ContainSingle("the same module across snapshots is one entry");
+        for (int i = 0; i < sink.Events.Count; i++)
+        {
+            if (string.Equals(sink.Events[i], "publish", StringComparison.Ordinal))
+            {
+                sink.Events[i + 1].Should().Be("modules", "the snapshot follows the publish directly");
+            }
+        }
+
+        sink.Events[^2].Should().Be("modules", "the final snapshot precedes the final drain");
+        sink.Events[^1].Should().Be("drain");
+    }
+
+    [Fact]
+    public async Task ALoopBuiltWithoutASnapshotSourceReportsAnEmptySet()
+    {
+        var guard = new CountingGuard();
+        using var sink = new FakeSink();
+        CaptureLoop loop = Loop(await StoreWithAsync(), guard, sink);
+
+        CaptureResult r = await loop.RunAsync(_exe, Fingerprint, "payload.dll", TestContext.Current.CancellationToken);
+
+        r.RuntimeModules.Should().BeSameAs(RuntimeModuleSet.Empty);
+    }
 
     [Fact]
     public async Task NoRecordRefusesConsentAndNothingIsEverInjected()
