@@ -302,6 +302,7 @@ struct SwapChainSlot {
     uint8_t  api = FL_API_UNKNOWN;
     bool     haveDxgiCount = false;
     uint32_t lastDxgiCount = 0;
+    uint32_t dxgiEpoch = 0;    // g_dxgiEpoch when lastDxgiCount was read; a mismatch means presents went by unrecorded
 };
 
 // Ask the device whether it can ray-trace, once, and publish it as FlRtTier.
@@ -926,6 +927,15 @@ std::atomic<uint32_t> g_slTagCensus{0};
 // watchdog-published, monotonic.
 std::atomic<uint32_t> g_dxgiUnseen{0};
 std::atomic<uint32_t> g_dxgiSamples{0};
+
+// A PRESENT THIS HOOK SAW AND DECLINED TO RECORD IS NOT ONE IT NEVER SAW. While a
+// session is paused (MayObserve false) the title keeps presenting and DXGI keeps
+// counting, so the first record after the resume would otherwise claim the whole
+// pause as unseen presents -- measured 0x55 on the paused-session integration case.
+// Every declined present bumps this epoch; a slot whose last read is from an older
+// epoch differences nothing and starts again. DXGI_PRESENT_TEST presents do not bump
+// it: they do not move the counter (#35), so there is nothing to invalidate.
+std::atomic<uint32_t> g_dxgiEpoch{0};
 
 void NoteTagTypes(uint32_t typeBits, uint32_t routeShift) noexcept {
     if (typeBits == 0u) {
@@ -1909,6 +1919,9 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
 // lock, no logging (NFR-1, target <= 1 us; a bare vtable detour measured 8.4 ns).
 void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     if (!MayObserve()) {
+        if ((flags & DXGI_PRESENT_TEST) == 0u) {
+            g_dxgiEpoch.fetch_add(1u, std::memory_order_relaxed);    // see the declaration
+        }
         return;
     }
 
@@ -1951,16 +1964,22 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     // patches do not cover. A delta of exactly 1 every time says DXGI saw nothing more
     // than we did. DXGI_PRESENT_TEST presents are already filtered above and do not
     // move this counter (measured, #35), so they cannot read as unseen presents.
+    bool    dxgiDelta = false;
+    uint8_t dxgiUnseenHere = 0;
     if (slot != nullptr) {
-        UINT dxgiCount = 0;
+        UINT           dxgiCount = 0;
+        const uint32_t epoch = g_dxgiEpoch.load(std::memory_order_relaxed);
         if (SUCCEEDED(sc->GetLastPresentCount(&dxgiCount))) {
-            if (slot->haveDxgiCount) {
+            if (slot->haveDxgiCount && slot->dxgiEpoch == epoch) {
                 const uint32_t delta = dxgiCount - slot->lastDxgiCount;
+                dxgiDelta = true;
                 if (delta > 1u) {
                     g_dxgiUnseen.fetch_add(delta - 1u, std::memory_order_relaxed);
+                    dxgiUnseenHere = fl::slseen::SaturateToByte(delta - 1u);
                 }
             }
             slot->lastDxgiCount = dxgiCount;
+            slot->dxgiEpoch = epoch;
             slot->haveDxgiCount = true;
             g_dxgiSamples.fetch_add(1u, std::memory_order_relaxed);
         }
@@ -2006,6 +2025,14 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
     // neither, which is why the bit exists at all rather than being assumed.
     const uint16_t haveOutputRes = (rec.outputW != 0 && rec.outputH != 0) ? FL_MEASURED_OUTPUT_RES : 0u;
     rec.measuredMask = static_cast<uint16_t>(haveOutputRes | FL_MEASURED_PRESENT_ARGS);
+
+    // The per-present form of the DXGI counter read above (fl_shm.h §dxgiUnseen). The
+    // bit says a delta EXISTED -- a zero under it is DXGI agreeing with this hook, not
+    // silence -- which is why the first present of a chain claims nothing.
+    if (dxgiDelta) {
+        rec.dxgiUnseen = dxgiUnseenHere;
+        rec.measuredMask = static_cast<uint16_t>(rec.measuredMask | FL_MEASURED_DXGI_PRESENTS);
+    }
 
     // --- Upscaler identity, and the three states it must keep apart ----------
     //

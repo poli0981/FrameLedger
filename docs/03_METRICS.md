@@ -77,6 +77,31 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
    published `presents / tokens` at or below 1.05 over a uniform window (§The source, below).
    Never from a hook that merely saw nothing (rung 0), and never from the census.
 
+> ### Displayed may be DXGI-COUNTED — measured 2026-09-05 on Dying Light: The Beast
+>
+> `F_disp = presents observed by the hook` (§Counting, below) assumed every present reaches the
+> `Present` / `Present1` bodies the Overlay inline-patches. On Streamline 2.8.0 with DLSS Frame
+> Generation ×4 it does not: the hook timed 4,392 presents while `IDXGISwapChain::GetLastPresentCount`,
+> read on the same chain at every hooked present, moved by 17,133 — **2.90 unseen presents per hooked
+> one** (2.95 on the second capture) — against **0.00** on Streamline 2.7.3 (Hell Is Us, ×3.86) and
+> 2.10.3 (the Onimusha demo, ×3.67), where the generated presents come through the patched bodies. So
+> the record carries `dxgiUnseen` (@52, under `FL_MEASURED_DXGI_PRESENTS`) and the consumer's window
+> counts
+>
+> ```
+> F_disp  = hooked presents + Σ dxgiUnseen        (DXGI-COUNTED when the sum is > 0)
+> ```
+>
+> **When the sum is above zero the report says so on its own line — "Displayed is DXGI-COUNTED" —
+> because the number is then a count DXGI made, on the hooked chain, of presents this hook never
+> timed.** It may stand in the rule-6 trio and in `presents/batch`; it may NOT stand in a frame-time
+> distribution, which has no timestamps for those presents. The uniformity buckets take the same
+> numerator, so a session whose pacer stopped mid-way refuses exactly as one whose tokens stopped. A
+> saturated byte (255) is refused like a saturated `fgEvaluations`, and a present the hook saw and
+> declined (a paused session) is not unseen — the resume's first record differences nothing. `20_OPEN_QUESTIONS` §H5 keeps the
+> rows this landed on; which body the 2.8.0 pacer presents through is unlocalised and does not need
+> to be for the count.
+>
 > **RUNG 2 IS CONDITIONAL ON THE VENDOR, measured 2026-08-20, and this list read as
 > though it were not.** `--track_frame_type` is a **beta** option in PresentMon 2.5.1
 > and its own help says it *"requires application and/or driver instrumentation using

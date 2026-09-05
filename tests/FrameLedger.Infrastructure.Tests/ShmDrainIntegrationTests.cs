@@ -195,12 +195,25 @@ public sealed class ShmDrainIntegrationTests
         // else. In layout v3 the zero-defaults are honest by construction — FlUpscaler.NotReported and
         // FlFgMode.NotReported are 0 — and the mask corroborates rather than being the sole defence.
         //
-        // OutputRes is asserted as "no bit outside these two" rather than as an exact value, because the
-        // overflow fixture legitimately produces records with PresentArgs alone: past 16 swapchains the
-        // writer has no size to report and #57 made the bit conditional on there being one.
+        // OutputRes is asserted as "no bit outside these three" rather than as an exact value, because
+        // the overflow fixture legitimately produces records with PresentArgs alone: past 16 swapchains
+        // the writer has no size to report and #57 made the bit conditional on there being one. The
+        // third bit is DxgiPresents (2026-09-05): the present hook reads GetLastPresentCount on the chain
+        // it saw, and every record after a chain's first claims the delta — a zero here, which the
+        // byte assertion below pins, because this fixture presents only through the patched body.
         records.Should().OnlyContain(
-            r => (r.MeasuredMask & ~(ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs)) == 0,
+            r => (r.MeasuredMask & ~(ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs | FlMeasured.DxgiPresents)) == 0,
             "the writer must claim exactly what it measured — no more");
+        // ...AND A PAUSE IS NOT AN UNSEEN PRESENT. The paused-session case below lets the harness
+        // present ~85 times while the hook declines them; the first record after the resume claimed
+        // them all as "presents DXGI counted and this hook never saw" until the epoch guard in
+        // RecordPresent made a declined present invalidate the chain's last reading. This assertion
+        // runs on every fixture, so that case is the one that keeps the guard honest.
+        records.Should().OnlyContain(r => r.DxgiUnseen == 0,
+            "DXGI must count nothing this hook did not on a fixture that presents only through the patched body "
+            + "— including across a pause, which the hook SAW and declined");
+        records.Should().Contain(r => (r.MeasuredMask & (ushort)FlMeasured.DxgiPresents) != 0,
+            "after a chain's first hooked present the counter has a previous value to difference against");
         records.Should().OnlyContain(r => (r.MeasuredMask & (ushort)FlMeasured.PresentArgs) != 0,
             "syncInterval and presentFlags are the call's own arguments; a DXGI present hook always has them");
         records.Should().OnlyContain(r => r.RtFlags == 0,

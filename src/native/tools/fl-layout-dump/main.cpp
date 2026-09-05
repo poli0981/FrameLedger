@@ -101,7 +101,8 @@ int main() {
     Field("fgEvaluations", offsetof(FlFrameRecord, fgEvaluations), sizeof(uint8_t));
     Field("vramUsedMb", offsetof(FlFrameRecord, vramUsedMb), sizeof(uint32_t));
     Field("reflexLatencyUs", offsetof(FlFrameRecord, reflexLatencyUs), sizeof(uint32_t));
-    Field("reserved", offsetof(FlFrameRecord, reserved), sizeof(uint32_t));
+    Field("dxgiUnseen", offsetof(FlFrameRecord, dxgiUnseen), sizeof(uint8_t));
+    Field("reserved", offsetof(FlFrameRecord, reserved), sizeof(uint8_t) * 3);
     Field("seq", offsetof(FlFrameRecord, seq), sizeof(uint32_t));
     Field("swapchainId", offsetof(FlFrameRecord, swapchainId), sizeof(uint32_t), true);
     std::printf("    ] }\n");

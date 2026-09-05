@@ -1179,7 +1179,8 @@ bool StartHarness(Child& child) {
 uint16_t EntitledBy(uint32_t hooks) noexcept {
     uint16_t allowed = 0;
     if ((hooks & fl::FL_HOOK_PRESENT) != 0u) {
-        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_OUTPUT_RES | fl::FL_MEASURED_PRESENT_ARGS);
+        allowed |= static_cast<uint16_t>(fl::FL_MEASURED_OUTPUT_RES | fl::FL_MEASURED_PRESENT_ARGS |
+                                         fl::FL_MEASURED_DXGI_PRESENTS);
     }
     if ((hooks & fl::FL_HOOK_UPSCALER_IDENTITY) != 0u) {
         allowed |= static_cast<uint16_t>(fl::FL_MEASURED_UPSCALER | fl::FL_MEASURED_FG);
@@ -1223,6 +1224,11 @@ bool IsHonest(const fl::FlFrameRecord& r, uint16_t entitled) noexcept {
         return false;
     }
     if ((r.measuredMask & fl::FL_MEASURED_FG_COUNTS) == 0u && r.fgEvaluations != 0u) {
+        return false;
+    }
+    // dxgiUnseen has no in-band sentinel either -- 0 is DXGI agreeing with the hook -- so
+    // a value under a clear bit is the same defect as an unclaimed count.
+    if ((r.measuredMask & fl::FL_MEASURED_DXGI_PRESENTS) == 0u && r.dxgiUnseen != 0u) {
         return false;
     }
     // featureFlags carries Ray Reconstruction's fact and OBSERVED bits, produced by the
@@ -3178,7 +3184,9 @@ struct FgObservation {
     std::uint32_t dxgiUnseen = 0;
     std::uint32_t dxgiSamples = 0;
     std::size_t   drained = 0;
-    std::uint64_t sigma = 0;    // sum of fgEvaluations over the window
+    std::uint64_t sigma = 0;              // sum of fgEvaluations over the window
+    std::uint64_t dxgiRecUnseen = 0;      // sum of dxgiUnseen over records claiming it
+    std::size_t   dxgiRecClaiming = 0;    // records carrying FL_MEASURED_DXGI_PRESENTS
     std::uint32_t hooks = 0;
     std::uint32_t faults = 0;
     bool          everyRecordClaimsCounts = true;
@@ -3258,6 +3266,10 @@ bool ObserveFg(int presentsPerEval, FgObservation& out) {
             out.drained = all.size();
             for (const auto& r : all) {
                 out.sigma += r.fgEvaluations;
+                if ((r.measuredMask & fl::FL_MEASURED_DXGI_PRESENTS) != 0u) {
+                    ++out.dxgiRecClaiming;
+                    out.dxgiRecUnseen += r.dxgiUnseen;
+                }
                 if ((r.measuredMask & fl::FL_MEASURED_FG_COUNTS) == 0u) {
                     out.everyRecordClaimsCounts = false;
                 }
@@ -3371,6 +3383,12 @@ TEST_CASE("application-frame tokens are COUNTED, and the count tracks the fixtur
         CAPTURE(obs.dxgiSamples);
         CHECK(obs.dxgiUnseen == 0u);
         CHECK(obs.dxgiSamples >= static_cast<std::uint32_t>(obs.drained));
+        // And per record, in the form the consumer's buckets read: every drained record
+        // claims the bit (the chain's first present, which cannot, is in the discarded
+        // backlog) and carries a zero byte.
+        CAPTURE(obs.dxgiRecClaiming);
+        CHECK(obs.dxgiRecUnseen == 0u);
+        CHECK(obs.dxgiRecClaiming == obs.drained);
         CHECK((obs.census & fl::FL_CENSUS_RAN) != 0u);
         CHECK((obs.census & fl::FL_CENSUS_SL_INTERPOSER) != 0u);
         CHECK((obs.census & fl::FL_CENSUS_FG_FAMILIES) == 0u);

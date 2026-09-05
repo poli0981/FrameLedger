@@ -453,7 +453,14 @@ public enum FlMeasured : ushort
     /// </summary>
     FgCounts = 1 << 10,
 
-    // Bits 11-15 reserved. Writers leave them zero; readers IGNORE them rather than validating them as
+    /// <summary>
+    /// <c>dxgiUnseen</c> (2026-09-05, <c>20_OPEN_QUESTIONS</c> §H5 row P1-DXGI): the present hook read
+    /// <c>IDXGISwapChain::GetLastPresentCount</c> at this present and at the previous hooked present on the
+    /// same chain, so the byte is a measurement, a zero included. Clear on a chain's first hooked present.
+    /// </summary>
+    DxgiPresents = 1 << 11,
+
+    // Bits 12-15 reserved. Writers leave them zero; readers IGNORE them rather than validating them as
     // zero. That does NOT make a future field bump-free — recordSize and layoutVersion are compared
     // first, so an old reader refuses a new writer outright.
 }
@@ -598,7 +605,7 @@ public unsafe struct FlControlBlock
 
 /// <summary>Region 4 — the ring. Exactly 64 bytes, no implicit padding.</summary>
 [StructLayout(LayoutKind.Sequential, Size = 64)]
-public struct FlFrameRecord
+public unsafe struct FlFrameRecord
 {
     /// <summary>Present entry timestamp.</summary>
     public ulong Qpc;
@@ -688,8 +695,18 @@ public struct FlFrameRecord
     /// <summary>0 = unavailable.</summary>
     public uint ReflexLatencyUs;
 
+    /// <summary>
+    /// Presents DXGI's own counter recorded on this record's chain since the previous hooked present, beyond
+    /// that one — the per-present form of <see cref="FlWriterState.DxgiPresentsUnseen"/>, under
+    /// <see cref="FlMeasured.DxgiPresents"/>. Measured 2.90 / 2.95 per hooked present on Dying Light: The
+    /// Beast (Streamline 2.8.0, DLSS FG ×4) and 0 on Streamline 2.7.3 and 2.10.3 titles, so on that shape
+    /// the generated presents ARE DXGI presents and the consumer counts <c>Displayed = hooked + this</c>,
+    /// labelled DXGI-COUNTED. Saturates at 255, which the consumer refuses as a sentinel.
+    /// </summary>
+    public byte DxgiUnseen;
+
     /// <summary>Must be zero. Slack, so the next addition does not start from none.</summary>
-    public uint Reserved;
+    public fixed byte Reserved[3];
 
     /// <summary>
     /// Seqlock counter. Monotonic per slot and NEVER reset, so a full lap of the ring always changes it —
