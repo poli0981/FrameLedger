@@ -3212,6 +3212,35 @@ probe never showed a deadlock.
 > | 1 | DL:TB, DLSS, DLSS FG **×4** | the discriminating leg |
 > | 2 | Cyberpunk 2077, DLSS, MFG ×4 (Streamline 2.7.1) | control on the same build: ours ≈ PresentMon ≈ 4× tokens, `x3.99 FG` printed, `module: sl.interposer.dll 2.7.1.0`, plugin bit clear |
 >
+> **Leg 1, the counter half, READ 2026-09-05** (owner's run on #118, `dyinglightbeast-141045`):
+> DLSS FG ×4, our line `Presented FPS: 76.7` with `none` withheld exactly as built, the title's own
+> counter **~300** — 3.9× ours. Reading (a) now has its number. The same day's `-105050` run read
+> 93.24 on the same shape. **Still owed from this table:** the PresentMon leg beside it (which
+> decides P1 against P3, i.e. whether the generated presents are kernel-visible at all), Leg 0
+> (whether `sl.dlss_g.dll` is a startup load), and Leg 2's control. Also the same day, Cyberpunk
+> at DLSS + RR + MFG ×3 read `62.86 → 187.49 (×2.98 FG)`, `frame generation: Active (technology not
+> identified)` — the count is right and the technology is unnamed, because `kFeatureDLSS_G` is
+> never evaluated through the export this build hooks; and the four UE titles at DLSS read
+> `upscaler: N/A` (Lies of P, Hell Is Us, Expedition 33, Wukong: NGX-direct super-resolution, the
+> Streamline interposer loaded and idle for it). **These three shapes — hidden presents on SL 2.8,
+> an unnamed DLSS-G, and an unnamed NGX-direct DLSS — are one question with one candidate answer
+> that is not a hook:** `NvAPI_NGX_GetNGXOverrideState` (NVAPI, MIT, vendored; R570+) takes a
+> PROCESS ID and returns the driver's own feedback bits per feature — SR / RR / FG each with
+> `DLL_LOADED`, `CREATED`, `EVALUATE`, `FG_MODE`, `FG_MULTI_FRAME` — plus `scalingRatio`,
+> `performanceMode` (the quality mode), `renderPreset`, `frameGenerationCount` and
+> `frameGenerationMode`. Out of process, from the driver's bookkeeping, whatever route the title
+> took to NGX. **Unmeasured, and measured before anything is built on it:** whether the bits are
+> populated for a process with no NVIDIA-app override configured (the API's name says "override"),
+> and whether `frameGenerationCount` is the title's multiplier or only an override target.
+> `fl-probe-nvapi --ngx-state <pid>` prints the raw words and every decoded bit; the owner runs it
+> against Lies of P (DLSS, no FG), Hell Is Us (DLSS + FG ×4), Dying Light: The Beast (DLSS FG ×4)
+> and Cyberpunk (MFG), each while the title runs — no capture, no injection, no consent needed.
+> **The decision it opens is the owner's:** a driver-reported fact is neither a hooked argument
+> (rule 4) nor a static hint (`05_DETECTION`); if the probe answers, `03_METRICS` needs a
+> *driver-reported* rung with its own wording ("reported by the NVIDIA driver, not counted"), and
+> the rule-6 pair on the hidden-presents shape could then read *application frames counted ×
+> multiplier reported* — labelled as such, never as a measured Displayed.
+>
 > Leg 1's rows (ours = `presents / span`; PM = PresentMon rows / span; C = the counter; ≈ = within 5 %):
 >
 > | Row | Reading | Meaning | Action |
@@ -3553,6 +3582,19 @@ load-bearing rather than stylistic.
 > |---|---|---|
 > | **B1** | FSR 3 + FSR FG: `upscaler: Fsr3`; `render 1506x847 -> 2560x1440` with **one** distinct extent (the host's `renderSize` and the monolith's PREPARE agree); `frame generation: FsrFg`; `≈73 → ≈146 (×2 FG)` from tokens; `frames/upscale-drained = 1.00`, `fg-dispatch/frame = 1.00`; `module: ffx_fsr3_x64.dll (no version resource)` | accept |
 > | **B1-off** | FSR 3, FG off: `Fsr3`, `none` by count, `frames/upscale-drained = 1.00` | accept |
+>
+> **B1 and B1-off LANDED, 2026-09-05 (owner's run on #119, `cyberpunk2077-105954` and `-135728`):**
+> FSR 3 + FG → `upscaler: Fsr3`, `render 1506x847 upscaler=Fsr3 on 4332 record(s)` (one tuple),
+> `frame generation: FsrFg`, `74.31 → 148.56 (×2 FG)`, `frames/upscale-drained = 1.01`,
+> `fg-dispatch/frame = 1.00`, `module: ffx_fsr3_x64.dll (no version resource)`; FSR 3 with FG off →
+> `Fsr3`, `none` by count (4919 = 4919), `frames/upscale-drained = 1.00`,
+> `render -> output: 1506x847 -> 2560x1440 = 1.7x (59% render scale)`. B2–B4 did not fire. **One
+> defect the run exposed, in the consumer:** the FG-on leg printed `render -> output: N/A` two lines
+> under its own raw block — `UpscaleExtent` keyed its window on the params bit, which under frame
+> generation rides on one present in N, so `ClaimedSuffixStart`'s clean-suffix rule found no
+> window; it now keys on the identity bit (per-record once live) and counts every record inside
+> that carries both sizes. Every FG-on capture since 2026-08-16 had been reading `N/A` there; the
+> earlier "not computed yet" wording had hidden it.
 > | **B2** | `upscale-drained = 0` with `ffx_fsr3_x64.dll` in the census and FSR on — the game calls `ffx_fsr3upscaler_x64.dll` directly and the facade is silent | add the upscaler-DLL row (`ffxFsr3UpscalerContextDispatch`, ten `FfxResource`s, its own offset pin) **instead** — never both |
 > | **B3** | `frames/upscale-drained ≈ 2.00` | two upscale contexts per frame or a re-entered dispatch — investigate before publishing (mirrors R4) |
 > | **B4** | `SETTINGS MOVED: 2 distinct extents` | the host and the PREPARE disagree on the input size; print both, do not average |

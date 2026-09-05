@@ -84,6 +84,49 @@ public sealed class UpscaleExtentTests
     }
 
     [Fact]
+    public void AParamsBitOnOneInNPresentsUnderFrameGenerationStillYieldsTheExtent()
+    {
+        // THE SHAPE EVERY FG-ON CAPTURE HAS: identity on every record once the family is live, params
+        // only on the present that drained the dispatch or tag (1 in N), an honest zero on the rest.
+        // Keyed on the params bit the window was empty — measured on Cyberpunk at FSR 3 + FG and at
+        // DLSS MFG x3, 2026-09-05 — and this is the case that would have caught it.
+        List<FlFrameRecord> stream = [];
+        for (int f = 0; f < 30; f++)
+        {
+            for (int p = 0; p < 3; p++)
+            {
+                stream.Add(p == 0
+                    ? Record(1506, 847, 2560, 1440)
+                    : Record(0, 0, 2560, 1440, extra: FlMeasured.Upscaler));
+            }
+        }
+
+        UpscaleExtent? e = UpscaleExtent.From(stream);
+
+        e.Should().NotBeNull("one present in three carried both sizes, inside a live identity window");
+        e!.Records.Should().Be(30);
+        e.Measured.Should().Be(30);
+        e.DistinctGroups.Should().Be(1);
+        e.RenderScalePercent.Should().BeApproximately(59.0, 0.5);
+    }
+
+    [Fact]
+    public void AnIntermittentIdentityBitIsStillNoWindow()
+    {
+        // The clean-boundary rule survives on the bit the window is now keyed on: an identity bit
+        // that clears and returns is not an install window (hooksInstalledMask is monotonic), and
+        // the extent is refused rather than averaged over records nobody measured.
+        List<FlFrameRecord> stream =
+        [
+            Record(1506, 847, 2560, 1440),                       // identity + params
+            Record(0, 0, 2560, 1440, extra: FlMeasured.None),    // present-only: the identity bit went away
+            Record(1506, 847, 2560, 1440),                       // identity + params again
+        ];
+
+        UpscaleExtent.From(stream).Should().BeNull();
+    }
+
+    [Fact]
     public void RecordsWithoutBothBitsDoNotCount()
     {
         // A value without its bit is the writer's defect; params without an output size cannot make

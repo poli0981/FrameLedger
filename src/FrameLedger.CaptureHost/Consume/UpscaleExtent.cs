@@ -49,13 +49,33 @@ internal sealed record UpscaleExtent
     /// <summary>The per-axis render scale as a percentage — <c>100 / Ratio</c>.</summary>
     public double RenderScalePercent => 100.0 / Ratio;
 
-    /// <summary>The dominant extent over the params-claiming window, or null when no record carried both sizes.</summary>
+    /// <summary>The dominant extent over the identity-claiming window, or null when no record in it carried both sizes.</summary>
+    /// <remarks>
+    /// <b>The window is the IDENTITY suffix, not the params suffix — measured 2026-09-05 on every
+    /// frame-generation run.</b> The writer publishes <see cref="FlMeasured.UpscalerParams"/> only on
+    /// the present that DRAINED a dispatch or tag, which under frame generation is one present in N;
+    /// the other N−1 carry the identity bit and an honest zero. <see cref="RecordWindow.ClaimedSuffixStart"/>
+    /// demands a clean suffix in which every record claims the bit, so keyed on params it returned
+    /// "no window" for every FG-on capture — Cyberpunk at FSR 3 + FG printed <c>render -> output: N/A</c>
+    /// two lines under its own raw block reading <c>render 1506x847 on 4332 record(s)</c>, and the
+    /// 2026-09-04 build's "not computed yet" wording had hidden it. The identity bit IS per-record once
+    /// its family is live (both routes set it on every present), so it is the install window; inside
+    /// it, every record that carries both sizes counts, whichever present it landed on.
+    /// </remarks>
     public static UpscaleExtent? From(IReadOnlyList<FlFrameRecord> stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
         int start = RecordWindow.ClaimedSuffixStart(
-            stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.UpscalerParams));
+            stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler));
+        if (start == stream.Count)
+        {
+            // No identity window: fall back to the params bit itself, which is what a
+            // params-only writer would publish per record.
+            start = RecordWindow.ClaimedSuffixStart(
+                stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.UpscalerParams));
+        }
+
         if (start == stream.Count)
         {
             return null;
