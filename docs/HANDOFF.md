@@ -741,7 +741,15 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   candidate title. **Owner decision 2026-09-05: this is its own session and its own PR.** Read
   §H5 first; the discriminator (the owner's counter beside our `FPS:` line) is pre-committed
   there and is the first thing that session asks for. Nothing in FG counting changes before
-  that reading.
+  that reading. **The reading came the same day and the first PR landed on it** — the owner:
+  the title runs at DLSS ×4, the frames we record are the native ones (§H5, verbatim). The
+  capture host now prints each census-named module's file version and withholds `none` on
+  that shape (`03_METRICS` §Frame Generation; the key is `sl.dlss_g.dll`, not
+  `nvngx_dlssg.dll`). **What is next is the owner's session pre-committed in §H5** — DL:TB with
+  DLSS FG off and ×4, Cyberpunk MFG ×4 as the control, PresentMon elevated beside each, the
+  counter's NUMBER written down — and the row it lands on decides whether the gate stays, a
+  second present sink is costed (§H5 lists the candidates; the route is the owner's), or the
+  gate is withdrawn. Nothing in the hook changes before that row.
 
 #### 7b. Titles whose upscaler or frame generation is compiled into the executable
 
