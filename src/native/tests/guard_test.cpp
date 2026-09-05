@@ -2923,121 +2923,103 @@ TEST_CASE("the injected Overlay measures an upscaler it can identify", "[guard][
 // the params family, and assert the EXACT tagged size on every record after the
 // backlog. Shared by the two cases below so the assertion cannot drift between the
 // export a title uses and the shape of the tag it passes.
-void AssertGlobalTagRoutePublishesExactExtent(const wchar_t* harnessFlags) {
+void AssertGlobalTagRoutePublishesExactExtent(const wchar_t* harnessFlags, bool expectDlssgIdentity = false) {
     Child        child;
     std::wstring cmd =
         std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --real " + harnessFlags + L" --hold-presenting-upscaled 12";
-
     STARTUPINFOW si{};
-
     si.cb = sizeof(si);
-
     REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
-
                            &child.pi));
-
     Sleep(800);
-
     REQUIRE(WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT);
-
     ResetFake();
-
     g.modules = {"kernel32.dll"};
-
     g.scanSet = {child.pi.dwProcessId};
-
     REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
-
     wchar_t name[128]{};
-
     REQUIRE(_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", child.pi.dwProcessId) > 0);
-
     HANDLE mapping = nullptr;
-
     for (int i = 0; i < 100 && mapping == nullptr; ++i) {
-
         mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, name);
-
         if (mapping == nullptr) {
-
             Sleep(50);
         }
     }
-
     REQUIRE(mapping != nullptr);
-
     const void* base = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
-
     REQUIRE(base != nullptr);
-
     const auto* st =
-
         reinterpret_cast<const fl::FlWriterState*>(static_cast<const unsigned char*>(base) + FL_SHM_WRITER_OFFSET);
-
     for (int i = 0; i < 100 && st->status != fl::FL_STATUS_READY; ++i) {
-
         Sleep(50);
     }
-
     REQUIRE(st->status == fl::FL_STATUS_READY);
-
     REQUIRE(WaitForIdentityHook(st));
-
     REQUIRE(WaitForHookFamily(st, static_cast<uint32_t>(fl::FL_HOOK_UPSCALER_PARAMS)));
-
     fl::RingReader rd;
-
     REQUIRE(rd.Init(base, FL_SHM_DEFAULT_CAPACITY));
-
     DiscardBacklog(rd);
-
     const std::vector<fl::FlFrameRecord> all = DrainAtLeast(rd, 40, 8000);
-
     REQUIRE(all.size() > 20);
-
     int claimedParams = 0;
-
     int wrongExtent = 0;
-
     int identified = 0;
-
+    int dlssgMarked = 0;
+    int fsrFgMarked = 0;
     for (const auto& r : all) {
-
         if (r.upscaler == fl::FL_UPSCALER_DLSS) {
-
             ++identified;
         }
-
+        if (r.fgMode == fl::FL_FG_DLSS_G) {
+            ++dlssgMarked;
+        }
+        if (r.fgMode == fl::FL_FG_FSR_FG) {
+            ++fsrFgMarked;
+        }
         if ((r.measuredMask & fl::FL_MEASURED_UPSCALER_PARAMS) != 0u) {
-
             ++claimedParams;
-
             if (r.renderW != FL_TAGGED_RENDER_W || r.renderH != FL_TAGGED_RENDER_H) {
-
                 ++wrongExtent;
             }
         }
     }
-
     INFO("identified " << identified << ", params on " << claimedParams << " of " << all.size());
-
     CHECK(identified > static_cast<int>(all.size()) - 3);
-
     // Every record once BOTH rows' family is live and the backlog is gone -- the same
-
     // equality the slSetTag case asserts, from the other export.
-
     CHECK(claimedParams == static_cast<int>(all.size()));
-
     CHECK(wrongExtent == 0);
-
     CHECK(st->faultCount == 0);
 
+    // THE IDENTITY HALF OF FRAME GENERATION, FROM THE TAGS' TYPES (fl_shm.h §slTagCensus).
+    // This fixture never evaluates kFeatureDLSS_G, so a record naming DLSS_G can only
+    // have come from a HUD-less or UI tag in the list -- and without those tags NO
+    // record may name it, or a scaling-input tag alone would read as frame generation.
+    // The tag census must say which route carried them and must not say the local route
+    // did, since this fixture tags globally only.
+    const uint32_t census = st->slTagCensus;
+    const uint32_t global = (census >> fl::FL_SL_TAG_ROUTE_GLOBAL) & fl::FL_SL_TAG_TYPE_MASK;
+    const uint32_t frame = (census >> fl::FL_SL_TAG_ROUTE_FRAME) & fl::FL_SL_TAG_TYPE_MASK;
+    const uint32_t local = (census >> fl::FL_SL_TAG_ROUTE_LOCAL) & fl::FL_SL_TAG_TYPE_MASK;
+    INFO("DLSS_G on " << dlssgMarked << " of " << all.size() << ", tag census " << census);
+    CHECK(fsrFgMarked == 0);
+    CHECK(local == 0u);
+    CHECK(((global | frame) & fl::FL_SL_TAG_SCALING_INPUT) != 0u);
+    if (expectDlssgIdentity) {
+        // Every record once the family is live: the list is re-tagged before every
+        // present, so every present drains the mark -- the same equality as params.
+        CHECK(dlssgMarked == static_cast<int>(all.size()));
+        CHECK(((global | frame) & fl::FL_SL_TAG_HUDLESS) != 0u);
+        CHECK(((global | frame) & fl::FL_SL_TAG_UI_COLOR_ALPHA) != 0u);
+        CHECK(((global | frame) & fl::FL_SL_TAG_DEPTH) != 0u);
+    } else {
+        CHECK(dlssgMarked == 0);
+        CHECK(((global | frame) & fl::FL_SL_TAG_DLSSG_INPUTS) == 0u);
+    }
     UnmapViewOfFile(base);
-
     CloseHandle(mapping);
 }
-
 TEST_CASE("a Streamline 2.8 title that tags through slSetTagForFrame still publishes the extent",
           "[guard][inject][shm][upscaler]") {
     // THE ROW THAT DID NOT EXIST ON 2026-09-04 MORNING. Dying Light: The Beast ships
@@ -3047,6 +3029,23 @@ TEST_CASE("a Streamline 2.8 title that tags through slSetTagForFrame still publi
     // frame-based export, so an extent in the record can only have come from the new
     // row -- and the exact tagged size is asserted, not "non-zero".
     AssertGlobalTagRoutePublishesExactExtent(L"--sl-tag-for-frame");
+}
+
+TEST_CASE("DLSS-G inputs tagged through Streamline name DLSS_G on the present that drained them, with no "
+          "kFeatureDLSS_G evaluation",
+          "[guard][inject][shm][upscaler][fg]") {
+    // THE IDENTITY FIVE REAL TITLES COULD NOT GIVE. kFeatureDLSS_G is never evaluated
+    // through slEvaluateFeature on Streamline 2.x (measured, five titles), so the only
+    // per-frame statement a title makes about DLSS Frame Generation through an API this
+    // build hooks is the HUD-less and UI tags the DLSS-G guide §5.0 requires. This
+    // fixture sends that list through slSetTag and evaluates kFeatureDLSS only; the
+    // record must name DLSS_G on every present, and the census must show the two inputs
+    // on the global route. Its twin below sends the same list through the 2.8 export.
+    AssertGlobalTagRoutePublishesExactExtent(L"--sl-tag-dlssg-inputs", /*expectDlssgIdentity=*/true);
+}
+
+TEST_CASE("the DLSS-G inputs through slSetTagForFrame name DLSS_G too", "[guard][inject][shm][upscaler][fg]") {
+    AssertGlobalTagRoutePublishesExactExtent(L"--sl-tag-for-frame --sl-tag-dlssg-inputs", /*expectDlssgIdentity=*/true);
 }
 
 TEST_CASE("a title that tags the WHOLE input resource publishes the size the Resource declares",

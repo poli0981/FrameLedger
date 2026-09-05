@@ -289,6 +289,51 @@ public enum FlRuntimeCensus : uint
     AmdFfxDx12 = 1u << 18,
 }
 
+/// <summary>
+/// Mirror of <c>FlSlTagType</c>: the Streamline buffer types the tag detours and the local inputs walk record, as
+/// bits within one route's field of <see cref="FlWriterState.SlTagCensus"/>.
+/// </summary>
+/// <remarks>
+/// <b>The identity half of frame generation, from an argument already hooked.</b> Streamline's DLSS-G programming
+/// guide §5.0 requires a title running DLSS Frame Generation to tag the HUD-less colour and UI buffers every frame
+/// through <c>slSetTag</c> / <c>slSetTagForFrame</c> / <c>slEvaluateFeature</c>'s inputs; a title running
+/// super-resolution alone never tags them. So <see cref="DlssgInputs"/> tagged says the title is FEEDING frame
+/// generation — identity, never a count: whether frames were generated stays the count's verdict.
+/// </remarks>
+[Flags]
+public enum FlSlTagType : uint
+{
+    None = 0,
+    Depth = 1u << 0,
+    MotionVectors = 1u << 1,
+    Hudless = 1u << 2,
+    ScalingInput = 1u << 3,
+    ScalingOutput = 1u << 4,
+    UiColorAlpha = 1u << 5,
+    UiAlpha = 1u << 6,
+    Backbuffer = 1u << 7,
+    Other = 1u << 8,
+
+    /// <summary>Mirror of <c>FL_SL_TAG_DLSSG_INPUTS</c>: the buffers only DLSS Frame Generation consumes.</summary>
+    DlssgInputs = Hudless | UiColorAlpha | UiAlpha,
+}
+
+/// <summary>Mirror of the <c>FL_SL_TAG_ROUTE_*</c> shifts and the per-route width.</summary>
+public static class FlSlTagRoute
+{
+    public const int TypeBits = 9;
+    public const uint TypeMask = (1u << TypeBits) - 1u;
+    public const int Global = 0;
+    public const int Frame = TypeBits;
+    public const int Local = 2 * TypeBits;
+
+    /// <summary>The <see cref="FlSlTagType"/> bits one route contributed to a census word.</summary>
+    public static FlSlTagType Of(uint census, int route) => (FlSlTagType)((census >> route) & TypeMask);
+
+    /// <summary>The union of every route's bits.</summary>
+    public static FlSlTagType Any(uint census) => Of(census, Global) | Of(census, Frame) | Of(census, Local);
+}
+
 /// <summary>The two groups of <see cref="FlRuntimeCensus"/>, mirroring <c>FL_CENSUS_FG_FAMILIES</c> and <c>FL_CENSUS_UPSCALER_FAMILIES</c>.</summary>
 public static class FlRuntimeCensusFamilies
 {
@@ -495,8 +540,15 @@ public unsafe struct FlWriterState
     /// <summary><see cref="FlRuntimeCensus"/> bits. Watchdog-published, OR-only. Took <c>reserved[0]</c> on 2026-09-03.</summary>
     public uint RuntimeCensus;
 
+    /// <summary>
+    /// <see cref="FlSlTagType"/> bits per route (<see cref="FlSlTagRoute"/>): which Streamline buffer types the
+    /// title tagged, on which of the three tag routes. Watchdog-published, OR-only. Took <c>reserved[0]</c> on
+    /// 2026-09-05 the way <see cref="RuntimeCensus"/> took it — additive, no layout bump.
+    /// </summary>
+    public uint SlTagCensus;
+
     /// <summary>Must be zero; room for additive fields.</summary>
-    public fixed uint Reserved[5];
+    public fixed uint Reserved[4];
 
     // WHY THE COUNTERS ARE PUBLISHED AT 1 Hz AND NOT ACCUMULATED HERE PER FRAME: this struct is
     // region 2, which the Overlay writes on the present path, and the regions are separate cache lines

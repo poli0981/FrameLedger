@@ -147,7 +147,11 @@ internal static class SessionReport
                    + ". 20_OPEN_QUESTIONS §H5 case 3: on this shape the generated presents may never reach the "
                    + "Present bodies this hook patches, so this number counts APPLICATION frames; whether frames were "
                    + "generated, and the Displayed rate, are unknown. Read it as the application-frame rate, never "
-                   + "as Displayed";
+                   + "as Displayed"
+                   + (facts.DlssgInputsTagged
+                       ? ". The title tagged DLSS-G inputs (HUD-less / UI) through Streamline this session — it is "
+                         + "FEEDING frame generation, which is the identity; the count is still what it is"
+                       : "");
         }
 
         if (!facts.CensusRan)

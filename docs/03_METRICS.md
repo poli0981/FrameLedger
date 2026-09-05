@@ -249,7 +249,26 @@ F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the 
 > that keeps, narrows or withdraws it.
 >
 > **What `fgMode` still is.** Identity — `DLSS_G` when a `kFeatureDLSS_G` evaluation drained,
-> `UNKNOWN` otherwise — from the evaluate detour, unchanged. A factor ≥ 1.5 with `UNKNOWN`
+> `UNKNOWN` otherwise — from the evaluate detour, unchanged. **And since 2026-09-05, `DLSS_G` when the
+> present drained a HUD-less or UI tag** (`kBufferTypeHUDLessColor`, `kBufferTypeUIColorAndAlpha`,
+> `kBufferTypeUIAlpha`) on any of the three tag routes the Overlay already hooks: Streamline's DLSS-G
+> programming guide §5.0 requires a title running frame generation to tag those buffers every frame, and
+> nothing else a title evaluates through Streamline that generates frames consumes them. Read off the
+> argument of an API already hooked (rule 4), zero new hooks — the identity `kFeatureDLSS_G` evaluations
+> were supposed to give and gave on no measured title. **Identity only.** A title may tag the inputs with
+> frame generation switched off in its menu, so the consumer's rule is: **the count decides `none`,
+> identity decides the name** — an active count beside the mark prints `DlssG`; a counted 1.0 beside it
+> prints `none` with the inputs noted; the withheld shape (§H5) keeps its N/A with the tags reported in
+> the census line. `FsrFg` keeps precedence over the count, because a drained FRAMEGENERATION dispatch
+> is a generated batch. `FlWriterState.slTagCensus` carries which types arrived on which route for the
+> session (`fl_shm.h` §slTagCensus).
+>
+> **Refused, with the reason written:** `slDLSSGGetState`, the API the DLSS-G guide §14.0 names for
+> "the actual number of frames presented". Its `numFramesActuallyPresented` is *"the number of frames
+> presented since the last `slDLSSGGetState` call"* — the call RESETS the plugin's counter, so a
+> measurement tool calling it would corrupt the very number a title reads for its own FPS display; and
+> `sl_dlss_g.h` marks it *"NOT thread safe"*. Observing is the whole posture; a query with a side
+> effect on the host is not observing. A factor ≥ 1.5 with `UNKNOWN`
 > identity is *frame generation active, technology not identified*, which on a UE5 title with
 > both Streamline and FidelityFX loaded is the honest answer.
 

@@ -242,6 +242,11 @@ internal static class Program
                           $"fg=[{CensusNames.Describe(census & FlRuntimeCensusFamilies.Fg)}]  " +
                           $"upscaler=[{CensusNames.Describe(census & FlRuntimeCensusFamilies.Upscaler)}]");
         PrintRuntimeModules(result.RuntimeModules);
+        // Which Streamline buffer types the title tagged, on which route: the identity half of
+        // frame generation (fl_shm.h §slTagCensus). A DLSS-G title tags hudless and UI every
+        // frame; a super-resolution-only title tags neither.
+        HostConsole.Line($"  Streamline tag census: 0x{result.WriterState.SlTagCensus:X}  " +
+                          SlTagCensusNames.DescribeRoutes(result.WriterState.SlTagCensus));
     }
 
     /// <summary>One line per census-named module the target had loaded, version and path beside it.</summary>

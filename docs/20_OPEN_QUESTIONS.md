@@ -3241,6 +3241,42 @@ probe never showed a deadlock.
 > the rule-6 pair on the hidden-presents shape could then read *application frames counted ×
 > multiplier reported* — labelled as such, never as a measured Displayed.
 >
+> ### THE STREAMLINE DOCS, READ 2026-09-05 (v2.8.0 and main), AND WHAT THEY CHANGED
+>
+> The owner asked for the vendor's own guides before any rewrite. Three things in them decide this item.
+>
+> 1. **DLSS-G presents through the "SL pacer"** (DLSS-G guide §14.1): an asynchronous presentation
+>    mechanism, with *"specialized hardware to delay the image after Present() has been called"* and a
+>    note that `MsBetweenPresents` in third-party tools *"indicates when the internal Present() call has
+>    happened"*. So the generated frames ARE presented by internal `Present()` calls on 2.7.1 — which is
+>    what this hook counts on Cyberpunk — and whether 2.8's pacer on Blackwell still reaches the body we
+>    patch is exactly what Leg 1's PresentMon half measures. The docs do not say; they say FrameView 16.1
+>    is the recommended tool because it reads `MsBetweenDisplayChange`, i.e. the display side.
+> 2. **`slDLSSGGetState` is the documented way to get the presented count** (§14.0: `actualFPS = myFPS *
+>    state.numFramesActuallyPresented`) — and it is **refused here**, with the reason in `03_METRICS` §FG:
+>    the header defines the field as *"number of frames presented since the last `slDLSSGGetState` call"*,
+>    so every call RESETS the plugin's counter, and a title that reads it for its own FPS display would
+>    read our calls' remainder. It is also marked *"NOT thread safe"*. A measurement that alters the
+>    host's measurement is not observing.
+> 3. **§5.0 "Tag all required resources": DLSS-G requires the HUD-less and UI buffers to be tagged every
+>    frame** through `slSetTag` / `slSetTagForFrame` / `slEvaluateFeature`'s inputs — the three routes this
+>    build already hooks and read ONE tag type from. **Built the same day:** every tag's type is recorded
+>    (`FlWriterState.slTagCensus`, per route), a HUD-less or UI tag drained by a present marks it
+>    `FL_FG_DLSS_G`, and the consumer names `DlssG` beside an active count. Identity, not a count: the
+>    count still decides `none`, so a title tagging the inputs with the feature off prints `none` with the
+>    inputs noted, and the withheld shape keeps its N/A.
+>
+> **Pre-committed for the next run, per title:** Cyberpunk at DLSS + MFG → `frame generation: DlssG`,
+> tag census `global=[depth, mvec, hudless, ui-color-alpha, …]` (2.7.1 tags globally; the scaling input
+> arrives locally). Hell Is Us / Expedition 33 / Wukong at DLSS + FG ×4 → `DlssG` **if** the UE Streamline
+> plugin tags through the exports (their `UpscalerParams = 0` says no scaling-input tag arrived, which is
+> consistent with NGX-direct super-resolution and says nothing about the DLSS-G inputs); if the census
+> reads `global=[-] frame=[-] local=[-]` on those titles, they tag through neither export and the identity
+> stays `Active (technology not identified)` honestly. DL:TB at DLSS FG ×4 → the census line says whether
+> the title feeds DLSS-G through a route this build sees; the qualifier then says *"FEEDING frame
+> generation"* beside the withheld count. Lies of P at DLSS (no Streamline tokens at all) → unchanged:
+> the super-resolution identity on NGX-direct titles is what the NVAPI probe above is for.
+>
 > Leg 1's rows (ours = `presents / span`; PM = PresentMon rows / span; C = the counter; ≈ = within 5 %):
 >
 > | Row | Reading | Meaning | Action |

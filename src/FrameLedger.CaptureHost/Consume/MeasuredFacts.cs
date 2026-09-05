@@ -134,6 +134,18 @@ internal sealed record MeasuredFacts
     /// <summary>The Streamline interposer's file version, when a module snapshot saw it.</summary>
     public Version? InterposerVersion { get; init; }
 
+    /// <summary>
+    /// <see cref="FlWriterState.SlTagCensus"/>: which Streamline buffer types the title tagged, on which route.
+    /// </summary>
+    public uint SlTagCensus { get; init; }
+
+    /// <summary>
+    /// The title tagged a HUD-less or UI buffer through Streamline on some route — the inputs only DLSS Frame
+    /// Generation consumes (DLSS-G programming guide §5.0). Identity, never a count: the title is FEEDING frame
+    /// generation, and whether frames were generated is still the count's verdict.
+    /// </summary>
+    public bool DlssgInputsTagged => (FlSlTagRoute.Any(SlTagCensus) & FlSlTagType.DlssgInputs) != FlSlTagType.None;
+
     /// <summary>Null when <see cref="FlMeasured.Upscaler"/> is clear or the value is UNKNOWN.</summary>
     public string? Upscaler { get; init; }
 
@@ -256,12 +268,10 @@ internal sealed record MeasuredFacts
             SecondsObserved = seconds,
 
             Fg = fg,
-            FgMode = FgModeOf(stream)
-                     ?? (fg?.IsNone == true
-                         ? (withheld is null ? FgNone : FgNoneWithheldPrefix + withheld + ")")
-                         : fg?.IsActive == true ? FgActiveUnidentified : null),
+            FgMode = ResolveFgMode(FgModeOf(stream), fg, withheld),
             NoneWithheld = withheld,
             InterposerVersion = modules?.VersionOf(_slInterposerFileName),
+            SlTagCensus = writer.SlTagCensus,
             UpscalerHookRan = RecordWindow.ClaimedSuffixStart(
                 stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler)) < stream.Count,
             FgHookRan = RecordWindow.ClaimedSuffixStart(
@@ -411,6 +421,42 @@ internal sealed record MeasuredFacts
     }
 
     private const string _slInterposerFileName = "sl.interposer.dll";
+
+    /// <summary>The string <see cref="FgMode"/> carries when the count said <c>none</c> while DLSS-G inputs were tagged.</summary>
+    public const string FgNoneInputsTagged =
+        "None (DLSS-G inputs were tagged through Streamline; the count says every present carried an application frame)";
+
+    /// <summary>
+    /// Identity and count, combined by one rule: <b>the count decides <c>none</c>, identity decides the name.</b>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Until 2026-09-05 identity won outright, which was right for the identities the writer could produce:
+    /// <c>FsrFg</c> lands only on a present that drained a FRAMEGENERATION dispatch (a generated batch, a fact
+    /// about generation), and <c>DlssG</c> from a <c>kFeatureDLSS_G</c> evaluation never landed at all. Now
+    /// <c>DlssG</c> also lands on a present that drained a HUD-less or UI tag — the title FEEDING frame
+    /// generation, which a title may do with the feature switched off in its menu. So a counted 1.0 beside a
+    /// <c>DlssG</c> mark is <c>none</c> with the inputs noted, never <c>DlssG</c>; an active count beside it is
+    /// <c>DlssG</c>, named for the first time on the titles that never evaluate the feature; and a withheld
+    /// count (§H5) keeps its N/A, with the tags reported beside it in the census line.
+    /// </para>
+    /// <para><c>FsrFg</c> keeps precedence over the count: a generated batch drained is a generated batch.</para>
+    /// </remarks>
+    private static string? ResolveFgMode(string? identity, FgWindow? fg, string? withheld)
+    {
+        bool dlssg = string.Equals(identity, nameof(FlFgMode.DlssG), StringComparison.Ordinal);
+        if (fg?.IsNone == true && withheld is null && (identity is null || dlssg))
+        {
+            return dlssg ? FgNoneInputsTagged : FgNone;
+        }
+
+        if (fg?.IsNone == true && withheld is not null && (identity is null || dlssg))
+        {
+            return FgNoneWithheldPrefix + withheld + ")";
+        }
+
+        return identity ?? (fg?.IsActive == true ? FgActiveUnidentified : null);
+    }
 
     /// <summary>
     /// The one shape on which a counted 1.0 may not be published as <c>none</c> — see

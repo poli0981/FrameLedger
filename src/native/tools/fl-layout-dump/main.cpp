@@ -63,7 +63,8 @@ int main() {
     Field("rtStateObjectsCreated", offsetof(FlWriterState, rtStateObjectsCreated), sizeof(uint32_t));
     Field("rasterPsoCreated", offsetof(FlWriterState, rasterPsoCreated), sizeof(uint32_t));
     Field("runtimeCensus", offsetof(FlWriterState, runtimeCensus), sizeof(uint32_t));
-    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 5, true);
+    Field("slTagCensus", offsetof(FlWriterState, slTagCensus), sizeof(uint32_t));
+    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 4, true);
     std::printf("    ] },\n");
 
     std::printf("    \"FlControlBlock\": { \"size\": %zu, \"fields\": [\n", sizeof(FlControlBlock));
