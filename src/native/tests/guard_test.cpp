@@ -2998,6 +2998,18 @@ void AssertGlobalTagRoutePublishesExactExtent(const wchar_t* harnessFlags, bool 
     // record may name it, or a scaling-input tag alone would read as frame generation.
     // The tag census must say which route carried them and must not say the local route
     // did, since this fixture tags globally only.
+    // POLL FOR THE CENSUS, do not read it once. It is published by the watchdog on its
+    // 1 Hz tick, while the records above were drained ~330 ms after the family went
+    // live -- on CI the first read came back 0 with DLSS_G already on 41 of 41 records.
+    // The state to wait for is the one every fixture here produces (a scaling-input tag
+    // on a global route); the timeout keeps failing, so a census that never publishes
+    // is still red rather than skipped (HANDOFF §Traps: a writer state read once).
+    const auto routeBits = [st](uint32_t route) { return (st->slTagCensus >> route) & fl::FL_SL_TAG_TYPE_MASK; };
+    for (int i = 0; i < 80 && ((routeBits(fl::FL_SL_TAG_ROUTE_GLOBAL) | routeBits(fl::FL_SL_TAG_ROUTE_FRAME)) &
+                               fl::FL_SL_TAG_SCALING_INPUT) == 0u;
+         ++i) {
+        Sleep(50);
+    }
     const uint32_t census = st->slTagCensus;
     const uint32_t global = (census >> fl::FL_SL_TAG_ROUTE_GLOBAL) & fl::FL_SL_TAG_TYPE_MASK;
     const uint32_t frame = (census >> fl::FL_SL_TAG_ROUTE_FRAME) & fl::FL_SL_TAG_TYPE_MASK;
