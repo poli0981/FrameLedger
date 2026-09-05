@@ -135,10 +135,21 @@ Read off the upstream repository through the GitHub API, not from memory:
   header of interest carries the same grant inline — the `ffx-api/include/ffx_api/` set and the
   FSR 3.0 host API under `sdk/include/FidelityFX/host/`. None of step 2's needles appear. **This
   paragraph said "vendor from this tag", and its own reversal condition fired the same day** —
-  see the third bullet. The host API is still only here: `main` dropped `ffx_fsr3.h`, so the FSR
+  see the third bullet. ~~The host API is still only here: `main` dropped `ffx_fsr3.h`, so the FSR
   3.0 route (Cyberpunk's `ffx_fsr3_x64.dll`, named exports) vendors from `v1.1.4` when it is built,
   and its closure is **ten** files, not the nine first listed — `ffx_interface.h` includes
-  `ffx_message.h` — with `<mutex>`/`<shared_mutex>` reached through `ffx_types.h`.
+  `ffx_message.h` — with `<mutex>`/`<shared_mutex>` reached through `ffx_types.h`.~~ **Wrong tag,
+  corrected 2026-09-05 when the route was built.** Cyberpunk's `ffx_fsr3_x64.dll` exports twelve
+  `ffxFsr3*` names (`vendor-exports.json`), which is exactly tag **`fsr3-v3.0.4`**'s declaration
+  list; `v1.1.4` declares fifteen and appends `upscaleSize`, `flags` and `frameID` to
+  `FfxFsr3DispatchUpscaleDescription` *after* `renderSize` — a detour typed against it would read
+  the wrong bytes off the module the title ships. At `fsr3-v3.0.4` the root `LICENSE.txt` is MIT
+  verbatim, every header carries the grant inline, and **`ffx_types.h` includes `<stdint.h>` and
+  nothing else** — the `<mutex>` block exists only from 1.1.x behind `#ifndef FFX_MUTEX`. The
+  closure is ten files with **no `ffx_message.h`** (nine host headers plus
+  `gpu/fsr3upscaler/ffx_fsr3upscaler_resources.h`). Vendored at
+  `src/native/third_party/fidelityfx-fsr3/` in its own directory because the licence *shape*
+  differs from `v2.3.0`'s exception list; `license-check.ps1` §2e asserts it per file.
 - **`main` == tag `v2.3.0`** (`60f4ea81`, "AMD FSR SDK 2.3.0", 2026-06-24) is a different shape:
   its `docs/license.md` is a **binary-only, no-reverse-engineering** default licence that
   "applies to all files except as noted below", followed by an MIT exception list of 845 paths.

@@ -503,6 +503,21 @@ elseif ($violations.Count -eq 0) {
                     $violations.Add("Pass C: the export parser did not see ffxDispatch on the leaf fixture $($leafStub.FullName), so it reads nothing - refusing rather than reporting a clean export table nobody parsed")
                 }
             }
+            # A SECOND positive control, on the other vendor macro: the FSR 3.0 host fixture
+            # defines ffxFsr3ContextDispatchUpscale through fsr3-v3.0.4's FFX_API
+            # (dllexport, no switch). Two fixtures through two macros, so a parser that
+            # happened to see one linkage shape is not taken as seeing exports in general.
+            $hostStub = Get-ChildItem $BuildDir -Recurse -Filter 'ffx_fsr3_x64.dll' -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            if (-not $hostStub) {
+                $violations.Add("Pass C: the ffx_fsr3_x64.dll host fixture was not found under $BuildDir, so the export parser's second positive control is missing")
+            }
+            else {
+                $hostExports = Get-ExportName (& $dumpbin /nologo /exports $hostStub.FullName 2>&1 | Out-String)
+                if ($hostExports -notcontains 'ffxFsr3ContextDispatchUpscale') {
+                    $violations.Add("Pass C: the export parser did not see ffxFsr3ContextDispatchUpscale on the host fixture $($hostStub.FullName)")
+                }
+            }
             foreach ($bad in (Get-ForbiddenExport $exports)) {
                 $violations.Add("Pass C: FrameLedger.Overlay.dll EXPORTS '$bad' - the vendored headers declare these names __declspec(dllexport), and a definition in the Overlay announces a vendor API it does not implement, from inside somebody else's game")
             }

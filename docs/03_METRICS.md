@@ -283,8 +283,13 @@ F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the 
 >   the first** is 7c's own rule, and this is it.
 >
 > The acceptance table for the owner's three launches is pre-committed in `20_OPEN_QUESTIONS` §H11.
-> What this route does NOT reach: the FSR 3.0 host DLLs (`ffx_fsr3_x64.dll`, named exports, deferred
-> to their own PR), statically linked FSR (§Scope decisions), and Intel (closed at the census).
+> What this route does NOT reach: statically linked FSR (§Scope decisions) and Intel (closed at the
+> census). **The FSR 3.0 host DLL is reached since 2026-09-05** — a fifth AMD target,
+> `ffx_fsr3_x64.dll!ffxFsr3ContextDispatchUpscale` (Cyberpunk 2077's copy; named export, its own
+> descriptor, tag `fsr3-v3.0.4`), whose UPSCALE feeds the same drain word: identity `FSR3` as a
+> fact, `renderSize` as the extent, and the count from its upscales when neither Streamline nor a
+> PREPARE has ever spoken. On Cyberpunk the count stays Streamline's and `FsrFg` stays the
+> monolith's; the host adds the identity the leaf-only build printed as `N/A`.
 
 > **MEASURED 2026-08-15, AND IT CHANGES WHAT THIS SECTION CAN PROMISE.** On the one title
 > measured — Cyberpunk 2077, SL 2.7.1 — `slEvaluateFeature(kFeatureDLSS_G)` is **never

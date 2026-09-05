@@ -110,7 +110,7 @@ internal sealed record FfxCensus
         if (!SawAnything)
         {
             return "  ffx dispatch census over " + N(Records) + " record(s): no UPSCALE or FRAMEGENERATION dispatch "
-                   + "reached an ffx-api leaf (no FSR identity, no FSR_FG mode)";
+                   + "reached an ffx-api leaf or the FSR 3.0 host facade (no FSR identity, no FSR_FG mode)";
         }
 
         var sb = new StringBuilder();

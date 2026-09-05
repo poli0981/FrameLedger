@@ -162,7 +162,31 @@ public sealed class FfxReportTests
         FfxCensus c = FfxCensus.From(stream);
 
         c.SawAnything.Should().BeFalse();
-        c.Describe().Should().Contain("no UPSCALE or FRAMEGENERATION dispatch reached an ffx-api leaf");
+        c.Describe().Should().Contain("no UPSCALE or FRAMEGENERATION dispatch reached an ffx-api leaf or the FSR 3.0 host facade");
         FfxCensus.From([]).Describe().Should().Contain("no record claimed FL_MEASURED_UPSCALER");
+    }
+
+    [Fact]
+    public void CyberpunkAtFsr3PrintsFsr3IdentityFromTheHostRouteBesideTheMonolithsFrameGeneration()
+    {
+        // Cyberpunk 2077's measured shape (2026-09-04, §H11): the FSR 3.0 HOST DLL upscales through its
+        // named export while the 1.1.x monolith generates through ffxDispatch. The writer's records are
+        // the same shape as any FSR route's -- identity FSR3 on the present that drained the host's
+        // UPSCALE, FsrFg on the one that drained the monolith's FRAMEGENERATION -- and the report
+        // prints the trio at ×2 with no WARNING. Before the host row this title printed `upscaler: N/A`.
+        List<FlFrameRecord> stream = FfxStream(frames: 50, k: 2, FlUpscaler.Fsr3, fgDispatch: true);
+
+        (MeasuredFacts facts, string text) = Render(stream, Writer(FlRuntimeCensus.FfxFsr3 | FlRuntimeCensus.FfxFsr3Upscaler
+                                                                   | FlRuntimeCensus.FfxFrameInterpolation | FlRuntimeCensus.AmdFfxDx12));
+
+        facts.Upscaler.Should().Be("Fsr3");
+        facts.FgMode.Should().Be("FsrFg");
+        facts.FgFactor.Should().BeApproximately(2.0, 0.05);
+        text.Should().Contain("upscaler: Fsr3");
+        text.Should().Contain("frame generation: FsrFg");
+        text.Should().Contain("x2 FG");
+        text.Should().NotContain("WARNING");
+        text.Should().NotContain("upscaler: N/A");
+        FfxCensus.From(stream).Describe().Should().Contain("presents/frame=2.00");
     }
 }

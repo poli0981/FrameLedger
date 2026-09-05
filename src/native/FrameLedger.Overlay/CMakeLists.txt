@@ -26,7 +26,7 @@ add_library(FrameLedger.Overlay SHARED src/dllmain.cpp)
 # fails to load in every game that ships no such module, in the loader, silently.
 # hookinventory-check Pass C reads the built DLL's import AND export tables.
 target_link_libraries(FrameLedger.Overlay PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags fl_hostile_env_flags minhook
-    fl_streamline_headers fl_fidelityfx_headers
+    fl_streamline_headers fl_fidelityfx_headers fl_fsr3_host_headers
     Advapi32 d3d11 d3d12 dxgi)
 set_target_properties(FrameLedger.Overlay PROPERTIES OUTPUT_NAME "FrameLedger.Overlay")
 

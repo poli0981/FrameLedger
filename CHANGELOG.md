@@ -19,6 +19,26 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **The FSR 3.0 host route: a fifth AMD target, `ffx_fsr3_x64.dll!ffxFsr3ContextDispatchUpscale`.**
+  Cyberpunk 2077 at FSR 3 upscales through the FSR 3.0 **host** DLL's named export while its frame
+  generation goes through the 1.1.x monolith's `ffxDispatch`, so the leaf-only build printed
+  `upscaler: N/A` beside `FsrFg` (§H11, 2026-09-04). The host is hooked at its own export with its own
+  trampoline and latch, keyed by module in the installer, under the same family and publish point as
+  the four ffx-api rows (`PublishFfxFamilyIfWhole` waits for a loaded host as it waits for a loaded
+  leaf); its UPSCALE feeds the same drain word — identity `FSR3` as a fact, `renderSize` as the
+  extent, the count when neither Streamline nor a PREPARE has spoken. Rule 4: `renderSize` of the
+  descriptor the title passed and nothing else; the offset is pinned to a literal (1256).
+  `ffxFsr3DispatchFrameGeneration` is deliberately not a row, with the reversal condition
+  pre-committed in §H11. **The headers are vendored from tag `fsr3-v3.0.4`, not the `v1.1.4` three
+  documents named**: the shipped module's twelve `ffxFsr3*` exports match 3.0.4 exactly, 1.1.4
+  declares fifteen and appends fields after `renderSize`, and at 3.0.4 `ffx_types.h` reaches no
+  `<mutex>` at all (ten files, no `ffx_message.h`; `src/native/third_party/fidelityfx-fsr3/`, root
+  `LICENSE.txt` MIT verbatim, `license-check.ps1` §2e per file, blob shas checked against upstream).
+  The two FidelityFX trees share one struct name, so the 3.0.4 header is included inside a
+  namespace. Fixtures: the `ffx_fsr3_x64.dll` stub (Pass C's second positive control), harness
+  topologies `fsr3host` / `fsr3host+mono`, an `[ffx]` injected case at K = 1 (the row's double-count
+  control) and K ∈ {1, 4} beside the monolith, and a consumer case for Cyberpunk's shape. Owed: the
+  owner's acceptance run, rows B1–B4 in §H11.
 - **The report names the loaded vendor runtimes with their FILE versions, and a counted `none` is
   WITHHELD on the one shape measured to be wrong.** Dying Light: The Beast (Streamline 2.8.0) read
   `presents = tokens` five times with DLSS Frame Generation ON, and the owner's reading on 2026-09-05

@@ -3613,6 +3613,46 @@ TEST_CASE("the SDK 1.1.x monolith is FSR3; with no PREPARE the count falls back 
     }
 }
 
+TEST_CASE("the FSR 3.0 host facade: Fsr3 identity and the count from its upscale, alone and beside the 1.1.x "
+          "monolith generating",
+          "[guard][inject][shm][ffx]") {
+    // THE FIFTH AMD TARGET, AND NOT A LEAF: Cyberpunk 2077 at FSR 3 upscales through
+    // ffx_fsr3_x64.dll's NAMED export and generates through the 1.1.x monolith's
+    // ffxDispatch, and the leaf-only build printed `upscaler: N/A` beside `FsrFg`.
+    //
+    // (a) The host ALONE at K = 1 with no PREPARE anywhere: the application-frame count
+    // must come from the host's UPSCALE and read 1.0 -- the double-count control for the
+    // row (a writer that counted the call at two addresses reads 2.0), and the proof that
+    // the host's count reaches fgEvaluations at all (a row claiming IDENTITY|PARAMS alone
+    // would fail the floor here). Identity is FSR3 as a fact -- the 3.0 host hosts
+    // nothing else -- and the census sees the host and NOT the monolith.
+    {
+        FfxObservation obs;
+        REQUIRE(ObserveFfx(1, L"fsr3host", /*prepare=*/false, fl::FL_UPSCALER_FSR3, obs));
+        AssertFfxWindow(obs, 1);
+
+        CHECK((obs.census & fl::FL_CENSUS_FFX_FSR3) != 0u);
+        CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_DX12) == 0u);
+    }
+
+    // (b) Cyberpunk's shape: the host upscales while the monolith prepares (pre-V2, twice
+    // per frame) and, at K = 4, generates. Identity can only have come from the host --
+    // the monolith receives no UPSCALE -- while FsrFg at K = 4 and the count from the
+    // PREPARE latch come from the monolith, and the family is published once BOTH are
+    // patched (a family published on the first would entitle records the other module
+    // was not yet producing).
+    for (const int k : {1, 4}) {
+        CAPTURE(k);
+        FfxObservation obs;
+        REQUIRE(ObserveFfx(k, L"fsr3host+mono", /*prepare=*/k > 1, fl::FL_UPSCALER_FSR3, obs));
+        AssertFfxWindow(obs, k);
+
+        CHECK((obs.census & fl::FL_CENSUS_FFX_FSR3) != 0u);
+        CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_DX12) != 0u);
+        CHECK((obs.census & fl::FL_CENSUS_AMD_FFX_UPSCALER) == 0u);
+    }
+}
+
 TEST_CASE("the UE5 shape: the two SDK 2.x leaves called directly, no loader in the process",
           "[guard][inject][shm][ffx]") {
     // Hell Is Us and Expedition 33 -- the engine plugin compiles the MIT loader in and
