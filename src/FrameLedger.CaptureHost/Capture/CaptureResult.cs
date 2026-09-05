@@ -52,4 +52,11 @@ internal sealed record CaptureResult
     /// had no snapshot source.
     /// </summary>
     public RuntimeModuleSet RuntimeModules { get; init; } = RuntimeModuleSet.Empty;
+
+    /// <summary>
+    /// QPC timestamps of every moment this host touched the target's process — a guard scan
+    /// completing, followed by the module snapshot — in the records' own clock, so a stall in the
+    /// frame stream can be checked against what FrameLedger itself was doing at that moment.
+    /// </summary>
+    public IReadOnlyList<long> TouchQpc { get; init; } = [];
 }
