@@ -19,6 +19,20 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **DXGI's own present counter against the hook's, in the writer state and the report.** On the one shape
+  where `none` is withheld (Streamline ≥ 2.8 with `sl.dlss_g.dll` loaded, Dying Light: The Beast), the
+  open question was whether the closed pacer's generated presents reach DXGI through a body the inline
+  patches miss or are displayed below DXGI. The Overlay now reads `IDXGISwapChain::GetLastPresentCount`
+  on every hooked present of the chain it just saw (rule 4: the same object `GetDesc` is already read
+  from) and publishes `dxgiPresentSamples` and `dxgiPresentsUnseen` (`FlWriterState @48/@52`, from
+  `reserved[]`, no layout bump; mirror, `fl-layout-dump` and the offset asserts updated). The report prints
+  `DXGI present counter: unseen=M over samples=N (r unseen per hooked present)` with the reading, and the
+  withheld qualifier says which side of DXGI the generated presents fall on. `20_OPEN_QUESTIONS` §H5
+  carries the rows written before the run: r ≈ 3 at ×4 means the generated presents ARE DXGI presents
+  and the next PR labels a DXGI-counted Displayed rate; r ≈ 0 means below DXGI and only the kernel and
+  vendor reads remain. The harness's presents are the negative control (`fl_guard` `[fg]`: zero unseen);
+  the positive cannot be fixtured. `hook-harness --probe-frames` now prints the call's cost.
+
 - **A stall diagnostic in the report, placed against FrameLedger's own touches on the target.** The
   owner saw Cyberpunk 2077 fall to 1 FPS for about a second under capture (2026-09-05) and the report
   could say nothing about whose it was. The capture host now records the QPC moment of every guard scan

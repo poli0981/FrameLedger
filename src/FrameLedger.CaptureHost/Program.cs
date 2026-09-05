@@ -10,6 +10,7 @@
 // flag on a shipped one.
 
 using System.Diagnostics;
+using System.Globalization;
 using FrameLedger.Application.AntiCheat;
 using FrameLedger.Application.Consent;
 using FrameLedger.Application.Rules;
@@ -250,6 +251,27 @@ internal static class Program
         // frame; a super-resolution-only title tags neither.
         HostConsole.Line($"  Streamline tag census: 0x{result.WriterState.SlTagCensus:X}  " +
                           SlTagCensusNames.DescribeRoutes(result.WriterState.SlTagCensus));
+        // DXGI's own present counter against this hook's, on the hooked chain(s): the in-process
+        // answer to whether a pacer's generated presents are DXGI presents this hook misses (§H5).
+        HostConsole.Line(DxgiCounterNote(result.WriterState));
+    }
+
+    /// <summary>DXGI's counter against ours, and what a ratio means; never a count of anything by itself.</summary>
+    private static string DxgiCounterNote(FlWriterState writer)
+    {
+        if (writer.DxgiPresentSamples == 0)
+        {
+            return "  DXGI present counter: not read (no hooked present sampled it)";
+        }
+
+        double per = writer.DxgiPresentsUnseen / (double)writer.DxgiPresentSamples;
+        string reading = writer.DxgiPresentsUnseen == 0
+            ? "DXGI counted nothing this hook did not: whatever generates frames on this title presents below DXGI or on another object"
+            : per >= 0.5
+                ? "DXGI counted presents this hook never saw on the SAME chain - a pacer presenting through a body the inline patches do not cover; the generated presents ARE DXGI presents here and this counter can count them"
+                : "a few presents reached DXGI outside this hook - too few for a pacer, read the number rather than the ratio";
+        return $"  DXGI present counter: unseen={writer.DxgiPresentsUnseen} over samples={writer.DxgiPresentSamples} " +
+               $"({per.ToString("0.00", CultureInfo.InvariantCulture)} unseen per hooked present) - {reading}";
     }
 
     /// <summary>One line per census-named module the target had loaded, version and path beside it.</summary>

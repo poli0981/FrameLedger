@@ -64,7 +64,9 @@ int main() {
     Field("rasterPsoCreated", offsetof(FlWriterState, rasterPsoCreated), sizeof(uint32_t));
     Field("runtimeCensus", offsetof(FlWriterState, runtimeCensus), sizeof(uint32_t));
     Field("slTagCensus", offsetof(FlWriterState, slTagCensus), sizeof(uint32_t));
-    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 4, true);
+    Field("dxgiPresentsUnseen", offsetof(FlWriterState, dxgiPresentsUnseen), sizeof(uint32_t));
+    Field("dxgiPresentSamples", offsetof(FlWriterState, dxgiPresentSamples), sizeof(uint32_t));
+    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 2, true);
     std::printf("    ] },\n");
 
     std::printf("    \"FlControlBlock\": { \"size\": %zu, \"fields\": [\n", sizeof(FlControlBlock));

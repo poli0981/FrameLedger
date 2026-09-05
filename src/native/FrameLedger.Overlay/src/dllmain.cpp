@@ -291,12 +291,17 @@ void NoteFault() noexcept {
 // ---------------------------------------------------------------------------
 constexpr size_t kMaxSwapChains = 16;
 
+// The last GetLastPresentCount value read at a hooked present on this chain, and whether
+// one has been read at all (fl_shm.h §dxgiPresentsUnseen). Per chain, because the
+// counter is per chain.
 struct SwapChainSlot {
     void*    ptr = nullptr;
     uint32_t id = 0;
     uint16_t outW = 0;
     uint16_t outH = 0;
     uint8_t  api = FL_API_UNKNOWN;
+    bool     haveDxgiCount = false;
+    uint32_t lastDxgiCount = 0;
 };
 
 // Ask the device whether it can ray-trace, once, and publish it as FlRtTier.
@@ -917,6 +922,11 @@ static_assert(offsetof(fsr3host::FfxFsr3DispatchUpscaleDescription, renderSize) 
 std::atomic<uint32_t> g_slTagTypes{0};
 std::atomic<uint32_t> g_slTagCensus{0};
 
+// DXGI's own present counter against ours (fl_shm.h §dxgiPresentsUnseen): hook-local,
+// watchdog-published, monotonic.
+std::atomic<uint32_t> g_dxgiUnseen{0};
+std::atomic<uint32_t> g_dxgiSamples{0};
+
 void NoteTagTypes(uint32_t typeBits, uint32_t routeShift) noexcept {
     if (typeBits == 0u) {
         return;
@@ -1442,6 +1452,18 @@ void PublishRuntimeCensus() noexcept {
 // The tag census, on the same tick and by the same rule: OR-only, from the
 // process-local word the three tag routes accumulate into, so region 2 takes one
 // write a second rather than one per tag list (fl_shm.h §slTagCensus).
+// DXGI's counter against ours, published on the same tick. Monotonic, so a plain store
+// of the hook-local value is the whole publish.
+void PublishDxgiPresentCounters() noexcept {
+    if (g_state == nullptr) {
+        return;
+    }
+    std::atomic_ref<uint32_t> unseen{g_state->dxgiPresentsUnseen};
+    std::atomic_ref<uint32_t> samples{g_state->dxgiPresentSamples};
+    unseen.store(g_dxgiUnseen.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    samples.store(g_dxgiSamples.load(std::memory_order_relaxed), std::memory_order_relaxed);
+}
+
 void PublishSlTagCensus() noexcept {
     if (g_state == nullptr) {
         return;
@@ -1856,6 +1878,7 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
         // appeared this second is both hooked and counted in the same pass.
         PublishRuntimeCensus();
         PublishSlTagCensus();
+        PublishDxgiPresentCounters();
 
         // Supervision loss. guardTicks counts COMPLETED guard evaluations, not
         // seconds, so a stalled guard loop stops it advancing even while the
@@ -1919,6 +1942,29 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
 
     SwapChainSlot* slot = FindOrAdd(sc);
     PublishAdapterOnce(sc);
+
+    // DXGI'S OWN COUNT OF THIS CHAIN'S PRESENTS, read here on the object the title passed
+    // (the same class of read as GetDesc above), BEFORE this present is forwarded: the
+    // value is therefore the number of presents completed before this one, and the
+    // delta from the previous hooked present on the same chain is 1 + whatever DXGI
+    // counted that this hook never saw -- a pacer presenting through a body the inline
+    // patches do not cover. A delta of exactly 1 every time says DXGI saw nothing more
+    // than we did. DXGI_PRESENT_TEST presents are already filtered above and do not
+    // move this counter (measured, #35), so they cannot read as unseen presents.
+    if (slot != nullptr) {
+        UINT dxgiCount = 0;
+        if (SUCCEEDED(sc->GetLastPresentCount(&dxgiCount))) {
+            if (slot->haveDxgiCount) {
+                const uint32_t delta = dxgiCount - slot->lastDxgiCount;
+                if (delta > 1u) {
+                    g_dxgiUnseen.fetch_add(delta - 1u, std::memory_order_relaxed);
+                }
+            }
+            slot->lastDxgiCount = dxgiCount;
+            slot->haveDxgiCount = true;
+            g_dxgiSamples.fetch_add(1u, std::memory_order_relaxed);
+        }
+    }
 
     FlFrameRecord rec{};
     rec.qpc = static_cast<uint64_t>(qpc.QuadPart);

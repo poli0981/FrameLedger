@@ -2715,6 +2715,30 @@ bool ProbeFrameIdentity(Gfx& g) {
     Check(realIsAFrame, "a real present submits exactly one frame");
     std::printf("    %d real present(s) moved the counter by %u\n", kReal, afterReal - afterTest);
 
+    // The cost of asking. The Overlay reads this counter on every hooked present
+    // (dllmain RecordPresent, the DXGI-counted diagnostic 20_OPEN_QUESTIONS §H5
+    // A1.7), so the price of one call is part of the present hook's overhead
+    // statement. A measurement, not a check: a threshold here fails on a shared
+    // runner for reasons unrelated to the code (see --probe-cost).
+    {
+        constexpr int kCalls = 20000;
+        LARGE_INTEGER f{};
+        LARGE_INTEGER t0{};
+        LARGE_INTEGER t1{};
+        QueryPerformanceFrequency(&f);
+        UINT sink = 0;
+        QueryPerformanceCounter(&t0);
+        for (int i = 0; i < kCalls; ++i) {
+            g.swapChain1->GetLastPresentCount(&sink);
+        }
+        QueryPerformanceCounter(&t1);
+        const double ns =
+            static_cast<double>(t1.QuadPart - t0.QuadPart) * 1e9 / static_cast<double>(f.QuadPart) / kCalls;
+        std::printf("    GetLastPresentCount costs %.1f ns/call (%d calls, WARP; the Overlay pays this once per hooked "
+                    "present)\n",
+                    ns, kCalls);
+    }
+
     // The two together are the contract. Separately, each passes against a
     // wrong writer: a writer that ignores everything satisfies the first, and
     // one that counts everything satisfies the second.

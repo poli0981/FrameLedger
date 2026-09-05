@@ -547,8 +547,18 @@ public unsafe struct FlWriterState
     /// </summary>
     public uint SlTagCensus;
 
+    /// <summary>
+    /// Presents DXGI's own counter (<c>IDXGISwapChain::GetLastPresentCount</c>) recorded between two consecutive
+    /// hooked presents on the same chain, beyond the one the hook saw — presents that reached DXGI through a body
+    /// the inline patches do not cover. Watchdog-published. Took <c>reserved[0]</c> on 2026-09-05.
+    /// </summary>
+    public uint DxgiPresentsUnseen;
+
+    /// <summary>Hooked presents on which the DXGI counter was read. Took <c>reserved[1]</c> on 2026-09-05.</summary>
+    public uint DxgiPresentSamples;
+
     /// <summary>Must be zero; room for additive fields.</summary>
-    public fixed uint Reserved[4];
+    public fixed uint Reserved[2];
 
     // WHY THE COUNTERS ARE PUBLISHED AT 1 Hz AND NOT ACCUMULATED HERE PER FRAME: this struct is
     // region 2, which the Overlay writes on the present path, and the regions are separate cache lines

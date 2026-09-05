@@ -3288,6 +3288,35 @@ probe never showed a deadlock.
 > 1.67 overall, `tokens/batch 2.97`): a mixed session, refused as designed rather than averaged. **What is
 > left on NVIDIA is one thing: `upscaler: N/A` on the NGX-direct titles** — the probe above.
 >
+> **BUILT 2026-09-05, late — A1.7 promoted from "not in A1" to the in-process half of Leg 1.** The owner
+> read that Streamline ≥ 2.8 "needs `sl.interposer.dll` and `sl.common.dll` loaded before an injection
+> succeeds". Checked against the source, not the claim: the interposer's DXGI proxy
+> (`source/core/sl.interposer/d3d12/dxgiSwapchain.cpp`) is **byte-for-byte the same file at v2.7.32 and
+> v2.8.0** — plugins' before-hooks receive `m_base` and may `skip` the base call, exactly as before — and
+> 2.8's `sl.common` gains `resourceTaggingForFrame.cpp` (the `slSetTagForFrame` route #121 already hooks).
+> Injection into DL:TB already succeeds (every capture there has `streams=1`, a full `runtime census`, a
+> tag census), so "loaded before injection" is a launcher's problem, not this hook's. What 2.8 does NOT
+> show is where its closed `sl.dlss_g` pacer presents. So the Overlay now asks DXGI itself: on every hooked
+> present it reads `IDXGISwapChain::GetLastPresentCount` on the chain it just saw (rule 4: the same object
+> `FindOrAdd` already calls `GetDesc` on) and publishes two words on the 1 Hz watchdog —
+> `dxgiPresentSamples` (hooked presents that read it) and `dxgiPresentsUnseen` (presents DXGI counted
+> between two hooked ones, beyond the one seen). The report prints
+> `DXGI present counter: unseen=M over samples=N (r unseen per hooked present)` and the withheld qualifier
+> carries the reading. The harness's own presents are the negative control (`fl_guard` `[fg]`:
+> `unseen == 0`, `samples >= drained`); the positive cannot be fixtured — nothing in this repo presents
+> through a body the inline patches miss — which is why the rows below are written before the run.
+> Cost: one virtual call per hooked present, measured by `hook-harness --probe-frames` (number in the PR
+> body); `--probe-cost` is the empty-detour floor and does not include it.
+>
+> Leg 1's in-process rows, read off the new line on a DL:TB DLSS FG ×4 capture (r = unseen / samples):
+>
+> | Row | Reading | Meaning | Action |
+> |---|---|---|---|
+> | **P1-DXGI** | r ≈ 3 (×4) — `unseen ≈ 3 × samples` | the pacer presents on the SAME chain through a body the inline patches do not cover; the generated presents ARE DXGI presents | the next PR promotes `Displayed = hooked + unseen`, labelled **DXGI-counted** (a count DXGI made, not this hook), `presents/batch` from it, and `none` withdraws by count; the pacer's entry is then localised (a second `CDXGISwapChain` class, or a path that bypasses `Present`'s body) at leisure |
+> | **P3-DXGI** | r ≈ 0 | DXGI counted nothing this hook did not: the generated frames are displayed below DXGI (driver pacing / flip metering) or on an object this hook never saw | the withheld wording stays; no in-process sink exists; only PresentMon (kernel) and the NVAPI corroboration remain, and if PresentMon also reads 1× the frames never were kernel presents |
+> | **P5-DXGI** | 0 < r < 2.5, or r ≠ 0 with `streams > 1` | a mixed path or a second chain | stop and localise; the number is printed, never averaged into a factor |
+> | **P2/P4** | r ≈ 0 with ours ≈ 4× tokens, or the count itself moved | as the kernel rows say: not generating, or the title changed | the kernel rows above decide |
+>
 > Leg 1's rows (ours = `presents / span`; PM = PresentMon rows / span; C = the counter; ≈ = within 5 %):
 >
 > | Row | Reading | Meaning | Action |

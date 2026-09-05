@@ -151,6 +151,14 @@ internal static class SessionReport
                    + (facts.DlssgInputsTagged
                        ? ". The title tagged DLSS-G inputs (HUD-less / UI) through Streamline this session — it is "
                          + "FEEDING frame generation, which is the identity; the count is still what it is"
+                       : "")
+                   + (facts.DxgiUnseenPerHookedPresent is double unseen
+                       ? unseen >= 0.5
+                           ? ". DXGI's own counter on this chain saw " + unseen.ToString("0.00", CultureInfo.InvariantCulture)
+                             + " present(s) per hooked present that this hook did not - the generated presents ARE DXGI presents "
+                             + "reaching a body the inline patches do not cover (§H5 row P1-DXGI)"
+                           : ". DXGI's own counter on this chain saw nothing this hook did not - whatever generates frames presents "
+                             + "below DXGI or on another object (§H5 row P3)"
                        : "");
         }
 

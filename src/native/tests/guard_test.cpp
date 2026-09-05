@@ -3175,6 +3175,8 @@ namespace {
 // What one --hold-presenting-fg run yields, drained after the identity hook is live.
 struct FgObservation {
     std::uint32_t census = 0;
+    std::uint32_t dxgiUnseen = 0;
+    std::uint32_t dxgiSamples = 0;
     std::size_t   drained = 0;
     std::uint64_t sigma = 0;    // sum of fgEvaluations over the window
     std::uint32_t hooks = 0;
@@ -3278,6 +3280,13 @@ bool ObserveFg(int presentsPerEval, FgObservation& out) {
         }
     }
     out.hooks = st->hooksInstalledMask;
+    // DXGI's counter against ours: published by the watchdog on its 1 Hz tick, so poll for
+    // the samples to reach the window rather than reading the words once (HANDOFF §Traps).
+    for (int i = 0; i < 80 && st->dxgiPresentSamples < out.drained; ++i) {
+        Sleep(50);
+    }
+    out.dxgiUnseen = st->dxgiPresentsUnseen;
+    out.dxgiSamples = st->dxgiPresentSamples;
     out.census = st->runtimeCensus;
     out.faults = st->faultCount;
 
@@ -3354,6 +3363,14 @@ TEST_CASE("application-frame tokens are COUNTED, and the count tracks the fixtur
         // is in this process. The second check is the one that matters: it is what
         // keeps a title with Streamline loaded and no evaluation observed from being
         // printed as "no frame-generation runtime was loaded".
+        // DXGI'S COUNTER AGAINST OURS, the negative control: this fixture presents only through
+        // the body the inline patch covers, so DXGI must count exactly the presents the hook
+        // saw -- zero unseen -- and the counter must have been read on every hooked present.
+        // A real title where DXGI counts MORE is the §H5 question this word exists to answer.
+        CAPTURE(obs.dxgiUnseen);
+        CAPTURE(obs.dxgiSamples);
+        CHECK(obs.dxgiUnseen == 0u);
+        CHECK(obs.dxgiSamples >= static_cast<std::uint32_t>(obs.drained));
         CHECK((obs.census & fl::FL_CENSUS_RAN) != 0u);
         CHECK((obs.census & fl::FL_CENSUS_SL_INTERPOSER) != 0u);
         CHECK((obs.census & fl::FL_CENSUS_FG_FAMILIES) == 0u);

@@ -687,7 +687,21 @@ struct alignas(64) FlWriterState {
     // no layout bump, refused-before-read by the build-id handshake.
     uint32_t slTagCensus;    // @44
 
-    uint32_t reserved[4];    // @48..63  must be zero; room for additive fields
+    // DXGI'S OWN PRESENT COUNTER AGAINST THIS HOOK'S, on the hooked swapchain(s)
+    // (2026-09-05, 20_OPEN_QUESTIONS §H5 case 3). On every present the hook sees it
+    // reads IDXGISwapChain::GetLastPresentCount on the object the title passed -- the
+    // same class of read as GetDesc in FindOrAdd -- and compares it with the value at
+    // the previous hooked present on the same chain. Exactly one present (the previous
+    // hooked one) is expected in between; every present beyond that is one DXGI
+    // counted and this hook did not. A frame-generation pacer that presents on this
+    // chain through a body the inline patches do not cover shows up here; one that
+    // presents below DXGI, or on another object, does not. Hook-local counters,
+    // watchdog-published (the region-2 cache-line rule above). Took reserved[0..1],
+    // additive, no layout bump.
+    uint32_t dxgiPresentsUnseen;    // @48  presents DXGI counted between two hooked presents, beyond the one seen
+    uint32_t dxgiPresentSamples;    // @52  hooked presents on which the counter was read
+
+    uint32_t reserved[2];    // @56..63  must be zero; room for additive fields
 
     // NOTE: there is deliberately no droppedRecords here. The writer has no
     // reader index and cannot know whether the slot it overwrites was ever
@@ -878,7 +892,9 @@ static_assert(offsetof(FlWriterState, rtStateObjectsCreated) == 32);
 static_assert(offsetof(FlWriterState, rasterPsoCreated) == 36);
 static_assert(offsetof(FlWriterState, runtimeCensus) == 40);
 static_assert(offsetof(FlWriterState, slTagCensus) == 44);
-static_assert(offsetof(FlWriterState, reserved) == 48);
+static_assert(offsetof(FlWriterState, dxgiPresentsUnseen) == 48);
+static_assert(offsetof(FlWriterState, dxgiPresentSamples) == 52);
+static_assert(offsetof(FlWriterState, reserved) == 56);
 
 static_assert(offsetof(FlControlBlock, pauseRequested) == 0);
 static_assert(offsetof(FlControlBlock, unhookRequested) == 4);

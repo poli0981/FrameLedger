@@ -140,6 +140,22 @@ internal sealed record MeasuredFacts
     public uint SlTagCensus { get; init; }
 
     /// <summary>
+    /// <see cref="FlWriterState.DxgiPresentsUnseen"/>: presents DXGI's own counter recorded on the hooked chain(s)
+    /// between two consecutive hooked presents, beyond the one the hook saw.
+    /// </summary>
+    public uint DxgiPresentsUnseen { get; init; }
+
+    /// <summary><see cref="FlWriterState.DxgiPresentSamples"/>: hooked presents on which DXGI's counter was read.</summary>
+    public uint DxgiPresentSamples { get; init; }
+
+    /// <summary>
+    /// Unseen presents per hooked present, or null before the counter was read. <c>0</c> means DXGI counted nothing this
+    /// hook did not; <c>≈ N−1</c> beside a withheld count is a frame-generation pacer presenting on the hooked chain
+    /// through a body the inline patches do not cover — i.e. the generated presents ARE DXGI presents.
+    /// </summary>
+    public double? DxgiUnseenPerHookedPresent => DxgiPresentSamples > 0 ? DxgiPresentsUnseen / (double)DxgiPresentSamples : null;
+
+    /// <summary>
     /// The title tagged a HUD-less or UI buffer through Streamline on some route — the inputs only DLSS Frame
     /// Generation consumes (DLSS-G programming guide §5.0). Identity, never a count: the title is FEEDING frame
     /// generation, and whether frames were generated is still the count's verdict.
@@ -272,6 +288,8 @@ internal sealed record MeasuredFacts
             NoneWithheld = withheld,
             InterposerVersion = modules?.VersionOf(_slInterposerFileName),
             SlTagCensus = writer.SlTagCensus,
+            DxgiPresentsUnseen = writer.DxgiPresentsUnseen,
+            DxgiPresentSamples = writer.DxgiPresentSamples,
             UpscalerHookRan = RecordWindow.ClaimedSuffixStart(
                 stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler)) < stream.Count,
             FgHookRan = RecordWindow.ClaimedSuffixStart(

@@ -766,7 +766,11 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   populated without an NVIDIA-app override, the identity question has a producer that is not a
   hook and the owner decides whether `03_METRICS` gains a *driver-reported* rung (§H5 says what
   that rung may and may not claim). If it is not populated, the answer stays `N/A` and the
-  session goes back to the PresentMon leg.
+  session goes back to the PresentMon leg. **The in-process half of that leg is built (2026-09-05,
+  late): the report's `DXGI present counter:` line on a DL:TB DLSS FG ×4 capture reads off §H5's
+  `P1-DXGI` / `P3-DXGI` rows** — r ≈ 3 and the next PR labels a DXGI-counted Displayed rate, r ≈ 0
+  and only PresentMon and the NVAPI read remain. The owner's "sl.common must be loaded on 2.8" lead
+  was checked against the interposer source and is a launcher's concern, not this hook's (§H5).
 
 #### 7b. Titles whose upscaler or frame generation is compiled into the executable
 
