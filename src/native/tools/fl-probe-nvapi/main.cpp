@@ -32,6 +32,8 @@
 #include <windows.h>
 
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #include "nvapi.h"
 
@@ -46,9 +48,129 @@ void Check(bool condition, const char* what) {
     }
 }
 
+// --- --ngx-state <pid>: what the DRIVER says about a process's DLSS features -------
+//
+// WHY THIS MODE EXISTS (2026-09-05, 20_OPEN_QUESTIONS §H5 / §H11). Four real titles
+// run DLSS through NGX directly and drive DLSS Frame Generation on a path the
+// Streamline hooks never see (Lies of P, Hell Is Us, Expedition 33, Black Myth:
+// Wukong), and a fifth (Dying Light: The Beast, Streamline 2.8) presents its
+// generated frames where the present hook cannot count them. The NGX SDK is
+// licence-blocked, so nothing in the Overlay may hook nvngx_*.dll. NVAPI is MIT and
+// vendored, and NvAPI_NGX_GetNGXOverrideState (R570+) is documented as returning,
+// FOR A GIVEN PROCESS ID, the driver's own feedback bits for Super Resolution, Ray
+// Reconstruction and Frame Generation -- DLL loaded, feature created, evaluated, FG
+// mode, multi-frame -- plus the scaling ratio, the performance (quality) mode and the
+// frame-generation count. Out of process, by PID, from the driver's bookkeeping:
+// no game memory, no hook, no vendor binary patched.
+//
+// WHAT IS NOT KNOWN, and why this is a probe rather than a producer: the API's name
+// says "override", and whether its feedback bits are populated for a process with
+// no NVIDIA-app override configured is unmeasured. Whether "frameGenerationCount" is
+// the title's multiplier or only an override target is unmeasured. This mode prints
+// the raw words and every decoded bit so the owner's run against a running title
+// answers both, before any report line is built on it.
+struct FlagName {
+    NvU64       bit;
+    const char* name;
+};
+
+constexpr FlagName kFlags[] = {
+    {NV_NGX_DLSS_OVERRIDE_FLAG_INITIALIZED, "INITIALIZED"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_ENABLED, "ENABLED"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_DLL_EXISTS, "DLL_EXISTS"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_DLL_LOADED, "DLL_LOADED"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_DLL_SELECTED, "DLL_SELECTED"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_PRESET, "PRESET"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_PERF_MODE, "PERF_MODE"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_SCALING_RATIO, "SCALING_RATIO"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_OPTIMAL_SETTINGS, "OPTIMAL_SETTINGS"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_CREATED, "CREATED"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_EVALUATE, "EVALUATE"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_FG_MODE, "FG_MODE"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_SR_DLAA_MODE, "SR_DLAA_MODE"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_FG_MULTI_FRAME, "FG_MULTI_FRAME"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_ERR_FAILED, "ERR_FAILED"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_ERR_DENIED, "ERR_DENIED"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_ERR_DRS, "ERR_DRS"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_ERR_NOT_FOUND, "ERR_NOT_FOUND"},
+    {NV_NGX_DLSS_OVERRIDE_FLAG_ERR_DLL_LOAD, "ERR_DLL_LOAD"},
+};
+
+void PrintMask(const char* feature, NvU64 mask) {
+    std::printf("  %-4s feedback 0x%016llX :", feature, static_cast<unsigned long long>(mask));
+    bool any = false;
+    for (const FlagName& f : kFlags) {
+        if ((mask & f.bit) != 0u) {
+            std::printf(" %s", f.name);
+            any = true;
+        }
+    }
+    NvU64 known = 0;
+    for (const FlagName& f : kFlags) {
+        known |= f.bit;
+    }
+    if ((mask & ~known) != 0u) {
+        std::printf(" +unknown(0x%llX)", static_cast<unsigned long long>(mask & ~known));
+        any = true;
+    }
+    std::printf("%s\n", any ? "" : " (none)");
+}
+
+int NgxState(unsigned long pid) {
+    std::printf("fl-probe-nvapi --ngx-state %lu — the driver's NGX feedback for one process\n\n", pid);
+    const NvAPI_Status init = NvAPI_Initialize();
+    if (init != NVAPI_OK) {
+        NvAPI_ShortString desc = {};
+        NvAPI_GetErrorMessage(init, desc);
+        std::printf("  NvAPI_Initialize -> %d (%s)\n  BRANCH: DEGRADED — no usable NVIDIA driver on this machine.\n",
+                    static_cast<int>(init), desc);
+        return 2;
+    }
+    NvU32             driverVersion = 0;
+    NvAPI_ShortString branch = {};
+    if (NvAPI_SYS_GetDriverAndBranchVersion(&driverVersion, branch) == NVAPI_OK) {
+        std::printf("  driver %u.%02u (%s)\n", driverVersion / 100, driverVersion % 100, branch);
+    }
+
+    NV_NGX_DLSS_OVERRIDE_GET_STATE_PARAMS params = {};
+    params.version = NV_NGX_DLSS_OVERRIDE_GET_STATE_PARAMS_VER;
+    params.processIdentifier = static_cast<NvU32>(pid);
+    const NvAPI_Status status = NvAPI_NGX_GetNGXOverrideState(&params);
+    if (status != NVAPI_OK) {
+        NvAPI_ShortString desc = {};
+        NvAPI_GetErrorMessage(status, desc);
+        std::printf("  NvAPI_NGX_GetNGXOverrideState -> %d (%s)\n", static_cast<int>(status), desc);
+        std::printf("  BRANCH: UNANSWERED — the driver did not answer for pid %lu (not an NVIDIA-rendered process, a "
+                    "driver older than R570, or the API refusing this caller).\n",
+                    pid);
+        NvAPI_Unload();
+        return 3;
+    }
+
+    std::printf("  NvAPI_NGX_GetNGXOverrideState -> NVAPI_OK\n  BRANCH: ANSWERED\n\n");
+    PrintMask("SR", params.feedbackMaskSR);
+    PrintMask("RR", params.feedbackMaskRR);
+    PrintMask("FG", params.feedbackMaskFG);
+    std::printf("  scalingRatio          %.4f\n", static_cast<double>(params.scalingRatio));
+    std::printf("  performanceMode       %u\n", params.performanceMode);
+    std::printf("  renderPreset          %u\n", params.renderPreset);
+    std::printf("  frameGenerationCount  %u   (\"FG Override Frame Count Target\" per nvapi.h -- whether this is the "
+                "title's multiplier is what this run measures)\n",
+                params.frameGenerationCount);
+    std::printf("  frameGenerationPreset %u\n", params.frameGenerationPreset);
+    std::printf("  frameGenerationMode   %u\n", params.frameGenerationMode);
+    std::printf("  reserved              %u %u\n", params.reserved[0], params.reserved[1]);
+    NvAPI_Unload();
+    return 0;
+}
+
 }    // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc >= 3 && std::strcmp(argv[1], "--ngx-state") == 0) {
+        return NgxState(std::strtoul(argv[2], nullptr, 10));
+    }
+
     std::printf("fl-probe-nvapi — the vendored NVAPI material, exercised\n\n");
 
     // 1 + 2 are proven by this translation unit existing: it includes nvapi.h

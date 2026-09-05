@@ -187,6 +187,10 @@ public sealed class FfxReportTests
         text.Should().Contain("x2 FG");
         text.Should().NotContain("WARNING");
         text.Should().NotContain("upscaler: N/A");
+        // The extent prints under frame generation: params ride on one present in two here, and the
+        // window is the identity suffix, not the params suffix (measured N/A on 2026-09-05 otherwise).
+        text.Should().Contain("render -> output: 1485x835 -> 2560x1440");
+        text.Should().NotContain("render -> output: N/A");
         FfxCensus.From(stream).Describe().Should().Contain("presents/frame=2.00");
     }
 }

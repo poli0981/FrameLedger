@@ -17,7 +17,29 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`render -> output` prints under frame generation.** `UpscaleExtent` keyed its window on the
+  params bit, which the writer publishes only on the present that drained a dispatch or tag — one
+  in N under frame generation — so `ClaimedSuffixStart`'s clean-suffix rule found no window and every
+  FG-on capture since 2026-08-16 read `N/A` two lines under its own raw `render WxH` block
+  (Cyberpunk at FSR 3 + FG, 2026-09-05, was the one that made it visible; the earlier "not computed
+  yet" wording had hidden it). The window is now the identity suffix, which is per-record once the
+  family is live, and every record inside it carrying both sizes counts. Two cases pin the FG shape
+  and the refused intermittent-identity shape; the Cyberpunk FSR 3 consumer case now asserts the line.
+
 ### Added
+
+- **`fl-probe-nvapi --ngx-state <pid>`: what the NVIDIA driver says about one process's DLSS
+  features.** The owner's eleven-capture run on 2026-09-05 (`spike-notes` §9) left one NVIDIA gap in
+  one sentence — the count is right on every title and the identity is what this build cannot say:
+  DLSS on the four NGX-direct UE titles, DLSS-G everywhere, and the hidden presents on Streamline
+  2.8. The NGX SDK is licence-blocked; `NvAPI_NGX_GetNGXOverrideState` (NVAPI, MIT, vendored, R570+)
+  takes a process id and returns the driver's own feedback bits for SR / RR / FG plus the scaling
+  ratio, quality mode and frame-generation count, out of process. The probe prints the raw words and
+  every decoded bit so the owner's run against a running title measures whether the bits are
+  populated without an NVIDIA-app override, before any report line is built on it. §H5 carries the
+  decision that answer opens (a *driver-reported* rung in `03_METRICS`, the owner's call).
 
 - **The FSR 3.0 host route: a fifth AMD target, `ffx_fsr3_x64.dll!ffxFsr3ContextDispatchUpscale`.**
   Cyberpunk 2077 at FSR 3 upscales through the FSR 3.0 **host** DLL's named export while its frame

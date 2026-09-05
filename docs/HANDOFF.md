@@ -749,7 +749,17 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   DLSS FG off and ×4, Cyberpunk MFG ×4 as the control, PresentMon elevated beside each, the
   counter's NUMBER written down — and the row it lands on decides whether the gate stays, a
   second present sink is costed (§H5 lists the candidates; the route is the owner's), or the
-  gate is withdrawn. Nothing in the hook changes before that row.
+  gate is withdrawn. Nothing in the hook changes before that row. **The counter half of Leg 1
+  is read (2026-09-05): ~300 against our 76.7, reading (a) with its number; the PresentMon half
+  is still owed.** And the owner's eleven-capture run the same day (`spike-notes` §9) put the
+  remaining NVIDIA gap in one sentence: the COUNT is right on every title and the IDENTITY is
+  what this build cannot say — DLSS on the NGX-direct UE titles, DLSS-G everywhere. **START
+  HERE next:** `fl-probe-nvapi --ngx-state <pid>` against a running Lies of P, Hell Is Us, DL:TB
+  and Cyberpunk (no capture, no injection). If the driver's per-process NGX feedback is
+  populated without an NVIDIA-app override, the identity question has a producer that is not a
+  hook and the owner decides whether `03_METRICS` gains a *driver-reported* rung (§H5 says what
+  that rung may and may not claim). If it is not populated, the answer stays `N/A` and the
+  session goes back to the PresentMon leg.
 
 #### 7b. Titles whose upscaler or frame generation is compiled into the executable
 

@@ -1769,6 +1769,32 @@ one launch per capture, consent granted after launch. Exit codes and full report
   ON.** `presents = tokens` on every one, against ×2 with FSR FG on the same title and ×3.99
   on Cyberpunk (SL 2.7.1, DLSS-G 310.8) — recorded in `20_OPEN_QUESTIONS` §H5 as case 3's
   candidate, with the discriminator (the owner's counter reading) pre-committed there.
+- **2026-09-05, the owner's run on #118 + #119 — eleven captures, seven titles, every one with
+  DLSS or frame generation on**, the first with the `module:` lines (interposer versions read off
+  the files: DL:TB 2.8.0, Cyberpunk 2.7.1, Hell Is Us 2.7.3, Expedition 33 2.7.30, Wukong 2.7.4;
+  `_nvngx.dll` 32.0.16.1664 from the driver store on every NVIDIA title):
+
+  | Title / setting | What printed | Reading |
+  |---|---|---|
+  | **Cyberpunk 2077**, FSR 3 + FSR FG | `upscaler: Fsr3` (host route, 4332 records at 1506×847), `FsrFg`, `74.31 → 148.56 (×2)`, `frames/upscale-drained 1.01` | **§H11 B1 accepted** |
+  | **Cyberpunk 2077**, FSR 3, FG off | `Fsr3`, `none` by count 4919/4919, `1506x847 -> 2560x1440 = 1.7x (59%)` | **B1-off accepted** |
+  | **Cyberpunk 2077**, DLSS + RR + MFG ×3 | `Dlss` (via RR, 3704 batches), `62.86 → 187.49 (×2.98)`, `Active (technology not identified)`, `render 1707x960` on 3677 records | count right, DLSS-G unnamed (`kFeatureDLSS_G` never evaluated) |
+  | **Dying Light: The Beast**, DLSS FG ×4 (twice) | `Presented FPS 76.7` / `93.24`, **`none` WITHHELD** with the §H5 qualifier, `sl.interposer.dll 2.8.0.0` named | **owner's counter ~300 = 3.9× ours** — reading (a) with its number |
+  | **Hell Is Us**, DLSS + FG ×4 (twice) | `82.23 → 328.98 (×4)`, `Active (technology not identified)`, `upscaler: N/A`; the first run refused the factor (bucket 2.25 vs 3.65 — 53 unfocused ticks) | NGX-direct SR, Streamline tokens still count |
+  | **Expedition 33**, DLSS + FG (twice) | `54.9 → 218.38 (×3.98)`, `Active (technology not identified)`, `upscaler: N/A` | same shape |
+  | **Black Myth: Wukong**, DLSS + FG ×4 | `55.39 → 221.53 (×4)`, `Active (technology not identified)`, `upscaler: N/A`, `sl.dlss_g.dll 2.7.4.0` loaded | same shape; the plugin bit is set on a 2.7 title, and the gate correctly did not fire (factor active) |
+  | **Lies of P**, DLSS, no FG (owner) | `Presented FPS 59.77`, WARNING naming `amd_fidelityfx_dx12.dll`, `upscaler: N/A`, `tokens=0` | NGX-direct SR with no Streamline at all: nothing this build hooks fires |
+
+  Two things the run found beyond the rows. **A consumer defect:** `render -> output: N/A` on every
+  FG-on capture — Cyberpunk at FSR 3 + FG printed it two lines under `render 1506x847 on 4332
+  record(s)` — because `UpscaleExtent` keyed its window on the params bit, which under frame
+  generation rides on one present in N; fixed the same day (identity-bit window). **And the shape
+  of what is left:** on every NVIDIA title measured the *count* is right and the *identity* is
+  what this build cannot say — DLSS on four NGX-direct titles, DLSS-G on all of them — because
+  the NGX SDK is licence-blocked and `kFeatureDLSS_G` is never evaluated through the export the
+  Streamline hook owns. `20_OPEN_QUESTIONS` §H5 carries the one candidate that is not a hook
+  (`NvAPI_NGX_GetNGXOverrideState`, by PID) and the probe that measures it before anything is
+  built on it.
 
 ## 10 · Telemetry layering
 
