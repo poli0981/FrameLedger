@@ -1796,6 +1796,33 @@ one launch per capture, consent granted after launch. Exit codes and full report
   (`NvAPI_NGX_GetNGXOverrideState`, by PID) and the probe that measures it before anything is
   built on it.
 
+- **2026-09-05 evening, the owner's run on #121 (the tag route) — eight captures, six titles, every one at DLSS**
+  **with frame generation on**, the first with the `Streamline tag census:` line. The pre-commitment in
+  `20_OPEN_QUESTIONS` §H5 landed on every title that goes through Streamline:
+
+  | Title / setting | `frame generation:` | Trio | Tag census (route: types) |
+  |---|---|---|---|
+  | **Hell Is Us**, DLSS + FG ×4 (twice) | **`DlssG`** | `38.5 → 154.04 (×4)`, `81.41 → 325.58 (×4)` | global: depth, mvec, hudless, ui-color-alpha, backbuffer, other |
+  | **Expedition 33**, DLSS + FG ×2 | **`DlssG`** | `75.95 → 149.83 (×1.97)` | global: same set |
+  | **Black Myth: Wukong**, DLSS + FG ×4 | **`DlssG`** | `47.99 → 191.89 (×4)` | global: depth, mvec, hudless, ui-color-alpha, backbuffer |
+  | **Rune Factory**, DLSS + FG ×4 | **`DlssG`** | `128.85 → 513.02 (×3.98)` | global: same as Hell Is Us |
+  | **Cyberpunk 2077**, DLSS + RR + MFG | **`DlssG`**, `upscaler: Dlss`, `1707x960 -> 2560x1440 = 1.5x (67%)` | **factor refused** — bucket 1 of 8 reads 3.0 against 1.67 overall; `tokens/batch 2.97` | global: depth, mvec, hudless, scaling-in, scaling-out, other (no UI tag) |
+  | **Dying Light: The Beast**, DLSS FG ×4 | N/A (`none` withheld, §H5) + *"it is FEEDING frame generation"* | `Presented FPS 67.13` | **frame** (`slSetTagForFrame`): depth, mvec, hudless, scaling-in, scaling-out, ui-color-alpha, other |
+
+  Three readings. **The identity is measured on six of six Streamline titles** — the UE Streamline plugin tags
+  the DLSS-G inputs globally (`slSetTag`) on every UE title, Cyberpunk on 2.7.1 tags globally too, DL:TB on 2.8
+  tags through `slSetTagForFrame` — so `Active (technology not identified)` is gone from every one of them,
+  and `upscaler: N/A` on the UE titles is now the ONLY NVIDIA gap (NGX-direct super-resolution, the NVAPI
+  probe's job). **DL:TB's 7a question is answered by the census, at no layout cost**: the title DOES tag
+  `kBufferTypeScalingInputColor`, through the 2.8 export, and `UpscalerParams` is still 0 of 4030 — so the tag
+  carries neither an extent nor a Resource size, which is exactly the shape #116 named and could not see; the
+  `N/A` there is the title's truth. **Cyberpunk's refusal is the guard working**: `tokens/batch 2.97` with
+  `presents/batch 4.97` and bucket 1 at 3.0 is a session whose state changed after the first eighth — tokens
+  kept flowing while Ray Reconstruction stopped being evaluated, which is what a menu or a pause does — and the
+  report refused the session-level number rather than averaging two configurations (the 2026-08-16 alt-tab
+  lesson). The owner's settings for that run are recorded when known; the earlier 14:01 run at MFG ×3 read
+  `×2.98` with `tokens/batch 1.00` on the same title.
+
 ## 10 · Telemetry layering
 
 - L1 baseline vendor-neutral:

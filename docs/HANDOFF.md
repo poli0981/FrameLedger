@@ -760,7 +760,9 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   this build sees. `slDLSSGGetState` was refused (`03_METRICS` §FG: it resets the plugin's own counter).
   **START HERE next:** `fl-probe-nvapi --ngx-state <pid>` against a running Lies of P, Hell Is Us, DL:TB
   and Cyberpunk (no capture, no injection) — the super-resolution identity on NGX-direct titles is still the
-  gap the tags cannot close. If the driver's per-process NGX feedback is
+  gap the tags cannot close. **The tag route LANDED on the owner's evening run (`spike-notes` §9): `DlssG` on
+  six of six Streamline titles, and DL:TB's census shows its scaling-input tag arrives with no size, which
+  closes 7a's last question.** If the driver's per-process NGX feedback is
   populated without an NVIDIA-app override, the identity question has a producer that is not a
   hook and the owner decides whether `03_METRICS` gains a *driver-reported* rung (§H5 says what
   that rung may and may not claim). If it is not populated, the answer stays `N/A` and the
