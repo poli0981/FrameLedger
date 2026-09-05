@@ -67,13 +67,16 @@
 //                    an FSR title does: one UPSCALE and one PREPARE (issued twice,
 //                    same frameID) per application frame, one FRAMEGENERATION per
 //                    frame at K > 1, then K presents (--presents-per-eval K)
-//   --ffx-topology 1x|2x|ue
+//   --ffx-topology 1x|2x|ue|fsr3host|fsr3host+mono
 //                    which vendor shape --hold-presenting-ffx stands in: 2x (default)
 //                    is the SDK 2.x pair of effect DLLs behind the LOADER (the game
 //                    calls the loader; the loader forwards NOT through the leaves'
 //                    exports -- measured), 1x the SDK 1.1.x monolith sending the
 //                    pre-V2 PREPARE, ue the UE5 shape: the two effect DLLs called
-//                    directly, no loader
+//                    directly, no loader; fsr3host the FSR 3.0 HOST DLL alone
+//                    (ffx_fsr3_x64.dll!ffxFsr3ContextDispatchUpscale, no PREPARE,
+//                    no frame generation), fsr3host+mono Cyberpunk's shape: the host
+//                    upscales while the 1.1.x monolith prepares and generates
 //   --ffx-no-prepare drop the PREPARE dispatch: the frame-generation-OFF shape, where
 //                    the Overlay must count UPSCALE dispatches instead
 //
@@ -112,6 +115,12 @@
 #include <ffx_api.h>
 #include <ffx_framegeneration.h>
 #include <ffx_upscale.h>
+// And the FSR 3.0 HOST API (tag fsr3-v3.0.4), for the descriptor the fsr3host
+// topologies build and the type of the export they call on the host stub. Inside a
+// namespace, as the Overlay includes it: both trees define FfxFrameGenerationConfig.
+namespace fsr3host {
+#include <FidelityFX/host/ffx_fsr3.h>
+}    // namespace fsr3host
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3d12.lib")
@@ -2210,6 +2219,51 @@ bool ProbeFfxResolve() {
     Check(exportsUp() == 0u && exportsFg() == 0u,
           "neither leaf's EXPORT was entered by the forward - the loader reached the direct entry, as the real "
           "one was measured to bypass the leaf exports");
+
+    // THE FSR 3.0 HOST, the fifth module: its own export, resolved by ITS name through
+    // the host ABI arm, and the negatives that keep it from being mistaken for a leaf.
+    std::printf("\n[ffx] the FSR 3.0 host facade: resolved by name through its own ABI arm, and not a leaf\n");
+    const HMODULE host = LoadStubExactly(FL_STUB_FFX_FSR3_HOST);
+    Check(host != nullptr, "the ffx_fsr3_x64.dll host stub loaded from its absolute path");
+    if (host == nullptr) {
+        return false;
+    }
+    Check(fl::inventory::SpeaksFsr3Host(host), "the host stub speaks the four FSR 3.0 host names");
+    Check(!fl::inventory::SpeaksFsr3Host(decoy), "the sl.common.dll decoy does not");
+    Check(!fl::inventory::SpeaksFsr3Host(monolith),
+          "and neither does the 1.1.x monolith - the host's names are its own, so a monolith of the wrong NAME cannot "
+          "pass the host arm");
+    Check(!fl::inventory::SpeaksFfxApi(host), "the host does not speak ffx-api: it exports no ffxDispatch");
+    Check(fl::inventory::SpeaksExpectedAbi(fl::inventory::kModuleFfxFsr3Host, host),
+          "the ABI arm approves the host by its own name");
+    Check(!fl::inventory::SpeaksExpectedAbi(fl::inventory::kModuleFfxFsr3Host, monolith),
+          "and refuses a module of the host's name that does not speak the host ABI");
+    Check(fl::inventory::FfxLeafOf(fl::inventory::kModuleFfxFsr3Host) < 0,
+          "the host is NOT a leaf slot - the installer keys it by module name");
+    void* fromHost =
+        fl::inventory::ResolveScoped(fl::inventory::kModuleFfxFsr3Host, fl::inventory::kSymbolFfxFsr3DispatchUpscale);
+    Check(fromHost != nullptr &&
+              fromHost == reinterpret_cast<void*>(GetProcAddress(host, fl::inventory::kSymbolFfxFsr3DispatchUpscale)),
+          "ResolveScoped returned the host's own ffxFsr3ContextDispatchUpscale");
+    Check(fl::inventory::ResolveScoped(fl::inventory::kModuleFfxFsr3Host, "ffxDispatch") == nullptr,
+          "and the host has no ffxDispatch to resolve");
+    // The non-row, stated at runtime as well as at compile time: the export EXISTS on the
+    // module and no inventory row names it (20_OPEN_QUESTIONS §H11's reversal condition).
+    Check(GetProcAddress(host, "ffxFsr3DispatchFrameGeneration") != nullptr,
+          "the host exports ffxFsr3DispatchFrameGeneration");
+    bool fgIsARow = false;
+    bool hostIsARow = false;
+#define FL_PROBE_HOST_ROW(mod, sym, family)                                                                            \
+    if (std::strcmp(sym, "ffxFsr3DispatchFrameGeneration") == 0) {                                                     \
+        fgIsARow = true;                                                                                               \
+    }                                                                                                                  \
+    if (_wcsicmp(mod, fl::inventory::kModuleFfxFsr3Host) == 0) {                                                       \
+        hostIsARow = true;                                                                                             \
+    }
+    FL_HOOK_INVENTORY(FL_PROBE_HOST_ROW)
+#undef FL_PROBE_HOST_ROW
+    Check(hostIsARow, "an FL_HOOK_INVENTORY row names ffx_fsr3_x64.dll");
+    Check(!fgIsARow, "and no row names ffxFsr3DispatchFrameGeneration - deliberately (dllmain.cpp)");
     return g_failures == 0;
 }
 
@@ -2451,13 +2505,37 @@ int HoldPresentingFg(Gfx& g, int seconds, bool real, int presentsPerEval) {
 // ---------------------------------------------------------------------------
 // Which module the fixture calls: 1x = the monolith, 2x = the loader (which forwards to
 // the two leaves through their DIRECT entry, as measured), ue = the two leaves called
-// directly with no loader in the process, the UE5 shape.
-enum class FfxTopology { Monolith, Loader, Ue };
+// directly with no loader in the process, the UE5 shape, fsr3host = the FSR 3.0 HOST
+// DLL alone (its named UPSCALE export, no PREPARE, no frame generation -- the K = 1
+// double-count control for that row), fsr3host+mono = Cyberpunk 2077's measured shape:
+// the host upscales while the 1.1.x monolith prepares and generates.
+enum class FfxTopology { Monolith, Loader, Ue, Fsr3Host, Fsr3HostMonolith };
+
+using PfnFsr3DispatchUpscale = decltype(&fsr3host::ffxFsr3ContextDispatchUpscale);
 
 int HoldPresentingFfx(Gfx& g, int seconds, bool real, int presentsPerEval, FfxTopology topology, bool prepare) {
-    HMODULE upEntry = nullptr;    // where UPSCALE goes
-    HMODULE fgEntry = nullptr;    // where PREPARE and FRAMEGENERATION go
-    if (topology == FfxTopology::Monolith) {
+    HMODULE upEntry = nullptr;      // where UPSCALE goes (an ffx-api module)
+    HMODULE fgEntry = nullptr;      // where PREPARE and FRAMEGENERATION go
+    HMODULE hostEntry = nullptr;    // where UPSCALE goes on the FSR 3.0 host topologies
+    if (topology == FfxTopology::Fsr3Host || topology == FfxTopology::Fsr3HostMonolith) {
+        hostEntry = LoadStubExactly(FL_STUB_FFX_FSR3_HOST);
+        if (hostEntry == nullptr) {
+            Check(false, "the ffx_fsr3_x64.dll host stub loaded for the ffx hold");
+            return 1;
+        }
+        if (topology == FfxTopology::Fsr3HostMonolith) {
+            fgEntry = LoadStubExactly(FL_STUB_FFX_DX12);
+            if (fgEntry == nullptr) {
+                Check(false, "the SDK 1.1.x monolith stub loaded beside the host for the ffx hold");
+                return 1;
+            }
+        } else {
+            // The host alone prepares nothing and generates nothing: FSR 3.0's frame
+            // generation lives in ffx_frameinterpolation_x64.dll, which no row hooks. The
+            // count must come from the host's UPSCALE, so PREPARE is off whatever was asked.
+            prepare = false;
+        }
+    } else if (topology == FfxTopology::Monolith) {
         upEntry = fgEntry = LoadStubExactly(FL_STUB_FFX_DX12);
         if (upEntry == nullptr) {
             Check(false, "the SDK 1.1.x monolith stub loaded for the ffx hold");
@@ -2489,16 +2567,30 @@ int HoldPresentingFfx(Gfx& g, int seconds, bool real, int presentsPerEval, FfxTo
             fgEntry = fg;
         }
     }
-    auto dispatchUp = reinterpret_cast<PfnFfxDispatch>(reinterpret_cast<void*>(GetProcAddress(upEntry, "ffxDispatch")));
-    auto dispatchFg = reinterpret_cast<PfnFfxDispatch>(reinterpret_cast<void*>(GetProcAddress(fgEntry, "ffxDispatch")));
-    if (dispatchUp == nullptr || dispatchFg == nullptr) {
-        Check(false, "the entry module(s) export ffxDispatch");
+    auto dispatchUp =
+        upEntry != nullptr
+            ? reinterpret_cast<PfnFfxDispatch>(reinterpret_cast<void*>(GetProcAddress(upEntry, "ffxDispatch")))
+            : nullptr;
+    auto dispatchFg =
+        fgEntry != nullptr
+            ? reinterpret_cast<PfnFfxDispatch>(reinterpret_cast<void*>(GetProcAddress(fgEntry, "ffxDispatch")))
+            : nullptr;
+    auto dispatchHost = hostEntry != nullptr
+                            ? reinterpret_cast<PfnFsr3DispatchUpscale>(reinterpret_cast<void*>(
+                                  GetProcAddress(hostEntry, fl::inventory::kSymbolFfxFsr3DispatchUpscale)))
+                            : nullptr;
+    if ((upEntry != nullptr && dispatchUp == nullptr) || (fgEntry != nullptr && dispatchFg == nullptr) ||
+        (hostEntry != nullptr && dispatchHost == nullptr)) {
+        Check(false, "the entry module(s) export their dispatch entry point");
         return 1;
     }
-    const bool  topology2x = topology != FfxTopology::Monolith;
-    const char* topologyName = topology == FfxTopology::Monolith ? "SDK 1.1.x (monolith)"
-                               : topology == FfxTopology::Loader ? "SDK 2.x (two leaves behind the loader)"
-                                                                 : "UE5 (two leaves, no loader)";
+    // The pre-V2 PREPARE is the 1.1.x monolith's, on both topologies that use it.
+    const bool  topology2x = topology == FfxTopology::Loader || topology == FfxTopology::Ue;
+    const char* topologyName = topology == FfxTopology::Monolith   ? "SDK 1.1.x (monolith)"
+                               : topology == FfxTopology::Loader   ? "SDK 2.x (two leaves behind the loader)"
+                               : topology == FfxTopology::Ue       ? "UE5 (two leaves, no loader)"
+                               : topology == FfxTopology::Fsr3Host ? "FSR 3.0 host DLL alone"
+                                                                   : "FSR 3.0 host DLL + SDK 1.1.x monolith";
 
     const int  k = presentsPerEval < 1 ? 1 : presentsPerEval;
     const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
@@ -2530,14 +2622,26 @@ int HoldPresentingFfx(Gfx& g, int seconds, bool real, int presentsPerEval, FfxTo
     gen.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
     gen.numGeneratedFrames = static_cast<uint32_t>(k - 1);
 
+    // The FSR 3.0 HOST descriptor, from the vendored fsr3-v3.0.4 struct: the same tagged
+    // extent, in the field the Overlay pins at offset 1256. Nothing else is set, and the
+    // stub reads nothing at all, so a record carrying this size proves the Overlay read it
+    // off the argument.
+    fsr3host::FfxFsr3DispatchUpscaleDescription hostUp{};
+    hostUp.renderSize.width = kTaggedRenderW;
+    hostUp.renderSize.height = kTaggedRenderH;
+
     const ULONGLONG until = GetTickCount64() + static_cast<ULONGLONG>(seconds) * 1000ULL;
     long long       presented = 0;
     long long       frames = 0;
     uint64_t        frameId = 0;
     while (GetTickCount64() < until) {
         ++frameId;
-        dispatchUp(nullptr, &up.header);
-        if (prepare) {
+        if (dispatchHost != nullptr) {
+            dispatchHost(nullptr, &hostUp);
+        } else {
+            dispatchUp(nullptr, &up.header);
+        }
+        if (prepare && dispatchFg != nullptr) {
             // TWICE, SAME frameID: the SDK's own sample re-issues the prepare when its
             // configuration changes, and the vendor's contract is about the INDEX. A
             // writer that counted calls reads 2.0 at K = 1 here.
@@ -2545,7 +2649,7 @@ int HoldPresentingFfx(Gfx& g, int seconds, bool real, int presentsPerEval, FfxTo
             dispatchFg(nullptr, &prep.header);
             dispatchFg(nullptr, &prep.header);
         }
-        if (k > 1) {
+        if (k > 1 && dispatchFg != nullptr) {
             gen.frameID = frameId;
             dispatchFg(nullptr, &gen.header);
         }
@@ -2669,9 +2773,11 @@ int main(int argc, char** argv) {
             }
         } else if (std::strcmp(argv[i], "--ffx-topology") == 0 && i + 1 < argc) {
             const char* t = argv[++i];
-            ffxTopology = std::strcmp(t, "1x") == 0   ? FfxTopology::Monolith
-                          : std::strcmp(t, "ue") == 0 ? FfxTopology::Ue
-                                                      : FfxTopology::Loader;
+            ffxTopology = std::strcmp(t, "1x") == 0              ? FfxTopology::Monolith
+                          : std::strcmp(t, "ue") == 0            ? FfxTopology::Ue
+                          : std::strcmp(t, "fsr3host") == 0      ? FfxTopology::Fsr3Host
+                          : std::strcmp(t, "fsr3host+mono") == 0 ? FfxTopology::Fsr3HostMonolith
+                                                                 : FfxTopology::Loader;
         } else if (std::strcmp(argv[i], "--ffx-no-prepare") == 0) {
             ffxPrepare = false;
         } else if (std::strcmp(argv[i], "--sl-tag-for-frame") == 0) {

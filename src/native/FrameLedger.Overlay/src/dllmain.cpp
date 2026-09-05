@@ -71,6 +71,19 @@
 #include <ffx_api.h>
 #include <ffx_framegeneration.h>
 #include <ffx_upscale.h>
+// The FSR 3.0 HOST API (tag fsr3-v3.0.4), the same rule again, for exactly two things:
+// FfxFsr3DispatchUpscaleDescription::renderSize and the type of the one export hooked.
+// FFX_API is __declspec(dllexport) with no switch at all at that tag; nothing here
+// defines or takes the address of a name, so nothing is exported, and Pass C's
+// forbidden-export pattern already covers ffxFsr3*. A separate tree from ffx-api's
+// (third_party/fidelityfx-fsr3/README.md), INCLUDED INSIDE A NAMESPACE: the two trees
+// each define a struct named FfxFrameGenerationConfig, and wrapping the include is the
+// one way to keep both headers verbatim in one TU. Legal C++: the entry points keep
+// their C linkage, so fsr3host::ffxFsr3ContextDispatchUpscale names the same function
+// the module exports, and every struct read here is still the vendor's declaration.
+namespace fsr3host {
+#include <FidelityFX/host/ffx_fsr3.h>
+}    // namespace fsr3host
 
 using namespace fl;
 
@@ -849,6 +862,40 @@ PFN_FfxDispatch g_origFfxDispatch[fl::inventory::kFfxLeafCount] = {};
 std::atomic<uint32_t> g_ffxPatched[fl::inventory::kFfxLeafCount] = {};
 std::atomic<uint32_t> g_ffxLive{0};
 
+// --- The FSR 3.0 HOST API: ffx_fsr3_x64.dll!ffxFsr3ContextDispatchUpscale ----------
+//
+// The fifth AMD target, and NOT a leaf: a different export with a different signature,
+// hooked at its own address with its own trampoline and latch, feeding the SAME drain
+// word as the ffx-api UPSCALE arm -- so the count, the extent and the identity byte all
+// flow through the paths above unchanged, and PublishFfxFamilyIfWhole is its publish
+// point. Which source the last UPSCALE came from is recorded in g_ffxUpscaleLeaf as
+// leaf + 1; the host takes the value past every leaf.
+//
+// WHAT IS READ (CLAUDE.md rule 4): renderSize of the descriptor the title passed, and
+// nothing else -- never the context, never a resource, never the command list.
+using PFN_FfxFsr3ContextDispatchUpscale = decltype(&fsr3host::ffxFsr3ContextDispatchUpscale);
+PFN_FfxFsr3ContextDispatchUpscale g_origFfxFsr3DispatchUpscale = nullptr;
+std::atomic<uint32_t>             g_fsr3HostPatched{0};
+constexpr uint32_t                kFfxUpscaleSourceFsr3Host = fl::inventory::kFfxLeafCount + 1u;
+static_assert(kFfxUpscaleSourceFsr3Host > fl::inventory::kFfxLeafCount,
+              "the host's source value must sit past every leaf's (leaf + 1) so the identity arm can tell them apart");
+
+// THE ONE OFFSET THE HOST DETOUR DEPENDS ON, PINNED TO A LITERAL. commandList (8) +
+// seven FfxResource (176 each: a pointer, the 32-byte description, the 4-byte state,
+// 128 bytes of name, padded to 8) + jitterOffset (8) + motionVectorScale (8). The
+// prefix through renderSize is identical at fsr3-v3.0.3, fsr3-v3.0.4 and v1.1.4 (1.1.4
+// appends upscaleSize, flags and frameID AFTER it), and the literal is the point: a
+// re-vendoring that moved the field fails here rather than reading the wrong bytes off
+// a descriptor Cyberpunk's 3.0 module actually passed.
+static_assert(sizeof(fsr3host::FfxDimensions2D) == 8u && offsetof(fsr3host::FfxDimensions2D, height) == 4u,
+              "FfxDimensions2D is two uint32_t");
+static_assert(offsetof(fsr3host::FfxFsr3DispatchUpscaleDescription, renderSize) == 1256u,
+              "FfxFsr3DispatchUpscaleDescription::renderSize moved -- the vendored tag no longer matches the prefix "
+              "3.0.3 / 3.0.4 / 1.1.4 share, and the detour would read the wrong bytes");
+static_assert(offsetof(fsr3host::FfxFsr3DispatchUpscaleDescription, renderSize) + sizeof(fsr3host::FfxDimensions2D) <=
+                  sizeof(fsr3host::FfxFsr3DispatchUpscaleDescription),
+              "the field read must lie inside the descriptor");
+
 // WHY THIS PERSISTS RATHER THAN BEING exchange(0)'d LIKE g_slSeen.
 //
 // g_slSeen answers "did an upscaler run THIS FRAME", so a sample that outlived
@@ -1094,14 +1141,16 @@ static_assert(offsetof(ffxDispatchDescFrameGenerationPrepare, renderSize) + size
 // The render extent, from an UPSCALE or PREPARE descriptor. Same packing and the same
 // in-band unknown as NoteTags: a zero or absurd size clears the sample rather than
 // publishing a resolution nobody rendered at.
-void NoteFfxExtent(const FfxApiDimensions2D& size) noexcept {
-    const uint64_t w = size.width;
-    const uint64_t h = size.height;
+void NoteFfxExtent(uint64_t w, uint64_t h) noexcept {
     if (w == 0 || h == 0 || w > 0xFFFFu || h > 0xFFFFu) {
         g_ffxExtent.store(0, std::memory_order_release);
         return;
     }
     g_ffxExtent.store(w | (h << 16) | kTagValid, std::memory_order_release);
+}
+
+void NoteFfxExtent(const FfxApiDimensions2D& size) noexcept {
+    NoteFfxExtent(size.width, size.height);
 }
 
 void ObserveFfxDispatch(uint32_t leaf, const ffxDispatchDescHeader* desc) noexcept {
@@ -1162,6 +1211,20 @@ ffxReturnCode_t Hook_FfxDispatchT(ffxContext* context, const ffxDispatchDescHead
         }
     })
     return g_origFfxDispatch[Leaf](context, desc);
+}
+
+// The FSR 3.0 host detour: the UPSCALE arm of ObserveFfxDispatch, verbatim, on a
+// descriptor of the host API's shape. Original called exactly once on every path.
+fsr3host::FfxErrorCode Hook_FfxFsr3ContextDispatchUpscale(fsr3host::FfxFsr3Context*                          context,
+                                                          const fsr3host::FfxFsr3DispatchUpscaleDescription* desc) {
+    FL_HOOK_GUARD({
+        if (MayObserve() && desc != nullptr) {
+            NoteFfxExtent(desc->renderSize.width, desc->renderSize.height);
+            g_ffxUpscaleLeaf.store(kFfxUpscaleSourceFsr3Host, std::memory_order_relaxed);
+            g_ffxSeen.fetch_add(fl::slseen::kCountOne, std::memory_order_relaxed);
+        }
+    })
+    return g_origFfxFsr3DispatchUpscale(context, desc);
 }
 
 void* FfxDispatchDetour(uint32_t leaf) noexcept {
@@ -1432,12 +1495,29 @@ bool InstallByFamily(const wchar_t* module, const char* symbol, uint32_t family)
         // on a 2.x title, so a family published on the first leaf entitles records the
         // second leaf is not yet producing.
         //
-        // A module the leaf table does not know installs NOTHING. fl_hook_inventory.h's
-        // static_asserts make that unreachable for the rows as written; this is the
-        // installer's safe direction for a row somebody adds later.
+        // A module the leaf table does not know is either the FSR 3.0 HOST -- its own
+        // export, its own body, its own latch, the same family and publish point -- or
+        // nothing: fl_hook_inventory.h's static_asserts make the latter unreachable for
+        // the rows as written, and installing nothing is the safe direction for a row
+        // somebody adds later.
         const int leaf = fl::inventory::FfxLeafOf(module);
         if (leaf < 0) {
-            return false;
+            if (_wcsicmp(module, fl::inventory::kModuleFfxFsr3Host) != 0) {
+                return false;
+            }
+            if (g_fsr3HostPatched.load(std::memory_order_acquire) != 0) {
+                return true;
+            }
+            void* target = fl::inventory::ResolveScoped(module, symbol);
+            if (target == nullptr) {
+                return false;    // not loaded, or a module of the name that does not speak the 3.0 host ABI
+            }
+            if (!PatchTarget(target, reinterpret_cast<void*>(&Hook_FfxFsr3ContextDispatchUpscale),
+                             reinterpret_cast<void**>(&g_origFfxFsr3DispatchUpscale))) {
+                return false;
+            }
+            g_fsr3HostPatched.store(1, std::memory_order_release);
+            return true;
         }
         const auto slot = static_cast<uint32_t>(leaf);
         if (g_ffxPatched[slot].load(std::memory_order_acquire) != 0) {
@@ -1477,6 +1557,15 @@ void PublishFfxFamilyIfWhole() noexcept {
         if (fl::inventory::IsModuleLoaded(fl::inventory::kFfxLeafModules[i])) {
             return;    // loaded and not yet patched: the family is not whole
         }
+    }
+    // The FSR 3.0 host is the fifth target under the same rule. On Cyberpunk it lives
+    // beside the 1.1.x monolith, and the family's FsrFg claim comes from the monolith
+    // while the identity comes from the host -- published on whichever patched first,
+    // the other's records would be entitled before they were produced (#110's window).
+    if (g_fsr3HostPatched.load(std::memory_order_acquire) != 0) {
+        anyPatched = true;
+    } else if (fl::inventory::IsModuleLoaded(fl::inventory::kModuleFfxFsr3Host)) {
+        return;
     }
     if (anyPatched) {
         PublishHookFamily(fl::inventory::kFamilyFfxDispatch, g_ffxLive);
@@ -1891,18 +1980,21 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
             // it, the honest byte is "FSR, version not named" (fl_shm.h
             // §FL_UPSCALER_FSR_UNVERSIONED): FSR3 would be right on every non-RDNA4
             // machine and a fabrication on one, and UNKNOWN would print the very N/A
-            // this arm exists to remove.
-            rec.upscaler = g_ffxUpscaleLeaf.load(std::memory_order_relaxed) == fl::inventory::kFfxLeafMonolith + 1u
+            // this arm exists to remove. The FSR 3.0 HOST (ffx_fsr3_x64.dll, Cyberpunk's
+            // copy) hosts FSR 3.0 and nothing else, so it is FSR3 as a fact too.
+            const uint32_t src = g_ffxUpscaleLeaf.load(std::memory_order_relaxed);
+            rec.upscaler = src == fl::inventory::kFfxLeafMonolith + 1u || src == kFfxUpscaleSourceFsr3Host
                                ? static_cast<uint8_t>(FL_UPSCALER_FSR3)
                                : static_cast<uint8_t>(FL_UPSCALER_FSR_UNVERSIONED);
         } else {
             // UNKNOWN, AND NEVER `NONE`. FL_UPSCALER_NONE means "a hook ran and
             // there was genuinely no upscaler" -- the one state fl_shm.h allows
-            // to be aggregated as a negative. This writer hooks Streamline and the
-            // ffx-api leaves and nothing else, so an XeSS, NGX-direct or FSR 3.0
-            // (ffx_fsr3_x64.dll) title evaluates its upscaler somewhere we are not
-            // looking -- and so does an FSR title on a present that drained no
-            // dispatch, which under frame generation is every generated present.
+            // to be aggregated as a negative. This writer hooks Streamline, the
+            // ffx-api leaves and the FSR 3.0 host facade and nothing else, so an XeSS
+            // or NGX-direct title, or an FSR 3.0 title calling ffx_fsr3upscaler_x64.dll
+            // directly, evaluates its upscaler somewhere we are not looking -- and so
+            // does an FSR title on a present that drained no dispatch, which under
+            // frame generation is every generated present.
             // Reporting NONE would turn "we do not cover that vendor" into a measured
             // fact about the title. UNKNOWN says the true thing: our coverage is short.
             //

@@ -1702,7 +1702,7 @@ one launch per capture, consent granted after launch. Exit codes and full report
   | Expedition 33 | upscaler 4.0.2 + frame generation 3.1.5, **no loader** | UE5: the plugin's built-in loader calls the leaves directly |
   | Hell Is Us | upscaler **4.0.3** + frame generation **4.0.0** under `Plugins/FSR/Source/fidelityfx-sdk/Kits/FidelityFX/signedbin/`, **no loader** | UE5, SDK 2.1.x |
   | Red Dead Redemption 2 | `ffx_fsr2_api_x64.dll` + `_dx12_` + `_vk_` | FSR 2, dynamic |
-  | Cyberpunk 2077 (also) | `ffx_fsr3_x64.dll`, `ffx_backend_dx12_x64.dll`, `ffx_frameinterpolation_x64.dll`, `ffx_fsr3upscaler_x64.dll`, `ffx_opticalflow_x64.dll` | FSR 3.0 host DLLs, named exports — the deferred route |
+  | Cyberpunk 2077 (also) | `ffx_fsr3_x64.dll`, `ffx_backend_dx12_x64.dll`, `ffx_frameinterpolation_x64.dll`, `ffx_fsr3upscaler_x64.dll`, `ffx_opticalflow_x64.dll` | FSR 3.0 host DLLs, named exports — ~~the deferred route~~ hooked 2026-09-05 at the host facade (`ffxFsr3ContextDispatchUpscale`, tag `fsr3-v3.0.4`: the module's twelve exports match that tag, not `v1.1.4`) |
 
   Every module in the ffx-api family exports the same five names and nothing else
   (`vendor-exports.json`) — which the morning read as "the loader can only reach a leaf through
@@ -1718,7 +1718,7 @@ one launch per capture, consent granted after launch. Exit codes and full report
   and `none` by count with FG off; **Hell Is Us** `FSR (3.1 or 4 …)` / `FsrFg` / ×2 / 1.00, and
   `none` with FG off; **Expedition 33** FSR upscale under DLSS FG ×3 → `×2.97`, *technology not
   identified*, count from UPSCALE dispatches (no PREPARE, no token); **Cyberpunk** at FSR 3: the FSR
-  3.0 host DLLs upscale (`upscaler: N/A`, deferred route) while the 1.1.x monolith generates
+  3.0 host DLLs upscale (`upscaler: N/A` on that build; the host row landed 2026-09-05, §H11 B1 owed) while the 1.1.x monolith generates
   (`FsrFg`, 4261 batches, ×2); **Dying Light: The Beast** (FSR + FSR FG), **KCD2** (FSR) and
   **Wukong** (FSR): **zero dispatches at any leaf export**, `upscaler: N/A` — the loader-row
   reversal; **Rune Factory** (FSR FG): no AMD module in the census, `59.99 → 119.95 (×2)` from

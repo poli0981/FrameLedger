@@ -202,6 +202,38 @@ static_assert(kFamilyFfxDispatch != kFamilyEvaluateFeature &&
               "InstallByFamily binds a row by EQUALITY on this value -- a collision would hand a Streamline detour "
               "body to an AMD export, which is the neighbour's-body defect the installer exists to stop");
 
+// --- AMD FidelityFX, the FSR 3.0 HOST API (2026-09-05, the route HANDOFF 7c deferred) ---
+//
+// Cyberpunk 2077 at FSR 3 upscales through ffx_fsr3_x64.dll's NAMED exports -- the
+// SDK 1.0.x host API, tag fsr3-v3.0.4 -- while its frame generation goes through the
+// 1.1.x monolith's ffxDispatch above. Measured 2026-09-04: `FsrFg` printed, `upscaler:
+// N/A`. One row, ffxFsr3ContextDispatchUpscale, whose descriptor carries renderSize
+// at an offset the vendored header vouches for; identity is FSR3 as a fact (the 3.0
+// host hosts nothing else) and the UPSCALE count feeds the SAME drain word the
+// ffx-api rows feed.
+//
+// THE SAME FAMILY VALUE AS THE ffx-api ROWS, ON PURPOSE. The row's UPSCALE goes into
+// g_ffxSeen's count, which RecordPresent drains into fgEvaluations when Streamline has
+// never issued a token and no PREPARE ever arrived -- so a row claiming IDENTITY|PARAMS
+// alone would feed a field its family does not entitle, and every record on a
+// host-only title would be an honesty violation. The installer's ffx arm binds on the
+// family and then keys on the MODULE (FfxLeafOf for the four ffxDispatch modules, this
+// name for the host), exactly as the params arm keys on the symbol -- so the equality
+// collision the asserts above forbid between DIFFERENT detour bodies is not one here:
+// one family, one publish point (PublishFfxFamilyIfWhole), one live latch.
+//
+// ffxFsr3DispatchFrameGeneration IS NOT A ROW. On the one title that ships the host
+// DLLs, frame generation is dispatched through the monolith's ffxDispatch (4261
+// FRAMEGENERATION batches, 2026-09-04) and the count comes from Streamline tokens; the
+// host's FG export fires per GENERATED batch, so it is not a count producer either.
+// It becomes a row only if a title appears generating through the host DLL with no
+// monolith in the census -- `Active (technology not identified)` beside
+// FL_CENSUS_FFX_FSR3. Pre-committed in 20_OPEN_QUESTIONS §H11.
+inline constexpr uint32_t kFamilyFsr3Host = kFamilyFfxDispatch;
+static_assert(kFamilyFsr3Host == kFamilyFfxDispatch,
+              "one family, one publish point, one live latch: the host row shares the ffx-api rows' drain word and "
+              "must share their claims, or fgEvaluations would be fed by a row that does not claim FG_EVALUATIONS");
+
 // The leaves, in the order dllmain's per-leaf trampoline and latch arrays are indexed.
 enum FfxLeaf : uint32_t {
     kFfxLeafMonolith = 0,           // amd_fidelityfx_dx12.dll -- SDK 1.1.x, FSR 3.1 only
@@ -300,7 +332,14 @@ inline int FfxLeafOf(const wchar_t* module) noexcept {
     X(L"amd_fidelityfx_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                                    \
     X(L"amd_fidelityfx_upscaler_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                           \
     X(L"amd_fidelityfx_framegeneration_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                    \
-    X(L"amd_fidelityfx_loader_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)
+    X(L"amd_fidelityfx_loader_dx12.dll", "ffxDispatch", fl::inventory::kFamilyFfxDispatch)                             \
+    X(L"ffx_fsr3_x64.dll", "ffxFsr3ContextDispatchUpscale", fl::inventory::kFamilyFsr3Host)
+
+// The FSR 3.0 host module and the one symbol dllmain's ffx arm keys on for it. Named
+// constants HERE, for the reason kModuleSlInterposer gives below, and bound to the
+// table so the row and the arm cannot drift apart.
+inline constexpr const wchar_t* kModuleFfxFsr3Host = L"ffx_fsr3_x64.dll";
+inline constexpr const char*    kSymbolFfxFsr3DispatchUpscale = "ffxFsr3ContextDispatchUpscale";
 
 // The module and the two symbols dllmain's params arm keys on: the frame-based
 // symbol picks the detour, and all three name what "whole" means when the family is
@@ -324,6 +363,8 @@ static_assert(InventoryHasRow(kModuleSlInterposer, kSymbolSlSetTag),
               "the params arm keys on slSetTag by this constant, and the table no longer has that row");
 static_assert(InventoryHasRow(kModuleSlInterposer, kSymbolSlSetTagForFrame),
               "the params arm keys on slSetTagForFrame by this constant, and the table no longer has that row");
+static_assert(InventoryHasRow(kModuleFfxFsr3Host, kSymbolFfxFsr3DispatchUpscale),
+              "the ffx arm keys on the FSR 3.0 host row by these constants, and the table no longer has that row");
 
 // THE LEAF TABLE AND THE ROWS ARE BOUND TO EACH OTHER AT COMPILE TIME, BOTH WAYS.
 // A leaf without a row would be a trampoline slot nothing installs into; a row
@@ -373,6 +414,13 @@ static_assert(AnyRowNames(kFfxLoaderModule),
               "amd_fidelityfx_loader_dx12.dll is the game's entry on a loader-shipping title (Dying Light: The "
               "Beast, KCD2, Wukong measured 2026-09-04: zero dispatches at any leaf export while FSR ran), so "
               "without a row those titles read N/A");
+// The host is NOT a leaf: it has no ffxDispatch, its own detour body, its own latch.
+// FfxLeafOf returning -1 for it is what routes the installer's ffx arm to the host
+// branch, so a leaf-table entry for it would hand the host the ffxDispatch trampoline.
+static_assert(FfxLeafOfExact(kModuleFfxFsr3Host) < 0,
+              "the FSR 3.0 host facade is not an ffxDispatch leaf; the installer keys it by module name");
+static_assert(!FfxDispatchRowExistsFor(kModuleFfxFsr3Host),
+              "the host exports no ffxDispatch; a row claiming one would resolve nothing and install nothing");
 
 // Does this module speak the Streamline 2 ABI the vendored headers describe?
 //
@@ -442,12 +490,33 @@ inline bool SpeaksFfxApi(HMODULE h) noexcept {
            GetProcAddress(h, "ffxQuery") != nullptr && GetProcAddress(h, "ffxDispatch") != nullptr;
 }
 
+// Does this module speak the FSR 3.0 HOST ABI the vendored fsr3-v3.0.4 headers describe?
+//
+// A NAME CHECK, like SpeaksFfxApi's, on four of the twelve ffxFsr3* names the shipped
+// module exports (docs/vendor-exports.json): the create, the one export hooked, the
+// frame-generation dispatch and SkipPresent -- the last two being the 3.0 host's own
+// and exported by no ffx-api module, so a 1.1.x monolith of the wrong NAME cannot pass.
+// Deliberately not a generation check: 3.0.3, 3.0.4 and 1.1.4 share the descriptor
+// prefix through renderSize, which is the only field read, and dllmain pins that
+// offset at compile time; a name a later generation ADDS is not evidence the field
+// moved. Probe-only names, never resolved into a row, never called; this file because
+// Pass B exempts exactly this file.
+inline bool SpeaksFsr3Host(HMODULE h) noexcept {
+    return h != nullptr && GetProcAddress(h, "ffxFsr3ContextCreate") != nullptr &&
+           GetProcAddress(h, "ffxFsr3ContextDispatchUpscale") != nullptr &&
+           GetProcAddress(h, "ffxFsr3DispatchFrameGeneration") != nullptr &&
+           GetProcAddress(h, "ffxFsr3SkipPresent") != nullptr;
+}
+
 inline bool SpeaksExpectedAbi(const wchar_t* module, HMODULE h) noexcept {
     if (module == nullptr) {
         return false;
     }
     if (_wcsicmp(module, L"sl.interposer.dll") == 0) {
         return SpeaksStreamline2(h);
+    }
+    if (_wcsicmp(module, kModuleFfxFsr3Host) == 0) {
+        return SpeaksFsr3Host(h);
     }
     // THE AMD ARM, by leaf name, for the same reason the Streamline arm is by name:
     // the loader also exports all five and is not a leaf, so a prefix test would

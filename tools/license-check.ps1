@@ -89,7 +89,14 @@ $vendored = @(
     # in the tree (845 of 845 on 2026-09-04). §2d below asserts, per vendored
     # file, that it is on that list and carries the grant inline; this row only
     # asserts the licence copy exists.
-    @{ Path = 'src/native/third_party/fidelityfx'; Licence = 'fidelityfx-MIT.txt'; Name = 'AMD FidelityFX SDK headers' }
+    @{ Path = 'src/native/third_party/fidelityfx'; Licence = 'fidelityfx-MIT.txt'; Name = 'AMD FidelityFX SDK headers' },
+
+    # AMD FidelityFX SDK -- the FSR 3.0 HOST API headers, tag fsr3-v3.0.4. A
+    # DIFFERENT licence shape from the row above: a root LICENSE.txt that IS the
+    # MIT grant verbatim, with every header carrying it inline -- which is why
+    # the directory is separate and §2e below (not §2d) walks it. The same MIT
+    # text from the same project, so the same legal/licenses copy is the notice.
+    @{ Path = 'src/native/third_party/fidelityfx-fsr3'; Licence = 'fidelityfx-MIT.txt'; Name = 'AMD FidelityFX SDK 3.0 host headers' }
 )
 
 $licenceDir = Join-Path $RepoRoot 'legal/licenses'
@@ -262,6 +269,43 @@ if (Test-Path $ffxDir) {
     }
 }
 
+# --- 2e. AMD FidelityFX, the FSR 3.0 HOST API at tag fsr3-v3.0.4: MIT at the root
+# AND inline, asserted file by file ----------------------------------------------
+#
+# A DIFFERENT SHAPE FROM §2d, which is why it is a different directory and a
+# different section rather than a second walk of the same one: at this tag the
+# root LICENSE.txt IS the MIT grant (no exception list to look a path up in), and
+# every header carries the same grant in its own banner. So the per-file question
+# is "does THIS header carry the grant", and the per-directory question is "is the
+# root grant present" -- both asserted, because a re-sync from a later tag would
+# bring the 2.x exception-list shape in under this directory's name and §2d would
+# never look here.
+$fsr3Dir = Join-Path $RepoRoot 'src/native/third_party/fidelityfx-fsr3'
+if (Test-Path $fsr3Dir) {
+    $fsr3Licence = Join-Path $fsr3Dir 'LICENSE.txt'
+    if (-not (Test-Path $fsr3Licence)) {
+        $violations.Add('AMD FidelityFX 3.0 host headers are vendored but src/native/third_party/fidelityfx-fsr3/LICENSE.txt is missing — at tag fsr3-v3.0.4 that file IS the MIT grant, so nothing else can stand in for it')
+    }
+    elseif ((Get-Content $fsr3Licence -Raw) -notmatch 'Permission is hereby granted, free of charge') {
+        $violations.Add('src/native/third_party/fidelityfx-fsr3/LICENSE.txt does not contain the MIT permission grant — if upstream changed its licensing model at this tag, re-run docs/18_GPU_VENDOR_APIS.md §Checklist rather than trusting this gate')
+    }
+
+    $sdk = Join-Path $fsr3Dir 'sdk'
+    $fsr3Files = @(if (Test-Path $sdk) { Get-ChildItem $sdk -Recurse -File -ErrorAction SilentlyContinue })
+    if ($fsr3Files.Count -eq 0) {
+        $violations.Add('src/native/third_party/fidelityfx-fsr3/sdk holds no files — a vendoring directory with a licence copy and nothing under it is a claim about nothing')
+    }
+    foreach ($f in $fsr3Files) {
+        $rel = [IO.Path]::GetRelativePath($fsr3Dir, $f.FullName).Replace('\', '/')
+        if ($f.Extension -ne '.h') {
+            $violations.Add("fidelityfx-fsr3/$rel is a $($f.Extension) — only the host API's header declarations are vendored from this tag; binaries, sources, shaders and helpers are excluded (third_party/fidelityfx-fsr3/README.md)")
+        }
+        elseif (-not (Select-String -Path $f.FullName -Pattern 'Permission is hereby granted, free of charge' -Quiet)) {
+            $violations.Add("fidelityfx-fsr3/$rel does not carry the MIT grant in its own banner — every one of the ten did at fsr3-v3.0.4, so this is a file that was not checked")
+        }
+    }
+}
+
 # --- 2c. The notices file's BUNDLING claim must match the filesystem ---------
 #
 # Every other check here is keyed on the directory a component WOULD occupy, so
@@ -292,7 +336,10 @@ else {
         @{ Marker = 'NVIDIA NVAPI SDK'; Path = 'src/native/third_party/nvapi' },
         @{ Marker = 'Vulkan headers'; Path = 'src/native/third_party/vulkan-headers' },
         @{ Marker = 'NVIDIA Streamline'; Path = 'src/native/third_party/streamline' },
-        @{ Marker = 'AMD FidelityFX'; Path = 'src/native/third_party/fidelityfx' }
+        @{ Marker = 'AMD FidelityFX'; Path = 'src/native/third_party/fidelityfx' },
+        # A marker the row above cannot satisfy by accident: the two directories are
+        # two claims, and one row must not stand in for both.
+        @{ Marker = 'FidelityFX SDK 3.0 host headers'; Path = 'src/native/third_party/fidelityfx-fsr3' }
     )
     foreach ($c in $claims) {
         $matched = @($rows | Where-Object { $_ -match [regex]::Escape($c.Marker) })

@@ -243,3 +243,31 @@ target_include_directories(fl_fidelityfx_headers SYSTEM INTERFACE
 # declaration that exports nothing unless something DEFINES it. FrameLedger.Overlay
 # must never define or take the address of one; hookinventory-check Pass C reads
 # the built DLL's export table as well as its imports for exactly that.
+
+# ---------------------------------------------------------------------------
+# AMD FidelityFX SDK -- the FSR 3.0 HOST API headers (MIT) -- VENDORED, ten files,
+# at tag fsr3-v3.0.4, in a directory of their own beside the ffx-api tree above.
+#
+# WHAT THIS BUYS. Cyberpunk 2077 upscales at FSR 3 through ffx_fsr3_x64.dll's NAMED
+# exports rather than the ffx-api facade, so the row set above sees its frame
+# generation (the 1.1.x monolith) and not its upscaler. ffxFsr3ContextDispatchUpscale
+# takes a descriptor whose renderSize field is at an offset only the vendor's own
+# header can vouch for; this target makes that read a declaration. The tag is the
+# one whose declarations match the module the title SHIPS -- twelve ffxFsr3* exports,
+# fsr3-v3.0.4's exact set -- not the v1.1.4 the docs first named, whose dispatch
+# struct appends fields after renderSize and declares three exports the module lacks
+# (third_party/fidelityfx-fsr3/README.md).
+#
+# A SEPARATE DIRECTORY BECAUSE THE LICENCE SHAPE DIFFERS: a root LICENSE.txt that IS
+# the MIT grant, with every header carrying it inline -- not v2.3.0's exception list.
+# tools/license-check.ps1 §2e asserts that per file; §2d would have walked past it.
+#
+# ONE INCLUDE DIRECTORY: the headers include each other as <FidelityFX/host/...>, so
+# sdk/include is the root and upstream's layout is kept, unmodified.
+add_library(fl_fsr3_host_headers INTERFACE)
+target_include_directories(fl_fsr3_host_headers SYSTEM INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/fidelityfx-fsr3/sdk/include"
+)
+# Never linked, same rule as above. FFX_API here is __declspec(dllexport) with no
+# switch at all (ffx_types.h at this tag); the Overlay defines none of the names and
+# Pass C's forbidden-export pattern (^ffx[A-Z]) already covers ffxFsr3*.

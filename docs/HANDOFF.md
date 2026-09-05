@@ -818,9 +818,19 @@ at 1.01, KCD2 at FSR printed the identity and `none` by count at 1.00 — the lo
 both, once. **Wukong at FSR read silent at the monolith AND the loader with the monolith loaded**:
 FSR upscaling compiled into its UE plugin (Rune Factory's shape) with the monolith loaded and
 unused — ~~owed: Wukong with FSR frame generation ON~~ **the title has no FSR frame-generation
-option (owner, same night)**, so Wukong is the second static title and nothing is owed on it. **The FSR 3.0 host route
+option (owner, same night)**, so Wukong is the second static title and nothing is owed on it. ~~**The FSR 3.0 host route
 (`ffx_fsr3_x64.dll`, step 3 below) is deferred to its own PR** — ten host headers from `v1.1.4`;
-Cyberpunk at FSR 3 is its oracle and already prints `FsrFg` from the monolith beside it.
+Cyberpunk at FSR 3 is its oracle and already prints `FsrFg` from the monolith beside it.~~
+**BUILT 2026-09-05, and the tag was not `v1.1.4`.** Cyberpunk's module exports exactly
+`fsr3-v3.0.4`'s twelve `ffxFsr3*` names; 1.1.4 appends fields after `renderSize` and declares
+three exports the module lacks. One row — `ffx_fsr3_x64.dll!ffxFsr3ContextDispatchUpscale`,
+the same family and publish point as the ffx-api rows, keyed by module in the installer —
+reads `renderSize` and nothing else; `ffxFsr3DispatchFrameGeneration` is deliberately not a
+row (the monolith generates on the one title; §H11 pre-commits the reversal). **What is owed
+is the owner's acceptance run**, rows B1–B4 in §H11: Cyberpunk at FSR 3 + FG must print
+`upscaler: Fsr3` with one extent agreeing between the host and the monolith's PREPARE, and
+`frames/upscale-drained = 1.00`; B2 (facade silent, `upscale-drained = 0`) is the pre-committed
+condition for adding the `ffx_fsr3upscaler_x64.dll` row instead — never both.
 
 <details>
 <summary>The entry as it stood, kept for the reasoning it carries</summary>
@@ -843,7 +853,7 @@ exports `xessD3D12Init` / `xessD3D12Execute` and XeFG `xefgSwapChainD3D12InitFro
    ffx_framegeneration.h, dx12/ffx_api_dx12.h, vk/ffx_api_vk.h}` for the 3.1 facade the
    installed titles call, and `sdk/include/FidelityFX/host/{ffx_fsr3.h, ffx_fsr3upscaler.h,
    ffx_frameinterpolation.h, ffx_opticalflow.h, ffx_types.h, ffx_error.h, ffx_interface.h,
-   ffx_util.h, ffx_assert.h}` for the FSR 3.0 host API. Do not take `main`: it is SDK 2.x under
+   ffx_util.h, ffx_assert.h}` for the FSR 3.0 host API *(2026-09-05: vendored from **`fsr3-v3.0.4`**, not `v1.1.4` — the tag whose declarations match the module Cyberpunk ships; see the banner above)*. Do not take `main`: it is SDK 2.x under
    a binary-only `docs/license.md` that excepts these headers as MIT only by an 845-line list.
    Extend `hookinventory-check` Pass C's forbidden-import list with `amd_fidelityfx_*.dll` /
    `ffx_*.dll` in the same PR — the Streamline lesson, one vendor over. *Intel XeSS SDK*:
@@ -870,8 +880,10 @@ exports `xessD3D12Init` / `xessD3D12Execute` and XeFG `xefgSwapChainD3D12InitFro
    same five names, and the plugin modules are called by the facade, not by the game — an
    unscoped hook would count each dispatch twice, straight into `fg_factor`.
 3. **AMD 3.0 (`ffx_fsr3_x64.dll`, Cyberpunk's copy):** named exports, no struct decode needed —
-   `ffxFsr3ContextDispatchUpscale` for identity and extent, `ffxFsr3DispatchFrameGeneration`
-   once per application frame.
+   `ffxFsr3ContextDispatchUpscale` for identity and extent, ~~`ffxFsr3DispatchFrameGeneration`
+   once per application frame~~ *(built 2026-09-05 without the FG row: on the one title the
+   monolith generates and the count is Streamline's; the host's FG export fires per generated
+   batch and is not a count producer. §H11 carries the reversal condition.)*
 4. **Intel — closed at the census (step 1).** No hook on any `libxess*.dll` export. The
    report line for an Intel title is what the writer already produces: upscaler
    `NOT_REPORTED`, and if `libxess_fg.dll` is in the census, Presented FPS with the *"MAY

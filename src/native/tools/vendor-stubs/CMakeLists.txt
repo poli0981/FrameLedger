@@ -23,7 +23,7 @@ function(fl_add_vendor_stub target output source)
     # supply the vendor signatures so the stub and the detour cannot disagree about
     # the ABI. Both are INTERFACE include targets and link nothing.
     target_link_libraries(${target} PRIVATE FrameLedger.Shm fl_native_flags fl_streamline_headers
-        fl_fidelityfx_headers)
+        fl_fidelityfx_headers fl_fsr3_host_headers)
     target_include_directories(${target} PRIVATE
         "${CMAKE_SOURCE_DIR}/FrameLedger.Overlay/include"
         "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -75,3 +75,12 @@ fl_add_vendor_stub(fl_stub_ffx_dx12 "amd_fidelityfx_dx12" stub_amd_fidelityfx_dx
 fl_add_vendor_stub(fl_stub_ffx_upscaler "amd_fidelityfx_upscaler_dx12" stub_amd_fidelityfx_upscaler_dx12.cpp)
 fl_add_vendor_stub(fl_stub_ffx_fg "amd_fidelityfx_framegeneration_dx12" stub_amd_fidelityfx_framegeneration_dx12.cpp)
 fl_add_vendor_stub(fl_stub_ffx_loader "amd_fidelityfx_loader_dx12" stub_amd_fidelityfx_loader_dx12.cpp)
+
+# --- AMD FidelityFX, the FSR 3.0 HOST API (Cyberpunk 2077's ffx_fsr3_x64.dll) ---
+#
+# NOT A LEAF: named exports, the 3.0 host's own descriptor, one row
+# (ffxFsr3ContextDispatchUpscale). Exports exactly the four names SpeaksFsr3Host
+# probes for, through the vendored header's own FFX_API (dllexport, no switch) -- and
+# is therefore hookinventory-check Pass C's SECOND positive control for the export
+# parser, beside the ffx-api leaf.
+fl_add_vendor_stub(fl_stub_ffx_fsr3_host "ffx_fsr3_x64" stub_ffx_fsr3_x64.cpp)
