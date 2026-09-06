@@ -28,13 +28,26 @@ GitHub release body, so a missing section will mean an empty release note.
   last answered word is the state, a change between readings is printed), prints `NVIDIA driver NGX state:`
   in the runtime block, and the `upscaler:` line reads `Dlss (driver-reported: … not counted by this hook)`
   when no hook named one. Identity only, each limit measured: no quality or preset (override fields), no
-  ratio (`scalingRatio` is 0 even under an override), no frame-generation mode or multiplier (the FG word is
-  blind to Streamline DLSS-G). Beside a hook's `Dlss` the driver's word prints as agreement or as a
+  ratio (`scalingRatio` is 0 even under an override), no frame-generation multiplier (`FG_MODE` /
+  `FG_MULTI_FRAME` stay clear at ×4). **The FG word follows DLSS-G too, corrected on the first run's own
+  readings:** `CREATED | EVALUATE` on every ×4 session, changing between readings as the feature came up, so
+  it is printed beside `frame generation:` as agreement or a printed disagreement, and promoted to
+  `DlssG (driver-reported …)` only where the count is active and no tag named the technology — the count is
+  never the driver's. Owner's run (§H5 rows N1–N4): the negative held (`CREATED` clear with upscaling off),
+  four NGX-direct titles now print `Dlss (driver-reported …)`, two hooked titles print agreement, and an
+  FSR + DLSS-G session read `SR 0x205` (created, not evaluated) and correctly claimed nothing. Beside a hook's `Dlss` the driver's word prints as agreement or as a
   disagreement printed rather than resolved; beside an `N/A` with the bit clear it prints the driver's
   negative. `20_OPEN_QUESTIONS` §H5 pre-commits rows N1–N4, and N3 — DLSS switched off — withdraws the rung
   if the bit stays set. `03_METRICS` §Upscaling, `05_DETECTION`, `18_GPU_VENDOR_APIS` carry it.
 
 ### Changed
+
+- **A counted session whose factor was refused no longer reads "no evaluation was observed".** DL:TB at FSR
+  upscaling + DLSS Frame Generation (2026-09-06): 4,415 tokens, 8,174 DXGI-counted presents, `DlssG` from
+  the tags, factor refused because bucket 8 of 8 read 1.96 against 2.85 — and the Presented qualifier said
+  a runtime was loaded and nothing was seen. It now says frame generation was counted and its factor
+  refused, that DXGI counted presents this hook never saw so the Displayed rate is above the printed
+  number, and that the number is neither Native nor Displayed.
 
 - **The withheld `none` is narrowed to sessions where DXGI's counter was not read (§H5 Leg 0 landed).**
   The owner's morning run on the DXGI-counted build printed the rule-6 trio on Dying Light: The Beast

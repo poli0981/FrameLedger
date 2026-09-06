@@ -8,9 +8,12 @@ namespace FrameLedger.CaptureHost.Consume;
 /// <remarks>
 /// <b>Measured 2026-09-06 (driver 616.64, <c>20_OPEN_QUESTIONS</c> §H5):</b> <see cref="Created"/> and
 /// <see cref="Evaluate"/> on the super-resolution word are set for a process with NO NVIDIA-app override
-/// (Hell Is Us, Lies of P). The frame-generation word does NOT reflect Streamline DLSS-G — it read
-/// <see cref="Initialized"/> | <see cref="DllExists"/> beside a ×4 session — and <c>frameGenerationCount</c> is the
-/// override target, not the title's multiplier. So the word this host reads is SR, for identity, and nothing else.
+/// (Hell Is Us, Lies of P), and CLEAR on Lies of P with upscaling switched off — the negative that keeps the rung.
+/// <b>The frame-generation word follows DLSS-G too, once the feature exists</b> — the morning's
+/// <see cref="Initialized"/> | <see cref="DllExists"/> on Hell Is Us was read before creation; the captures beside
+/// the loop read <see cref="Created"/> | <see cref="Evaluate"/> on Hell Is Us, Onimusha and Dying Light: The Beast at
+/// ×4, with the word CHANGING between the session's readings. <see cref="FgMode"/> and <see cref="FgMultiFrame"/>
+/// stay clear at ×4 and <c>frameGenerationCount</c> is 0, so the word names the feature and never the multiplier.
 /// </remarks>
 internal static class NgxOverrideFlags
 {

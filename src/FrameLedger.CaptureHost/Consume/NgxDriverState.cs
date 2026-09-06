@@ -45,6 +45,10 @@ internal sealed record NgxDriverState(
     public bool SrCreatedAndEvaluated =>
         Outcome == NgxProbeOutcome.Answered && (Sr & NgxOverrideFlags.CreatedAndEvaluated) == NgxOverrideFlags.CreatedAndEvaluated;
 
+    /// <summary>The driver says an NGX frame-generation feature ran here — an IDENTITY witness, never a count.</summary>
+    public bool FgCreatedAndEvaluated =>
+        Outcome == NgxProbeOutcome.Answered && (Fg & NgxOverrideFlags.CreatedAndEvaluated) == NgxOverrideFlags.CreatedAndEvaluated;
+
     /// <summary>One outcome with no masks — a probe that did not answer, and why.</summary>
     public static NgxDriverState Of(NgxProbeOutcome outcome, string? detail) =>
         NotRun with { Outcome = outcome, Readings = 1, Detail = detail };
@@ -154,7 +158,8 @@ internal sealed record NgxDriverState(
                  + $"    override fields: scalingRatio={ScalingRatio.ToString("0.0000", CultureInfo.InvariantCulture)} "
                  + $"performanceMode={PerformanceMode} renderPreset={RenderPreset} fgCount={FgCount} fgPreset={FgPreset} fgMode={FgMode} "
                  + "- the OVERRIDE's values when an NVIDIA-app override is set, zero otherwise (measured 2026-09-06); "
-                 + "the FG word does not reflect Streamline DLSS-G (INITIALIZED DLL_EXISTS beside a x4 session) - frame generation stays with the tags and the count",
+                 + "the SR and FG words name a feature the driver saw created and evaluated - identity, never a count or a multiplier "
+                 + "(FG_MODE / FG_MULTI_FRAME stay clear and fgCount is 0 at x4)",
         };
     }
 }

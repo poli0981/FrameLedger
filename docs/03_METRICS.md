@@ -486,9 +486,14 @@ Tier 2 has none of this: `upscaler = unknown`, ratio `N/A`.
 > **What it may claim: the vendor and the feature, attributed to the driver.** What it may NOT claim,
 > each one measured: a quality (`performanceMode` / `renderPreset` are populated only under an
 > NVIDIA-app override and are then the OVERRIDE's values), a ratio or render size (`scalingRatio` is
-> 0 even under the override), a frame-generation mode or multiplier (the FG word read
-> `INITIALIZED | DLL_EXISTS` beside a ×4 DLSS-G session, and `frameGenerationCount` is the override
-> target). Frame generation stays with the tags and the count. A hook's name always outranks it, and
+> 0 even under the override), a frame-generation multiplier (`FG_MODE` / `FG_MULTI_FRAME` stay clear
+> and `frameGenerationCount` is 0 at ×4 — it is the override target). **Corrected the same day, on the
+> loop's own readings:** the FG word DOES follow DLSS-G once the feature exists — `CREATED | EVALUATE`
+> on Hell Is Us, Onimusha and DL:TB at ×4, the word CHANGING between the session's readings; the
+> morning's `INITIALIZED | DLL_EXISTS` was read before creation. So the FG word is a second witness
+> for the DLSS-G IDENTITY, printed beside `frame generation:` as agreement or a printed disagreement,
+> and promoted to `DlssG (driver-reported: …)` only where the count is active and no tag named the
+> technology. The COUNT is never the driver's. A hook's name always outranks it, and
 > beside a hook's name the driver's word is printed as agreement, or as a disagreement *printed rather
 > than resolved*. Beside an `N/A` with the bit clear it prints the driver's negative, attributed, which
 > says nothing about FSR or XeSS. **The negative is owed** (§H5): a title with DLSS switched off should

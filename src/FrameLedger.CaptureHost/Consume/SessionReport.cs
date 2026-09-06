@@ -170,6 +170,22 @@ internal static class SessionReport
                        : "");
         }
 
+        // A COUNTED SESSION WHOSE FACTOR WAS REFUSED is not "no evaluation was observed". Measured
+        // 2026-09-06 on DL:TB at FSR + DLSS-G: 4,415 tokens, 8,174 DXGI-counted presents, the tags naming
+        // DLSS-G, and the factor refused because the last bucket read 1.96 against 2.85 — and this line
+        // said a runtime was loaded and nothing was seen. The number is every hooked present over a
+        // session that held more than one configuration, and it is neither Native nor Displayed.
+        if (facts.Fg is { Refusal: not null, Evaluations: > 0 } counted)
+        {
+            return "WARNING: frame generation was counted (" + Count(counted.Evaluations) + " application-frame token(s)"
+                   + (counted.DxgiCounted
+                       ? ", and DXGI counted " + Count(counted.DxgiUnseen) + " present(s) this hook never saw, so the "
+                         + "Displayed rate is ABOVE this number"
+                       : "")
+                   + ") and its factor is REFUSED — see `no FG factor` below — so this number is every hooked present "
+                   + "over a session that did not hold one configuration; read it as neither Native nor Displayed";
+        }
+
         if (!facts.CensusRan)
         {
             return "frame generation: NOT measured, and the runtime census did not run — this number is presents, "
@@ -222,10 +238,16 @@ internal static class SessionReport
 
         sb.AppendLine();
         sb.Append("  render -> output: ").AppendLine(RenderToOutput(facts.Extent));
-        sb.Append("  frame generation: ").AppendLine(facts.FgMode
+        sb.Append("  frame generation: ").Append(facts.FgModePrinted
             ?? (facts.FgHookRan
                 ? "N/A (a hook ran and saw no frame-generation evaluation — see the FG counts above)"
                 : NoHookRan("frame-generation", facts.CensusRan, facts.FgRuntimesLoaded)));
+        if (facts.FgDriverNote is string fgDriver)
+        {
+            sb.Append(" — ").Append(fgDriver);
+        }
+
+        sb.AppendLine();
         sb.Append("  ray tracing: ").AppendLine(facts.RayTracing.ToString());
         sb.Append("  ray reconstruction: ").AppendLine(facts.RayReconstruction.ToString());
         sb.Append("  path tracing: ").AppendLine(facts.PathTracing.ToString());

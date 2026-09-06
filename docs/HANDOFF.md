@@ -769,7 +769,11 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   Lies of P with DLSS switched OFF, expected `CREATED` clear.**~~ **Decided and BUILT 2026-09-06: the capture
   host probes the driver beside every module snapshot and the `upscaler:` line has the driver-reported rung
   (`03_METRICS` §Upscaling). START HERE next: the owner's run — §H5 rows N1–N4, and N3 (Lies of P with DLSS
-  OFF) is the one that keeps or withdraws the rung.** **The tag route LANDED on the owner's evening run (`spike-notes` §9): `DlssG` on
+  OFF) is the one that keeps or withdraws the rung — LANDED 2026-09-06 midday: N3 read `CREATED` clear with
+  upscaling off, N1 prints `Dlss (driver-reported …)` on four NGX-direct titles, N2 prints agreement on two,
+  and the FG word turned out to follow DLSS-G too (identity, never the multiplier). START HERE next: Cronos
+  (a second Streamline 2.8.0 title, UE) with frame generation ON — does the 2.8.0 pacer bypass the patched
+  bodies there too (`DXGI present counter` ≈ 3) or is it Techland's (0)?** **The tag route LANDED on the owner's evening run (`spike-notes` §9): `DlssG` on
   six of six Streamline titles, and DL:TB's census shows its scaling-input tag arrives with no size, which
   closes 7a's last question.** If the driver's per-process NGX feedback is
   populated without an NVIDIA-app override, the identity question has a producer that is not a

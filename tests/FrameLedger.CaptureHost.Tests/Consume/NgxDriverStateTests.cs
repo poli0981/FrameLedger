@@ -47,7 +47,7 @@ public sealed class NgxDriverStateTests
         s.ScalingRatio.Should().Be(0.0);
         s.SrCreatedAndEvaluated.Should().BeTrue();
         s.Describe().Should().Contain("performanceMode=2 renderPreset=11").And.Contain("the OVERRIDE's values")
-            .And.Contain("the FG word does not reflect Streamline DLSS-G");
+            .And.Contain("identity, never a count or a multiplier");
     }
 
     [Fact]

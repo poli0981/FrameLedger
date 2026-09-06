@@ -213,6 +213,56 @@ internal sealed record MeasuredFacts
     /// </remarks>
     public string? UpscalerDriverReported => Upscaler is null && NgxDriver.SrCreatedAndEvaluated ? UpscalerDlssDriverReported : null;
 
+    /// <summary>The string <see cref="FgMode"/> carries when the count is active, no tag named the technology, and the driver did.</summary>
+    public const string FgDlssGDriverReported =
+        "DlssG (driver-reported: the NVIDIA driver reports an NGX frame-generation feature created and evaluated in this "
+        + "process - the identity only; the count above is the record)";
+
+    /// <summary>
+    /// The FG line as printed: the resolved mode, promoted to <see cref="FgDlssGDriverReported"/> only on the one shape
+    /// where the count is active and no tag named the technology (<c>03_METRICS</c>: identity decides the name, the
+    /// count decides <c>none</c> — the driver's word is a second identity source, never a count).
+    /// </summary>
+    public string? FgModePrinted =>
+        string.Equals(FgMode, FgActiveUnidentified, StringComparison.Ordinal) && NgxDriver.FgCreatedAndEvaluated
+            ? FgDlssGDriverReported
+            : FgMode;
+
+    /// <summary>
+    /// What the driver's FG word adds beside the FG line — agreement with a tagged DLSS-G, a disagreement printed
+    /// rather than resolved, or the bare fact beside a count that read <c>none</c> — or null when it says nothing.
+    /// </summary>
+    /// <remarks>
+    /// Corrected 2026-09-06 midday: the morning's reading called this word blind to Streamline DLSS-G; the captures
+    /// beside the loop read <c>CREATED | EVALUATE</c> on every ×4 session (Hell Is Us, Onimusha, DL:TB), the word
+    /// changing between readings as the feature came up. Identity only — the multiplier bits stay clear at ×4.
+    /// </remarks>
+    public string? FgDriverNote
+    {
+        get
+        {
+            if (NgxDriver.Outcome != NgxProbeOutcome.Answered)
+            {
+                return null;
+            }
+
+            bool created = NgxDriver.FgCreatedAndEvaluated;
+            bool dlssg = FgMode is not null && FgMode.StartsWith(nameof(FlFgMode.DlssG), StringComparison.Ordinal);
+            if (dlssg)
+            {
+                return created
+                    ? "the NVIDIA driver agrees: an NGX frame-generation feature was created and evaluated in this process"
+                    : "WARNING: the NVIDIA driver reports NO NGX frame-generation feature created in this process while the "
+                      + "tags named DLSS-G - a disagreement, printed rather than resolved";
+            }
+
+            return created
+                ? "the NVIDIA driver reports an NGX frame-generation feature created and evaluated in this process "
+                  + "(driver-reported identity; the count above is the record and is not changed by it)"
+                : null;
+        }
+    }
+
     /// <summary>
     /// What the driver's word adds beside a hook's identity — agreement, a disagreement printed rather than
     /// resolved, or the driver's negative beside an N/A — or null when the driver did not answer.
