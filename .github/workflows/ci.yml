@@ -145,6 +145,25 @@ jobs:
         shell: pwsh
         run: ./build/native/x64-release/tools/fl-probe-signer/fl-probe-signer.exe
 
+      # §S29(d)'s pre-committed measurement: can tools/vklayer-blastradius.ps1 run
+      # HERE? It needs a Vulkan loader and vulkaninfo.exe, which ship with a GPU
+      # driver's runtime, not with Windows. A census, printed, never a gate: if the
+      # runner has them, the next PR wires the script as a step (the runner is
+      # disposable, so registering an implicit layer under HKCU is acceptable
+      # here where it is not on a dev box); if it does not, (d) is deferred on a
+      # measured rationale rather than an assumed one.
+      - name: Vulkan runtime census (§S29(d) — measurement, not a gate)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          foreach ($f in 'C:\Windows\System32\vulkan-1.dll', 'C:\Windows\System32\vulkaninfo.exe') {
+            Write-Host ("{0}: {1}" -f $f, (Test-Path $f))
+          }
+          $cmd = Get-Command vulkaninfo.exe -ErrorAction SilentlyContinue
+          Write-Host ("vulkaninfo.exe on PATH: {0}" -f ($(if ($cmd) { $cmd.Source } else { 'no' })))
+          Write-Host ("HKLM:\SOFTWARE\Khronos\Vulkan\Drivers present: {0}" -f (Test-Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers'))
+
       - name: Changelog
         if: github.event_name == 'pull_request'
         shell: pwsh

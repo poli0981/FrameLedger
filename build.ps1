@@ -405,6 +405,18 @@ function Invoke-ProjectGates {
     # It found a defect in its own filter on its first run: a whitespace-only path
     # is truthy in PowerShell, so the empty-list refusal was unreachable for that
     # input.
+    # §S23-6: the accuracy blocks are one text in legal/ACCURACY.md; a copy that
+    # drifted is red. Self-test first, both directions, so the gate is seen to work.
+    Write-Step 'accuracy-check'
+    $accuracyTool = Join-Path $repo 'tools/accuracy-check.ps1'
+    if (Test-Path $accuracyTool) {
+        Invoke-Checked 'accuracy-check (self-test)' { & $accuracyTool -SelfTest }
+        Invoke-Checked 'accuracy-check' { & $accuracyTool }
+    }
+    else {
+        Skip-Gate 'accuracy-check' 'tools/accuracy-check.ps1 not implemented yet'
+    }
+
     Write-Step 'changelog-check'
     $changelogTool = Join-Path $repo 'tools/changelog-check.ps1'
     if (Test-Path $changelogTool) {

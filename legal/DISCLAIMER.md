@@ -6,6 +6,8 @@
 
 > ⚠ **Accuracy audit — re-checked 2026-08-14, a FOURTH time, after PR #64. SIX statements below describe behaviour the software does not yet fully have**, and they are flagged here rather than quietly reworded because a document the user accepts must not over-promise.
 >
+> **A FIFTH time, 2026-09-06, and the mechanism changed rather than the count.** Every drift this block records came from the same cause: the sentence about what the software measures lived in three places and was re-read in none of them. It now lives in **one** — `legal/ACCURACY.md`, embedded verbatim in §4 below and in `README.md`, and `tools/accuracy-check.ps1` fails the build when a copy differs from the source (`20_OPEN_QUESTIONS` §S23-6). The bullets below are the history of the four drifts and are kept as history; the block in §4 is the current statement, dated.
+>
 > **The fourth drift is the first one that ran the other way, and that is the finding.** Every previous re-count found this document claiming *more* than the software did. #64 landed the upscaler identity hook and this block went on saying "there is no upscaler hook anywhere in the software" — an under-claim, in the one file whose failure mode everybody was watching for in the opposite direction. It went unnoticed for five days for exactly that reason: a reviewer checking whether `legal/` over-promises reads a sentence like that and moves on. **Re-reading this block means checking both directions.**
 >
 > **The re-count was overdue and this block's own rule is what says so.** The last line of this block requires whoever changes what `FrameLedger.Overlay` does to re-read it. #48 changed exactly that — the Overlay now drops `DXGI_PRESENT_TEST` presents without recording them — and this block was not re-read. That is the second time the rule has been broken since it was written, and both breaches were invisible from inside the PR that caused them.
@@ -44,7 +46,7 @@ Install it somewhere only you can write to, and verify the published SHA-256 che
 
 **What it observes:** arguments the game passes to graphics APIs we intercept (presentation, upscaling, ray tracing, pipeline creation) and video-memory usage reported by the graphics runtime.
 
-> **Today that list is two items long: presentation and upscaling** — and the upscaling half is *identity only*. The software can say which upscaler is executing, and whether Ray Reconstruction is active alongside it; it cannot yet say at what quality preset or at what render resolution. No ray-tracing or pipeline hook exists yet, and video-memory usage is not read. The list describes what the software is designed to observe, and the boundary — API arguments and nothing else — holds for all of it. See the accuracy audit at the top.
+> **What of that list is observed today is stated once, in §4 below** (the block `legal/ACCURACY.md` carries, dated). The list here describes what the software is designed to observe, and the boundary — API arguments and nothing else — holds for all of it.
 
 **What it never does:** read or write the game's memory outside those API arguments; read save files, input, chat, or network traffic; modify game behavior; hide itself from any security software; or install a kernel driver of its own.
 
@@ -89,7 +91,38 @@ Software running inside another process can, in principle, destabilize it. Frame
 
 Frame timing is derived from high-resolution timestamps taken at the moment the game presents each frame; upscaling, frame-generation and ray-tracing state are read from the parameters the game passes to those APIs. This is substantially more accurate than inferring settings from files on disk, but **no measurement is guaranteed to be exact**:
 
-> **Frame timing is measured today, and so are two of the settings.** Which upscaler is executing, and whether Ray Reconstruction is running with it, are read from the arguments the game passes — for titles that go through Streamline. **The rest are not measured at all yet**: quality preset, render resolution, frame generation and ray tracing have no hook behind them. Where a value has not been measured the software marks it as unmeasured rather than reporting a zero, so it will read `N/A` and never a confident wrong answer — including for a title whose upscaler runs by a route this hook cannot see, which reports `unknown` rather than "none". See the accuracy audit at the top.
+<!-- accuracy-block:begin -->
+> ⚠ **What FrameLedger actually measures today — 2026-09-06.** The software is pre-alpha: the
+> measurement path exists as an injected Direct3D 11/12 component and an **unshipped** capture
+> host that drives the guard loop and prints a report; there is no Agent loop, no storage, no
+> charts, no library import, no UI and no installer yet.
+>
+> - **Frame times and output resolution:** measured, from the present hook, for injected D3D11/12
+>   titles. The Vulkan layer and OpenGL/D3D9 intercept nothing yet.
+> - **Which upscaler is running:** measured from the API the game calls — DLSS (with Ray
+>   Reconstruction Yes/No) through NVIDIA Streamline; FSR 2/3.x/4 through AMD's shipped DLLs; DLSS on
+>   titles that bypass Streamline is reported from the NVIDIA driver's own per-process record,
+>   labelled *driver-reported*. Intel XeSS is **not** read (its SDK licence forbids it) and reads
+>   `N/A` by policy; an upscaler compiled into the game executable reads `N/A`.
+> - **Quality preset:** `N/A` everywhere. No route this software may use exposes it.
+> - **Render → output resolution:** measured where the vendor's own call carries the size (AMD
+>   dispatches, some Streamline titles); `N/A` where it does not (NVIDIA-direct titles, most
+>   Direct3D 12 Streamline titles).
+> - **Frame generation:** the Displayed rate is counted from presents — including, on one title,
+>   presents DXGI counted that the hook could not — and the Native rate from the vendor's own
+>   per-frame calls where the title makes them. Identity: DLSS-G and FSR-FG named from the calls
+>   the game makes; anything else (XeSS-FG, a generator compiled into the game) is reported *by
+>   elimination* and never named. Where no per-frame call exists the Native rate is `N/A`.
+> - **Ray tracing:** Yes/No measured from DXR dispatches and acceleration-structure builds on
+>   Direct3D 12; the technique and path tracing are `N/A`.
+> - **Not measured at all:** video memory, shader-compilation stutter, PC latency (Reflex), HDR.
+> - **Safety:** every pre-injection check runs before injection, including the signed-by-a-known-
+>   vendor half of the suspicious-module rule (since 2026-09-06), and the unshipped capture host
+>   re-runs them every 30 s and stops the capture on refusal. No shipped component drives that loop
+>   yet. There is no override anywhere.
+>
+> Where a value is not measured it reads `N/A`; the software never substitutes an estimate.
+<!-- accuracy-block:end -->
 
 - Frame timing: typically better than 0.05% error; hardware sensors carry their own accuracy limits (±1–2 °C is normal).
 - 1% Low and 0.1% Low are statistical and are hidden when the sample size is insufficient.
