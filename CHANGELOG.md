@@ -19,6 +19,19 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P1 item 1 — the `LoadLibrary` detour, both jobs (2026-09-06).** The Overlay patches
+  `kernelbase.dll!LoadLibraryExW` after its present hooks (`17_HOOK_ENGINE` §DLL entry step 3): a module
+  the hook inventory or runtime census names **wakes the watchdog** through an auto-reset event, so the
+  lazy installers run within milliseconds of the module instead of on the next 1 Hz tick (94 ms measured
+  against a 500 ms bound); a module matching the compiled anti-cheat floor's MODULE families **stops the
+  Overlay from inside** with the new `FL_STATUS_STOPPED_BLOCKLISTED`, on the next present or watchdog
+  iteration — `20_OPEN_QUESTIONS` §S6 ✅, `19_SAFETY` §During a session's in-process half (exact names
+  only; fragment and signer stay the host's 30 s scan, so the Disclaimer's window is unchanged). The
+  detour installs nothing inline (§H2), calls the original first, and skips data-file / resource loads.
+  Two `FlWriterState` words from `reserved[]` (`loaderSignals` @56, `earlyStopFamily` @58; no layout
+  bump), `hook-harness --load-after-ms N PATH`, two real-Overlay ctest cases (`[loader]`, `[S6]`), and
+  the CaptureHost's `loader detour:` / `EARLY STOP` report lines, `SessionEndReason.WriterStoppedBlocklisted`
+  (exit 5) with the family named from the staged rules file.
 - **P0 closed — the closing sweep (owner: "theo bảng", 2026-09-06).** Exit criterion 1 is met with
   the quality preset amended to an honest `N/A` by measurement; criterion 2 is met with §S24 counting
   zero S-items against it. Three items closed by a gate each: **§S19(c)** — `rules-validate` gains a

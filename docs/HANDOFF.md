@@ -38,7 +38,8 @@ outside any PR). **What comes next is P1** (`15_ROADMAP` §P1): the Overlay prop
 hook installation for D3D11/12/9/OGL, the `LoadLibrary` detour that §S6's early stop
 and lazily loaded runtimes both hang on, unhook path, native logging; the Injector's
 launch mode (§S13(c), §S1's deferred input); the Vulkan layer to `vkQueuePresentKHR`
-with §S2's in-layer supervision. The three P1-deferred S-items (S6, S2 part three, and
+with §S2's in-layer supervision. **P1 item 1 — the `LoadLibrary` detour — landed 2026-09-06
+(§S6 ✅); next is item 2, the Injector's launch mode.** The ~~three~~ two P1-deferred S-items (~~S6~~, S2 part three, and
 the hand-run blast-radius script behind S29(d)) are the reminders. The text below is
 P0's history and stays as it stood.
 
@@ -208,7 +209,8 @@ own PR with its own rule-4 justification.
   watchdog thread runs once a second. No `LoadLibrary` hook is needed for P0 — which
   keeps §S6 genuinely separable. The Overlay has **no** module-resolution machinery
   today (`GetProcAddress`/`GetModuleHandle` appear nowhere), so that helper is part of
-  the real cost.
+  the real cost. *(2026-09-06: the detour exists now — P1 item 1 — and it still only
+  WAKES that thread; the installers did not move. `17_HOOK_ENGINE` §DLL entry step 3.)*
 - `tools/hookinventory-check.ps1`: every symbol the Overlay resolves by name must
   appear in `vendor-exports.json`. **No drift exists today** — a refuter resolved every
   inventory symbol against all 34 measured modules — so write it as prevention and do

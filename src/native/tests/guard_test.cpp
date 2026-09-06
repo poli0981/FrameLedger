@@ -1289,6 +1289,9 @@ TEST_CASE(
 // to, which is the only part of this suite that has a live Overlay to inspect.
 #include <fl_ring.h>
 #include <fl_shm.h>
+// The compiled floor, so the early-stop case computes the family index the Overlay
+// publishes from the same table rather than asserting a literal.
+#include <fl_ac_floor.generated.h>
 #include <vector>
 
 namespace {
@@ -1829,6 +1832,204 @@ TEST_CASE("the Agent's safety stop halts recording within a frame", "[guard][inj
 
     UnmapViewOfFile(base);
     CloseHandle(mapping);
+}
+
+// ===========================================================================
+// P1 item 1 -- the LoadLibrary detour (17_HOOK_ENGINE §DLL entry step 3, §H2, §S6).
+// Both jobs, against the real Overlay in a real target: a vendor module that
+// arrives LATE is hooked within milliseconds of its arrival, and an anti-cheat-
+// named module that arrives late stops the Overlay by itself.
+// ===========================================================================
+namespace {
+
+struct MappedRing {
+    HANDLE              mapping = nullptr;
+    void*               base = nullptr;
+    fl::FlWriterState*  st = nullptr;
+    fl::FlControlBlock* ctl = nullptr;
+    ~MappedRing() {
+        if (base != nullptr) {
+            UnmapViewOfFile(base);
+        }
+        if (mapping != nullptr) {
+            CloseHandle(mapping);
+        }
+    }
+};
+
+bool OpenRingFor(DWORD pid, MappedRing& r) {
+    wchar_t name[128]{};
+    if (_snwprintf_s(name, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", pid) <= 0) {
+        return false;
+    }
+    for (int i = 0; i < 100 && r.mapping == nullptr; ++i) {
+        r.mapping = OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, name);
+        if (r.mapping == nullptr) {
+            Sleep(50);
+        }
+    }
+    if (r.mapping == nullptr) {
+        return false;
+    }
+    r.base = MapViewOfFile(r.mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+    if (r.base == nullptr) {
+        return false;
+    }
+    r.st = reinterpret_cast<fl::FlWriterState*>(static_cast<unsigned char*>(r.base) + FL_SHM_WRITER_OFFSET);
+    r.ctl = reinterpret_cast<fl::FlControlBlock*>(static_cast<unsigned char*>(r.base) + FL_SHM_CONTROL_OFFSET);
+    for (int i = 0; i < 100 && r.st->status != fl::FL_STATUS_READY; ++i) {
+        Sleep(50);
+    }
+    return r.st->status == fl::FL_STATUS_READY;
+}
+
+bool StartHarness(Child& child, const std::wstring& args) {
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" " + args;
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    if (!CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                        &child.pi)) {
+        return false;
+    }
+    Sleep(800);
+    return WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT;
+}
+
+}    // namespace
+
+TEST_CASE("the LoadLibrary detour hooks a vendor module that arrives LATE within milliseconds, not on the next tick",
+          "[guard][inject][shm][loader]") {
+    // The harness presents with no vendor module, then loads sl.common (an inert
+    // decoy) and sl.interposer 2.0 / 2.3 s in. Before: no upscaler hook. After: the
+    // hook family appears within 500 ms of the module -- the detour woke the
+    // watchdog. The 1 Hz tick alone would land anywhere in the next second, so a
+    // latency bound under half of that is what discriminates the wake from the tick.
+    Child        child;
+    std::wstring args = L"--real --hold-presenting 14 --load-after-ms 2000 \"" + std::wstring(FL_STUB_SL_COMMON) +
+                        L"\" --load-after-ms 2300 \"" + std::wstring(FL_STUB_SL_INTERPOSER) + L"\"";
+    REQUIRE(StartHarness(child, args));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    MappedRing r;
+    REQUIRE(OpenRingFor(child.pi.dwProcessId, r));
+    CHECK((r.st->loaderSignals & 0x8000u) != 0u);    // the detour installed
+
+    // Nothing vendor-shaped yet: the identity family is absent and stays absent.
+    Sleep(300);
+    ++r.ctl->guardTicks;
+    REQUIRE((r.st->hooksInstalledMask & fl::FL_HOOK_UPSCALER_IDENTITY) == 0u);
+
+    // Wait for the interposer to appear in the target, then time the family.
+    ULONGLONG appeared = 0;
+    for (int i = 0; i < 400 && appeared == 0; ++i) {
+        if (TargetHasModule(child.pi.dwProcessId, L"sl.interposer.dll")) {
+            appeared = GetTickCount64();
+            break;
+        }
+        Sleep(10);
+    }
+    REQUIRE(appeared != 0);
+    ULONGLONG hooked = 0;
+    for (int i = 0; i < 300 && hooked == 0; ++i) {
+        if ((r.st->hooksInstalledMask & fl::FL_HOOK_UPSCALER_IDENTITY) != 0u) {
+            hooked = GetTickCount64();
+            break;
+        }
+        ++r.ctl->guardTicks;
+        Sleep(10);
+    }
+    REQUIRE(hooked != 0);
+    const ULONGLONG latencyMs = hooked - appeared;
+    INFO("late-load hook latency " << latencyMs << " ms, loaderSignals=0x" << std::hex << r.st->loaderSignals);
+    CHECK(latencyMs < 500);
+    // The wake count is published by the watchdog, on its own iteration; give it
+    // the iteration rather than racing the install that the wake caused.
+    for (int i = 0; i < 200 && (r.st->loaderSignals & 0x7FFFu) == 0u; ++i) {
+        ++r.ctl->guardTicks;
+        Sleep(10);
+    }
+    CHECK((r.st->loaderSignals & 0x7FFFu) >= 1u);    // the detour saw an inventoried module and woke the watchdog
+    CHECK(r.st->earlyStopFamily == 0u);
+    CHECK(r.st->status == fl::FL_STATUS_READY);
+}
+
+TEST_CASE("the LoadLibrary detour stops the Overlay by itself when an anti-cheat-named module arrives",
+          "[guard][inject][shm][loader][S6]") {
+    // The in-process half of 19_SAFETY §During a session. A decoy DLL copied under a
+    // name the compiled floor's first module family matches by prefix is loaded 2.5 s
+    // in; the Overlay must stop within a frame, name the family, and stay stopped.
+    wchar_t temp[MAX_PATH]{};
+    REQUIRE(GetTempPathW(MAX_PATH, temp) != 0);
+    const std::wstring copy = std::wstring(temp) + L"EasyAntiCheat_fl_fixture.dll";
+    REQUIRE(CopyFileW(FL_STUB_SL_COMMON, copy.c_str(), FALSE));
+
+    // The expected index, computed from the same generated table the Overlay
+    // compiled in -- never a literal 1, so a reordered rules file moves both sides.
+    uint32_t expected = 0;
+    {
+        uint32_t index = 0;
+        for (const fl::guard::Family& f : fl::guard::generated::kFloorFamilies) {
+            if (f.group != fl::guard::Group::kModules) {
+                continue;
+            }
+            ++index;
+            for (std::size_t v = 0; v < f.valueCount && expected == 0; ++v) {
+                if (f.match == fl::guard::MatchKind::kPrefix &&
+                    _strnicmp("EasyAntiCheat_fl_fixture.dll", f.values[v], std::strlen(f.values[v])) == 0) {
+                    expected = index;
+                }
+            }
+            if (expected != 0) {
+                break;
+            }
+        }
+    }
+    REQUIRE(expected != 0);
+
+    {
+        Child        child;
+        std::wstring args = L"--real --hold-presenting 14 --load-after-ms 2500 \"" + copy + L"\"";
+        REQUIRE(StartHarness(child, args));
+
+        ResetFake();
+        g.modules = {"kernel32.dll"};
+        g.scanSet = {child.pi.dwProcessId};
+        REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+        MappedRing r;
+        REQUIRE(OpenRingFor(child.pi.dwProcessId, r));
+
+        // It really was recording, with the supervision clock kept alive.
+        std::uint64_t before = 0;
+        for (int i = 0; i < 40 && before < 5; ++i) {
+            ++r.ctl->guardTicks;
+            Sleep(100);
+            before = r.st->writeIndex;
+        }
+        REQUIRE(before > 5);
+
+        // THE STOP, from inside: no unhookRequested from this side, ever.
+        for (int i = 0; i < 100 && r.st->status != fl::FL_STATUS_STOPPED_BLOCKLISTED; ++i) {
+            ++r.ctl->guardTicks;
+            Sleep(50);
+        }
+        CHECK(r.st->status == fl::FL_STATUS_STOPPED_BLOCKLISTED);
+        CHECK(r.st->earlyStopFamily == expected);
+        CHECK(r.ctl->unhookRequested == 0u);
+
+        // And it stays stopped while the harness keeps presenting and the ticks keep coming.
+        const std::uint64_t atStop = r.st->writeIndex;
+        for (int i = 0; i < 10; ++i) {
+            ++r.ctl->guardTicks;
+            Sleep(100);
+        }
+        CHECK(r.st->writeIndex == atStop);
+    }    // the child is gone before its module file is deleted
+    DeleteFileW(copy.c_str());
 }
 
 TEST_CASE("the injected Overlay records real presents into the ring", "[guard][inject][shm]") {

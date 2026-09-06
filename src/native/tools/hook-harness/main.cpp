@@ -39,6 +39,12 @@
 //                        guard's signer half (§S19(b)): a fragment-matching
 //                        module in the TARGET, signed or not, is what the guard
 //                        must judge
+//   --load-after-ms N PATH
+//                    LoadLibrary PATH from a worker thread N ms after startup,
+//                        while the hold mode presents. Fixture for the Overlay's
+//                        LoadLibrary detour (17_HOOK_ENGINE §DLL entry, §S6): a
+//                        vendor module that appears LATE, or an anti-cheat-named
+//                        one, is what the detour must react to. Up to 4
 //   --hold-presenting-overflow N
 //                    fill the Overlay's fixed 16-slot swapchain table, then
 //                    present for N seconds on one that cannot get a slot. The
@@ -590,6 +596,27 @@ bool ProbeCost_PerPresent(Gfx& g) {
 // a tight Present(0, DXGI_PRESENT_TEST) loop, which is what an alt-tabbed game
 // runs, and the Overlay has to be measured against it deliberately rather than
 // by accident.
+// --load-after-ms: a module that appears while the harness presents. The worker
+// sleeps, loads by absolute path, and prints; the process keeps the module for
+// its life so the Overlay's scan and the guard's both see it.
+struct LateLoad {
+    DWORD   delayMs = 0;
+    wchar_t path[MAX_PATH * 2]{};
+};
+constexpr int kMaxLateLoads = 4;
+LateLoad      g_lateLoads[kMaxLateLoads];
+int           g_lateLoadCount = 0;
+
+DWORD WINAPI LateLoadThread(LPVOID arg) {
+    auto* l = static_cast<LateLoad*>(arg);
+    Sleep(l->delayMs);
+    const HMODULE h = LoadLibraryW(l->path);
+    std::printf("  --load-after-ms %lu %ls -> %s\n", static_cast<unsigned long>(l->delayMs), l->path,
+                h != nullptr ? "loaded" : "FAILED");
+    std::fflush(stdout);
+    return h != nullptr ? 0u : 1u;
+}
+
 int PresentLoop(Gfx& g, int frames, bool real) {
     const UINT flags = real ? 0u : DXGI_PRESENT_TEST;
     for (int i = 0; i < frames; ++i) {
@@ -2834,6 +2861,20 @@ int main(int argc, char** argv) {
             slTagWholeResource = true;
         } else if (std::strcmp(argv[i], "--sl-tag-dlssg-inputs") == 0) {
             slTagDlssgInputs = true;
+        } else if (std::strcmp(argv[i], "--load-after-ms") == 0 && i + 2 < argc) {
+            if (g_lateLoadCount < kMaxLateLoads) {
+                LateLoad& l = g_lateLoads[g_lateLoadCount];
+                l.delayMs = static_cast<DWORD>(std::atoi(argv[++i]));
+                const char* path = argv[++i];
+                MultiByteToWideChar(CP_ACP, 0, path, -1, l.path, static_cast<int>(sizeof(l.path) / sizeof(l.path[0])));
+                HANDLE t = CreateThread(nullptr, 0, &LateLoadThread, &l, 0, nullptr);
+                if (t != nullptr) {
+                    CloseHandle(t);
+                }
+                ++g_lateLoadCount;
+            } else {
+                i += 2;
+            }
         } else if (std::strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
             // The fixture for the guard's signer half: put a named module into
             // THIS process before the guard looks. Loaded, not injected, and it
@@ -2855,11 +2896,15 @@ int main(int argc, char** argv) {
             std::strcmp(argv[i], "--present-interval-ms") == 0 || std::strcmp(argv[i], "--presents-per-eval") == 0 ||
             std::strcmp(argv[i], "--ffx-topology") == 0 || std::strcmp(argv[i], "--ffx-no-prepare") == 0 ||
             std::strcmp(argv[i], "--sl-tag-for-frame") == 0 || std::strcmp(argv[i], "--sl-tag-whole-resource") == 0 ||
-            std::strcmp(argv[i], "--sl-tag-dlssg-inputs") == 0 || std::strcmp(argv[i], "--load") == 0) {
+            std::strcmp(argv[i], "--sl-tag-dlssg-inputs") == 0 || std::strcmp(argv[i], "--load") == 0 ||
+            std::strcmp(argv[i], "--load-after-ms") == 0) {
             if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
                 std::strcmp(argv[i], "--presents-per-eval") == 0 || std::strcmp(argv[i], "--ffx-topology") == 0 ||
                 std::strcmp(argv[i], "--load") == 0) {
                 ++i;
+            }
+            if (std::strcmp(argv[i], "--load-after-ms") == 0) {
+                i += 2;
             }
             continue;    // consumed above
         } else if (std::strcmp(argv[i], "--probe-frames") == 0) {

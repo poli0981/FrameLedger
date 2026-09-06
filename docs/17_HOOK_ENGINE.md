@@ -32,6 +32,31 @@ The injected DLL. Its whole job: install hooks, write 64-byte records into a rin
 1. Open/create shared memory `Local\FrameLedger.Ring.<pid>`; write the handshake header (layout version, build id, pid, api=unknown).
 2. `MH_Initialize()`.
 3. Resolve which graphics APIs are present (`GetModuleHandleW` on `d3d11.dll`, `d3d12.dll`, `dxgi.dll`, `opengl32.dll`) — and register a `LoadLibrary` hook so APIs loaded **later** still get hooked (many games load D3D12 lazily). **The `LoadLibrary` hook must not install hooks inline:** it runs under the loader lock, and MinHook suspends all threads to patch, which deadlocks against any thread waiting on that lock. It enqueues the request and signals the init thread, which installs outside the lock (`20_OPEN_QUESTIONS` §H2).
+
+   > **Built 2026-09-06 (P1 item 1), with two differences from the sentence above.** The detour is on
+   > `kernelbase.dll!LoadLibraryExW` — the one body every `LoadLibrary*` variant of `kernel32` reaches —
+   > and it is installed **after** the present hooks, from `InitThread`, outside any loader lock. It
+   > **enqueues nothing**: the module's real file name (`GetModuleFileNameW` on the handle the original
+   > returned, into a stack buffer — never the caller's string, which may be relative or an API set) is
+   > compared against two fixed tables and the detour then does one of two things, both a single store
+   > plus `SetEvent` on the watchdog's auto-reset wake event. **(a)** A name that is in `FL_HOOK_INVENTORY`
+   > or `FL_RUNTIME_CENSUS` bumps a saturating 15-bit wake count and wakes the watchdog, whose next
+   > iteration runs the same lazy installers it always ran — so the install happens on the watchdog
+   > thread, as before, but **within milliseconds of the module rather than on the next 1 Hz tick**
+   > (measured in ctest `fl_guard` `[loader]`: 94 ms from the module appearing to the hook family being
+   > published, against a 500 ms bound that discriminates the wake from the tick). **(b)** A name that
+   > matches a MODULE family of the compiled anti-cheat floor (`fl_ac_floor.generated.h`, the same table
+   > the guard carries — prefix, case-insensitive, allocation-free) records the family's 1-based index in
+   > `earlyStopFamily` and wakes the watchdog; the **present path** stops the Overlay on its next
+   > `MayObserve` and the **watchdog** stops it on its next iteration, whichever comes first, with the new
+   > status `FL_STATUS_STOPPED_BLOCKLISTED` (= 4) — `19_SAFETY` §During a session, the in-process half;
+   > `20_OPEN_QUESTIONS` §S6. The words are `FlWriterState.loaderSignals` @56 (bit 15 = installed, bits
+   > 0..14 = wake count) and `earlyStopFamily` @58, both carved from `reserved[]` so the layout version did
+   > not move. The original is always called first and its result returned untouched, and
+   > `LOAD_LIBRARY_AS_DATAFILE` / `_EXCLUSIVE` / `AS_IMAGE_RESOURCE` loads are skipped — no code runs from
+   > them and the loader does not list them. Body under `FL_HOOK_GUARD`, no allocation, no lock, no
+   > logging (rule 5). Exercised by `hook-harness --load-after-ms N PATH` (up to four), against the real
+   > Overlay in a real target, both jobs.
 4. Install present hooks for what exists (below).
 5. Install feature hooks (upscaler / RT / PSO) lazily — the first time their module appears.
 6. Publish `status = ready` in the handshake block.
@@ -125,6 +150,12 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 > never reads this file — it checks `FL_HOOK_INVENTORY` against `vendor-exports.json` —
 > so a shipped hook missing from here is invisible to every gate. Flip the row **and this
 > banner** in the same PR that builds a hook.
+
+### The one system-module detour — a hook, and the asymmetry stated
+
+| Hook | Purpose |
+|---|---|
+| ✅ `kernelbase.dll!LoadLibraryExW` (2026-09-06, P1 item 1) | The wake for lazily loaded runtimes and the in-process anti-cheat stop — §DLL entry step 3 above carries the mechanism. **Rule 4:** it reads one argument the API was given (`flags`) and one property of a handle the loader just returned to *its own caller* (the module file name); nothing of the game's. **It is the only hook on a system module, and it is deliberately not in `FL_HOOK_INVENTORY`:** that table is *vendor* symbols resolved by name and gated by `hookinventory-check` against `vendor-exports.json`, and `LoadLibraryExW` is neither vendor nor uncertain. It is listed here instead so the table above and this row together are the whole inventory. It **never** installs, uninstalls or patches anything itself (§H2) |
 
 ### Watchdog observations — not hooks, and listed here so nobody mistakes them for one
 

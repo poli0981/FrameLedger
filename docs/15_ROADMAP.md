@@ -284,6 +284,13 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 ## P1 — Native core (1.5 weeks)
 `FrameLedger.Overlay` proper: hook installation for D3D11/12/9/OGL, feature hooks, ring writer, fault policy, unhook path, native logging. `FrameLedger.Injector` with launch + attach modes. Struct mirror + Catch2 tests. Vulkan layer to parity — `vkQueuePresentKHR` plus the in-layer supervision check §S2 gates on it.
 
+> **P1 item 1 landed 2026-09-06: the `LoadLibrary` detour** (`kernelbase!LoadLibraryExW`; wake for lazily
+> loaded runtimes + §S6's in-process anti-cheat stop, `FL_STATUS_STOPPED_BLOCKLISTED`), measured in
+> ctest `fl_guard` `[loader]` / `[S6]`. Order for the rest, as proposed and accepted: **2** the Injector's
+> launch mode (§S13(c), §S1's deferred input); **3** the Vulkan layer to `vkQueuePresentKHR` with §S2's
+> in-layer supervision and a harness Vulkan mode (reopens §S29(d)'s CI leg); **4** the unhook path,
+> native logging, D3D9 / OpenGL.
+
 > **The guard already shipped, in P0.** This line used to read "the guard,
 > complete and fully tested — it ships before the first real injection, not
 > after", which was the correct ordering stated in the wrong phase: P0 items 1

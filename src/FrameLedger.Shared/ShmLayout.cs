@@ -76,6 +76,13 @@ public enum FlStatus : uint
     /// <summary>Three hook faults; see <c>17_HOOK_ENGINE</c> §Fault policy.</summary>
     SelfDisabled = 2,
     Unhooked = 3,
+
+    /// <summary>
+    /// A module matching the anti-cheat floor compiled into the Overlay loaded mid-session and the Overlay
+    /// stopped itself (<c>19_SAFETY</c> §During a session, the in-process half; §S6). Which family:
+    /// <see cref="FlWriterState.EarlyStopFamily"/>.
+    /// </summary>
+    StoppedBlocklisted = 4,
 }
 
 /// <summary>Bits in <see cref="FlWriterState.ApiMask"/>, and the value of <see cref="FlFrameRecord.Api"/>.</summary>
@@ -564,8 +571,20 @@ public unsafe struct FlWriterState
     /// <summary>Hooked presents on which the DXGI counter was read. Took <c>reserved[1]</c> on 2026-09-05.</summary>
     public uint DxgiPresentSamples;
 
+    /// <summary>
+    /// The <c>LoadLibrary</c> detour's word: bit 15 = installed; bits 0..14 = how many times a module the hook
+    /// inventory or the runtime census names was loaded and the watchdog woken for it.
+    /// </summary>
+    public ushort LoaderSignals;
+
+    /// <summary>
+    /// 0 = none; else the 1-based index, among the compiled floor's MODULE families in rules order, of the
+    /// family whose value matched a module loaded mid-session. Paired with <see cref="FlStatus.StoppedBlocklisted"/>.
+    /// </summary>
+    public ushort EarlyStopFamily;
+
     /// <summary>Must be zero; room for additive fields.</summary>
-    public fixed uint Reserved[2];
+    public fixed uint Reserved[1];
 
     // WHY THE COUNTERS ARE PUBLISHED AT 1 Hz AND NOT ACCUMULATED HERE PER FRAME: this struct is
     // region 2, which the Overlay writes on the present path, and the regions are separate cache lines
