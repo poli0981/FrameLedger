@@ -1861,6 +1861,26 @@ one launch per capture, consent granted after launch. Exit codes and full report
   off DL:TB sends no hudless / UI tag and the UE plugin sends no tags at all, so the DLSS-G identity is
   per-setting on both.
 
+- **2026-09-06, 09:20–09:35, the NVAPI probe against three running titles (`fl-probe-nvapi --ngx-state
+  <pid>`, driver 616.64), each beside a capture on the #126 build.** The question §H5 opened on 2026-09-05 —
+  are the driver's per-process NGX feedback bits populated without an NVIDIA-app override? — is answered
+  YES for super resolution and NO for frame generation:
+
+  | Title / override / capture beside it | SR | RR | FG | `scalingRatio` / `performanceMode` / `renderPreset` / `frameGenerationCount` |
+  |---|---|---|---|---|
+  | **Hell Is Us**, no override, `83.21 → 332.82 (×4 FG)` `DlssG`, `upscaler: N/A` | `0x80605` CREATED EVALUATE (+ INITIALIZED DLL_EXISTS ERR_NOT_FOUND) | INITIALIZED DLL_EXISTS ERR_NOT_FOUND | `0x5` INITIALIZED DLL_EXISTS only | 0 / 0 / 0 / 0 |
+  | **Expedition 33**, override ON, FG off, `FPS: 79.4` `none` (DXGI agrees), `upscaler: N/A` | `0x8067F` CREATED EVALUATE ENABLED DLL_LOADED DLL_SELECTED PRESET PERF_MODE (+ …) | INITIALIZED DLL_EXISTS ERR_NOT_FOUND | `0x1F` INITIALIZED ENABLED DLL_EXISTS DLL_LOADED DLL_SELECTED | 0 / 2 / 11 / 0 |
+  | **Lies of P**, no override, `Presented FPS 59.89`, `upscaler: N/A` | `0x605` CREATED EVALUATE (+ INITIALIZED DLL_EXISTS) | INITIALIZED ERR_FAILED ERR_NOT_FOUND | INITIALIZED ERR_FAILED ERR_NOT_FOUND | 0 / 0 / 0 / 0 |
+
+  The SR word carries the identity the hooks cannot see on these three titles; the FG word does not see
+  DLSS-G running at ×4 (it tracks the override machinery's DLL, not the plugin), `frameGenerationCount` is
+  the override target and not the multiplier, and `scalingRatio` is 0 even under the override. §H5 carries
+  what a driver-reported rung may and may not claim, and the negative still owed (DLSS off in the menu).
+  Also on this run: Expedition 33 with FG off now prints `none` with *DXGI's own present counter agrees:
+  0 unseen over 4774* (#126), and Lies of P's `Presented FPS` keeps its "MAY include generated frames"
+  qualifier because `amd_fidelityfx_dx12.dll` is loaded there — the census cannot say `none` and the
+  token count is 0 on that title, so that line is right as printed.
+
 ## 10 · Telemetry layering
 
 - L1 baseline vendor-neutral:
