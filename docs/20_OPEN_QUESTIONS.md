@@ -3127,7 +3127,21 @@ lazily, which is the case the hook exists for. Until then, keep the rule and do
 not let anyone "simplify" it back to an inline install on the grounds that the
 probe never showed a deadlock.
 
-### H5 ◐ · Proxy swapchains defeat the dummy-vtable assumption
+### H5 ✅ · Proxy swapchains defeat the dummy-vtable assumption — **the DLSS / DLSS-G question closed 2026-09-06 (owner)**
+
+> **CLOSED 2026-09-06, 12:17, on Cronos: The New Dawn demo with frame generation ON (`spike-notes` §9).**
+> The second Streamline 2.8.0 title, UE: `Native FPS: 86.8 -> Displayed FPS: 172.72 (x1.99 FG)`,
+> `unseen=0 over samples=10063`, `frame generation: DlssG — the NVIDIA driver agrees`, `upscaler: Dlss
+> (driver-reported)`, RT Yes. **So the pacer that bypasses the patched `Present` bodies is Dying Light:
+> The Beast's integration, not SDK 2.8.0's** — 2.8.0 on UE presents its generated frames through the body
+> the inline patches cover, exactly as 2.7.x and 2.10.x do. Every measured title now prints the rule-6 trio
+> or a counted `none`, on NVIDIA through one of three producers: the hooked bodies (Cyberpunk, Hell Is Us,
+> Expedition 33, Wukong, Rune Factory, Onimusha, Cronos), DXGI's own counter where the hook cannot count
+> (DL:TB), or a withheld `N/A` only when that counter was never read. Identity comes from the tags (DLSS-G)
+> and the hooks, and from the driver's per-process word where no hook can see it (the NGX-direct titles),
+> with the negative measured. **What stays unlocalised and is not needed for any number the report
+> prints:** which body DL:TB's pacer reaches. The owner closed the item on this reading; the sub-items
+> below are its history.
 
 > ### CASE 3 HAS A CANDIDATE TITLE — Dying Light: The Beast, Streamline 2.8.0, DLSS Frame Generation ON, 2026-09-05
 >
@@ -3314,6 +3328,9 @@ probe never showed a deadlock.
 > 2.85 — the guard working) while the qualifier said *"no evaluation was observed"* beside 4,415 tokens; the
 > qualifier now says the factor was counted and refused, and that DXGI counted 8,174 presents this hook
 > never saw so the Displayed rate is above the printed one.
+>
+> **The last row, 12:17 — Cronos with frame generation ON: `86.8 → 172.72 (×1.99 FG)`, `unseen=0`, `DlssG`
+> with the driver agreeing.** The 2.8.0 pacer bypass is Techland's, not the SDK's. Closed above.
 >
 > ### THE STREAMLINE DOCS, READ 2026-09-05 (v2.8.0 and main), AND WHAT THEY CHANGED
 >

@@ -690,7 +690,15 @@ FG factor and RT state are measured against the titles' own menus. What follows 
 owner's list for the next session, in the order the dependencies run, each with what makes
 it fail on unmodified `main` — because a criterion already true on `main` is decoration.
 
-#### 7a. The quality preset — the last value criterion 1 lacks
+#### ~~7a. The quality preset — the last value criterion 1 lacks~~ — **CLOSED 2026-09-06 (owner): DLSS / DLSS-G done on every measured title**
+
+*Closed on the Cronos FG-on capture (`20_OPEN_QUESTIONS` §H5 head, `spike-notes` §9): the trio or a counted
+`none` on every NVIDIA title through the hooked bodies, DXGI's counter where the hook cannot count (DL:TB —
+that title's integration, not SDK 2.8.0's), and the driver-reported identity where no hook can see it, with
+its negative measured. The quality preset itself stays `0xFF` / N/A everywhere — the override fields are
+the override's, the tags carry no size on D3D12 — and the owner closed the item on that. What follows is
+the history.*
+
 
 *Fails on `main` because:* every real title measured reads `upscalerQuality = 0xFF`.
 Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's truth; **Alan Wake
@@ -773,7 +781,9 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   upscaling off, N1 prints `Dlss (driver-reported …)` on four NGX-direct titles, N2 prints agreement on two,
   and the FG word turned out to follow DLSS-G too (identity, never the multiplier). START HERE next: Cronos
   (a second Streamline 2.8.0 title, UE) with frame generation ON — does the 2.8.0 pacer bypass the patched
-  bodies there too (`DXGI present counter` ≈ 3) or is it Techland's (0)?** **The tag route LANDED on the owner's evening run (`spike-notes` §9): `DlssG` on
+  bodies there too (`DXGI present counter` ≈ 3) or is it Techland's (0)? — ANSWERED 12:17: Cronos FG on reads
+  `86.8 → 172.72 (×1.99 FG)` with `unseen=0`; the bypass is Techland's. Item closed; the next item is the
+  owner's pick from 7b / 7c below.** **The tag route LANDED on the owner's evening run (`spike-notes` §9): `DlssG` on
   six of six Streamline titles, and DL:TB's census shows its scaling-input tag arrives with no size, which
   closes 7a's last question.** If the driver's per-process NGX feedback is
   populated without an NVIDIA-app override, the identity question has a producer that is not a
