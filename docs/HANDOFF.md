@@ -758,9 +758,15 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   Cyberpunk at MFG and on the UE titles at ×4 on the next run, with the new `Streamline tag census:` line saying
   which route carried the tags — and DL:TB's census line says whether that title feeds DLSS-G through a route
   this build sees. `slDLSSGGetState` was refused (`03_METRICS` §FG: it resets the plugin's own counter).
-  **START HERE next:** `fl-probe-nvapi --ngx-state <pid>` against a running Lies of P, Hell Is Us, DL:TB
+  ~~**START HERE next:** `fl-probe-nvapi --ngx-state <pid>` against a running Lies of P, Hell Is Us, DL:TB
   and Cyberpunk (no capture, no injection) — the super-resolution identity on NGX-direct titles is still the
-  gap the tags cannot close. **The tag route LANDED on the owner's evening run (`spike-notes` §9): `DlssG` on
+  gap the tags cannot close.~~ **RAN 2026-09-06 on Hell Is Us, Expedition 33 and Lies of P (§H5, `spike-notes`
+  §9): `CREATED | EVALUATE` on the SR word without an override on both no-override titles — the identity
+  exists in the driver's bookkeeping; the FG word does not see DLSS-G at ×4; `frameGenerationCount` is the
+  override target, `scalingRatio` is 0 even under an override.** **START HERE next: the owner decides the
+  driver-reported rung (§H5 says exactly what it may claim: `Dlss (driver-reported …)` on a session where
+  every hook says N/A, nothing about quality, ratio or FG), and the negative is owed first — the probe on
+  Lies of P with DLSS switched OFF, expected `CREATED` clear.** **The tag route LANDED on the owner's evening run (`spike-notes` §9): `DlssG` on
   six of six Streamline titles, and DL:TB's census shows its scaling-input tag arrives with no size, which
   closes 7a's last question.** If the driver's per-process NGX feedback is
   populated without an NVIDIA-app override, the identity question has a producer that is not a

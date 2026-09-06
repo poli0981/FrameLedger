@@ -3241,6 +3241,42 @@ probe never showed a deadlock.
 > the rule-6 pair on the hidden-presents shape could then read *application frames counted ×
 > multiplier reported* — labelled as such, never as a measured Displayed.
 >
+> **MEASURED 2026-09-06 morning, three titles, driver 616.64 (`spike-notes` §9): the bits ARE populated
+> without an override, for super resolution only.**
+>
+> | Title (override?) | SR feedback | RR feedback | FG feedback | ratio / mode / preset / fgCount |
+> |---|---|---|---|---|
+> | Hell Is Us (none), DLSS + **DLSS-G ×4 running** | `0x80605` INITIALIZED DLL_EXISTS **CREATED EVALUATE** ERR_NOT_FOUND | INITIALIZED DLL_EXISTS ERR_NOT_FOUND | `0x5` INITIALIZED DLL_EXISTS — **no CREATED / EVALUATE / FG_MODE** | 0 / 0 / 0 / 0 |
+> | Expedition 33 (NVIDIA-app override ON), FG off | `0x8067F` … ENABLED DLL_LOADED DLL_SELECTED PRESET PERF_MODE **CREATED EVALUATE** ERR_NOT_FOUND | INITIALIZED DLL_EXISTS ERR_NOT_FOUND | `0x1F` INITIALIZED ENABLED DLL_EXISTS DLL_LOADED DLL_SELECTED | 0 / **2** / **11** / 0 |
+> | Lies of P (none), DLSS, no FG | `0x605` INITIALIZED DLL_EXISTS **CREATED EVALUATE** | INITIALIZED ERR_FAILED ERR_NOT_FOUND | INITIALIZED ERR_FAILED ERR_NOT_FOUND | 0 / 0 / 0 / 0 |
+>
+> Four readings. **(1) `CREATED | EVALUATE` on the SR word is set on both no-override titles** — the
+> driver keeps per-process bookkeeping of the NGX super-resolution feature whatever route the title took,
+> which is exactly the identity `upscaler: N/A` lacks on the NGX-direct titles (all three print it). **(2)
+> The FG word does NOT reflect DLSS-G activity:** Hell Is Us was generating at ×4 through Streamline
+> (`83.21 → 332.82 (×4 FG)`, `DlssG`, the same session) and its FG word says INITIALIZED | DLL_EXISTS and
+> nothing more — the word tracks the override machinery's DLL, not the plugin's evaluations. Frame
+> generation stays with the tags and the count. **(3) `frameGenerationCount` is 0 on every title,
+> including the one at ×4 — it is the override target the header names, never the title's multiplier**,
+> so the "application frames counted × multiplier reported" pair above has no producer and is dropped.
+> **(4) `scalingRatio` is 0 everywhere, override included; `performanceMode` / `renderPreset` are
+> populated only under the override (E33: 2 / 11) and are then the OVERRIDE's values, not the title's** —
+> so this route gives an identity and nothing about the render size or quality. `ERR_NOT_FOUND` sits
+> beside CREATED | EVALUATE on two titles and is absent on the third; the header does not say what it
+> refers to (a DRS profile, most likely), and it is not read as anything.
+>
+> **What a driver-reported rung may therefore claim — the owner's decision, not yet built:** on a
+> session where every hook says `upscaler: N/A`, `Dlss (driver-reported: the NVIDIA driver reports an
+> NGX super-resolution feature created and evaluated in this process — not counted by this hook)`. It
+> may name the vendor and the feature; it may not state a quality, a ratio, a render size, a frame
+> generation mode or a multiplier. On a hooked-identity session (Cyberpunk, DL:TB, Onimusha) the word
+> is a consistency check the report prints beside the hooked name. **Owed before it is built — the
+> negative:** the probe on Lies of P or Hell Is Us with DLSS switched OFF in the menu, expected
+> `CREATED` clear; a rung that has only ever seen the positive would be the census's mistake again.
+> Plumbing when decided: the probe already builds against `fl_nvapi`; the capture host would call it
+> beside each module snapshot (out of process, no consent needed) or, if it goes in-process, through
+> `Infrastructure` only (CLAUDE.md: no P/Invoke elsewhere).
+>
 > ### THE STREAMLINE DOCS, READ 2026-09-05 (v2.8.0 and main), AND WHAT THEY CHANGED
 >
 > The owner asked for the vendor's own guides before any rewrite. Three things in them decide this item.
