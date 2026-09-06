@@ -1881,6 +1881,30 @@ one launch per capture, consent granted after launch. Exit codes and full report
   qualifier because `amd_fidelityfx_dx12.dll` is loaded there — the census cannot say `none` and the
   token count is 0 on that title, so that line is right as printed.
 
+- **2026-09-06, 10:39–11:36, the owner's run on #128 (the driver-reported rung) — §H5 rows N1–N4 and one
+  correction.** The standalone probe first: Lies of P with upscaling OFF reads `SR 0x5` (CREATED clear), with
+  DLSS on `0x605` — N3 keeps the rung. Then the captures:
+
+  | Title / setting | `upscaler:` | `NVIDIA driver NGX state:` SR / RR / FG | FG line |
+  |---|---|---|---|
+  | **Lies of P**, DLSS (no override) | **`Dlss (driver-reported: …)`** | `0x605` / `0x90001` / `0x90001` | N/A (no FG in this title) |
+  | **Expedition 33**, override ON, FG off | **`Dlss (driver-reported: …)`** | `0x8067F` (mode 2, preset 11) / `0x80005` / `0x1F` | `none`, DXGI agrees |
+  | **Hell Is Us**, DLSS + FG ×4 | **`Dlss (driver-reported: …)`** | `0x80605` / `0x80005` / **`0x605`** (CHANGED between readings) | `81.32 → 321.73 (×3.96)`, `DlssG` |
+  | **Onimusha demo**, SL 2.10.3, DLSS + FG | `Dlss — the NVIDIA driver agrees` | `0x605` / `0x5` / **`0x605`** (CHANGED) | `59.99 → 235.47 (×3.93)`, `DlssG` |
+  | **Dying Light: The Beast**, DLSS + FG ×4 | `Dlss — the NVIDIA driver agrees` | `0x605` / `0x90001` / **`0x605`** (CHANGED) | `39.63 → 158.5 (×4)` DXGI-COUNTED, `DlssG` |
+  | **Cronos: The New Dawn demo** (new; UE, **SL 2.8.0**), DLSS, FG off | **`Dlss (driver-reported: …)`** | `0x80605` / `0x80005` / `0x5` | `FPS 105.01`, `none`, DXGI agrees; RT Yes |
+  | **Dying Light: The Beast**, **FSR upscaling + DLSS FG** | `FSR (3.1 or 4 …)`, `2560x1440 -> 2560x1440` | **`0x205`** (CREATED, not EVALUATE) / `0x90001` / `0x605` | `DlssG` from the tags; factor REFUSED (bucket 8 of 8 at 1.96 vs 2.85); DXGI 1.80 unseen / present |
+
+  Three readings. **The rung works as written and its negative held.** **The FG word is not blind** — the
+  morning's Hell Is Us reading was taken before the feature came up, and every ×4 session's loop readings
+  show `CREATED | EVALUATE` with the word changing mid-session; the multiplier bits never set, so it is an
+  identity witness and is now printed beside `frame generation:`. **`SR 0x205` on the FSR session is the
+  word telling the truth finely**: DLSS was created at some point (the title initialises it) and not
+  evaluated, and the rung's two-bit key keeps it from claiming DLSS beside FSR. The FSR + DLSS-G session
+  also exposed a wrong qualifier ("no evaluation was observed" beside 4,415 tokens and a refused factor),
+  fixed the same day. Cronos is a second Streamline 2.8.0 title; its FG-on capture is the one that says
+  whether the pacer bypass measured on DL:TB belongs to SDK 2.8.0 or to that title.
+
 ## 10 · Telemetry layering
 
 - L1 baseline vendor-neutral:

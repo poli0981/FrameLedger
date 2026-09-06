@@ -3294,6 +3294,27 @@ probe never showed a deadlock.
 > Lies of P has no DLSS Frame Generation (owner, 2026-09-06), which is why its FG word reads
 > `ERR_FAILED ERR_NOT_FOUND`: nothing to load.
 >
+> **LANDED 2026-09-06, 10:39–11:36 (`spike-notes` §9): N1, N2 and N3 as pre-committed, N4 in a shape the
+> row did not foresee, and one correction.** N3 first, because it decides: the standalone probe on Lies of
+> P with upscaling OFF read `SR 0x5` — `CREATED` clear — and with DLSS on `0x605`; **the rung stands.** N1:
+> Lies of P, Expedition 33, Hell Is Us and the new Cronos: The New Dawn demo all print
+> `upscaler: Dlss (driver-reported: …)` where they printed `N/A`. N2: Onimusha and DL:TB print
+> `upscaler: Dlss — the NVIDIA driver agrees`. N4 arrived as DL:TB at **FSR upscaling + DLSS Frame
+> Generation**: `upscaler: FSR (3.1 or 4 …)`, `2560x1440 -> 2560x1440`, `SR 0x205` — CREATED without
+> EVALUATE, so the driver's word correctly does NOT claim DLSS beside FSR (the rung needs both bits).
+> **The correction:** the FG word is NOT blind to DLSS-G. It read `CREATED | EVALUATE` on Hell Is Us,
+> Onimusha and DL:TB at ×4, and *"the words CHANGED between readings"* on all three — the morning's
+> `INITIALIZED | DLL_EXISTS` on Hell Is Us was a first reading taken before the feature came up.
+> `FG_MODE` / `FG_MULTI_FRAME` stay clear and `fgCount` is 0 at ×4, so it names the feature and never the
+> multiplier: printed beside `frame generation:` as agreement, promoted to `DlssG (driver-reported)` only
+> where the count is active and no tag named the technology. Also on this run: Cronos is a **second
+> Streamline 2.8.0 title** (UE, FG off, `sl.dlss_g.dll` absent from its census — per-setting there — `FPS
+> 105.01`, `none` with DXGI agreeing); its FG-on capture would say whether the 2.8.0 pacer bypass is the
+> SDK's or Techland's. And the FSR + DLSS-G session's factor was refused (bucket 8 of 8 at 1.96 against
+> 2.85 — the guard working) while the qualifier said *"no evaluation was observed"* beside 4,415 tokens; the
+> qualifier now says the factor was counted and refused, and that DXGI counted 8,174 presents this hook
+> never saw so the Displayed rate is above the printed one.
+>
 > ### THE STREAMLINE DOCS, READ 2026-09-05 (v2.8.0 and main), AND WHAT THEY CHANGED
 >
 > The owner asked for the vendor's own guides before any rewrite. Three things in them decide this item.
