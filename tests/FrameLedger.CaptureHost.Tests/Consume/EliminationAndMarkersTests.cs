@@ -36,8 +36,10 @@ public sealed class EliminationAndMarkersTests
                     SwapchainId = 1,
                     OutputW = 2560,
                     OutputH = 1440,
+                    // The hooks are live either way (the real Hell Is Us report claims Fg | FgCounts with
+                    // tokens = 0); `counted` only decides whether a token was ever drained.
                     MeasuredMask = (ushort)(FlMeasured.OutputRes | FlMeasured.PresentArgs | FlMeasured.Upscaler
-                                            | (counted ? FlMeasured.Fg | FlMeasured.FgCounts : FlMeasured.None)),
+                                            | FlMeasured.Fg | FlMeasured.FgCounts),
                     FgEvaluations = (byte)(counted && p == 0 ? 1 : 0),
                     FgMode = (byte)FlFgMode.Unknown,
                 });
@@ -97,6 +99,36 @@ public sealed class EliminationAndMarkersTests
         (_, string text) = Render(Stream(100, 2), census, null, null, tagCensus: (uint)FlSlTagType.Hudless << FlSlTagRoute.Global);
 
         text.Should().Contain("DLSS-G not excluded (the NVIDIA driver did not answer; HUD-less / UI tags WERE sent through Streamline)");
+    }
+
+    [Fact]
+    public void HellIsUsAtXeSSFgWithNoTokenPrintsTheNaWithItsWitnessesAndTheXessByLicenceNote()
+    {
+        // 2026-09-06 13:52: XeSS + XeSS-FG on Hell Is Us — the plugin requests no Streamline token at XeSS,
+        // so nothing is counted; every other witness still speaks, and the upscaler N/A says why it is N/A.
+        FlRuntimeCensus census = FlRuntimeCensus.Ran | FlRuntimeCensus.SlInterposer | FlRuntimeCensus.NvngxDlssG
+                                 | FlRuntimeCensus.LibXess | FlRuntimeCensus.LibXessFg;
+
+        (MeasuredFacts facts, string text) = Render(Stream(200, 1, counted: false), census, _fgNotCreated,
+            Markers(("xefgSwapChain", true, 13), ("ffxFrameInterpolation", true, 1)));
+
+        facts.FgMode.Should().BeNull();
+        text.Should().Contain("Presented FPS:");
+        text.Should().Contain("frame generation: N/A (a hook ran and saw no frame-generation evaluation — see the FG counts above); what this session can still say: not DLSS-G");
+        text.Should().Contain("the frame-generation runtime(s) loaded: nvngx_dlssg.dll, libxess_fg.dll");
+        text.Should().Contain("the executable itself carries xefgSwapChain, ffxFrameInterpolation");
+        text.Should().Contain("libxess.dll is loaded, and XeSS cannot be hooked or declared under Intel's licence");
+        text.Should().Contain("by policy, not by ignorance");
+        text.Should().NotContain("XeFg").And.NotContain("upscaler: Xess");
+    }
+
+    [Fact]
+    public void WithoutLibxessTheUpscalerNaCarriesNoLicenceNote()
+    {
+        (_, string text) = Render(Stream(200, 1, counted: false), FlRuntimeCensus.Ran | FlRuntimeCensus.SlInterposer, _fgNotCreated, Markers());
+
+        text.Should().Contain("upscaler: N/A (an upscaler hook ran");
+        text.Should().NotContain("by policy, not by ignorance");
     }
 
     [Fact]

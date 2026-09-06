@@ -245,7 +245,22 @@ internal sealed record MeasuredFacts
     /// compiled-in FSR 3 by construction) still leaves witnesses — the driver's FG word, the tags, the ffx census,
     /// the module census and the executable's own strings — and the reader gets all of them, labelled.
     /// </summary>
-    private string FgByElimination()
+    private string FgByElimination() => "by elimination among what this session saw: " + FgWitnesses();
+
+    /// <summary>
+    /// The FG line when a hook ran and no evaluation was counted — the N/A, with the same witnesses beside it
+    /// (Hell Is Us at XeSS + XeSS-FG, 2026-09-06: no Streamline token on that plugin version, so no count, while
+    /// the driver, the tags, the ffx census, the module census and the file all still had something to say).
+    /// </summary>
+    public string FgNotEvaluatedPrinted =>
+        "N/A (a hook ran and saw no frame-generation evaluation — see the FG counts above); what this session can "
+        + "still say: " + FgWitnesses();
+
+    /// <summary>
+    /// The clauses every FG line without a measured vendor carries: the driver's FG word and the tags against
+    /// DLSS-G, the ffx census against a shipped-DLL FSR-FG, the module census, and the executable's strings.
+    /// </summary>
+    private string FgWitnesses()
     {
         string tags = DlssgInputsTagged
             ? "HUD-less / UI tags WERE sent through Streamline"
@@ -259,11 +274,21 @@ internal sealed record MeasuredFacts
         string exe = Markers.AnyFgCapable
             ? "; the executable itself carries " + Markers.FgCapableNames
             : "";
-        return "by elimination among what this session saw: " + dlssg
-               + "; no FSR frame-generation dispatch reached a hooked module; " + runtimes + exe
+        return dlssg + "; no FSR frame-generation dispatch reached a hooked module; " + runtimes + exe
                + " — a frame generator compiled into the executable would read the same, and nothing here is a "
                + "measured vendor identity";
     }
+
+    /// <summary>
+    /// <c>HANDOFF</c> 7c item 4, the string change it asked for: an XeSS session reads <c>N/A</c> here by policy.
+    /// Null unless no hook and no driver named the upscaler and <c>libxess.dll</c> is in the census.
+    /// </summary>
+    public string? XessByLicenceNote =>
+        Upscaler is null && UpscalerDriverReported is null && RuntimeCensus.HasFlag(FlRuntimeCensus.LibXess)
+            ? "libxess.dll is loaded, and XeSS cannot be hooked or declared under Intel's licence (18_GPU_VENDOR_APIS "
+              + "§Intel), so an XeSS session reads N/A here by policy, not by ignorance — and the module's presence "
+              + "is not identity: Cyberpunk loads it at DLSS"
+            : null;
 
     /// <summary>
     /// What the driver's FG word adds beside the FG line — agreement with a tagged DLSS-G, a disagreement printed

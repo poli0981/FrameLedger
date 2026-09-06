@@ -3673,6 +3673,26 @@ load-bearing rather than stylistic.
 > frame-generation runtime module is loaded at all; the executable itself carries ffxFsr3, …"*. Neither
 > prints a vendor as measured.
 >
+> **LANDED 2026-09-06, 13:45–14:02 (`spike-notes` §9).** **Rune Factory at FSR + FSR FG** reads exactly the
+> pre-committed line: `30.05 → 60.05 (×2 FG)` from the Streamline token, `unseen=0` (the compiled-in FSR 3
+> presents through the patched body), `frame generation: Active (technology not identified) — by elimination
+> …: not DLSS-G (…); no FSR frame-generation dispatch …; the frame-generation runtime(s) loaded:
+> nvngx_dlssg.dll; the executable itself carries ffxFsr3, ffxFrameInterpolation — …` — 7b at its ceiling, the
+> Steam overlay showing FG where the report shows the count. **Hell Is Us at XeSS + XeSS-FG** (the owner:
+> the Steam overlay could not show FG there): `Presented FPS: 186.47`, **`tokens=0`** — this plugin version
+> requests no Streamline token at XeSS, where it did at DLSS — so no count and no factor; `unseen=0`, so
+> XeFG presents its generated frames through the patched body and the 186 IS the Displayed rate; the driver's
+> words clear; the file carries `xefgSwapChain ×13`. The FG line read the bare *"N/A (a hook ran …)"* and the
+> upscaler N/A named "a vendor this build does not decode" — both now carry their witnesses: the N/A prints
+> the same exclusion clauses (*the frame-generation runtime(s) loaded: nvngx_dlssg.dll, libxess_fg.dll, …;
+> the executable itself carries xefgSwapChain*), and the upscaler line says *libxess.dll is loaded, and XeSS
+> cannot be hooked or declared under Intel's licence … N/A here by policy, not by ignorance* (7c item 4's
+> string change, done). **Cronos at XeSS** (no FG option): `FPS: 110.02`, `none` by count with DXGI agreeing
+> — this plugin requests the token at XeSS. **The ceiling for XeFG on a title that requests no token:**
+> Displayed measured, Native unknown, vendor by elimination — there is no in-policy application-frame
+> producer for XeFG (the token is the plugin's choice; the XeFG API cannot be hooked; the ffx census is
+> silent by construction), and the report says so rather than inventing one.
+>
 
 > **BUILT, 2026-09-04, the AMD half — and the deferral's own rule was kept: header first, decode
 > second, never from observation.** `HANDOFF` item 7c. The FidelityFX headers cleared the

@@ -56,6 +56,15 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Changed
 
+- **The FG `N/A` and the upscaler `N/A` carry their witnesses.** Hell Is Us at XeSS + XeSS-FG (2026-09-06):
+  no Streamline token on that plugin at XeSS, so nothing counted, and the report printed a bare *N/A (a hook
+  ran …)* while the driver's FG word, the tags, the ffx census, the module census and the executable's own
+  strings all had something to say. The N/A now prints the same exclusion clauses as rung 3 (*what this
+  session can still say: not DLSS-G (…); …; the frame-generation runtime(s) loaded: …; the executable itself
+  carries xefgSwapChain*), and the upscaler N/A says *libxess.dll is loaded, and XeSS cannot be hooked or
+  declared under Intel's licence … by policy, not by ignorance* — HANDOFF 7c item 4's string change. Rune
+  Factory at FSR + FSR FG printed the pre-committed 7b line verbatim on the same run.
+
 - **A counted session whose factor was refused no longer reads "no evaluation was observed".** DL:TB at FSR
   upscaling + DLSS Frame Generation (2026-09-06): 4,415 tokens, 8,174 DXGI-counted presents, `DlssG` from
   the tags, factor refused because bucket 8 of 8 read 1.96 against 2.85 — and the Presented qualifier said
