@@ -89,6 +89,12 @@ enum FlStatus : uint32_t {
     FL_STATUS_READY = 1,
     FL_STATUS_SELF_DISABLED = 2,    // 3 hook faults; see 17_HOOK_ENGINE §Fault policy
     FL_STATUS_UNHOOKED = 3,
+    // A module whose base name matches the anti-cheat floor compiled into the
+    // Overlay was loaded mid-session, and the Overlay stopped ITSELF -- the
+    // in-process half of 19_SAFETY §During a session (§S6, built 2026-09-06 as
+    // P1 item 1). FlWriterState::earlyStopFamily says which family. The host's
+    // 30 s scan remains the backstop and the only half that runs the signer tier.
+    FL_STATUS_STOPPED_BLOCKLISTED = 4,
 };
 
 // bits in FlWriterState::apiMask and FlFrameRecord::api
@@ -708,7 +714,24 @@ struct alignas(64) FlWriterState {
     uint32_t dxgiPresentsUnseen;    // @48  presents DXGI counted between two hooked presents, beyond the one seen
     uint32_t dxgiPresentSamples;    // @52  hooked presents on which the counter was read
 
-    uint32_t reserved[2];    // @56..63  must be zero; room for additive fields
+    // THE LoadLibrary DETOUR'S TWO WORDS (2026-09-06, P1 item 1; 17_HOOK_ENGINE §DLL
+    // entry step 3). The Overlay detours kernelbase!LoadLibraryExW -- the funnel every
+    // LoadLibrary* variant reaches -- and, never inline (§H2: MinHook suspends threads
+    // to patch, and the caller may hold the loader lock), only records what loaded and
+    // wakes the watchdog. Took reserved[0]; additive, no layout bump.
+    //
+    // loaderSignals: bit 15 = the detour is installed; bits 0..14 = how many times a
+    // module the hook inventory or the runtime census names was loaded and the
+    // watchdog was woken for it (saturating). A count of 0 with bit 15 set is a title
+    // that loaded every vendor module before we attached, which is the common case.
+    uint16_t loaderSignals;    // @56
+    // earlyStopFamily: 0 = none; else the 1-based index, among the compiled floor's
+    // MODULE families in rules order, of the family whose value matched a module
+    // loaded mid-session. Set once (the first match wins) and status goes to
+    // FL_STATUS_STOPPED_BLOCKLISTED on the next present or watchdog wake.
+    uint16_t earlyStopFamily;    // @58
+
+    uint32_t reserved[1];    // @60..63  must be zero; room for additive fields
 
     // NOTE: there is deliberately no droppedRecords here. The writer has no
     // reader index and cannot know whether the slot it overwrites was ever
@@ -916,7 +939,9 @@ static_assert(offsetof(FlWriterState, runtimeCensus) == 40);
 static_assert(offsetof(FlWriterState, slTagCensus) == 44);
 static_assert(offsetof(FlWriterState, dxgiPresentsUnseen) == 48);
 static_assert(offsetof(FlWriterState, dxgiPresentSamples) == 52);
-static_assert(offsetof(FlWriterState, reserved) == 56);
+static_assert(offsetof(FlWriterState, loaderSignals) == 56);
+static_assert(offsetof(FlWriterState, earlyStopFamily) == 58);
+static_assert(offsetof(FlWriterState, reserved) == 60);
 
 static_assert(offsetof(FlControlBlock, pauseRequested) == 0);
 static_assert(offsetof(FlControlBlock, unhookRequested) == 4);

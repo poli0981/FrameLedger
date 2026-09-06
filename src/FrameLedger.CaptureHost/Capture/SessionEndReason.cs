@@ -33,6 +33,14 @@ internal enum SessionEndReason
     WriterSelfDisabled,
 
     /// <summary>
+    /// The Overlay's <c>LoadLibrary</c> detour saw a module the compiled anti-cheat floor
+    /// names arrive mid-session and stopped the Overlay from inside, before this host's
+    /// 30 s scan could (<c>19_SAFETY</c> §During a session, the in-process half; §S6).
+    /// <c>FlWriterState.EarlyStopFamily</c> names which family.
+    /// </summary>
+    WriterStoppedBlocklisted,
+
+    /// <summary>
     /// The handshake was published and <c>status</c> never left <c>INIT</c>, which
     /// means MinHook failed: the ring will never move.
     /// </summary>

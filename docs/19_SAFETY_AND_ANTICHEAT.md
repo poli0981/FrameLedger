@@ -578,6 +578,20 @@ injected or layered**.
 
 **Be honest about the window.** A 30 s poll means anti-cheat can be loaded for up to 30 s before we react — the unhook is immediate *once detected*, not immediate in absolute terms. Consent and disclaimer wording must say "within 30 seconds", never "immediately" (`legal/DISCLAIMER.md` §2). Whether to shrink the window, or to detect the load directly via the `LoadLibrary` hook `17_HOOK_ENGINE` §DLL entry **specifies** for lazily-loaded graphics DLLs, is `20_OPEN_QUESTIONS` §S6.
 
+> **The in-process half exists since 2026-09-06 (P1 item 1), and the sentence above stays true because
+> of what it does NOT cover.** The Overlay's `LoadLibrary` detour compares every module the loader maps
+> mid-session against the **compiled floor's MODULE families — the exact prefix names, and nothing
+> else** — and stops the Overlay from inside on a match (`FL_STATUS_STOPPED_BLOCKLISTED`; `17_HOOK_ENGINE`
+> §DLL entry step 3), within one present or one watchdog iteration. That is the same set the Agent's
+> guard matches by name. **The fragment tier and the signer tier are not in the detour**, on purpose: a
+> substring scan is not allocation-free in a hook body under the loader lock, and `WinVerifyTrust` from
+> inside a game process is out of the question — so a module the floor knows only by a fragment, or only
+> by its signer, is still caught by **this host's 30 s scan and by nothing sooner**. The disclosure
+> therefore does not change: "within 30 seconds" remains the promise; the exact-name case is now usually
+> much faster, and the report says which happened (`EARLY STOP` naming the family, or the host's own
+> stop). Modules loaded **before** the Overlay attached are the pre-injection scan's, as always. The
+> detour supplements the poll; it replaces nothing (§S6's own ruling).
+
 > **This sentence used to say the hook "already exists and is currently unused", which was false.** Corrected 2026-08-04: the Overlay installs no hooks at all — `dllmain.cpp` exports one function and nothing in the tree calls `MH_CreateHook` outside a probe. §S6 is therefore downstream of the whole P1 hook layer, not "the cheapest available improvement to the most important behavior in the product". A reader planning work off this paragraph was being told a mechanism was sitting there ready.
 
 ### Elevated / protected targets

@@ -81,7 +81,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S23-4** | ✅ **resolved 2026-08-05** | `19_SAFETY` §During a session said "the module scan and the driver scan"; `EvaluateImpl` runs four. Reworded to "every pre-injection check" so it cannot go stale when a check is added, with the two omissions named — `services` is the only tier measured firing on real anti-cheat, and the pre-scan is the only one touching the filesystem |
 | **S2 part three** | 🅓 **deferred to P1, rationale written 2026-09-06** | In-layer supervision lands with `vkQueuePresentKHR` (P1). Building it sooner would be a predicate whose wrong answer changes nothing observable; the layer intercepts nothing, so nothing a user sees waits on it |
 | **S4 signing** | 🅓 **deferred to P4, rationale written 2026-09-06** | Signing is a property of the feed and there is no feed (§S20); every rules file today shipped inside a release whose checksum attests it. The P4 decision (compiled-in key, detached signature, fail-closed) is written in the entry |
-| **S6** | 🅓 **deferred to P1, rationale written 2026-09-06** | The `LoadLibrary` hook that would raise the stop flag on a blocklisted load needs the P1 detour lazily loaded graphics DLLs need; building it twice is the cost of doing it in P0. The 30 s window stays disclosed |
+| **S6** | ✅ **built 2026-09-06 (P1 item 1)** | The detour on `kernelbase!LoadLibraryExW` stops the Overlay from inside on an exact-floor MODULE match, within one present or one watchdog iteration, and wakes the lazy installers within milliseconds for an inventoried module; measured against the real Overlay in ctest `fl_guard` `[loader]`/`[S6]`. Exact names only — fragment and signer stay the host's 30 s scan, so the disclosure does not change |
 | **S19(a)** | ✅ **resolved 2026-08-05** | `gameguard` could never fire — `guard` subsumed it. Removed; `rules-validate` now fails when any fragment contains another, so the class cannot return. Zero coverage lost: nProtect has its own named module family |
 | **S19(c)** | ✅ **resolved 2026-09-06** | The fields are constants the schema pins and the guard never reads, because the policy is code by CLAUDE.md rule 2 and `19_SAFETY`; `rules-validate` now proves the schema rejects `action: "allow"` and `signerField: "CN"` (canary 3), so the data cannot say otherwise |
 | **S19(d) residual** | ✅ **resolved 2026-08-05** | A second canary, **derived from the shipped document** rather than hand-written, carries `nameFragments: []` and must be rejected. The entry's stated consequence was overstated and is corrected in place: the generated floor would not have disappeared, `gen-ac-floor.ps1` hard-errors and the native build fails — what was unguarded is the *schema* half |
@@ -3137,9 +3137,32 @@ Two decisions, both the owner's:
 Until both are answered the inertness is recorded in the data's own `$comment`
 and beside check 3, rather than being inferable only from two empty arrays.
 
-### S6 · The 30 s scan window is the weakest part of the most important behavior
+### S6 ✅ · The 30 s scan window is the weakest part of the most important behavior — **the in-process half built 2026-09-06 (P1 item 1)**
 
-Now disclosed honestly in the Disclaimer and README. The open question is whether
+> **Built, as the deferral below said it would be: one detour, both jobs.** `kernelbase.dll!LoadLibraryExW`
+> is patched from `InitThread` after the present hooks; the body calls the original first, skips
+> data-file / resource mappings, reads the mapped module's own file name into a stack buffer and compares
+> its base name (a) against `FL_HOOK_INVENTORY` + `FL_RUNTIME_CENSUS` — a match bumps a 15-bit wake count
+> and signals the watchdog's auto-reset event, so the lazy installers run **within milliseconds** rather
+> than on the next 1 Hz tick — and (b) against the compiled floor's MODULE families (prefix, case-
+> insensitive, the generated table the guard itself carries; zero allocation) — a match CASes the family's
+> 1-based index into `earlyStopFamily`, and the present path (`MayObserve`) or the watchdog, whichever is
+> first, calls `StopObserving(FL_STATUS_STOPPED_BLOCKLISTED)`. It supplements the poll and replaces
+> nothing; it installs nothing inline (§H2). **Measured**, real Overlay in a real target (ctest `fl_guard`):
+> a late `sl.interposer.dll` hooked **94 ms** after it appeared (bound 500 ms, which the tick alone cannot
+> meet more than half the time); a decoy copied to `EasyAntiCheat_fl_fixture.dll` and loaded 2.5 s in
+> stopped the Overlay with `earlyStopFamily` equal to the index the test computed from the same generated
+> table, `unhookRequested` still 0, and `writeIndex` frozen thereafter. The CaptureHost reads both words
+> (`Consume/EarlyStop.cs`), ends the session as `WriterStoppedBlocklisted` (exit 5, the safety-stop code)
+> and names the family from the staged rules file.
+>
+> **What it does not do, stated so the disclosure stays honest:** the fragment tier and the signer tier
+> are not in the detour, so a module the floor knows only that way waits for the host's 30 s scan; the
+> Disclaimer's "within 30 seconds" is unchanged. **Owed:** the real-game leg of §H2 — a title that loads
+> D3D12 or Streamline lazily, hooked through the wake rather than the tick — which the next captures
+> report via the `loader detour:` line (`woke the watchdog N time(s)`).
+
+Now disclosed honestly in the Disclaimer and README. The open question ~~is~~ was whether
 to shrink it.
 
 > **"Already installs" was false, and it changed how this item read.** Corrected
@@ -3307,6 +3330,14 @@ not on a measurement.
 lazily, which is the case the hook exists for. Until then, keep the rule and do
 not let anyone "simplify" it back to an inline install on the grounds that the
 probe never showed a deadlock.
+
+> **The deferred path is built and exercised in a fixture (2026-09-06, P1 item 1 — §S6).** The detour
+> signals an auto-reset event the watchdog waits on with its 1 s timeout; it never calls MinHook.
+> ctest `fl_guard` `[loader]` loads `sl.interposer.dll` into a presenting harness 2.3 s after start and
+> sees the hook family within 94 ms, wake count ≥ 1, no fault, no stop. **Still owed, unchanged:** the
+> real-game leg — a title that pulls Streamline or D3D12 in lazily, hooked through the wake — which the
+> `loader detour:` report line will show as a non-zero wake count with the family present from the first
+> bucket.
 
 ### H5 ✅ · Proxy swapchains defeat the dummy-vtable assumption — **the DLSS / DLSS-G question closed 2026-09-06 (owner)**
 

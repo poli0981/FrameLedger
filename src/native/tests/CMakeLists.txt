@@ -26,6 +26,7 @@ target_include_directories(fl_guard_test PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedge
 target_link_libraries(fl_guard_test PRIVATE FrameLedger.Shm fl_native_flags fl_jsmn Catch2::Catch2WithMain
     Shell32 Ole32 fl_ac_floor)
 add_dependencies(fl_guard_test fl_ac_floor_gen)
+add_dependencies(fl_guard_test fl_stub_sl_common fl_stub_sl_interposer)
 
 # /EHsc on the TEST BINARY only. Catch2 reports failures by throwing, and the
 # top-level CMakeLists strips the compiler's default /EHsc so every target has
@@ -94,6 +95,12 @@ target_compile_definitions(fl_guard_test PRIVATE
     FL_DXR_DISPATCH_W=${FL_DXR_DISPATCH_W}
     FL_DXR_DISPATCH_H=${FL_DXR_DISPATCH_H}
     FL_DXR_DISPATCH_D=${FL_DXR_DISPATCH_D}
+    # The Streamline stubs, for the LoadLibrary detour's late-load fixture (P1 item
+    # 1): sl.common is an inert decoy exporting nothing (also copied under an
+    # anti-cheat name for the early-stop case), sl.interposer is the module whose
+    # late arrival must be hooked within milliseconds rather than on the next tick.
+    FL_STUB_SL_COMMON=L"$<TARGET_FILE:fl_stub_sl_common>"
+    FL_STUB_SL_INTERPOSER=L"$<TARGET_FILE:fl_stub_sl_interposer>"
     FL_OVERLAY_DLL=L"${FL_STAGED_OVERLAY}"
     # The un-staged original, so a test can prove the check discriminates on
     # DIRECTORY rather than on filename: same bytes, same name, wrong place.

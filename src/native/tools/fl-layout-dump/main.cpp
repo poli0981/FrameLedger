@@ -66,7 +66,9 @@ int main() {
     Field("slTagCensus", offsetof(FlWriterState, slTagCensus), sizeof(uint32_t));
     Field("dxgiPresentsUnseen", offsetof(FlWriterState, dxgiPresentsUnseen), sizeof(uint32_t));
     Field("dxgiPresentSamples", offsetof(FlWriterState, dxgiPresentSamples), sizeof(uint32_t));
-    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 2, true);
+    Field("loaderSignals", offsetof(FlWriterState, loaderSignals), sizeof(uint16_t));
+    Field("earlyStopFamily", offsetof(FlWriterState, earlyStopFamily), sizeof(uint16_t));
+    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 1, true);
     std::printf("    ] },\n");
 
     std::printf("    \"FlControlBlock\": { \"size\": %zu, \"fields\": [\n", sizeof(FlControlBlock));

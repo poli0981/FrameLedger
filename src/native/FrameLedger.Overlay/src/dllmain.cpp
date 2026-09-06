@@ -42,6 +42,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <fl_ac_rules.h>
 #include <fl_d3d12_vtable.h>
 #include <fl_dxgi_vtable.h>
 #include <fl_hook_inventory.h>
@@ -52,6 +53,12 @@
 #include <fl_sl_seen.h>
 #include <MinHook.h>
 #include <sddl.h>
+
+// Its own block, below the sorted one, because it needs Family/Group/MatchKind
+// from fl_ac_rules.h and clang-format sorts each block independently. Types plus
+// the generated floor table only -- for the LoadLibrary detour's early stop; nothing
+// of the rules parser is compiled into the Overlay.
+#include <fl_ac_floor.generated.h>
 
 // Vendored MIT headers, for TYPES ONLY -- never linked, and no vendor function's
 // address is ever taken in evaluated code. See
@@ -615,6 +622,12 @@ void StopObserving(uint32_t reason) noexcept {
 // is the whole point of having one. What stays is the safety stop, because
 // 07_IPC requires it within one frame and a one-second watchdog cannot promise
 // that, and the pause check, which is inherently per-frame.
+// The LoadLibrary detour's early stop (defined with the detour below; the present
+// path reads it first): 0 = none; else 1-based index among the floor's MODULE
+// families in rules order.
+std::atomic<uint32_t> g_earlyStopFamily{0};
+void                  PublishLoaderWords() noexcept;
+
 bool MayObserve() noexcept {
     if (g_observing.load(std::memory_order_acquire) == 0) {
         return false;
@@ -628,6 +641,15 @@ bool MayObserve() noexcept {
     std::atomic_ref<uint32_t> unhook{g_control->unhookRequested};
     if (unhook.load(std::memory_order_acquire) != 0) {
         StopObserving(FL_STATUS_UNHOOKED);
+        return false;
+    }
+
+    // The IN-PROCESS stop, same path and same polarity: the LoadLibrary detour saw
+    // a module matching the compiled anti-cheat floor load. Published before the
+    // unhook so the reason is on the mapping whichever thread gets here first.
+    if (g_earlyStopFamily.load(std::memory_order_acquire) != 0u) {
+        PublishLoaderWords();
+        StopObserving(FL_STATUS_STOPPED_BLOCKLISTED);
         return false;
     }
 
@@ -936,6 +958,180 @@ std::atomic<uint32_t> g_dxgiSamples{0};
 // epoch differences nothing and starts again. DXGI_PRESENT_TEST presents do not bump
 // it: they do not move the counter (#35), so there is nothing to invalidate.
 std::atomic<uint32_t> g_dxgiEpoch{0};
+
+// ---------------------------------------------------------------------------
+// THE LoadLibrary DETOUR (17_HOOK_ENGINE §DLL entry step 3; §H2; §S6). P1 item 1,
+// 2026-09-06. Two jobs, one rule.
+//
+// The jobs: (a) a module the hook inventory or the runtime census names loaded
+// AFTER init -- the watchdog is woken now instead of on its next 1 Hz tick, so
+// the window in which a late vendor module's calls go unobserved shrinks from up
+// to a second to milliseconds; (b) a module whose base name matches the
+// anti-cheat floor compiled into this binary loaded mid-session -- the Overlay
+// stops ITSELF on the next present or watchdog wake, the in-process half of
+// 19_SAFETY §During a session, where the host's 30 s scan was the only half.
+//
+// The rule: the detour INSTALLS NOTHING AND UNHOOKS NOTHING INLINE. MinHook
+// suspends every other thread to patch, and a LoadLibrary caller may hold the
+// loader lock (a DllMain calling LoadLibrary is legal); suspending a thread that
+// holds it, from a thread that then waits on it, is the deadlock §H2 names. So
+// the detour reads a base name off the module the ORIGINAL returned, compares it
+// against two fixed tables without allocating, stores two atomics, and signals an
+// event. Everything that patches runs on the watchdog thread, outside the lock.
+//
+// kernelbase!LoadLibraryExW is the target because it is the funnel: LoadLibraryA,
+// LoadLibraryW and LoadLibraryExA all reach it inside KernelBase, so one detour
+// covers the four documented entry points. What it does NOT cover, stated:
+// LdrLoadDll called directly (no measured title does), and delay-load thunks
+// resolved before we attached (they went through it before we existed). The 1 Hz
+// watchdog and the host's 30 s scan remain the backstops for both jobs.
+//
+// NOT an FL_HOOK_INVENTORY row: that table is (vendor module, exported symbol)
+// and Pass A checks each row against measured vendor exports. This is a system
+// module, and 17_HOOK_ENGINE §Hook inventory records the asymmetry beside the
+// ray-tracing vtable slots, which are outside the table for the same reason.
+// ---------------------------------------------------------------------------
+using PFN_LoadLibraryExW = HMODULE(WINAPI*)(LPCWSTR, HANDLE, DWORD);
+PFN_LoadLibraryExW g_origLoadLibraryExW = nullptr;
+
+// Bit 15 = installed; bits 0..14 = wake-ups for inventoried modules (saturating).
+constexpr uint32_t    kLoaderInstalledBit = 0x8000u;
+constexpr uint32_t    kLoaderCountMask = 0x7FFFu;
+std::atomic<uint32_t> g_loaderSignals{0};
+// Auto-reset; the watchdog waits on it with its 1 s timeout, so a signal ends the
+// wait early and a missing event (creation failed) degrades to the plain sleep.
+HANDLE g_watchdogWake = nullptr;
+
+const wchar_t* BaseNameOf(const wchar_t* path) noexcept {
+    const wchar_t* base = path;
+    for (const wchar_t* p = path; *p != L'\0'; ++p) {
+        if (*p == L'\\' || *p == L'/') {
+            base = p + 1;
+        }
+    }
+    return base;
+}
+
+wchar_t AsciiLower(wchar_t c) noexcept {
+    return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c + (L'a' - L'A')) : c;
+}
+
+// Case-insensitive ASCII compare of a wide base name against a narrow rule value:
+// exact, or the value as a prefix. The rules are ASCII by schema, so a wide
+// character outside ASCII simply never matches.
+bool NameMatches(const wchar_t* base, const char* value, bool prefix) noexcept {
+    size_t i = 0;
+    for (; value[i] != '\0'; ++i) {
+        const wchar_t b = base[i];
+        if (b == L'\0' || AsciiLower(b) != AsciiLower(static_cast<wchar_t>(static_cast<unsigned char>(value[i])))) {
+            return false;
+        }
+    }
+    return prefix || base[i] == L'\0';
+}
+
+// The compiled floor's MODULE families, in order: the 1-based index of the first
+// whose value matches, else 0. The same prefix/exact semantics the guard's
+// MatchName applies to a base name, on the same generated table.
+uint32_t MatchesFloorModule(const wchar_t* base) noexcept {
+    uint32_t index = 0;
+    for (const fl::guard::Family& f : fl::guard::generated::kFloorFamilies) {
+        if (f.group != fl::guard::Group::kModules) {
+            continue;
+        }
+        ++index;
+        for (std::size_t v = 0; v < f.valueCount; ++v) {
+            if (NameMatches(base, f.values[v], f.match == fl::guard::MatchKind::kPrefix)) {
+                return index;
+            }
+        }
+    }
+    return 0;
+}
+
+// Does the inventory or the census name this module? A load of one of these is
+// what the watchdog installs or counts on its next tick, so it is what wakes it.
+bool ModuleIsInventoried(const wchar_t* base) noexcept {
+#define FL_LOADER_NAME(mod, ...)                                                                                       \
+    if (_wcsicmp(base, mod) == 0) {                                                                                    \
+        return true;                                                                                                   \
+    }
+    FL_HOOK_INVENTORY(FL_LOADER_NAME)
+    FL_RUNTIME_CENSUS(FL_LOADER_NAME)
+#undef FL_LOADER_NAME
+    return false;
+}
+
+void WakeWatchdog() noexcept {
+    if (g_watchdogWake != nullptr) {
+        SetEvent(g_watchdogWake);
+    }
+}
+
+HMODULE WINAPI Hook_LoadLibraryExW(LPCWSTR name, HANDLE file, DWORD flags) noexcept {
+    // The original FIRST, always, and its result is returned untouched: this
+    // detour must be invisible to the loader's caller whatever happens below.
+    const HMODULE h = g_origLoadLibraryExW(name, file, flags);
+    FL_HOOK_GUARD({
+        // A data-file or resource mapping is not a module: no code runs from it
+        // and the loader does not list it, so neither job applies.
+        constexpr DWORD kNotAModule =
+            LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE;
+        if (h != nullptr && (flags & kNotAModule) == 0u && g_observing.load(std::memory_order_acquire) != 0) {
+            // The module's real file name, not the caller's string: a relative or
+            // API-set name resolves to whatever the loader mapped, and that is the
+            // name the guard would see.
+            wchar_t path[MAX_PATH]{};
+            if (GetModuleFileNameW(h, path, MAX_PATH) != 0) {
+                const wchar_t* base = BaseNameOf(path);
+                const uint32_t family = MatchesFloorModule(base);
+                if (family != 0u) {
+                    uint32_t none = 0;
+                    g_earlyStopFamily.compare_exchange_strong(none, family, std::memory_order_acq_rel);
+                    WakeWatchdog();
+                } else if (ModuleIsInventoried(base)) {
+                    uint32_t cur = g_loaderSignals.load(std::memory_order_relaxed);
+                    while ((cur & kLoaderCountMask) < kLoaderCountMask &&
+                           !g_loaderSignals.compare_exchange_weak(cur, cur + 1u, std::memory_order_relaxed)) {
+                    }
+                    WakeWatchdog();
+                }
+            }
+        }
+    })
+    return h;
+}
+
+// Installed AFTER the present hooks, from InitThread, outside any loader lock.
+// Failure is not fatal and is visible: bit 15 stays clear, so the report can say
+// the detour is absent and the two backstops are all there is.
+bool InstallLoaderHook() noexcept {
+    const HMODULE kb = GetModuleHandleW(L"kernelbase.dll");
+    if (kb == nullptr) {
+        return false;
+    }
+    void* target = reinterpret_cast<void*>(GetProcAddress(kb, "LoadLibraryExW"));
+    if (target == nullptr) {
+        return false;
+    }
+    if (MH_CreateHook(target, reinterpret_cast<void*>(&Hook_LoadLibraryExW),
+                      reinterpret_cast<void**>(&g_origLoadLibraryExW)) != MH_OK ||
+        MH_EnableHook(target) != MH_OK) {
+        return false;
+    }
+    g_loaderSignals.fetch_or(kLoaderInstalledBit, std::memory_order_release);
+    return true;
+}
+
+void PublishLoaderWords() noexcept {
+    if (g_state == nullptr) {
+        return;
+    }
+    std::atomic_ref<uint16_t> signals{g_state->loaderSignals};
+    std::atomic_ref<uint16_t> family{g_state->earlyStopFamily};
+    signals.store(static_cast<uint16_t>(g_loaderSignals.load(std::memory_order_relaxed)), std::memory_order_relaxed);
+    family.store(static_cast<uint16_t>(g_earlyStopFamily.load(std::memory_order_relaxed)), std::memory_order_relaxed);
+}
 
 void NoteTagTypes(uint32_t typeBits, uint32_t routeShift) noexcept {
     if (typeBits == 0u) {
@@ -1845,7 +2041,13 @@ bool InstallRtHooks() noexcept {
 // Overlay and was not in the Vulkan layer.
 DWORD WINAPI WatchdogThread(LPVOID) noexcept {
     for (;;) {
-        Sleep(kWatchdogIntervalMs);
+        // The 1 s tick, OR the LoadLibrary detour's wake -- whichever comes first.
+        // An event that failed to create degrades to the plain sleep.
+        if (g_watchdogWake != nullptr) {
+            WaitForSingleObject(g_watchdogWake, kWatchdogIntervalMs);
+        } else {
+            Sleep(kWatchdogIntervalMs);
+        }
 
         if (g_observing.load(std::memory_order_acquire) == 0) {
             return 0;    // stopped by us or by a hook body; nothing left to decide
@@ -1860,18 +2062,32 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
             return 0;
         }
 
+        // The in-process stop, for a title that is NOT presenting (menu, hung,
+        // alt-tabbed) -- the case the present path cannot reach. Same order as the
+        // Agent's stop: before any install.
+        if (g_earlyStopFamily.load(std::memory_order_acquire) != 0u) {
+            PublishLoaderWords();
+            StopObserving(FL_STATUS_STOPPED_BLOCKLISTED);
+            return 0;
+        }
+
+        // The detour's words BEFORE the installers: a reader that sees the hook
+        // family appear must already be able to see the wake that caused it.
+        PublishLoaderWords();
+
         // Lazy feature-hook installation. AFTER the two stops, never before: a
         // tick that is going to unhook must not install anything first.
         //
-        // THIS IS THE VEHICLE, AND IT IS WHY NO LoadLibrary HOOK IS NEEDED FOR
-        // P0. 17_HOOK_ENGINE §DLL entry step 5 installs feature hooks "the first
-        // time their module appears", and a game that loads Streamline lazily --
-        // most of them, since sl.interposer is pulled in at device creation --
-        // would be missed by a one-shot check at init. A LoadLibrary hook would
-        // catch it too, but it runs under the loader lock while MinHook suspends
-        // every thread to patch (§H2), so it must defer the work to a thread
-        // anyway. This thread already exists and already wakes once a second, so
-        // §S6 stays genuinely separable rather than becoming a prerequisite.
+        // THIS IS THE VEHICLE. 17_HOOK_ENGINE §DLL entry step 5 installs feature
+        // hooks "the first time their module appears", and a game that loads
+        // Streamline lazily -- most of them, since sl.interposer is pulled in at
+        // device creation -- would be missed by a one-shot check at init. The
+        // LoadLibrary detour (step 3, P1 item 1) does NOT install anything itself:
+        // it runs under the loader lock while MinHook suspends every thread to
+        // patch (§H2), so it only signals g_watchdogWake and the install still
+        // happens HERE, on this thread -- within milliseconds of the module rather
+        // than on the next tick. Through P0 the tick alone was the vehicle, which
+        // is why §S6 stayed separable rather than becoming a prerequisite.
         //
         // It RETRIES until it succeeds and latches only on SUCCESS. An
         // install-attempted flag would give the module exactly one chance, at a
@@ -1889,6 +2105,7 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
         PublishRuntimeCensus();
         PublishSlTagCensus();
         PublishDxgiPresentCounters();
+        PublishLoaderWords();
 
         // Supervision loss. guardTicks counts COMPLETED guard evaluations, not
         // seconds, so a stalled guard loop stops it advancing even while the
@@ -2551,6 +2768,13 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
     // make a session-level check race the frame that read it.
     std::atomic_ref<uint32_t> hooks{g_state->hooksInstalledMask};
     hooks.fetch_or(static_cast<uint32_t>(FL_HOOK_PRESENT), std::memory_order_relaxed);
+
+    // The watchdog's wake, created BEFORE the loader hook that signals it and before
+    // the thread that waits on it. Then the LoadLibrary detour -- non-fatal: without
+    // it the 1 Hz tick and the host's scan are the backstops, and bit 15 says so.
+    g_watchdogWake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    InstallLoaderHook();
+    PublishLoaderWords();
 
     status.store(FL_STATUS_READY, std::memory_order_release);
 

@@ -169,7 +169,7 @@ internal static class Program
                 or SessionEndReason.TargetCannotBePinned => _exitTargetNotResolved,
             SessionEndReason.AttachRefused => _exitAttachRefused,
             SessionEndReason.SafetyUnhook or SessionEndReason.SupervisionLost
-                or SessionEndReason.SupervisionFaulted => _exitStoppedForSafety,
+                or SessionEndReason.SupervisionFaulted or SessionEndReason.WriterStoppedBlocklisted => _exitStoppedForSafety,
             _ => _exitRefused,
         };
     }
@@ -210,7 +210,7 @@ internal static class Program
                           $"   apiMask=0x{result.WriterState.ApiMask:X}   rtTier={result.WriterState.RtTier}");
         PrintCensus(result, markers);
 
-        HostConsole.Line(WriterNote(result));
+        PrintWriterAndLoader(result);
         HostConsole.Line($"  records carrying Upscaler={withUpscaler}/{dominant.Count}  " +
                           $"UpscalerParams={withParams}/{dominant.Count}  " +
                           $"(a value below the total means the hook came up mid-session, not that it never did)");
@@ -386,6 +386,16 @@ internal static class Program
         }
 
         return "  cause: the record is present, enabled and matching — so the refusal came from elsewhere";
+    }
+
+    /// <summary>The writer's own line, then the LoadLibrary detour's (installed / woke / EARLY STOP).</summary>
+    private static void PrintWriterAndLoader(CaptureResult result)
+    {
+        HostConsole.Line(WriterNote(result));
+        foreach (string line in EarlyStop.Describe(result.WriterState, EarlyStop.StagedRulesPath))
+        {
+            HostConsole.Line(line);
+        }
     }
 
     /// <summary>

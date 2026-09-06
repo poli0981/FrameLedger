@@ -56,6 +56,7 @@ internal static class SessionEndClassifier
         {
             FlStatus.Unhooked => weLatchedTheUnhook ? SessionEndReason.SafetyUnhook : SessionEndReason.SupervisionLost,
             FlStatus.SelfDisabled => SessionEndReason.WriterSelfDisabled,
+            FlStatus.StoppedBlocklisted => SessionEndReason.WriterStoppedBlocklisted,
             FlStatus.Init when attachSettled => SessionEndReason.WriterNeverInstalledHooks,
             _ => SessionEndReason.Running,
         };

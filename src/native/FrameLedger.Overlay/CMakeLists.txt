@@ -25,6 +25,13 @@ add_library(FrameLedger.Overlay SHARED src/dllmain.cpp)
 # and third_party/fidelityfx/README.md: an Overlay that imports a vendor module
 # fails to load in every game that ships no such module, in the loader, silently.
 # hookinventory-check Pass C reads the built DLL's import AND export tables.
+# fl_ac_floor: the anti-cheat MODULE families compiled into the guard, now also into
+# the Overlay for the LoadLibrary detour's early stop (§S6). Types only from
+# fl_ac_rules.h -- nothing of fl_ac_rules.cpp is compiled here, and the Overlay
+# links neither wintrust nor the rules parser.
+target_include_directories(FrameLedger.Overlay PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../FrameLedger.Injector/include")
+add_dependencies(FrameLedger.Overlay fl_ac_floor_gen)
+target_link_libraries(FrameLedger.Overlay PRIVATE fl_ac_floor)
 target_link_libraries(FrameLedger.Overlay PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags fl_hostile_env_flags minhook
     fl_streamline_headers fl_fidelityfx_headers fl_fsr3_host_headers
     Advapi32 d3d11 d3d12 dxgi)
