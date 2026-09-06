@@ -1842,6 +1842,25 @@ one launch per capture, consent granted after launch. Exit codes and full report
   no size on D3D12, where `sl::Resource` declares none. The PR after #124 turns the 2.8.0 reading into a
   DXGI-COUNTED Displayed (`03_METRICS` §Displayed may be DXGI-COUNTED).
 
+- **2026-09-06 morning, the owner's run on #125 — DL:TB three times (frame generation on, then off twice)
+  and Expedition 33 with frame generation off.** The promotion landed and §H5's Leg 0 answered:
+
+  | Title / setting | Line | `DXGI present counter:` | `frame generation:` |
+  |---|---|---|---|
+  | **Dying Light: The Beast**, DLSS FG ×4 (07:31) | `Native FPS: 70.52 -> Displayed FPS: 282.08 (x4 FG) over 16516 present(s)` + *Displayed is DXGI-COUNTED: 12387* | `unseen=12483 over samples=4202 (2.97)` | **`DlssG`** |
+  | **Dying Light: The Beast**, DLSS, FG **off** (07:45) | `Presented FPS 75.52` (withheld) | `unseen=0 over samples=4519` | N/A (withheld) — census still `0x25F0F`, tags `0x23600` (no hudless / UI) |
+  | **Dying Light: The Beast**, DLSS, FG **off** (07:55) | `Presented FPS 61.14` (withheld) | `unseen=0 over samples=3659` | same |
+  | **Expedition 33**, FG off (Streamline 2.7.30) | `FPS: 85.86` | `unseen=0 over samples=5063` | `none` by count; tag census `0x0` |
+
+  Two readings. **The trio is printed on the title that could not print it**, from a count DXGI made
+  (12,387 presents this hook never timed), and it is the number the owner's own counter showed (~300 at
+  ×4 against ~75 native). **Leg 0: `sl.dlss_g.dll` is a startup-time load** — the census cannot tell FG
+  off from FG on, exactly the cost the gate pre-committed — but the DXGI counter can (0 unseen with FG
+  off, 2.9–3.0 with it on), so the gate is narrowed to sessions where the counter was not read, and the
+  two FG-off captures above print `none` with DXGI's agreement on the next build. Also visible: with FG
+  off DL:TB sends no hudless / UI tag and the UE plugin sends no tags at all, so the DLSS-G identity is
+  per-setting on both.
+
 ## 10 · Telemetry layering
 
 - L1 baseline vendor-neutral:

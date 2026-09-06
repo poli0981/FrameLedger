@@ -3333,6 +3333,21 @@ probe never showed a deadlock.
 > on DL:TB's next capture: the trio at ≈ ×3.9 with the label, no withheld line, `frame generation: DlssG`.
 > Which body the 2.8.0 pacer reaches stays unlocalised, as the row said.
 >
+> **LANDED 2026-09-06 morning, on the owner's run on #125 (`spike-notes` §9): the promotion, and Leg 0.**
+> DL:TB at DLSS FG ×4 (07:31): `Native FPS: 70.52 -> Displayed FPS: 282.08 (x4 FG) over 16516 present(s)`,
+> *"Displayed is DXGI-COUNTED: 12387 of those present(s)"*, `unseen=12483 over samples=4202 (2.97)`,
+> `frame generation: DlssG`, uniform across every bucket, no withheld line — the trio rule 6 asks for, on
+> the title that could not print it. **Leg 0, twice (07:45, 07:55): frame generation OFF**, census still
+> `0x25F0F` — `sl.dlss_g.dll` is a **startup-time load**, the cost paragraph's fear measured true —
+> presents = tokens, `unseen=0 over samples=3659` and `4519`, tag census `0x23600` (depth, mvec,
+> scaling-in, scaling-out, other: **no hudless / UI tag with FG off**, so the DLSS-G identity is
+> per-setting on this title too), and the report withheld `none` exactly as pre-committed. **The gate is
+> narrowed rather than withdrawn:** DXGI's counter is the discriminator it lacked — the 2.8.0 pacer's
+> presents are DXGI presents on this chain (P1-DXGI), so a counted 1.0 beside a READ counter with zero
+> unseen is `none`, printed with DXGI's agreement; withheld only when the counter was not read. Control:
+> Expedition 33 FG off (Streamline 2.7.30) reads `FPS: 85.86`, `none` by count, tag census `0x0` — the UE
+> plugin sends no tags at all with FG off.
+>
 > Leg 1's rows (ours = `presents / span`; PM = PresentMon rows / span; C = the counter; ≈ = within 5 %):
 >
 > | Row | Reading | Meaning | Action |
@@ -3346,7 +3361,8 @@ probe never showed a deadlock.
 >
 > Leg 0's own row: if `sl.dlss_g.dll` is **absent** with FG off, the census bit is per-setting on
 > this title and the gate is sharper than its cost paragraph feared (consider dropping the version
-> conjunct); if present, the interim cost stands as written.
+> conjunct); if present, the interim cost stands as written. **Landed 2026-09-06: PRESENT, twice** —
+> and the cost stood for one morning, because the DXGI counter (above) narrowed the gate the same day.
 >
 > **Second-present-sink candidates for P1 / P5, one line each, none chosen:** MinHook inline
 > patches on the `gdi32.dll` D3DKMT thunks (`D3DKMTPresent`, `D3DKMTPresentMultiPlaneOverlay3`,

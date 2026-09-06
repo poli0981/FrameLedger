@@ -771,7 +771,11 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   §H5 row P1-DXGI — while Streamline 2.7.3 (Hell Is Us) and 2.10.3 (the Onimusha demo) read 0.00, so
   2.8.0's pacer is the one that bypasses the patched bodies. The record now carries `dxgiUnseen` and
   the window counts `Displayed = hooked + unseen`, labelled DXGI-COUNTED (`03_METRICS`); DL:TB's next
-  capture is expected to print the trio at ≈ ×3.9 with that label and no withheld line.** The
+  capture is expected to print the trio at ≈ ×3.9 with that label and no withheld line — LANDED
+  2026-09-06: `70.52 → 282.08 (×4 FG)`, DXGI-COUNTED 12,387, `DlssG`. Leg 0 the same morning (FG off,
+  twice) showed the plugin is a startup-time load and the report withheld as pre-committed, so the
+  gate is now narrowed to sessions where the DXGI counter was not read; a read counter with zero
+  unseen prints `none` with DXGI's agreement.** The
   "sl.common must be loaded on 2.8" lead is closed by the 2.10.3 title, which injects and counts like
   2.7 (§H5).
 

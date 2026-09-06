@@ -121,10 +121,12 @@ public sealed class DxgiCountedWindowTests
         a.DisplayedFps.Should().Be(b.DisplayedFps);
         a.BucketFactors.Should().Equal(b.BucketFactors);
 
-        // And the DL:TB shape with the count at 1.0 is still withheld, with the DXGI reading beside it.
+        // And the DL:TB shape with the count at 1.0 beside a READ counter is `none` since Leg 0: DXGI itself
+        // counted nothing this hook did not, on the chain where the 2.8.0 pacer's presents would show.
         (MeasuredFacts facts, string text) = Render(claimed, unseenTotal: 0, samples: 200);
-        facts.NoneWithheld.Should().NotBeNull();
-        text.Should().Contain("`none` is WITHHELD").And.Contain("frame generation was off, or").And.NotContain("DXGI-COUNTED");
+        facts.NoneWithheld.Should().BeNull();
+        text.Should().Contain("frame generation: none").And.Contain("DXGI's own present counter agrees")
+            .And.NotContain("WITHHELD").And.NotContain("DXGI-COUNTED");
     }
 
     [Fact]

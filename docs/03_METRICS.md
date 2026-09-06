@@ -98,7 +98,17 @@ This is the metric the rewrite exists for. Resolution ladder, highest confidence
 > distribution, which has no timestamps for those presents. The uniformity buckets take the same
 > numerator, so a session whose pacer stopped mid-way refuses exactly as one whose tokens stopped. A
 > saturated byte (255) is refused like a saturated `fgEvaluations`, and a present the hook saw and
-> declined (a paused session) is not unseen — the resume's first record differences nothing. `20_OPEN_QUESTIONS` §H5 keeps the
+> declined (a paused session) is not unseen — the resume's first record differences nothing.
+>
+> **Landed 2026-09-06 (`spike-notes` §9): `Native FPS: 70.52 -> Displayed FPS: 282.08 (x4 FG) over 16516
+> present(s)` on Dying Light: The Beast, 12,387 of them DXGI-counted, `frame generation: DlssG`** — the
+> rule-6 trio on the title that could not print it. **And the counter decides `none` on that shape.**
+> Leg 0 the same morning (frame generation off, twice) read presents = tokens with `unseen=0` over 3,659
+> and 4,519 samples, census unchanged (`sl.dlss_g.dll` is a startup-time load), so the withheld gate is
+> narrowed rather than withdrawn: a counted `none` beside a READ counter with zero unseen prints as
+> `none` with DXGI's agreement on the line; only a session where the counter was not read withholds.
+> A writer state that counted unseen presents the records do not carry is a contradiction and is
+> refused as neither. `20_OPEN_QUESTIONS` §H5 keeps the
 > rows this landed on; which body the 2.8.0 pacer presents through is unlocalised and does not need
 > to be for the count.
 >
@@ -284,7 +294,8 @@ F_app   = Σ fgEvaluations                  (APPLICATION frames, counted at the 
 > frame generation switched off in its menu, so the consumer's rule is: **the count decides `none`,
 > identity decides the name** — an active count beside the mark prints `DlssG`; a counted 1.0 beside it
 > prints `none` with the inputs noted; the withheld shape (§H5) keeps its N/A with the tags reported in
-> the census line. `FsrFg` keeps precedence over the count, because a drained FRAMEGENERATION dispatch
+> the census line — narrowed 2026-09-06 to sessions where DXGI's counter was not read (§Displayed may be
+> DXGI-COUNTED). `FsrFg` keeps precedence over the count, because a drained FRAMEGENERATION dispatch
 > is a generated batch. `FlWriterState.slTagCensus` carries which types arrived on which route for the
 > session (`fl_shm.h` §slTagCensus).
 >
