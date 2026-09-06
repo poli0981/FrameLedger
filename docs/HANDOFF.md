@@ -1002,6 +1002,27 @@ feature hooks — §S29(a) said it was and was wrong; see below. What it buys is
 > drop the switch as well. Anyone costing this as "fix the signer half" is costing
 > half of it.
 
+**Picked up 2026-09-06 (the owner's next item after item 7).** The sequence, with what
+each step needs, so nothing here is started out of order:
+
+1. **The CI leg, made readable** (2026-09-06, this PR): the probe's ctest printed nothing,
+   so `ci.yml` runs `fl-probe-signer` as its own step after the gate and the answers land in
+   the log. Rows G3/G4/G5 are read off the next run on `main`.
+2. **The adapters-disabled leg — owner-only, a network setting.** Same three subjects,
+   `ctest fl_signer_probe` (or the exe) with every network adapter disabled, compare the
+   verdicts with `spike-notes` §1. Unchanged → G1; any change → G2 and the route retires.
+3. **The allow-widening bound — owner-only, a decision no PR may take (§S19(b)).** Two
+   written options: a compiled-in allowlist that `trustedSigners` can only intersect
+   (recommended: the boundary stays code, no branch-protection change), or `Rules / validate`
+   made a required status check (§S23-2, a GitHub setting).
+4. **Then the PR:** the embedded signer half in `fl_guard_sources.cpp` (`WinVerifyTrust`,
+   `WTD_CHOICE_FILE`, `WTD_REVOKE_NONE | WTD_CACHE_ONLY_URL_RETRIEVAL`, `O=` compared under
+   the bound; a trusted module returns *keep looking*, never *stop*; every failure refuses),
+   the catalog half deferred with its own rationale, a native fixture in both directions
+   (a Microsoft-signed fragment module allowed, an unsigned one refused), and
+   `-SkipIntegration` dropped from `ci.yml` in the same PR so the nine integration cases
+   join the merge gate.
+
 ### ~~§M5 — **START HERE**~~ — MEASURED 2026-09-03, row R1, and the head moves
 
 **Do not start here.** `LhmTelemetrySource` exists, `probe-lhm` ran unelevated and elevated,
