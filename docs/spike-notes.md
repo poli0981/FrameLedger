@@ -312,8 +312,20 @@ offline retires the route, and §S19(b)'s row G2 says so before the run.
 yields no organisation — so a green result discriminates rather than merely running.
 `fl-baseline-probe` was retired by exactly this class of test.
 
-**Not measured here:** the CI leg (a different machine stages a different copy), and
-the adapters-disabled leg. Both have pre-committed rows. An unrun leg is unrun.
+~~**Not measured here:** the CI leg (a different machine stages a different copy), and
+the adapters-disabled leg. Both have pre-committed rows. An unrun leg is unrun.~~
+**The CI leg, 2026-09-06** (the ctest printed nothing for eleven days; `ci.yml` now runs the
+probe as a step): `windows-latest`, elevated. Blocker copy from the runner's NuGet cache,
+6.0.0, embedded/offline `ERROR_SUCCESS` 3.47 ms, `O= Microsoft Corporation`, no catalog;
+`mskeyprotect.dll` embedded `TRUST_E_NOSIGNATURE`, catalog `ERROR_SUCCESS`; `kernel32.dll`
+both; cold 3.45 / warm 3.53 ms; `cryptnet.dll` newly loaded under the offline flags; canary
+`TRUST_E_NOSIGNATURE`; *"G1 is a CANDIDATE"*. Rows G3, G4, G5 do not fire.
+**The adapters-disabled leg, the owner's run, 2026-09-06** (dev box, elevated): every verdict
+unchanged — `kernel32.dll` both `ERROR_SUCCESS`; `mskeyprotect.dll` embedded `TRUST_E_NOSIGNATURE`,
+catalog `ERROR_SUCCESS`; the blocker embedded `ERROR_SUCCESS`, `O= Microsoft Corporation`, subject
+now `CN=.NET` (the August copy read `CN=Microsoft Windows`; same `O=`); cold 2.14 / warm 2.15 ms;
+`cryptnet.dll` mapped; canary `TRUST_E_NOSIGNATURE`. **Row G1 reads**; the bound decision is the
+owner's before anything is built.
 
 ### Still open
 

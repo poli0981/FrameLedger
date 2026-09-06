@@ -2197,6 +2197,34 @@ admits it has no data for (Ricochet, VAC). Three refuters agreed.
 > as `19_SAFETY` ruled for the launcher list, and it needs no branch-protection change; the
 > alternative, making `Rules / validate` a required check, is §S23-2 and is the owner's
 > GitHub setting, not a file in this repository.
+>
+> **THE CI LEG, READ 2026-09-06 off the new step (run on `ci/signer-probe-leg`, `windows-latest`,
+> the probe reporting `elevated: yes` — the runner is an administrator; the dev-box leg was
+> unelevated).** The blocker at the runner's NuGet cache (`system.security.cryptography.protecteddata`
+> 6.0.0, `lib/net6.0`): embedded/offline **`ERROR_SUCCESS`, 3.47 ms, `O= Microsoft Corporation`**,
+> no catalog; `mskeyprotect.dll` `TRUST_E_NOSIGNATURE` / catalog `ERROR_SUCCESS`; `kernel32.dll` both;
+> cold 3.45 ms, warm 3.53 ms; `cryptnet.dll` newly loaded under the offline flags, as on the dev box;
+> the canary `TRUST_E_NOSIGNATURE`; the probe's own verdict *"G1 is a CANDIDATE"*. **So G3 does not
+> fire (the `O=` premise holds on CI's copy), G4 does not fire (CI's copy is embedded-signed), G5 does
+> not fire (3.5 ms).** What is left before G1 can be read is exactly the two owner-only legs above:
+> adapters disabled (G1 against G2), and the bound.
+>
+> **THE ADAPTERS-DISABLED LEG, the owner's run, 2026-09-06 (dev box, elevated; reported in answer
+> to the request to run it with every adapter off — if it was not, this paragraph is withdrawn
+> and the leg is unrun).** Every verdict UNCHANGED against `spike-notes` §1: `kernel32.dll`
+> embedded `ERROR_SUCCESS` / catalog `ERROR_SUCCESS`; `mskeyprotect.dll` embedded
+> `TRUST_E_NOSIGNATURE` / catalog `ERROR_SUCCESS`; the blocker embedded `ERROR_SUCCESS`, no
+> catalog, **`O= Microsoft Corporation`**; canary `TRUST_E_NOSIGNATURE`; `cryptnet.dll` still
+> mapped under the offline flags and still not evidence of a request. Faster than the online run
+> (2.14 ms cold, 2.15 ms warm; 2.97 / 2.13 ms on the system binaries), which is what an offline
+> cache-only path should look like. **One detail worth its line:** the blocker's subject now reads
+> `CN=.NET` where the August copy read `CN=Microsoft Windows` — the NuGet copy was re-staged with a
+> different certificate — and `O=` is the same on both, which is the `signerField: "O"` decision
+> confirmed on a subject class it was never measured against. **Row G1 reads.** The embedded half
+> alone, offline, clears the CI refusal; the `CryptCATAdmin*` catalog half is deferred with its own
+> rationale (it reaches `mskeyprotect.dll`, which is not on the path to the merge gate, and it is
+> the `CatRoot` walk §S19(b) priced). **What still stops the build is the bound**, above — the
+> owner's, and asked for beside this reading.
 
 **(c) `signerField` and `action` are required by the schema and parsed by
 nobody.** Both are `required` in `detection-rules.schema.json`, both carry
