@@ -190,6 +190,65 @@ internal sealed record MeasuredFacts
     /// </remarks>
     public bool UpscalerHookRan { get; init; }
 
+    /// <summary>The driver's per-process NGX word, merged over the session; <see cref="NgxDriverState.NotRun"/> without a probe.</summary>
+    public NgxDriverState NgxDriver { get; init; } = NgxDriverState.NotRun;
+
+    /// <summary>The string the <c>upscaler:</c> line carries when the identity is the driver's word and not a hook's.</summary>
+    public const string UpscalerDlssDriverReported =
+        "Dlss (driver-reported: the NVIDIA driver reports an NGX super-resolution feature created and evaluated in "
+        + "this process - not counted by this hook; 03_METRICS §Upscaling, the driver-reported rung)";
+
+    /// <summary>
+    /// <c>03_METRICS</c> §Upscaling, the driver-reported rung (owner decision 2026-09-06): when NO hook named an
+    /// upscaler and the driver says an NGX super-resolution feature was created and evaluated in this process,
+    /// the identity is DLSS, attributed to the driver. Null whenever a hook answered, or the driver did not.
+    /// </summary>
+    /// <remarks>
+    /// Identity and nothing else. Measured 2026-09-06 on Hell Is Us, Expedition 33 and Lies of P: the bits are
+    /// set without an NVIDIA-app override; <c>scalingRatio</c> is 0 even with one; <c>performanceMode</c> and
+    /// <c>renderPreset</c> are the override's values; the FG word is blind to Streamline DLSS-G. So this may name
+    /// the vendor and the feature and may not state a quality, a ratio, a render size or a frame-generation mode.
+    /// The negative is owed: a title with DLSS switched off should read the bit clear, and until it is measured
+    /// this rung has only ever seen the positive — §H5 pre-commits its withdrawal if the bit stays set.
+    /// </remarks>
+    public string? UpscalerDriverReported => Upscaler is null && NgxDriver.SrCreatedAndEvaluated ? UpscalerDlssDriverReported : null;
+
+    /// <summary>
+    /// What the driver's word adds beside a hook's identity — agreement, a disagreement printed rather than
+    /// resolved, or the driver's negative beside an N/A — or null when the driver did not answer.
+    /// </summary>
+    public string? UpscalerDriverNote
+    {
+        get
+        {
+            if (NgxDriver.Outcome != NgxProbeOutcome.Answered)
+            {
+                return null;
+            }
+
+            bool created = NgxDriver.SrCreatedAndEvaluated;
+            if (Upscaler is null)
+            {
+                return created
+                    ? null
+                    : "the NVIDIA driver reports no NGX super-resolution feature created in this process (driver-reported; "
+                      + "it says nothing about FSR or XeSS)";
+            }
+
+            if (string.Equals(Upscaler, nameof(FlUpscaler.Dlss), StringComparison.Ordinal))
+            {
+                return created
+                    ? "the NVIDIA driver agrees: an NGX super-resolution feature was created and evaluated in this process"
+                    : "WARNING: the NVIDIA driver reports NO NGX super-resolution feature created in this process while the "
+                      + "hook named DLSS - a disagreement, printed rather than resolved";
+            }
+
+            return created
+                ? "the NVIDIA driver also reports an NGX super-resolution feature created and evaluated in this process"
+                : null;
+        }
+    }
+
     /// <summary>Whether a hook capable of naming the frame-generation mode was live.</summary>
     public bool FgHookRan { get; init; }
 
@@ -272,7 +331,8 @@ internal sealed record MeasuredFacts
     /// overstates the factor. <see cref="FgWindow"/> owns that decision and its refusals.
     /// </remarks>
     public static MeasuredFacts From(IReadOnlyList<FlFrameRecord> stream, FlWriterState writer,
-        long qpcFrequency, long totalGaps, long totalDropped, FgWindow? fg = null, RuntimeModuleSet? modules = null)
+        long qpcFrequency, long totalGaps, long totalDropped, FgWindow? fg = null, RuntimeModuleSet? modules = null,
+        NgxDriverState? ngx = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(qpcFrequency);
@@ -313,6 +373,7 @@ internal sealed record MeasuredFacts
 
             Extent = UpscaleExtent.From(stream),
             Upscaler = UpscalerOf(stream),
+            NgxDriver = ngx ?? NgxDriverState.NotRun,
             RayTracing = RayTracingOf(stream, writer),
             RayReconstruction = RayReconstructionOf(stream),
             Hdr = HdrOf(stream),

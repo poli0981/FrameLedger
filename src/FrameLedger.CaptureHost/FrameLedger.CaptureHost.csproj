@@ -83,4 +83,21 @@
   <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Rules.targets" />
   <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Overlay.targets" />
 
+  <!--
+    fl-probe-nvapi.exe beside the host, the way the Overlay is: NgxDriverProbe spawns it
+    by absolute path from AppContext.BaseDirectory and reports ProbeMissing rather than
+    searching. Warn-not-fail for the same reason the Overlay targets do: build.ps1 runs
+    the native build first. UNSHIPPED with this host; the Agent would call NVAPI through
+    Infrastructure, not a child process.
+  -->
+  <PropertyGroup>
+    <FlNativeProbeDir>$(MSBuildThisFileDirectory)..\..\build\native\x64-release\tools\fl-probe-nvapi\</FlNativeProbeDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(FlNativeProbeDir)fl-probe-nvapi.exe" Condition="Exists('$(FlNativeProbeDir)fl-probe-nvapi.exe')">
+      <Link>fl-probe-nvapi.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

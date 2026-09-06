@@ -3277,6 +3277,23 @@ probe never showed a deadlock.
 > beside each module snapshot (out of process, no consent needed) or, if it goes in-process, through
 > `Infrastructure` only (CLAUDE.md: no P/Invoke elsewhere).
 >
+> **BUILT 2026-09-06, on the owner's decision ("nối probe để bắt đầu").** The capture host spawns
+> `fl-probe-nvapi --ngx-state <pid>` beside every module snapshot (the probe prints one machine line,
+> `NGXSTATE status=… sr=0x… …`, and is staged beside the host by the project file), merges the readings
+> (the last answered word is the state; a change between readings is printed, never averaged) and
+> prints `NVIDIA driver NGX state:` in the runtime block. `03_METRICS` §Upscaling carries the rung and
+> its limits. **Pre-committed, read off the next run:**
+>
+> | Row | Title / setting | Expected | Else |
+> |---|---|---|---|
+> | **N1** | Lies of P, Hell Is Us, Expedition 33 at DLSS | `upscaler: Dlss (driver-reported: …)` | a `CREATED \| EVALUATE` word beside `N/A` is a parser or plumbing defect — localise |
+> | **N2** | Cyberpunk, DL:TB, Onimusha (hooked `Dlss`) | `upscaler: Dlss — the NVIDIA driver agrees …` | a disagreement WARNING is printed as such; it is not resolved by preferring either |
+> | **N3** | **the negative, still owed:** Lies of P with DLSS switched OFF in the menu | `CREATED` clear → `upscaler: N/A (…) — the NVIDIA driver reports no NGX super-resolution feature created …` | `CREATED \| EVALUATE` still set with DLSS off → **the rung is withdrawn** (the bit is a session-lifetime latch, not a state) and the line goes back to N/A |
+> | **N4** | a title at FSR / XeSS with no NGX feature | `Fsr3` / `N/A` with the driver's negative beside it | `CREATED` set on a title with no DLSS in its menu → withdraw |
+>
+> Lies of P has no DLSS Frame Generation (owner, 2026-09-06), which is why its FG word reads
+> `ERR_FAILED ERR_NOT_FOUND`: nothing to load.
+>
 > ### THE STREAMLINE DOCS, READ 2026-09-05 (v2.8.0 and main), AND WHAT THEY CHANGED
 >
 > The owner asked for the vendor's own guides before any rewrite. Three things in them decide this item.

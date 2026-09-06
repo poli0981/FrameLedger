@@ -185,7 +185,7 @@ internal static class Program
         FgWindow fg = FgWindow.From(result.Records, Stopwatch.Frequency);
         MeasuredFacts facts = MeasuredFacts.From(
             dominant, result.WriterState, Stopwatch.Frequency, result.TotalGaps, result.TotalDropped, fg,
-            result.RuntimeModules);
+            result.RuntimeModules, result.NgxDriver);
 
         HostConsole.Line($"  guard ticks published: {result.GuardTicksPublished}");
         HostConsole.Line($"  records: {result.Records.Count} ({dominant.Count} on the dominant stream), " +
@@ -246,6 +246,9 @@ internal static class Program
                           $"fg=[{CensusNames.Describe(census & FlRuntimeCensusFamilies.Fg)}]  " +
                           $"upscaler=[{CensusNames.Describe(census & FlRuntimeCensusFamilies.Upscaler)}]");
         PrintRuntimeModules(result.RuntimeModules);
+        // The driver's own word on this process, out of process: the super-resolution identity the
+        // hooks cannot see on NGX-direct titles (03_METRICS §Upscaling, the driver-reported rung).
+        HostConsole.Line(result.NgxDriver.Describe());
         // Which Streamline buffer types the title tagged, on which route: the identity half of
         // frame generation (fl_shm.h §slTagCensus). A DLSS-G title tags hudless and UI every
         // frame; a super-resolution-only title tags neither.
@@ -328,7 +331,8 @@ internal static class Program
                 // already honoured MaxDuration -- nothing could set it.
                 MaxDuration = seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero,
             },
-            pid => RuntimeModuleSnapshot.Take(pid, CensusNames.ModuleFileNames));
+            pid => RuntimeModuleSnapshot.Take(pid, CensusNames.ModuleFileNames),
+            NgxDriverProbe.Run);
     }
 
     /// <summary>

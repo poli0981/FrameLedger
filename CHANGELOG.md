@@ -17,6 +17,23 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Added
+
+- **The super-resolution identity from the NVIDIA driver, where no hook can see it — the driver-reported
+  rung (owner decision 2026-09-06).** Three NGX-direct titles printed `upscaler: N/A` on every capture
+  while the driver's per-process NGX word (`NvAPI_NGX_GetNGXOverrideState`, R570+, MIT NVAPI) reads
+  `CREATED | EVALUATE` for them — measured 2026-09-06 without an NVIDIA-app override. The capture host now
+  spawns `fl-probe-nvapi --ngx-state <pid>` beside every module snapshot (the probe gained one machine line,
+  `NGXSTATE status=… sr=0x… …`, and is staged beside the host), merges the readings (`NgxDriverState`: the
+  last answered word is the state, a change between readings is printed), prints `NVIDIA driver NGX state:`
+  in the runtime block, and the `upscaler:` line reads `Dlss (driver-reported: … not counted by this hook)`
+  when no hook named one. Identity only, each limit measured: no quality or preset (override fields), no
+  ratio (`scalingRatio` is 0 even under an override), no frame-generation mode or multiplier (the FG word is
+  blind to Streamline DLSS-G). Beside a hook's `Dlss` the driver's word prints as agreement or as a
+  disagreement printed rather than resolved; beside an `N/A` with the bit clear it prints the driver's
+  negative. `20_OPEN_QUESTIONS` §H5 pre-commits rows N1–N4, and N3 — DLSS switched off — withdraws the rung
+  if the bit stays set. `03_METRICS` §Upscaling, `05_DETECTION`, `18_GPU_VENDOR_APIS` carry it.
+
 ### Changed
 
 - **The withheld `none` is narrowed to sessions where DXGI's counter was not read (§H5 Leg 0 landed).**

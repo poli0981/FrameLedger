@@ -205,13 +205,22 @@ internal static class SessionReport
         // can tell that apart from a title driving DLSS through a path we do not hook — Black Myth:
         // Wukong loads sl.interposer.dll, runs DLSS-G, and calls it never — so the line names all
         // three rather than picking the one that flatters the hook.
-        sb.Append("  upscaler: ").AppendLine(facts.Upscaler
+        // A hook's name first; else the driver's word, attributed (03_METRICS §Upscaling, the
+        // driver-reported rung); else the two N/As. The driver's note rides beside whichever printed.
+        sb.Append("  upscaler: ").Append(facts.Upscaler
+            ?? facts.UpscalerDriverReported
             ?? (facts.UpscalerHookRan
                 ? "N/A (an upscaler hook ran — Streamline's slEvaluateFeature and/or an ffx-api leaf's ffxDispatch — "
                   + "and no evaluation this build decodes arrived: "
                   + "upscaling is off in this title's settings, or it runs through a path this build does not "
                   + "hook — measured on 3 of 5 Streamline titles — or a vendor this build does not decode)"
                 : NoHookRan("upscaler", facts.CensusRan, facts.UpscalerRuntimesLoaded)));
+        if (facts.UpscalerDriverNote is string driver)
+        {
+            sb.Append(" — ").Append(driver);
+        }
+
+        sb.AppendLine();
         sb.Append("  render -> output: ").AppendLine(RenderToOutput(facts.Extent));
         sb.Append("  frame generation: ").AppendLine(facts.FgMode
             ?? (facts.FgHookRan
