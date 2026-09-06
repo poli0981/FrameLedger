@@ -430,6 +430,16 @@ would matter.
 > the reminder is the P1 Vulkan entry that cannot land without running it. Either row ends
 > S29 as an S-item; the count below is written for the absent row and corrected if the
 > census says otherwise.
+>
+> **Read 2026-09-06 off the sweep PR's run (`windows-latest`): `vulkan-1.dll` PRESENT in
+> System32, `vulkaninfo.exe` absent (not in System32, not on PATH), no ICD registry key.** The
+> absent row: **🅓 deferred on that measurement.** The loader is there but nothing to drive it
+> with and nothing for it to drive — `vulkaninfo.exe` ships with a GPU driver's runtime, and
+> without an ICD `vkCreateInstance` fails before the layer question is fully asked. The script
+> stays hand-run before any layer PR. **Reopen condition, written now:** a Vulkan mode of
+> `hook-harness` (unwritten, `12_BUILD` §Targets) could replace `vulkaninfo.exe` as the driver,
+> and whether the loader's layer discovery and `enable_environment` behaviour is observable
+> with no ICD is one measurement away — the P1 Vulkan entry is where it is taken.
 
 **(e) ✅ The reader cannot tell a dead target from a quiet one — closed 2026-08-06,
 host-side, with no ABI change.**
