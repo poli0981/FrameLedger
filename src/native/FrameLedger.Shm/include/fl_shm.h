@@ -772,7 +772,14 @@ struct alignas(64) FlControlBlock {
     uint32_t unhookRequested;    // @4   set when the guard fires mid-session
     uint32_t overlayEnabled;     // @8   in-game overlay draw toggle (v1.1)
     uint32_t guardTicks;         // @12  completed guard evaluations, NOT a timer
-    uint32_t reserved[12];       // @16..63  must be zero
+    // NATIVE LOG FLUSH REQUEST (2026-09-06, P1 item 4; 17_HOOK_ENGINE §Native
+    // logging). A COUNTER the Agent increments when it wants the Overlay's event
+    // ring written to logs\overlay-<pid>-*.log now -- at session end, before the
+    // Agent lets go. The watchdog flushes when the value differs from the one it
+    // last acted on, so the Agent never has to clear anything in a block it is the
+    // sole writer of. Took reserved[0]; additive, no layout bump.
+    uint32_t logFlushRequested;    // @16
+    uint32_t reserved[11];         // @20..63  must be zero
 };
 
 // ---------------------------------------------------------------------------
@@ -956,6 +963,7 @@ static_assert(offsetof(FlControlBlock, pauseRequested) == 0);
 static_assert(offsetof(FlControlBlock, unhookRequested) == 4);
 static_assert(offsetof(FlControlBlock, overlayEnabled) == 8);
 static_assert(offsetof(FlControlBlock, guardTicks) == 12);
+static_assert(offsetof(FlControlBlock, logFlushRequested) == 16);
 
 static_assert(offsetof(FlFrameRecord, qpc) == 0);
 static_assert(offsetof(FlFrameRecord, frameIndex) == 8);

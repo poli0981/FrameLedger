@@ -7,14 +7,17 @@
 # vk_hold.cpp is the Vulkan mode (P1 item 3): the loader is reached through
 # LoadLibraryW at run time, so only the vendored Khronos HEADERS are needed and
 # the harness still builds and runs on a machine with no Vulkan at all.
-add_executable(hook-harness main.cpp vk_hold.cpp proxy_swapchain.h)
+# gl_hold.cpp is the OpenGL mode (P1 item 4): a real context on a hidden window,
+# SwapBuffers'd through gdi32 the way a title does it; Microsoft's generic
+# renderer answers everywhere, so this one runs on CI too.
+add_executable(hook-harness main.cpp vk_hold.cpp gl_hold.cpp proxy_swapchain.h)
 # fl_dxgi_vtable, not a local copy of the slot numbers: this harness proves the
 # indices by behaviour, and it must prove the SHIPPED ones (§S29(b)). The same
 # reasoning brings in fl_hook_inventory.h from the Overlay's include directory:
 # --probe-upscaler-resolve calls the OVERLAY'S resolver, not a copy of it, or it
 # would prove a fact about GetProcAddress.
 target_link_libraries(hook-harness PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags fl_streamline_headers
-    fl_fidelityfx_headers fl_fsr3_host_headers fl_vulkan_headers)
+    fl_fidelityfx_headers fl_fsr3_host_headers fl_vulkan_headers opengl32 gdi32)
 target_include_directories(hook-harness PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Overlay/include")
 target_compile_definitions(hook-harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 

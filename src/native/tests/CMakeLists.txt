@@ -131,6 +131,17 @@ target_compile_definitions(fl_vklayer_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX
     FL_HARNESS_EXE=L"$<TARGET_FILE:hook-harness>"
     FL_REPO_RULES=L"${CMAKE_SOURCE_DIR}/../../rules/detection-rules.json"
 )
+# Compare-and-restore for INLINE patches (P1 item 4; 17_HOOK_ENGINE §Unhooking):
+# the predicate the Overlay consults before MH_DisableHook, against a real
+# MinHook patch and a simulated foreign one. fl_unhook_preserves_foreign covers
+# the vtable form in the harness; the Overlay's hooks are this form.
+add_executable(fl_unhook_inline_test unhook_inline_test.cpp)
+target_include_directories(fl_unhook_inline_test PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Overlay/include")
+target_link_libraries(fl_unhook_inline_test PRIVATE fl_native_flags minhook Catch2::Catch2WithMain)
+target_compile_options(fl_unhook_inline_test PRIVATE /EHsc)
+target_compile_definitions(fl_unhook_inline_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+add_test(NAME fl_unhook_inline COMMAND fl_unhook_inline_test)
+
 add_test(NAME fl_vklayer COMMAND fl_vklayer_test "[vklayer]")
 add_test(NAME fl_vklayer_supervision COMMAND fl_vklayer_test "[vklayer-deadline]")
 # The real-loader leg SKIPS (Catch2 exit 4) where there is no Vulkan loader or no

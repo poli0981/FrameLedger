@@ -625,8 +625,14 @@ public unsafe struct FlControlBlock
     /// </summary>
     public uint GuardTicks;
 
+    /// <summary>
+    /// A counter the Agent increments when it wants the Overlay's native event ring flushed to
+    /// <c>logs\overlay-&lt;pid&gt;-*.log</c> now (session end). The watchdog acts on a change; nothing clears it.
+    /// </summary>
+    public uint LogFlushRequested;
+
     /// <summary>Must be zero.</summary>
-    public fixed uint Reserved[12];
+    public fixed uint Reserved[11];
 }
 
 /// <summary>Region 4 — the ring. Exactly 64 bytes, no implicit padding.</summary>

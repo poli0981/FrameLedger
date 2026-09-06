@@ -25,7 +25,7 @@ Tails the active files (shared read), level filter, text search, pause autoscrol
 2. **Bundle builder** creates `FrameLedger-bugreport-YYYYMMDD-HHmm.zip` in a user-chosen location:
    - `logs/` (last 7 days, redacted copies)
    - `sysinfo.json` (app + agent + **overlay build id**, OS build, CPU/GPU name, driver version, telemetry source, Vulkan layer state, PawnIO present?, elevation state, locale)
-   - `overlay-<pid>-*.log` for the last hooked sessions, plus hook fault details and the ring's dropped/fault counters — these are what make injection bugs diagnosable at all
+   - `overlay-<pid>-*.log` for the last hooked sessions, plus hook fault details and the ring's dropped/fault counters — these are what make injection bugs diagnosable at all. *(The file exists since 2026-09-06 — `17_HOOK_ENGINE` §Native logging: written at init, on the Agent's request at session end, and on the stop; `FAULT` lines carry the exception code and the hook's name, `UNHOOK_*` lines say per patch whether it was restored or left to a later hooker.)*
    - `settings.json` (sanitized — no paths)
    - optional checkbox: last session metadata + aggregates JSON (never raw blobs by default)
    - crash dumps included only when the user ticks the checkbox (size warning shown)

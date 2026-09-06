@@ -76,7 +76,8 @@ int main() {
     Field("unhookRequested", offsetof(FlControlBlock, unhookRequested), sizeof(uint32_t));
     Field("overlayEnabled", offsetof(FlControlBlock, overlayEnabled), sizeof(uint32_t));
     Field("guardTicks", offsetof(FlControlBlock, guardTicks), sizeof(uint32_t));
-    Field("reserved", offsetof(FlControlBlock, reserved), sizeof(uint32_t) * 12, true);
+    Field("logFlushRequested", offsetof(FlControlBlock, logFlushRequested), sizeof(uint32_t));
+    Field("reserved", offsetof(FlControlBlock, reserved), sizeof(uint32_t) * 11, true);
     std::printf("    ] },\n");
 
     std::printf("    \"FlFrameRecord\": { \"size\": %zu, \"fields\": [\n", sizeof(FlFrameRecord));

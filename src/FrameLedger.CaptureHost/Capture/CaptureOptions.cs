@@ -21,4 +21,10 @@ internal sealed record CaptureOptions
     /// past this is a launcher, and the descendant election is the Agent's (P2).
     /// </summary>
     public TimeSpan LaunchWaitBudget { get; init; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// How long the loop waits after asking the Overlay to flush its native log at session end — the
+    /// watchdog acts within one 1 s tick, so a little more than that.
+    /// </summary>
+    public TimeSpan LogFlushGrace { get; init; } = TimeSpan.FromMilliseconds(1300);
 }

@@ -147,6 +147,10 @@ public sealed class CaptureLoopTests : IDisposable
         {
         }
 
+        public int LogFlushRequests { get; private set; }
+
+        public void RequestLogFlush() => LogFlushRequests++;
+
         public void Dispose()
         {
         }
@@ -223,6 +227,7 @@ public sealed class CaptureLoopTests : IDisposable
                 ScanInterval = TimeSpan.FromMilliseconds(5),
                 AttachBudget = TimeSpan.FromMilliseconds(50),
                 MaxDuration = TimeSpan.FromMilliseconds(120),
+                LogFlushGrace = TimeSpan.FromMilliseconds(1),
             });
 
     [Fact]
@@ -244,6 +249,7 @@ public sealed class CaptureLoopTests : IDisposable
                 ScanInterval = TimeSpan.FromMilliseconds(5),
                 AttachBudget = TimeSpan.FromMilliseconds(50),
                 MaxDuration = TimeSpan.FromMilliseconds(120),
+                LogFlushGrace = TimeSpan.FromMilliseconds(1),
             },
             pid =>
             {
@@ -305,6 +311,7 @@ public sealed class CaptureLoopTests : IDisposable
                 ScanInterval = TimeSpan.FromMilliseconds(5),
                 AttachBudget = TimeSpan.FromMilliseconds(50),
                 MaxDuration = TimeSpan.FromMilliseconds(120),
+                LogFlushGrace = TimeSpan.FromMilliseconds(1),
             },
             modules: null,
             ngx: pid =>

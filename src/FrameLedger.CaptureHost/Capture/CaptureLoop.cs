@@ -184,7 +184,7 @@ internal sealed class CaptureLoop(
         using (sink)
         {
             CaptureResult result = await DrainAsync(pid, alive, sink, verdict, ct).ConfigureAwait(false);
-            return result with { LaunchWait = launchWait };
+            return result with { LaunchWait = launchWait, TargetPid = pid };
         }
     }
 
@@ -352,7 +352,25 @@ internal sealed class CaptureLoop(
         // section keeps the named object alive, and a recycled pid's Overlay would hit
         // ERROR_ALREADY_EXISTS creating its ring and refuse to start at all.
         DrainInto(sink, buffer, gaps, records);
+        await FlushNativeLogAsync(sink, alive, end, ct).ConfigureAwait(false);
         return Conclude(end, faulted, mayContinue);
+    }
+
+    /// <summary>
+    /// The native log, before letting go (<c>17_HOOK_ENGINE</c> §Native logging): the Overlay's watchdog flushes
+    /// on its next tick, so the request is followed by one tick's grace — only while the target is alive to act
+    /// on it (a stopped Overlay flushed on its own way out).
+    /// </summary>
+    private async Task FlushNativeLogAsync(ICaptureSink sink, ITargetLiveness alive, SessionEndReason end,
+        CancellationToken ct)
+    {
+        if (alive.HasExited || end == SessionEndReason.TargetExited)
+        {
+            return;
+        }
+
+        sink.RequestLogFlush();
+        await Task.Delay(options.LogFlushGrace, ct).ConfigureAwait(false);
     }
 
     /// <summary>One guard scan: evaluate, publish the supervisor's own count, then snapshot the modules.</summary>

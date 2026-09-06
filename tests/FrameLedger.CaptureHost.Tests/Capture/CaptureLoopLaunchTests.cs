@@ -118,6 +118,7 @@ public sealed class CaptureLoopLaunchTests : IDisposable
                 AttachBudget = TimeSpan.FromMilliseconds(20),
                 MaxDuration = TimeSpan.FromMilliseconds(50),
                 LaunchWaitBudget = TimeSpan.FromSeconds(42),
+                LogFlushGrace = TimeSpan.FromMilliseconds(1),
             },
             launcher: launcher);
 
@@ -223,6 +224,7 @@ public sealed class CaptureLoopLaunchTests : IDisposable
                 AttachBudget = TimeSpan.FromMilliseconds(20),
                 MaxDuration = TimeSpan.FromMilliseconds(50),
                 LaunchWaitBudget = TimeSpan.FromSeconds(42),
+                LogFlushGrace = TimeSpan.FromMilliseconds(1),
             },
             launcher: (_, _) => (_pid, new NoLiveness()));
 
