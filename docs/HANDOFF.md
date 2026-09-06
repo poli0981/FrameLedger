@@ -837,7 +837,18 @@ hole; it does not close it.
   capture with the census line can. **Black Myth: Wukong is the second** — its FSR upscaling
   dispatches to neither the loaded monolith nor the loader, and it offers no FSR frame generation.
 
-#### ~~7c. AMD and Intel identity, measured rather than inferred~~ — **AMD LANDED 2026-09-04; Intel closed; the owner's three launches are owed**
+#### ~~7c. AMD and Intel identity, measured rather than inferred~~ — **AMD LANDED 2026-09-04 and re-confirmed complete 2026-09-06 on Lies of P; Intel closed by licence (re-checked 2026-09-06, unchanged)**
+
+*2026-09-06, 12:46: Lies of P at FSR 3.1 + FSR FG prints `Fsr3` / `FsrFg` / `59.77 → 119.55 (×2 FG)` /
+`2560x1440 -> 2560x1440` with every count agreeing (`spike-notes` §9) — acceptance step 5 in full, beside
+the DXGI counter (0 unseen) and the NVIDIA driver's word (nothing created). The owner called the AMD half
+done. Intel: the licence was re-fetched the same day — Intel Simplified Software License, October 2022,
+binary-only, "nor any modification", termination; the header banner still forbids copying — so the
+reversal condition has not fired and the census stays the answer. What is new: Intel's own README says
+XeSS-FG runs on non-Intel GPUs with SM 6.4, so an XeFG session IS capturable on this box (DL:TB, Hell Is
+Us, Cronos, Expedition 33 ship `libxess_fg.dll`), and the proposal on the table is identity BY ELIMINATION,
+labelled — see `20_OPEN_QUESTIONS` §H11's 2026-09-06 note.*
+
 
 **Do not start here.** The three ffx-api leaves are hooked, the FidelityFX headers are vendored
 at tag **`v2.3.0`** (not the `v1.1.4` step 1 below names — its own reversal condition fired:

@@ -3642,7 +3642,27 @@ turns a would-be STL throw into `__fastfail`, which SEH cannot intercept
 (`spike-notes.md` §H3). The "no throwing STL in hook paths" rule is therefore
 load-bearing rather than stylistic.
 
-### H11 ◐ · XeFG and FSR3-FG identity — **AMD built 2026-09-04 through the ffx-api leaves; Intel closed by licence; FSR 3.0 host route deferred**
+### H11 ◐ · XeFG and FSR3-FG identity — **AMD built 2026-09-04 through the ffx-api leaves, complete 2026-09-06; Intel closed by licence; FSR 3.0 host route built 2026-09-05**
+
+> **2026-09-06: the AMD half is complete on its oracle** — Lies of P at FSR 3.1 + FSR FG on the #129 build
+> prints `Fsr3` / `FsrFg` / `59.77 → 119.55 (×2 FG)` / `2560x1440 -> 2560x1440` with `presents/frame=2.00`,
+> `frames/upscale-drained=1.00`, `unseen=0` and the NVIDIA driver's word saying nothing was created
+> (`spike-notes` §9); the owner called it done. **Intel, re-checked the same day: the licence has not
+> changed** (`18_GPU_VENDOR_APIS` §Intel), so nothing in `libxess*.dll` may be hooked or declared, and the
+> signature-free thunk stays refused. **What is left in policy for an XeFG session, proposed and not yet
+> built — identity BY ELIMINATION, labelled as such:** frame generation is COUNTED by the Streamline token
+> (UE titles request it whatever the FG vendor — measured on Rune Factory's compiled-in FSR) or by DXGI's
+> counter; DLSS-G is EXCLUDED by the NVIDIA driver's FG word (no feature created) and by the absence of the
+> HUD-less / UI tags; FSR-FG through a shipped DLL is EXCLUDED by the ffx census (no FRAMEGENERATION dispatch
+> at any hooked module); the frame-generation runtime the census names is `libxess_fg.dll`. The line would
+> read `Active (technology not identified) — by elimination among the runtimes loaded: not DLSS-G (the
+> NVIDIA driver reports no NGX frame-generation feature), no FSR dispatch reached a hooked module, and the
+> frame-generation runtime present is libxess_fg.dll; a frame generator compiled into the executable would
+> read the same`. Never `XeFg` as a measured identity; never a render extent. Intel's README says XeSS-FG
+> runs on non-Intel GPUs with SM 6.4, so DL:TB / Hell Is Us / Cronos / Expedition 33 with XeSS FG on are
+> the sessions that measure it, and the pre-commitment is the last clause: the wording must survive the
+> one static title (Rune Factory at FSR FG) reading the same way.
+>
 
 > **BUILT, 2026-09-04, the AMD half — and the deferral's own rule was kept: header first, decode
 > second, never from observation.** `HANDOFF` item 7c. The FidelityFX headers cleared the

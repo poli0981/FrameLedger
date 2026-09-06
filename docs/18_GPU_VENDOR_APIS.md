@@ -199,7 +199,11 @@ refused the same day (delegated by the owner, decided 2026-09-04).** It declares
 reads no argument, but installing it inline-patches Intel's code inside the game process, and
 the same licence forbids *"any modification"*; the census is the answer NGX got and Intel gets
 the same one. Reversal condition: Intel publishing the headers under a licence that clears the
-checklist, at which point this paragraph is re-run, not argued around.
+checklist, at which point this paragraph is re-run, not argued around. **Re-run 2026-09-06 against
+<https://raw.githubusercontent.com/intel/xess/main/LICENSE.txt> and `inc/xess/xess.h`: unchanged** —
+the same licence, the same three needles, the same header banner. Not fired. Intel's README does
+state that XeSS-FG runs on *"non-Intel GPUs with SM 6.4 support"*, so an XeFG session is measurable
+on the NVIDIA dev box even though nothing in it may be hooked or declared.
 
 ### Checklist before adding any vendor SDK
 
