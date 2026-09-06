@@ -135,6 +135,20 @@ jobs:
       # from `git diff`, so a shallow checkout cannot silently produce a short
       # list — and the script refuses an EMPTY list rather than reading it as
       # "no src/ changes, therefore fine".
+      # THE SIGNER PROBE'S CI LEG, printed. `ctest fl_signer_probe` runs inside the
+      # gate and passes on a regular expression, so its ANSWERS never reach this
+      # log — and §S19(b)'s rows G3/G4/G5 are pre-committed for exactly this
+      # machine's copy of the blocker. Run here, AFTER the gate, because the gate's
+      # restore is what fills the NuGet cache the probe searches first. A
+      # measurement, not a gate: continue-on-error so a surprise (row G6) is
+      # printed rather than turned into a red that hides it. Reading the row off
+      # the table is a separate PR (the probe says so itself).
+      - name: Signer probe (§S19(b) CI leg — measurement, not a gate)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: ./build/native/x64-release/tools/fl-probe-signer/fl-probe-signer.exe
+
       - name: Changelog
         if: github.event_name == 'pull_request'
         shell: pwsh

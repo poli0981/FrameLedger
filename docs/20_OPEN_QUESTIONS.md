@@ -2181,6 +2181,22 @@ admits it has no data for (Ricochet, VAC). Three refuters agreed.
 > **Nothing under `FrameLedger.Injector` changed with the probe**, deliberately. This
 > is a measurement, and reading a row off the table is a separate PR — including the
 > row that says build nothing.
+>
+> **THE CI LEG WAS NEVER READABLE, found 2026-09-06 when it was finally looked for.**
+> `ctest fl_signer_probe` passes on `BLOCKER: (FOUND|NOT PRESENT)` and ctest prints nothing
+> for a passing test, so eleven days of green CI carried none of the probe's answers — the
+> leg rows G3/G4/G5 are written for was "run" in the sense that a binary exited 0. And the
+> native tests run BEFORE `dotnet restore` in `build.ps1`, so on a cold runner the NuGet
+> copy the probe searches first may not exist yet at ctest time. `ci.yml` now runs the probe
+> as its own step AFTER the gate (`continue-on-error`, a measurement and not a gate), and the
+> answers are read off that step's log. **Owner-only, still unrun:** the adapters-disabled
+> leg (rows G1/G2 — a network setting, not a PR), and the allow-widening bound that no row
+> can lift (below). The recommendation for the bound, so the owner decides between two
+> written options rather than one: **bound `trustedSigners` by a compiled-in allowlist the
+> data file can only intersect** — the boundary of what the gate trusts stays code, exactly
+> as `19_SAFETY` ruled for the launcher list, and it needs no branch-protection change; the
+> alternative, making `Rules / validate` a required check, is §S23-2 and is the owner's
+> GitHub setting, not a file in this repository.
 
 **(c) `signerField` and `action` are required by the schema and parsed by
 nobody.** Both are `required` in `detection-rules.schema.json`, both carry
