@@ -66,9 +66,16 @@ public sealed partial class H5CaseThreeTests
         Snapshots: 1, Unreadable: 0);
 
     private static (MeasuredFacts Facts, string Text) Render(List<FlFrameRecord> stream, FlRuntimeCensus census,
-        RuntimeModuleSet? modules, FlHookFamily hooks = _countingHooks)
+        RuntimeModuleSet? modules, FlHookFamily hooks = _countingHooks, uint dxgiSamples = 0)
     {
-        var writer = new FlWriterState { HooksInstalledMask = (uint)hooks, RuntimeCensus = (uint)census };
+        // dxgiSamples 0 is the shape every case below was written against: DXGI's counter not read,
+        // which since Leg 0 (2026-09-06) is the only shape the gate still withholds on.
+        var writer = new FlWriterState
+        {
+            HooksInstalledMask = (uint)hooks,
+            RuntimeCensus = (uint)census,
+            DxgiPresentSamples = dxgiSamples,
+        };
         MeasuredFacts facts = MeasuredFacts.From(stream, writer, Stopwatch.Frequency, 0, 0,
             FgWindow.From(stream, Stopwatch.Frequency), modules);
         return (facts, SessionReport.Render(facts));
@@ -97,6 +104,32 @@ public sealed partial class H5CaseThreeTests
         text.Should().NotContain("read it as Displayed, not Native");
         text.Should().NotContain("Native FPS");
         FgFactorShape().IsMatch(text).Should().BeFalse("a withheld none prints no factor");
+    }
+
+    [Fact]
+    public void LegZeroDlssgOffOnStreamline28IsNoneWhenDxgiCountedNothingUnseen()
+    {
+        // 2026-09-06, 07:45 and 07:55: Dying Light: The Beast with frame generation OFF, census still
+        // 0x25F0F (the plugin is a startup-time load), presents = tokens, `unseen=0 over samples=3659`.
+        // The 2.8.0 pacer's presents are DXGI presents (row P1-DXGI), so DXGI counting none is `none`.
+        (MeasuredFacts facts, string text) = Render(Stream(200, 1), _dyingLightAtDlss, Interposer("2.8.0.0"),
+            dxgiSamples: 3659);
+
+        facts.NoneWithheld.Should().BeNull();
+        facts.FgMode.Should().Be(MeasuredFacts.FgNone);
+        facts.NoneBesideDxgi.Should().Contain("agrees").And.Contain("3659");
+        text.Should().Contain("  FPS: ");
+        text.Should().Contain("frame generation: none");
+        text.Should().Contain("DXGI's own present counter agrees: 0 unseen over 3659 hooked present(s)");
+        text.Should().NotContain("WITHHELD").And.NotContain("Presented FPS:");
+    }
+
+    [Fact]
+    public void TheWithheldReasonNamesTheCounterThatWasNotRead()
+    {
+        (MeasuredFacts facts, _) = Render(Stream(200, 1), _dyingLightAtDlss, Interposer("2.8.0.0"));
+
+        facts.NoneWithheld.Should().Contain("was not read this session").And.Contain("P1-DXGI");
     }
 
     [Fact]

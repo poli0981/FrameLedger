@@ -17,6 +17,21 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ## [Unreleased]
 
+### Changed
+
+- **The withheld `none` is narrowed to sessions where DXGI's counter was not read (§H5 Leg 0 landed).**
+  The owner's morning run on the DXGI-counted build printed the rule-6 trio on Dying Light: The Beast
+  (`Native 70.52 -> Displayed 282.08 (x4 FG)`, 12,387 presents DXGI-counted, `DlssG`) and then ran the
+  title twice with frame generation OFF: census unchanged (`sl.dlss_g.dll` is a startup-time load),
+  presents = tokens, `unseen=0` over thousands of samples, and the report withheld `none` exactly as the
+  gate's cost paragraph pre-committed. The counter is the discriminator the gate lacked — on that shape
+  the pacer's presents are DXGI presents on the hooked chain — so a counted `none` beside a READ counter
+  with zero unseen now prints as `none`, with *"DXGI's own present counter agrees: 0 unseen over N hooked
+  present(s)"* on the line; it is withheld only when the counter was not read, with the reason saying so.
+  A writer state that counted unseen presents the records do not carry is refused as a contradiction.
+  On every other title the counter is printed beside `none` as a second witness. CLAUDE.md rule 6 carries
+  the amendment; three cases changed sides and four are new.
+
 ### Added
 
 - **Displayed FPS counted by DXGI where the hook cannot count it — the 2.8.0 pacer's presents.** The

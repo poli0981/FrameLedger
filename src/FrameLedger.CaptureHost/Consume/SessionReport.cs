@@ -68,13 +68,7 @@ internal static class SessionReport
             // 1.00 five times while the title was generating (§H5 case 3), so that shape falls
             // through to the Presented line and its qualifier says why. MeasuredFacts owns the
             // decision; this branch only honours it.
-            FgWindow w = facts.Fg;
-            sb.Append("  FPS: ").Append(Num(w.NativeFps))
-              .Append("   over ").Append(Count(w.Presents)).AppendLine(" present(s)");
-            sb.Append("    frame generation: none — ").Append(Count(w.Evaluations))
-              .Append(" application frame(s) counted (slGetNewFrameToken, or an ffx-api PREPARE / UPSCALE dispatch) against ")
-              .Append(Count(w.Presents))
-              .AppendLine(" present(s); every present carried an application frame");
+            AppendNone(sb, facts.Fg, facts);
         }
         else
         {
@@ -86,6 +80,18 @@ internal static class SessionReport
         AppendWarnings(sb, facts);
 
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>The bare number and the counted negative, with DXGI's counter beside it when it was read.</summary>
+    private static void AppendNone(StringBuilder sb, FgWindow w, MeasuredFacts facts)
+    {
+        sb.Append("  FPS: ").Append(Num(w.NativeFps))
+          .Append("   over ").Append(Count(w.Presents)).AppendLine(" present(s)");
+        sb.Append("    frame generation: none — ").Append(Count(w.Evaluations))
+          .Append(" application frame(s) counted (slGetNewFrameToken, or an ffx-api PREPARE / UPSCALE dispatch) against ")
+          .Append(Count(w.Presents))
+          .Append(" present(s); every present carried an application frame")
+          .AppendLine(facts.NoneBesideDxgi is string dxgi ? "; " + dxgi : "");
     }
 
     /// <summary>
@@ -161,14 +167,6 @@ internal static class SessionReport
                    + (facts.DlssgInputsTagged
                        ? ". The title tagged DLSS-G inputs (HUD-less / UI) through Streamline this session — it is "
                          + "FEEDING frame generation, which is the identity; the count is still what it is"
-                       : "")
-                   + (facts.DxgiUnseenPerHookedPresent is double unseen
-                       ? unseen >= 0.5
-                           ? ". DXGI's own counter on this chain saw " + unseen.ToString("0.00", CultureInfo.InvariantCulture)
-                             + " present(s) per hooked present that this hook did not - the generated presents ARE DXGI presents "
-                             + "reaching a body the inline patches do not cover (§H5 row P1-DXGI)"
-                           : ". DXGI's own counter on this chain saw nothing this hook did not - frame generation was off, or "
-                             + "whatever generates frames presents below DXGI or on another object (§H5 row P3)"
                        : "");
         }
 

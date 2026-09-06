@@ -124,12 +124,26 @@ internal sealed record MeasuredFacts
     /// <b>And on the interposer's version, read from the file, ≥ 2.8.0.</b> A 2.7 title that loads the
     /// plugin keeps <c>none</c> — it is what Cyberpunk would be if it loaded it. A plugin loaded beside
     /// an interposer whose version could not be read is withheld with its own reason: an N/A over a
-    /// <c>none</c> this consumer cannot discriminate. <b>Interim, and its cost is pre-committed:</b> the
-    /// same title with frame generation OFF reads withheld too if the plugin is a startup-time load;
-    /// §H5's Leg 0 measures which, and the gate is withdrawn or narrowed on that reading.
+    /// <c>none</c> this consumer cannot discriminate.
+    /// </para>
+    /// <para>
+    /// <b>Narrowed 2026-09-06, on Leg 0.</b> The plugin IS a startup-time load on Dying Light: The Beast
+    /// (frame generation off, census unchanged, twice), so the cost paragraph's fear was measured true —
+    /// and the same morning's ×4 capture measured the discriminator the gate lacked: the 2.8.0 pacer's
+    /// generated presents are DXGI presents on the hooked chain (§H5 row P1-DXGI, 2.90–2.97 per hooked
+    /// present, <c>70.52 → 282.08 (×4)</c> counted through <c>dxgiUnseen</c>). So a counted 1.0 beside a
+    /// READ counter is what it says: DXGI itself counted no present this hook did not. <c>none</c> is
+    /// withheld on this shape only when the counter was not read at all.
     /// </para>
     /// </remarks>
     public string? NoneWithheld { get; init; }
+
+    /// <summary>
+    /// What DXGI's own present counter said beside a counted <c>none</c>, or null when it was not read. On the
+    /// Streamline 2.8.0 shape this is the discriminator the gate lacked (Leg 0, 2026-09-06); on every other
+    /// title it is a second witness printed beside the count.
+    /// </summary>
+    public string? NoneBesideDxgi { get; init; }
 
     /// <summary>The Streamline interposer's file version, when a module snapshot saw it.</summary>
     public Version? InterposerVersion { get; init; }
@@ -276,7 +290,7 @@ internal sealed record MeasuredFacts
         int violations = stream.Count(r => !IsHonest(r, entitled));
 
         var census = (FlRuntimeCensus)writer.RuntimeCensus;
-        string? withheld = fg?.IsNone == true ? WithholdNone(census, modules) : null;
+        string? withheld = fg?.IsNone == true ? WithholdNone(census, modules, writer) : null;
 
         return new MeasuredFacts
         {
@@ -286,6 +300,7 @@ internal sealed record MeasuredFacts
             Fg = fg,
             FgMode = ResolveFgMode(FgModeOf(stream), fg, withheld),
             NoneWithheld = withheld,
+            NoneBesideDxgi = fg?.IsNone == true && withheld is null ? DxgiBesideNone(writer) : null,
             InterposerVersion = modules?.VersionOf(_slInterposerFileName),
             SlTagCensus = writer.SlTagCensus,
             DxgiPresentsUnseen = writer.DxgiPresentsUnseen,
@@ -487,24 +502,55 @@ internal sealed record MeasuredFacts
     /// The one shape on which a counted 1.0 may not be published as <c>none</c> — see
     /// <see cref="NoneWithheld"/> for the measurement and the choice of key.
     /// </summary>
-    private static string? WithholdNone(FlRuntimeCensus census, RuntimeModuleSet? modules)
+    private static string? WithholdNone(FlRuntimeCensus census, RuntimeModuleSet? modules, FlWriterState writer)
     {
         if (!census.HasFlag(FlRuntimeCensus.Ran) || !census.HasFlag(FlRuntimeCensus.SlDlssG))
         {
             return null;
         }
 
+        // THE DISCRIMINATOR, since Leg 0 (2026-09-06): DXGI's own counter on the hooked chain. The
+        // 2.8.0 pacer's generated presents ARE DXGI presents there (§H5 row P1-DXGI), so a counter that
+        // was read and saw nothing unseen is DXGI saying what the count says. A counter that was read
+        // and DID see presents while the count still sits at 1.0 is a contradiction between two words
+        // of the same writer — the records should have carried them — and is refused as such.
+        if (writer.DxgiPresentSamples > 0)
+        {
+            return writer.DxgiPresentsUnseen == 0
+                ? null
+                : $"DXGI's present counter read {writer.DxgiPresentsUnseen} present(s) this hook never saw over "
+                  + $"{writer.DxgiPresentSamples} hooked present(s) while the records carry none of them — the writer "
+                  + "state and the records disagree, and neither may be read as `none`";
+        }
+
+        const string notRead = "DXGI's present counter was not read this session, and on Streamline 2.8.0 the DLSS-G "
+                               + "pacer's generated presents are DXGI presents this hook never sees (20_OPEN_QUESTIONS "
+                               + "§H5 row P1-DXGI), so a 1.0 cannot be told from generation";
         Version? v = modules?.VersionOf(_slInterposerFileName);
         if (v is null)
         {
-            return "sl.dlss_g.dll (Streamline's DLSS Frame Generation plugin) is loaded and sl.interposer.dll's file "
-                   + "version could not be read, so the discriminator 20_OPEN_QUESTIONS §H5 names is missing";
+            return "sl.dlss_g.dll (Streamline's DLSS Frame Generation plugin) is loaded, sl.interposer.dll's file "
+                   + "version could not be read, and " + notRead;
         }
 
         return v >= StreamlineNoneWithheldFrom
-            ? $"sl.dlss_g.dll (Streamline's DLSS Frame Generation plugin) is loaded on sl.interposer.dll {v}, the shape "
-              + "Dying Light: The Beast measured five times with the title's frame generation ON while presents = tokens"
+            ? $"sl.dlss_g.dll (Streamline's DLSS Frame Generation plugin) is loaded on sl.interposer.dll {v}; " + notRead
             : null;
+    }
+
+    /// <summary>DXGI's counter as a second witness beside a counted <c>none</c>; null when it was not read.</summary>
+    private static string? DxgiBesideNone(FlWriterState writer)
+    {
+        if (writer.DxgiPresentSamples == 0)
+        {
+            return null;
+        }
+
+        string samples = writer.DxgiPresentSamples.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return writer.DxgiPresentsUnseen == 0
+            ? $"DXGI's own present counter agrees: 0 unseen over {samples} hooked present(s)"
+            : $"DXGI's own present counter read {writer.DxgiPresentsUnseen.ToString(System.Globalization.CultureInfo.InvariantCulture)} "
+              + $"unseen over {samples} hooked present(s), inside the `none` ceiling";
     }
 
     /// <summary>Which frame-generation technology ran, or null. NEVER the string "none".</summary>

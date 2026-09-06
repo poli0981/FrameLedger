@@ -6,9 +6,9 @@ using FrameLedger.Shared;
 namespace FrameLedger.CaptureHost.Tests.Consume;
 
 /// <summary>
-/// DXGI's own present counter against the hook's (<c>FlWriterState.dxgiPresentsUnseen / dxgiPresentSamples</c>,
-/// <c>20_OPEN_QUESTIONS</c> §H5 A1.7): on the withheld shape the ratio names which side of DXGI the generated
-/// presents fall on, and on every other shape it is a fact with no sentence of its own.
+/// DXGI's own present counter in the writer state (<c>FlWriterState.dxgiPresentsUnseen / dxgiPresentSamples</c>,
+/// <c>20_OPEN_QUESTIONS</c> §H5 A1.7) beside a counted <c>none</c>: since Leg 0 (2026-09-06) a READ counter
+/// decides the Streamline 2.8.0 shape, and on every shape it is a second witness printed beside the count.
 /// </summary>
 public sealed class DxgiPresentCounterTests
 {
@@ -62,55 +62,52 @@ public sealed class DxgiPresentCounterTests
     }
 
     [Fact]
-    public void ThreeUnseenPerHookedPresentOnTheWithheldShapeNamesADxgiLevelProducer()
-    {
-        (MeasuredFacts facts, string text) = Render(_dyingLightAtDlss, Interposer("2.8.0.0"), unseen: 600, samples: 200);
-
-        facts.NoneWithheld.Should().NotBeNull();
-        facts.DxgiPresentsUnseen.Should().Be(600u);
-        facts.DxgiPresentSamples.Should().Be(200u);
-        facts.DxgiUnseenPerHookedPresent.Should().BeApproximately(3.0, 0.001);
-        text.Should().Contain("`none` is WITHHELD");
-        text.Should().Contain("DXGI's own counter on this chain saw 3.00 present(s) per hooked present");
-        text.Should().Contain("the generated presents ARE DXGI presents");
-        text.Should().Contain("§H5 row P1-DXGI");
-        text.Should().NotContain("below DXGI");
-    }
-
-    [Fact]
-    public void ZeroUnseenOnTheWithheldShapeSaysBelowDxgi()
+    public void ZeroUnseenOverAReadCounterOnTheStreamline28ShapeIsNoneWithDxgiAgreeing()
     {
         (MeasuredFacts facts, string text) = Render(_dyingLightAtDlss, Interposer("2.8.0.0"), unseen: 0, samples: 200);
 
         facts.DxgiUnseenPerHookedPresent.Should().Be(0.0);
-        text.Should().Contain("`none` is WITHHELD");
-        text.Should().Contain("DXGI's own counter on this chain saw nothing this hook did not");
-        text.Should().Contain("§H5 row P3");
-        text.Should().NotContain("ARE DXGI presents");
+        facts.NoneWithheld.Should().BeNull();
+        facts.FgMode.Should().Be(MeasuredFacts.FgNone);
+        text.Should().Contain("frame generation: none");
+        text.Should().Contain("DXGI's own present counter agrees: 0 unseen over 200 hooked present(s)");
+        text.Should().NotContain("WITHHELD");
     }
 
     [Fact]
-    public void ACounterNeverReadIsNullAndSaysNothing()
+    public void ACounterNeverReadStillWithholdsAndSaysSo()
     {
         (MeasuredFacts facts, string text) = Render(_dyingLightAtDlss, Interposer("2.8.0.0"), unseen: 0, samples: 0);
 
         facts.DxgiUnseenPerHookedPresent.Should().BeNull("no hooked present read the counter");
+        facts.NoneWithheld.Should().Contain("was not read this session");
+        facts.NoneBesideDxgi.Should().BeNull();
         text.Should().Contain("`none` is WITHHELD");
-        text.Should().NotContain("DXGI's own counter");
+        text.Should().NotContain("DXGI's own present counter");
     }
 
     [Fact]
-    public void AValidatedNoneCarriesTheFactsButNoDxgiSentence()
+    public void UnseenPresentsInTheWriterStateButNotInTheRecordsIsAContradictionNotANone()
     {
-        // Cyberpunk 2077 on Streamline 2.7.1: `none` by count, never withheld, so the counter is a fact on
-        // MeasuredFacts for the report's `runtime` block and not a sentence in a qualifier this shape does not print.
+        // The two words come from the same writer, so a total the records do not carry is a defect;
+        // it is refused rather than read as either `none` or a factor.
+        (MeasuredFacts facts, string text) = Render(_dyingLightAtDlss, Interposer("2.8.0.0"), unseen: 600, samples: 200);
+
+        facts.DxgiUnseenPerHookedPresent.Should().BeApproximately(3.0, 0.001);
+        facts.NoneWithheld.Should().Contain("disagree").And.Contain("600");
+        text.Should().Contain("`none` is WITHHELD");
+        text.Should().NotContain("frame generation: none");
+    }
+
+    [Fact]
+    public void AValidatedNoneOnStreamline27PrintsTheCounterAsASecondWitness()
+    {
         (MeasuredFacts facts, string text) = Render(FlRuntimeCensus.Ran | FlRuntimeCensus.SlInterposer | FlRuntimeCensus.NvngxDlssG,
             Interposer("2.7.1.0"), unseen: 7, samples: 200);
 
         facts.NoneWithheld.Should().BeNull();
         facts.FgMode.Should().Be(MeasuredFacts.FgNone);
-        facts.DxgiUnseenPerHookedPresent.Should().BeApproximately(0.035, 0.001);
         text.Should().Contain("frame generation: none");
-        text.Should().NotContain("DXGI's own counter");
+        text.Should().Contain("DXGI's own present counter read 7 unseen over 200 hooked present(s), inside the `none` ceiling");
     }
 }
