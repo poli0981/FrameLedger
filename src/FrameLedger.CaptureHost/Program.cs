@@ -156,7 +156,9 @@ internal static class Program
 
         if (result.Records.Count > 0)
         {
-            Report(result);
+            // The exe FILE on disk, after the session so the read never overlaps the launch: the
+            // second witness for a frame generator compiled into the executable (HANDOFF 7b).
+            Report(result, ExecutableMarkerScan.Scan(normalised));
         }
 
         return result.Reason switch
@@ -172,7 +174,7 @@ internal static class Program
         };
     }
 
-    private static void Report(CaptureResult result)
+    private static void Report(CaptureResult result, ExecutableMarkers markers)
     {
         IReadOnlyList<FlFrameRecord> dominant = StreamSegmenter.DominantStream(result.Records);
         IReadOnlyList<Segment> segments = StreamSegmenter.Segment(result.Records);
@@ -185,7 +187,7 @@ internal static class Program
         FgWindow fg = FgWindow.From(result.Records, Stopwatch.Frequency);
         MeasuredFacts facts = MeasuredFacts.From(
             dominant, result.WriterState, Stopwatch.Frequency, result.TotalGaps, result.TotalDropped, fg,
-            result.RuntimeModules, result.NgxDriver);
+            result.RuntimeModules, result.NgxDriver, markers);
 
         HostConsole.Line($"  guard ticks published: {result.GuardTicksPublished}");
         HostConsole.Line($"  records: {result.Records.Count} ({dominant.Count} on the dominant stream), " +
@@ -206,7 +208,7 @@ internal static class Program
         int withParams = dominant.Count(r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.UpscalerParams));
         HostConsole.Line($"  hooks installed: {(FlHookFamily)result.WriterState.HooksInstalledMask}" +
                           $"   apiMask=0x{result.WriterState.ApiMask:X}   rtTier={result.WriterState.RtTier}");
-        PrintCensus(result);
+        PrintCensus(result, markers);
 
         HostConsole.Line(WriterNote(result));
         HostConsole.Line($"  records carrying Upscaler={withUpscaler}/{dominant.Count}  " +
@@ -239,7 +241,7 @@ internal static class Program
     /// 2.7.1 from 2.8.0, and §H5 case 3 turns on exactly that. A path under the driver store rather
     /// than the game directory is how a DLSS override shows up here.
     /// </summary>
-    private static void PrintCensus(CaptureResult result)
+    private static void PrintCensus(CaptureResult result, ExecutableMarkers markers)
     {
         var census = (FlRuntimeCensus)result.WriterState.RuntimeCensus;
         HostConsole.Line($"  runtime census: 0x{result.WriterState.RuntimeCensus:X}  ran={census.HasFlag(FlRuntimeCensus.Ran)}  " +
@@ -249,6 +251,7 @@ internal static class Program
         // The driver's own word on this process, out of process: the super-resolution identity the
         // hooks cannot see on NGX-direct titles (03_METRICS §Upscaling, the driver-reported rung).
         HostConsole.Line(result.NgxDriver.Describe());
+        HostConsole.Line(markers.Describe());
         // Which Streamline buffer types the title tagged, on which route: the identity half of
         // frame generation (fl_shm.h §slTagCensus). A DLSS-G title tags hudless and UI every
         // frame; a super-resolution-only title tags neither.

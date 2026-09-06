@@ -108,12 +108,15 @@ public sealed class DriverReportedFrameGenerationTests
     }
 
     [Fact]
-    public void WithoutAnAnswerTheFgLineIsByteIdenticalToBefore()
+    public void WithoutAnAnswerTheFgLineIsRungThreeByEliminationWithDlssGNotExcluded()
     {
+        // Since the elimination wording (HANDOFF 7b / §H11, 2026-09-06) the rung-3 line always
+        // carries its exclusions; without the driver's answer DLSS-G is stated as NOT excluded.
         (_, string text) = Render(Stream(100, 4, tagged: false), NgxDriverState.NotRun);
 
-        text.Should().Contain("frame generation: " + MeasuredFacts.FgActiveUnidentified);
-        text.Should().NotContain("NVIDIA driver");
+        text.Should().Contain("frame generation: " + MeasuredFacts.FgActiveUnidentified + " — by elimination");
+        text.Should().Contain("DLSS-G not excluded (the NVIDIA driver did not answer");
+        text.Should().NotContain("driver-reported:").And.NotContain("the NVIDIA driver agrees");
     }
 
     [Fact]

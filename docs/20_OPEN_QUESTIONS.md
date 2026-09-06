@@ -3663,6 +3663,16 @@ load-bearing rather than stylistic.
 > the sessions that measure it, and the pre-commitment is the last clause: the wording must survive the
 > one static title (Rune Factory at FSR FG) reading the same way.
 >
+> **BUILT 2026-09-06 (owner: "build cả hai"), with the executable-file scan beside it.** `FgModePrinted`
+> carries the elimination sentence on every rung-3 line; `ExecutableMarkerScan` reads the exe on disk once
+> after the session and the clear-census qualifier says MAY when a frame-generation-capable SDK string is in
+> the file. Expected on an XeFG session (DL:TB / Hell Is Us / Cronos / Expedition 33 with XeSS FG on):
+> the trio or a Presented line from the token or DXGI count, and `frame generation: Active (technology not
+> identified) — by elimination …: not DLSS-G (…), no FSR frame-generation dispatch …; the frame-generation
+> runtime(s) loaded: libxess_fg.dll …`. Expected on Rune Factory at FSR FG: the same shape with *"no
+> frame-generation runtime module is loaded at all; the executable itself carries ffxFsr3, …"*. Neither
+> prints a vendor as measured.
+>
 
 > **BUILT, 2026-09-04, the AMD half — and the deferral's own rule was kept: header first, decode
 > second, never from observation.** `HANDOFF` item 7c. The FidelityFX headers cleared the
