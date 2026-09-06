@@ -35,6 +35,10 @@
 //                        issue DXGI_PRESENT_TEST, which submits nothing
 //   --plus-ui K      also present K frames on a SECOND swapchain in the same
 //                        process (fixture for stream separation)
+//   --load PATH      LoadLibrary PATH before anything else. Fixture for the
+//                        guard's signer half (§S19(b)): a fragment-matching
+//                        module in the TARGET, signed or not, is what the guard
+//                        must judge
 //   --hold-presenting-overflow N
 //                    fill the Overlay's fixed 16-slot swapchain table, then
 //                    present for N seconds on one that cannot get a slot. The
@@ -2830,6 +2834,19 @@ int main(int argc, char** argv) {
             slTagWholeResource = true;
         } else if (std::strcmp(argv[i], "--sl-tag-dlssg-inputs") == 0) {
             slTagDlssgInputs = true;
+        } else if (std::strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
+            // The fixture for the guard's signer half: put a named module into
+            // THIS process before the guard looks. Loaded, not injected, and it
+            // stays loaded for the life of the process so the scan sees it.
+            const char* path = argv[++i];
+            wchar_t     wide[MAX_PATH * 2]{};
+            const int   n =
+                MultiByteToWideChar(CP_ACP, 0, path, -1, wide, static_cast<int>(sizeof(wide) / sizeof(wide[0])));
+            HMODULE h = n > 0 ? LoadLibraryW(wide) : nullptr;
+            std::printf("  --load %s -> %s\n", path, h != nullptr ? "loaded" : "FAILED");
+            if (h == nullptr) {
+                return 3;
+            }
         }
     }
 
@@ -2838,9 +2855,10 @@ int main(int argc, char** argv) {
             std::strcmp(argv[i], "--present-interval-ms") == 0 || std::strcmp(argv[i], "--presents-per-eval") == 0 ||
             std::strcmp(argv[i], "--ffx-topology") == 0 || std::strcmp(argv[i], "--ffx-no-prepare") == 0 ||
             std::strcmp(argv[i], "--sl-tag-for-frame") == 0 || std::strcmp(argv[i], "--sl-tag-whole-resource") == 0 ||
-            std::strcmp(argv[i], "--sl-tag-dlssg-inputs") == 0) {
+            std::strcmp(argv[i], "--sl-tag-dlssg-inputs") == 0 || std::strcmp(argv[i], "--load") == 0) {
             if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
-                std::strcmp(argv[i], "--presents-per-eval") == 0 || std::strcmp(argv[i], "--ffx-topology") == 0) {
+                std::strcmp(argv[i], "--presents-per-eval") == 0 || std::strcmp(argv[i], "--ffx-topology") == 0 ||
+                std::strcmp(argv[i], "--load") == 0) {
                 ++i;
             }
             continue;    // consumed above

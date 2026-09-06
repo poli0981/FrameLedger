@@ -25,7 +25,17 @@
 #include <tlhelp32.h>
 #include <winsvc.h>
 
+// clang-format off
+// ORDER IS LOAD-BEARING (fl-probe-signer found it): <mscat.h> is not needed here,
+// but <wintrust.h> and <softpub.h> still want <wincrypt.h>'s types first.
+#include <wincrypt.h>
+#include <wintrust.h>
+#include <softpub.h>
+// clang-format on
+
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "wintrust.lib")
+#pragma comment(lib, "crypt32.lib")
 
 namespace fl::guard {
 namespace {
@@ -670,6 +680,99 @@ Collected FileIsOurOwnImpl(const wchar_t* dllPath, bool* isOurs) noexcept {
     return Collected::kOk;
 }
 
+// §S19(b) — the EMBEDDED signer half, offline. The shape fl-probe-signer measured,
+// with the probe's std::string and std::vector replaced by fixed buffers: the guard
+// allocates nothing.
+//
+// Two calls, and the order is the contract: WinVerifyTrust decides whether the
+// signature is VALID (chain, digest, policy) and only then is the certificate read
+// for its O=. Reading the subject first would report an organisation off a
+// signature nobody verified — a forged O= is exactly one CryptQueryObject away.
+LONG VerifyEmbeddedOffline(const wchar_t* path) noexcept {
+    WINTRUST_FILE_INFO fi{};
+    fi.cbStruct = sizeof(fi);
+    fi.pcwszFilePath = path;
+
+    WINTRUST_DATA wd{};
+    wd.cbStruct = sizeof(wd);
+    wd.dwUIChoice = WTD_UI_NONE;
+    wd.fdwRevocationChecks = WTD_REVOKE_NONE;
+    wd.dwUnionChoice = WTD_CHOICE_FILE;
+    wd.pFile = &fi;
+    wd.dwStateAction = WTD_STATEACTION_VERIFY;
+    wd.dwProvFlags = WTD_SAFER_FLAG | WTD_CACHE_ONLY_URL_RETRIEVAL;
+
+    GUID       action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    const LONG r = WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE), &action, &wd);
+    wd.dwStateAction = WTD_STATEACTION_CLOSE;
+    WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE), &action, &wd);
+    return r;
+}
+
+// The signing certificate's subject O=, into a caller buffer. False on anything
+// short of a readable, non-empty, ASCII-representable organisation.
+bool ReadSignerOrganisation(const wchar_t* path, char* out, std::size_t cap) noexcept {
+    HCERTSTORE store = nullptr;
+    HCRYPTMSG  msg = nullptr;
+    DWORD      enc = 0;
+    DWORD      ctype = 0;
+    DWORD      fmt = 0;
+    if (!CryptQueryObject(CERT_QUERY_OBJECT_FILE, path, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
+                          CERT_QUERY_FORMAT_FLAG_BINARY, 0, &enc, &ctype, &fmt, &store, &msg, nullptr)) {
+        return false;
+    }
+
+    bool  ok = false;
+    DWORD need = 0;
+    // Fixed, generous, and refused when exceeded: a signer info larger than this is
+    // not a shape any vendor certificate produces, and "could not read" is untrusted.
+    alignas(16) unsigned char buf[16384];
+    if (CryptMsgGetParam(msg, CMSG_SIGNER_INFO_PARAM, 0, nullptr, &need) && need > 0 && need <= sizeof(buf) &&
+        CryptMsgGetParam(msg, CMSG_SIGNER_INFO_PARAM, 0, buf, &need)) {
+        auto*     si = reinterpret_cast<CMSG_SIGNER_INFO*>(buf);
+        CERT_INFO ci{};
+        ci.Issuer = si->Issuer;
+        ci.SerialNumber = si->SerialNumber;
+        PCCERT_CONTEXT cert = CertFindCertificateInStore(store, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0,
+                                                         CERT_FIND_SUBJECT_CERT, &ci, nullptr);
+        if (cert != nullptr) {
+            wchar_t     org[512]{};
+            const DWORD n = CertGetNameStringW(cert, CERT_NAME_ATTR_TYPE, 0, const_cast<char*>(szOID_ORGANIZATION_NAME),
+                                               org, static_cast<DWORD>(sizeof(org) / sizeof(org[0])));
+            if (n > 1) {
+                // The rules compare ASCII (IEquals); a signer whose O= does not
+                // survive the narrowing is not one the list can name, so it fails.
+                const int written = WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, org, -1, out,
+                                                        static_cast<int>(cap), nullptr, nullptr);
+                ok = written > 1;
+                if (!ok && cap > 0) {
+                    out[0] = '\0';
+                }
+            }
+            CertFreeCertificateContext(cert);
+        }
+    }
+
+    if (msg != nullptr) {
+        CryptMsgClose(msg);
+    }
+    if (store != nullptr) {
+        CertCloseStore(store, 0);
+    }
+    return ok;
+}
+
+Collected ModuleSignerOrganisationImpl(const wchar_t* modulePath, char* out, std::size_t cap) noexcept {
+    if (modulePath == nullptr || out == nullptr || cap == 0) {
+        return Collected::kFailed;
+    }
+    out[0] = '\0';
+    if (VerifyEmbeddedOffline(modulePath) != ERROR_SUCCESS) {
+        return Collected::kFailed;
+    }
+    return ReadSignerOrganisation(modulePath, out, cap) ? Collected::kOk : Collected::kFailed;
+}
+
 }    // namespace
 
 Sources SystemSources() noexcept {
@@ -685,6 +788,9 @@ Sources SystemSources() noexcept {
     // Both identity seams, one implementation — see fl_guard.h §TWO SEAMS.
     s.ModuleIsOurOwn = &FileIsOurOwnImpl;
     s.PayloadIsOurOwn = &FileIsOurOwnImpl;
+    // §S19(b), the embedded half only. The catalog half is a deferral with a
+    // written rationale, not a gap nobody noticed.
+    s.ModuleSignerOrganisation = &ModuleSignerOrganisationImpl;
     return s;
 }
 

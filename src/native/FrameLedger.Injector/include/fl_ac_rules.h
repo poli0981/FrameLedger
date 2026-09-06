@@ -230,6 +230,17 @@ enum class ParseResult : std::uint8_t {
 // with a signer check; a fragment alone never refuses (19_SAFETY: "name
 // fragment AND not signed by a known vendor").
 [[nodiscard]] bool HasSuspiciousFragment(const Rules& rules, const char* moduleName) noexcept;
+
+// THE BOUND (owner decision 2026-09-06, §S19(b)). Once the signer half is wired,
+// `trustedSigners` is a live allow-widening surface: a rules push that adds a
+// publisher widens the hard gate, and `Rules / validate` is not a required check.
+// So the data file may only INTERSECT a list compiled into this binary — the
+// boundary of what the gate trusts is code, exactly as 19_SAFETY ruled for the
+// launcher list. Widening it is a reviewed PR, never a data change.
+[[nodiscard]] bool IsCompiledTrustedSigner(const char* signerOrganisation) noexcept;
+
+// True only when BOTH the rules file and the compiled-in list name the
+// organisation (full, case-insensitive equality on the certificate subject's O=).
 [[nodiscard]] bool IsTrustedSigner(const Rules& rules, const char* signerOrganisation) noexcept;
 
 // Local AppData, resolved from the SHELL rather than from the environment.

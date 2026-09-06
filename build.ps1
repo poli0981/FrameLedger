@@ -29,18 +29,18 @@ param(
     # Excludes tests traited Category=Integration -- today, the drain end-to-end
     # cases, which inject the Overlay into hook-harness.
     #
-    # CI PASSES THIS AND A DEVELOPER MUST NOT. The reason is a MEASURED property of
-    # the hard gate, not flakiness: §S16 puts the injecting process's ancestors in
-    # the scan set, so the test host is scanned, and a .NET host can load
-    # System.Security.Cryptography.ProtectedData.dll -- which contains the
-    # heuristic fragment `protect`. The guard then refuses our own harness with
-    # SuspiciousUnsigned. That is the gate working exactly as specified;
-    # 20_OPEN_QUESTIONS §S19(b) is the defect, and it is a guard change with its
-    # own PR rather than something to paper over here.
+    # NOBODY PASSES THIS ANY MORE, and it is kept so that the day someone must, the
+    # skip is loud. CI passed it from 2026-08-05 to 2026-09-06 for a MEASURED reason:
+    # §S16 puts the injecting process's ancestors in the scan set, a .NET test host
+    # loads System.Security.Cryptography.ProtectedData.dll (heuristic fragment
+    # `protect`), and the guard refused our own harness with SuspiciousUnsigned.
+    # 20_OPEN_QUESTIONS §S19(b)'s signer half now verifies that module's embedded
+    # signature offline (O=Microsoft Corporation, on the compiled-in bound), so the
+    # refusal is gone for the reason the heuristic always stated, and CI runs
+    # `./build.ps1 check` with no switches — the same command a developer runs.
     #
     # It skips LOUDLY, because a suite that quietly stops running one class is how
-    # a gate rots. Whatever CI does, `./build.ps1 check` with no switches runs
-    # everything.
+    # a gate rots.
     [switch]$SkipIntegration
 )
 

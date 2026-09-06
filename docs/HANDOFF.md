@@ -1012,17 +1012,14 @@ each step needs, so nothing here is started out of order:
    `ctest fl_signer_probe` (or the exe) with every network adapter disabled, compare the
    verdicts with `spike-notes` §1. Unchanged → G1; any change → G2 and the route retires.~~
    **RUN 2026-09-06 by the owner: every verdict unchanged — row G1 (§S19(b)).**
-3. **The allow-widening bound — owner-only, a decision no PR may take (§S19(b)).** Two
-   written options: a compiled-in allowlist that `trustedSigners` can only intersect
-   (recommended: the boundary stays code, no branch-protection change), or `Rules / validate`
-   made a required status check (§S23-2, a GitHub setting).
-4. **Then the PR:** the embedded signer half in `fl_guard_sources.cpp` (`WinVerifyTrust`,
-   `WTD_CHOICE_FILE`, `WTD_REVOKE_NONE | WTD_CACHE_ONLY_URL_RETRIEVAL`, `O=` compared under
-   the bound; a trusted module returns *keep looking*, never *stop*; every failure refuses),
-   the catalog half deferred with its own rationale, a native fixture in both directions
-   (a Microsoft-signed fragment module allowed, an unsigned one refused), and
-   `-SkipIntegration` dropped from `ci.yml` in the same PR so the nine integration cases
-   join the merge gate.
+3. ~~**The allow-widening bound — owner-only, a decision no PR may take (§S19(b)).**~~ **DECIDED
+   2026-09-06: option 1, the compiled-in allowlist `trustedSigners` may only intersect.**
+4. ~~**Then the PR:** …~~ **BUILT 2026-09-06 (§S19(b) ✅ BUILT):** `ModuleSignerOrganisation` in
+   `fl_guard_sources.cpp`, `IsCompiledTrustedSigner` as the bound, the trusted module keeps the
+   scan looking, every failure refuses, the catalog half deferred with its rationale, both
+   directions proved against the real seams through `hook-harness --load`, and `-SkipIntegration`
+   dropped from `ci.yml`. **The Separable item is closed**: the nine integration cases are in the
+   merge gate, and CI runs the command a developer runs.
 
 ### ~~§M5 — **START HERE**~~ — MEASURED 2026-09-03, row R1, and the head moves
 
@@ -1235,8 +1232,8 @@ diagnosis*.
   needle containing `` `blockedExecutables` `` silently became something else, `.Replace`
   matched nothing, the file was unchanged — and the validator correctly passed. Print
   the mutated text before validating.
-- **`./build.ps1 check` with no switches** after every PR. CI runs `-SkipIntegration`,
-  so a green CI is not evidence for anything touching the managed drain.
+- **`./build.ps1 check` with no switches** after every PR. ~~CI runs `-SkipIntegration`,~~ CI runs the same since 2026-09-06,
+  so a green CI is evidence for the managed drain too (§S19(b) BUILT).
 - **A canary that does not compile is not a canary, and this repo's analyzers make that
   easy to hit.** Removing a call to prove a gate goes red can leave a constructor
   parameter unread — `CS9113` under `TreatWarningsAsErrors` — so the build fails, the

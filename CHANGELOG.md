@@ -19,6 +19,25 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **The guard's signer half — the other conjunct of "name fragment AND not signed by a known vendor" —
+  and the nine integration cases in the merge gate (§S19(b) row G1; owner's bound decision 2026-09-06).**
+  Since 2026-08-05 the guard refused FrameLedger's own test host on CI because a .NET host loads
+  `System.Security.Cryptography.ProtectedData.dll` and `protect` is a heuristic fragment, and CI skipped
+  the drain, pause, drop and capture-host end-to-end cases. `fl-probe-signer`'s three legs (dev box, CI,
+  the owner's adapters-disabled run) all read the same: the embedded signature verifies offline with
+  `O=Microsoft Corporation`, ~2–4 ms, no verdict changing without a network. So `Sources` gained
+  `ModuleSignerOrganisation` — `WinVerifyTrust` under `WTD_REVOKE_NONE | WTD_CACHE_ONLY_URL_RETRIEVAL`,
+  then the certificate's `O=` — and the module sink trusts a fragment-matching module only when that
+  organisation is on the rules file's `trustedSigners` AND on the list compiled into the binary
+  (`IsCompiledTrustedSigner`: the data may narrow, never widen). A trusted module keeps the scan
+  looking; the target is judged like its ancestors; no signature, an invalid one, an unreadable `O=`, a
+  null path or seam, a failing seam, one list without the other — all refuse. The catalog half stays
+  deferred with its rationale. `hook-harness --load` proves both directions against the real seams
+  (the NuGet blocker allowed; our own unsigned Overlay under a `protect` name refused, by name); nine
+  fake-seam cases pin the decision. `ci.yml` runs `./build.ps1 check` with no switches; the switch stays
+  in `build.ps1`, loud. `19_SAFETY`, §S19(b), §S29(a), `13_CI_CD`, `12_BUILD`, `HANDOFF` and the rules
+  file's own comment carry it.
+
 - **Rung 3 by elimination, and the executable file as the census's second witness (HANDOFF 7b / §H11,
   owner's choice 2026-09-06).** `frame generation: Active (technology not identified)` now prints every
   exclusion the session can make beside it — not DLSS-G when the NVIDIA driver's FG word reports no feature

@@ -307,6 +307,34 @@ struct Sources {
     // caller has to be able to distinguish them.
     Collected (*ModuleIsOurOwn)(const wchar_t* modulePath, bool* isOurs) = nullptr;
 
+    // §S19(b) — WHO SIGNED this module, from its EMBEDDED Authenticode signature,
+    // verified OFFLINE (row G1, read 2026-09-06 after the CI leg and the owner's
+    // adapters-disabled leg both left every verdict unchanged).
+    //
+    // kOk writes the signing certificate's subject `O=` into `out` — the field
+    // 19_SAFETY §Blocklist seed names, measured on drivers, launchers and a NuGet
+    // assembly whose CN changed between copies while its O= did not. The guard
+    // then pairs it with the fragment tier: a fragment-matching module signed by
+    // an organisation on the TRUSTED list keeps the scan looking; anything else
+    // latches SuspiciousUnsigned, which is now literally what it says.
+    //
+    // kFailed is every other outcome and MEANS NOT TRUSTED: no embedded signature
+    // (the catalog-signed system binaries — mskeyprotect.dll — land here by
+    // design, the CryptCATAdmin* half being deferred with its own rationale), an
+    // invalid one, a certificate whose O= could not be read, a buffer too small,
+    // a null path. The polarity is ModuleIsOurOwn's: a seam that fails must never
+    // widen what is allowed.
+    //
+    // OFFLINE BY FLAG, measured rather than assumed: WTD_REVOKE_NONE and
+    // WTD_CACHE_ONLY_URL_RETRIEVAL, under which the probe's verdicts did not
+    // change with every adapter disabled. cryptnet.dll still maps; no request is
+    // made. NFR-10 and CLAUDE.md rule 8 are what that measurement protects.
+    //
+    // Reached only on a fragment hit, which on a measured machine is approximately
+    // never — ~2-4 ms per verified module, inside a 30 s loop, on a scan set that
+    // three real titles left empty.
+    Collected (*ModuleSignerOrganisation)(const wchar_t* modulePath, char* out, std::size_t cap) = nullptr;
+
     // §S22 — is the DLL we were asked to inject one of OUR OWN binaries?
     //
     // The guard gated the target and nothing gated the payload. Every check
