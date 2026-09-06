@@ -1905,6 +1905,14 @@ one launch per capture, consent granted after launch. Exit codes and full report
   fixed the same day. Cronos is a second Streamline 2.8.0 title; its FG-on capture is the one that says
   whether the pacer bypass measured on DL:TB belongs to SDK 2.8.0 or to that title.
 
+- **2026-09-06, 12:17, Cronos: The New Dawn demo with frame generation ON — the row that closed §H5's
+  DLSS / DLSS-G question.** Streamline 2.8.0, UE: `Native FPS: 86.8 -> Displayed FPS: 172.72 (x1.99 FG)`
+  over 9,948 presents, `unseen=0 over samples=10063`, tag census `frame=[depth, mvec, hudless,
+  ui-color-alpha, backbuffer, other]`, `frame generation: DlssG — the NVIDIA driver agrees`, `upscaler: Dlss
+  (driver-reported)`, RT Yes. The 2.8.0 SDK presents its generated frames through the body the inline
+  patches cover; the bypass measured on Dying Light: The Beast is that title's integration. With this row
+  every measured NVIDIA title prints the rule-6 trio or a counted `none`, and the owner closed the item.
+
 ## 10 · Telemetry layering
 
 - L1 baseline vendor-neutral:
