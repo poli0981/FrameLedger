@@ -423,6 +423,22 @@ rung identified the mode — only the *identification* comes from the ladder.
 
 **Display rule (product requirement, CLAUDE.md rule 6):** wherever FPS appears and FG is active, render `"{native} → {displayed} FPS (×{factor} FG)"`. Cards show Native large, Displayed + factor secondary. Charts default to Native with a Displayed toggle. Exports contain all three.
 
+**Rung 3's line carries its exclusions (2026-09-06, `HANDOFF` 7b / §H11).** `Active (technology not
+identified)` is printed *by elimination among what this session saw*: not DLSS-G when the NVIDIA
+driver's FG word reports no feature created and no HUD-less / UI tag was sent (or "not excluded"
+when the driver did not answer); no FSR frame-generation dispatch reached a hooked module; the
+frame-generation runtime modules the census names, or that none is loaded; and the vendor SDK
+strings the executable FILE carries. Never a vendor named as measured — XeFG cannot be hooked or
+declared (licence), a compiled-in FSR 3 has no module — and the line says a frame generator compiled
+into the executable would read the same.
+
+**And the census's "cannot include generated frames" is now second-witnessed by the executable
+file (2026-09-06).** A frame generator compiled into the exe loads no module (Rune Factory, Wukong),
+so the capture host scans the executable on disk for the SDK strings (`ffxFsr3`,
+`ffxFrameInterpolation`, `xefgSwapChain`, and the non-FG ones for the reader) and the clear-census
+qualifier reads *MAY include generated frames* when a frame-generation-capable marker is in the
+file. A marker is code or a symbol name in the file, never proof it ran, and never an identity.
+
 **And when FG is not measured (2026-09-03):** render the one number as **Presented FPS** —
 `144 FPS` with a qualifier chip chosen by the census above, never the word "Native", never
 a factor, never `—` (which means `none`, a measured negative). The chip is muted when no

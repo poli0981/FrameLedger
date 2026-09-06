@@ -213,6 +213,9 @@ internal sealed record MeasuredFacts
     /// </remarks>
     public string? UpscalerDriverReported => Upscaler is null && NgxDriver.SrCreatedAndEvaluated ? UpscalerDlssDriverReported : null;
 
+    /// <summary>What the executable FILE carries of the vendor SDKs; <see cref="ExecutableMarkers.NotScanned"/> without a scan.</summary>
+    public ExecutableMarkers Markers { get; init; } = ExecutableMarkers.NotScanned;
+
     /// <summary>The string <see cref="FgMode"/> carries when the count is active, no tag named the technology, and the driver did.</summary>
     public const string FgDlssGDriverReported =
         "DlssG (driver-reported: the NVIDIA driver reports an NGX frame-generation feature created and evaluated in this "
@@ -223,10 +226,44 @@ internal sealed record MeasuredFacts
     /// where the count is active and no tag named the technology (<c>03_METRICS</c>: identity decides the name, the
     /// count decides <c>none</c> — the driver's word is a second identity source, never a count).
     /// </summary>
-    public string? FgModePrinted =>
-        string.Equals(FgMode, FgActiveUnidentified, StringComparison.Ordinal) && NgxDriver.FgCreatedAndEvaluated
-            ? FgDlssGDriverReported
-            : FgMode;
+    public string? FgModePrinted
+    {
+        get
+        {
+            if (!string.Equals(FgMode, FgActiveUnidentified, StringComparison.Ordinal))
+            {
+                return FgMode;
+            }
+
+            return NgxDriver.FgCreatedAndEvaluated ? FgDlssGDriverReported : FgActiveUnidentified + " — " + FgByElimination();
+        }
+    }
+
+    /// <summary>
+    /// The rung-3 line with every exclusion this session can make written beside it — never a vendor named as
+    /// measured. <c>HANDOFF</c> 7b / §H11, 2026-09-06: a frame generator this build cannot see (XeFG by licence, a
+    /// compiled-in FSR 3 by construction) still leaves witnesses — the driver's FG word, the tags, the ffx census,
+    /// the module census and the executable's own strings — and the reader gets all of them, labelled.
+    /// </summary>
+    private string FgByElimination()
+    {
+        string tags = DlssgInputsTagged
+            ? "HUD-less / UI tags WERE sent through Streamline"
+            : "no HUD-less / UI tag was sent through Streamline";
+        string dlssg = NgxDriver.Outcome == NgxProbeOutcome.Answered
+            ? "not DLSS-G (the NVIDIA driver reports no NGX frame-generation feature created, and " + tags + ")"
+            : "DLSS-G not excluded (the NVIDIA driver did not answer; " + tags + ")";
+        string runtimes = FgRuntimesLoaded == FlRuntimeCensus.None
+            ? "no frame-generation runtime module is loaded at all"
+            : "the frame-generation runtime(s) loaded: " + CensusNames.Describe(FgRuntimesLoaded);
+        string exe = Markers.AnyFgCapable
+            ? "; the executable itself carries " + Markers.FgCapableNames
+            : "";
+        return "by elimination among what this session saw: " + dlssg
+               + "; no FSR frame-generation dispatch reached a hooked module; " + runtimes + exe
+               + " — a frame generator compiled into the executable would read the same, and nothing here is a "
+               + "measured vendor identity";
+    }
 
     /// <summary>
     /// What the driver's FG word adds beside the FG line — agreement with a tagged DLSS-G, a disagreement printed
@@ -382,7 +419,7 @@ internal sealed record MeasuredFacts
     /// </remarks>
     public static MeasuredFacts From(IReadOnlyList<FlFrameRecord> stream, FlWriterState writer,
         long qpcFrequency, long totalGaps, long totalDropped, FgWindow? fg = null, RuntimeModuleSet? modules = null,
-        NgxDriverState? ngx = null)
+        NgxDriverState? ngx = null, ExecutableMarkers? markers = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(qpcFrequency);
@@ -424,6 +461,7 @@ internal sealed record MeasuredFacts
             Extent = UpscaleExtent.From(stream),
             Upscaler = UpscalerOf(stream),
             NgxDriver = ngx ?? NgxDriverState.NotRun,
+            Markers = markers ?? ExecutableMarkers.NotScanned,
             RayTracing = RayTracingOf(stream, writer),
             RayReconstruction = RayReconstructionOf(stream),
             Hdr = HdrOf(stream),

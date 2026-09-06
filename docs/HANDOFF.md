@@ -824,7 +824,12 @@ hole; it does not close it.
   title cannot give. **The honest ceiling for a statically linked title in attach mode is
   Presented FPS with the census's qualifier** — which is what ships today, with the hole named.
 - **The only cheap improvement is wording**, and it is already in: the qualifier says
-  *statically linked FSR3-FG … outside what this can see*. If a title is found, the first PR is
+  *statically linked FSR3-FG … outside what this can see*. **Built 2026-09-06, two steps past that
+  (owner's choice over "return native", which rule 6 forbids):** the executable FILE is scanned on
+  disk after the session for the vendor SDK strings, and a frame-generation-capable one flips the
+  clear-census sentence from *cannot* to *MAY*; and the rung-3 line prints its exclusions (the
+  driver's FG word, the tags, the ffx census, the module census, the file's markers). The ceiling
+  for a title that is both compiled-in and token-less stays Presented FPS + that qualifier. If a title is found, the first PR is
   a `spike-notes` row and a `20_OPEN_QUESTIONS` §Scope entry with the measured shape, not code.
 - ~~**Measured 2026-09-04: no such title is installed.**~~ **Found the same evening, by running
   rather than by scanning: Rune Factory: Guardians of Azuma.** The scan was right that every FSR

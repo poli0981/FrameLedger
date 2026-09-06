@@ -199,9 +199,29 @@ internal static class SessionReport
                    + "Displayed, not Native";
         }
 
+        return CensusClearQualifier(facts);
+    }
+
+    /// <summary>The qualifier when no frame-generation module was loaded — the executable file decides its verb.</summary>
+    private static string CensusClearQualifier(MeasuredFacts facts)
+    {
+        // THE CENSUS IS CLEAR, and the executable file is the second witness (HANDOFF 7b). A frame
+        // generator compiled into the exe loads no module — Rune Factory and Wukong, measured — so
+        // "cannot include" was wrong there in the dangerous direction. The on-disk scan cannot say the
+        // code ran; it can say the sentence may not exclude it.
+        if (facts.Markers.AnyFgCapable)
+        {
+            return "WARNING: no known frame-generation runtime MODULE was loaded, but the executable itself carries "
+                   + facts.Markers.FgCapableNames + " — a frame generator compiled into the executable is outside what "
+                   + "the module census sees, so this number MAY include generated frames; read it as Displayed, not Native";
+        }
+
         return "frame generation: not measured — no known frame-generation runtime was loaded in this process, "
                + "so this number cannot include in-process generated frames (statically linked FSR3-FG and "
-               + "driver-level AFMF are outside what this can see)";
+               + "driver-level AFMF are outside what this can see"
+               + (facts.Markers.Scanned
+                   ? "; the executable carries none of the frame-generation SDK strings this host scans for)"
+                   : ")");
     }
 
     /// <summary>The per-session facts, each with the reason behind its N/A.</summary>

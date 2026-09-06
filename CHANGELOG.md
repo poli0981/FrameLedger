@@ -19,6 +19,20 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **Rung 3 by elimination, and the executable file as the census's second witness (HANDOFF 7b / §H11,
+  owner's choice 2026-09-06).** `frame generation: Active (technology not identified)` now prints every
+  exclusion the session can make beside it — not DLSS-G when the NVIDIA driver's FG word reports no feature
+  created and no HUD-less / UI tag was sent (or "not excluded" when the driver did not answer), no FSR
+  frame-generation dispatch reached a hooked module, the frame-generation runtime modules the census names
+  or that none is loaded, and the SDK strings the executable carries — never a vendor named as measured, and
+  it says a frame generator compiled into the executable would read the same. The capture host scans the
+  executable FILE on disk once after the session (`ExecutableMarkerScan`: `ffxFsr3`, `ffxFrameInterpolation`,
+  `xefgSwapChain` and the non-FG strings for the reader; chunked with overlap, hits capped) and prints
+  `executable markers:`; when a frame-generation-capable string is in the file and no module was loaded, the
+  Presented qualifier reads *MAY include generated frames* instead of *cannot* — the sentence that was wrong
+  in the dangerous direction on Rune Factory and Wukong. A marker is never identity. Intel's licence was
+  re-checked the same day and is unchanged; XeSS-FG runs on non-Intel GPUs, so an XeFG session measures this.
+
 - **The super-resolution identity from the NVIDIA driver, where no hook can see it — the driver-reported
   rung (owner decision 2026-09-06).** Three NGX-direct titles printed `upscaler: N/A` on every capture
   while the driver's per-process NGX word (`NvAPI_NGX_GetNGXOverrideState`, R570+, MIT NVAPI) reads
