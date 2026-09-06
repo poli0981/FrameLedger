@@ -71,14 +71,18 @@ public sealed class NoSecondMatcherTests
         // seam out of everything that ships.
         MethodInfo[] methods = typeof(IAntiCheatGuard).GetMethods();
 
-        // Raised from 2 to 3 as a reviewed act when the static pre-scan landed.
+        // Raised from 2 to 3 as a reviewed act when the static pre-scan landed,
+        // and from 3 to 4 when launch mode's WAITING entry landed (P1 item 2):
+        // GuardedInjectWhenReadyAsync takes a pid, a path and a budget in
+        // milliseconds -- primitives, as the loop below insists -- and the budget
+        // decides only WHEN the guard's full scan runs, never what it sees.
         //
         // The alternative was a second port, which would have kept this number
         // at 2 while the new surface grew somewhere this test never looks — the
         // count would have gone on passing precisely because the thing it
         // guards had moved. A number that has to be edited deliberately is the
         // point of it.
-        methods.Should().HaveCount(3);
+        methods.Should().HaveCount(4);
 
         // Stronger than the count, and it survives the port growing: every
         // parameter must be a primitive the caller cannot smuggle evidence

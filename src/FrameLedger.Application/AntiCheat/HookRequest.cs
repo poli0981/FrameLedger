@@ -31,14 +31,26 @@ namespace FrameLedger.Application.AntiCheat;
 public sealed class HookRequest
 {
     private HookRequest(int targetPid, string payloadPath, bool hookEnabled, DateTimeOffset? consentedAt,
-        string? blockedReason)
+        string? blockedReason, int waitForPresentationRuntimeMs)
     {
         TargetPid = targetPid;
         PayloadPath = payloadPath;
         HookEnabled = hookEnabled;
         ConsentedAt = consentedAt;
         BlockedReason = blockedReason;
+        WaitForPresentationRuntimeMs = waitForPresentationRuntimeMs;
     }
+
+    /// <summary>
+    /// Launch mode's budget: how long the guard may wait for the target to map a presentation runtime
+    /// before injecting. Zero — the default, and attach mode — asks the guard to inject now.
+    /// </summary>
+    /// <remarks>
+    /// It cannot widen what is injected or skip a check: a positive value routes the request through
+    /// <see cref="IAntiCheatGuard.GuardedInjectWhenReadyAsync"/>, which runs the same full scan later
+    /// rather than a smaller one sooner.
+    /// </remarks>
+    public int WaitForPresentationRuntimeMs { get; }
 
     /// <summary>The process to inject into.</summary>
     public int TargetPid { get; }
@@ -75,17 +87,20 @@ public sealed class HookRequest
     /// <param name="observed">The executable as it is on disk right now.</param>
     /// <param name="targetPid">The process to inject into.</param>
     /// <param name="payloadPath">The Overlay, resolved beside the guard (§S22).</param>
+    /// <param name="waitForPresentationRuntimeMs">Launch mode's budget; zero is attach mode.</param>
     public static HookRequest FromConsent(
-        GameConsentRecord record, ExecutableFingerprint observed, int targetPid, string payloadPath)
+        GameConsentRecord record, ExecutableFingerprint observed, int targetPid, string payloadPath,
+        int waitForPresentationRuntimeMs = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(payloadPath);
+        ArgumentOutOfRangeException.ThrowIfNegative(waitForPresentationRuntimeMs);
 
         // A record nobody stored has enabled nothing and consented to nothing. Checked first so the
         // fields below are never read off a default value.
         if (!record.IsFromStore)
         {
             return new HookRequest(targetPid, payloadPath, hookEnabled: false, consentedAt: null,
-                blockedReason: null);
+                blockedReason: null, waitForPresentationRuntimeMs);
         }
 
         // A TIMESTAMP IS NOT CONSENT. games.hook_consent_at is a bare DateTime, so a record could carry
@@ -106,6 +121,7 @@ public sealed class HookRequest
             consentedAt = null;
         }
 
-        return new HookRequest(targetPid, payloadPath, record.HookEnabled, consentedAt, record.BlockedReason);
+        return new HookRequest(targetPid, payloadPath, record.HookEnabled, consentedAt, record.BlockedReason,
+            waitForPresentationRuntimeMs);
     }
 }

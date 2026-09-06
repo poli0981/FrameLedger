@@ -68,7 +68,7 @@ int main() {
     Field("dxgiPresentSamples", offsetof(FlWriterState, dxgiPresentSamples), sizeof(uint32_t));
     Field("loaderSignals", offsetof(FlWriterState, loaderSignals), sizeof(uint16_t));
     Field("earlyStopFamily", offsetof(FlWriterState, earlyStopFamily), sizeof(uint16_t));
-    Field("reserved", offsetof(FlWriterState, reserved), sizeof(uint32_t) * 1, true);
+    Field("dxgiPresentsBeforeHook", offsetof(FlWriterState, dxgiPresentsBeforeHook), sizeof(uint32_t), true);
     std::printf("    ] },\n");
 
     std::printf("    \"FlControlBlock\": { \"size\": %zu, \"fields\": [\n", sizeof(FlControlBlock));

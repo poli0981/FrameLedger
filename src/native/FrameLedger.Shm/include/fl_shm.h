@@ -731,7 +731,16 @@ struct alignas(64) FlWriterState {
     // FL_STATUS_STOPPED_BLOCKLISTED on the next present or watchdog wake.
     uint16_t earlyStopFamily;    // @58
 
-    uint32_t reserved[1];    // @60..63  must be zero; room for additive fields
+    // PRESENTS BEFORE THE FIRST HOOKED ONE (2026-09-06, P1 item 2 -- launch mode's
+    // own cost meter; 20_OPEN_QUESTIONS §S1 / §S13(c)). IDXGISwapChain::GetLastPresentCount
+    // as read at the FIRST present this hook saw, on the first chain it saw: DXGI's
+    // count of presents that chain had completed before we were there. 0 means the hook
+    // was in before the title's first present on that chain; N means N presents ran
+    // unhooked, which is the number §S1 said nobody had. 0xFFFFFFFF = not read (set at
+    // init; a title that never presents keeps it). Took the LAST reserved word --
+    // additive, no layout bump -- and the writer state now has NO slack: the next
+    // additive field is a layout bump.
+    uint32_t dxgiPresentsBeforeHook;    // @60
 
     // NOTE: there is deliberately no droppedRecords here. The writer has no
     // reader index and cannot know whether the slot it overwrites was ever
@@ -941,7 +950,7 @@ static_assert(offsetof(FlWriterState, dxgiPresentsUnseen) == 48);
 static_assert(offsetof(FlWriterState, dxgiPresentSamples) == 52);
 static_assert(offsetof(FlWriterState, loaderSignals) == 56);
 static_assert(offsetof(FlWriterState, earlyStopFamily) == 58);
-static_assert(offsetof(FlWriterState, reserved) == 60);
+static_assert(offsetof(FlWriterState, dxgiPresentsBeforeHook) == 60);
 
 static_assert(offsetof(FlControlBlock, pauseRequested) == 0);
 static_assert(offsetof(FlControlBlock, unhookRequested) == 4);

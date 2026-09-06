@@ -107,4 +107,19 @@ internal enum SessionEndReason
 
     /// <summary>The ring could not be attached to, and the refusal was not retryable.</summary>
     AttachRefused,
+
+    /// <summary>Launch mode: the executable could not be started, or the new process could not be pinned.</summary>
+    LaunchCannotStart,
+
+    /// <summary>
+    /// Launch mode: the guard was waiting for a presentation runtime and the target exited first
+    /// (<see cref="Domain.AntiCheat.AntiCheatRefusalReason.LaunchTargetExited"/>). Nothing was injected.
+    /// </summary>
+    LaunchTargetExited,
+
+    /// <summary>
+    /// Launch mode: the budget ran out with no presentation runtime mapped
+    /// (<see cref="Domain.AntiCheat.AntiCheatRefusalReason.LaunchNoPresentationRuntime"/>). Nothing was injected.
+    /// </summary>
+    LaunchNoPresentationRuntime,
 }

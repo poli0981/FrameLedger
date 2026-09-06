@@ -66,6 +66,11 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport(_guardDll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    private static extern void FlGuardedInjectWhenReady(uint targetPid, string dllPath, uint timeoutMs,
+        out FlGuardResult result);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport(_guardDll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
     private static extern void FlStaticPreScan(string gameDirectory, out FlGuardResult result);
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
@@ -124,6 +129,20 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
         return RunAsync(() =>
         {
             FlGuardedInject(checked((uint)targetPid), payloadPath, out FlGuardResult r);
+            return AntiCheatVerdict.FromNative(r.Reason, r.Family, r.Signal);
+        }, ct);
+    }
+
+    /// <inheritdoc />
+    public ValueTask<AntiCheatVerdict> GuardedInjectWhenReadyAsync(int targetPid, string payloadPath, int timeoutMs,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(payloadPath);
+        ArgumentOutOfRangeException.ThrowIfNegative(timeoutMs);
+        return RunAsync(() =>
+        {
+            FlGuardedInjectWhenReady(checked((uint)targetPid), payloadPath, checked((uint)timeoutMs),
+                out FlGuardResult r);
             return AntiCheatVerdict.FromNative(r.Reason, r.Family, r.Signal);
         }, ct);
     }

@@ -40,6 +40,14 @@ void FlGuardedInject(std::uint32_t targetPid, const wchar_t* dllPath, FlGuardRes
     Fill(out, fl::guard::GuardedInject(targetPid, dllPath));
 }
 
+void FlGuardedInjectWhenReady(std::uint32_t targetPid, const wchar_t* dllPath, std::uint32_t timeoutMs,
+                              FlGuardResult* out) {
+    if (!Usable(out)) {
+        return;
+    }
+    Fill(out, fl::guard::GuardedInjectWhenReady(targetPid, dllPath, timeoutMs));
+}
+
 void FlStaticPreScan(const wchar_t* gameDirectory, FlGuardResult* out) {
     if (!Usable(out)) {
         return;

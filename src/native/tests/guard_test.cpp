@@ -101,8 +101,15 @@ struct Fake {
     // keeps its meaning and only the tests that care about identity pay for it.
     std::vector<std::string>                          modules;
     std::map<std::uint32_t, std::vector<std::string>> modulesByPid;
-    std::map<std::uint32_t, Collected>                moduleResultByPid;
-    Collected                                         moduleResult = Collected::kOk;
+    // Launch mode's fixture: after `moduleCallsBeforeLate` enumerations have answered
+    // with `modules`, every later one answers with `modulesLate` (when non-empty).
+    // The poll runs on the caller's thread, so a call count is what "later" means
+    // and no second thread has to write into this struct.
+    std::vector<std::string>           modulesLate;
+    int                                moduleCallsBeforeLate = 0;
+    int                                moduleCalls = 0;
+    std::map<std::uint32_t, Collected> moduleResultByPid;
+    Collected                          moduleResult = Collected::kOk;
 
     // Check 3's evidence. Defaults to a name no blocklist entry matches, so every
     // pre-existing case keeps its meaning: check 3 runs, looks, and allows.
@@ -193,8 +200,10 @@ std::wstring FakeModulePath(const std::string& name) {
 }
 
 Collected FakeEnumModules(std::uint32_t pid, ModuleSink sink, void* ctx) {
+    const int   call = g.moduleCalls++;
     const auto  it = g.modulesByPid.find(pid);
-    const auto& list = (it != g.modulesByPid.end()) ? it->second : g.modules;
+    const bool  late = !g.modulesLate.empty() && call >= g.moduleCallsBeforeLate;
+    const auto& list = (it != g.modulesByPid.end()) ? it->second : (late ? g.modulesLate : g.modules);
     for (const auto& m : list) {
         const std::wstring path = FakeModulePath(m);
         const bool         pathless = g.pathlessModules.count(m) != 0;
@@ -2030,6 +2039,124 @@ TEST_CASE("the LoadLibrary detour stops the Overlay by itself when an anti-cheat
         CHECK(r.st->writeIndex == atStop);
     }    // the child is gone before its module file is deleted
     DeleteFileW(copy.c_str());
+}
+
+// ===========================================================================
+// P1 item 2 -- launch mode as "inject late" (20_OPEN_QUESTIONS §S1 / §S13(c)):
+// the poll decides WHEN the guard runs, never WHETHER it passes.
+// ===========================================================================
+TEST_CASE("launch mode injects the moment a presentation runtime is mapped, and not one poll before",
+          "[guard][inject][launch]") {
+    Child child;
+    REQUIRE(StartHarness(child));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};    // a target still in its loader: no runtime yet
+    g.modulesLate = {"kernel32.dll", "dxgi.dll", "d3d11.dll"};
+    g.moduleCallsBeforeLate = 6;    // the seventh poll (~300 ms) is the first that sees it
+    g.scanSet = {child.pi.dwProcessId};
+
+    const ULONGLONG t0 = GetTickCount64();
+    const Verdict   v = GuardedInjectWhenReadyWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, 10000, FakeSources());
+    const ULONGLONG waited = GetTickCount64() - t0;
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal << " waited " << waited << " ms, polls "
+                   << g.moduleCalls);
+    REQUIRE(v.Allowed());
+    CHECK(g.moduleCalls >= 7);    // it really waited for the runtime rather than injecting on sight
+    CHECK(waited >= 250);
+    CHECK(waited < 3000);
+    CHECK(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+TEST_CASE("launch mode: a target that exits before mapping a runtime is refused and nothing is injected",
+          "[guard][inject][launch]") {
+    Child        child;
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --hold 1";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    REQUIRE(CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                           &child.pi));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};    // never a runtime
+    g.scanSet = {child.pi.dwProcessId};
+
+    const Verdict v = GuardedInjectWhenReadyWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, 20000, FakeSources());
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+    CHECK(v.reason == Reason::kLaunchTargetExited);
+    CHECK_FALSE(v.Allowed());
+}
+
+TEST_CASE("launch mode: no presentation runtime inside the budget refuses, naming the budget's end",
+          "[guard][inject][launch]") {
+    Child child;
+    REQUIRE(StartHarness(child));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+
+    const ULONGLONG t0 = GetTickCount64();
+    const Verdict   v = GuardedInjectWhenReadyWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, 400, FakeSources());
+    const ULONGLONG waited = GetTickCount64() - t0;
+    INFO("reason " << ReasonName(v.reason) << " waited " << waited << " ms");
+    CHECK(v.reason == Reason::kLaunchNoPresentationRuntime);
+    CHECK(waited >= 400);
+    CHECK(waited < 2500);
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+TEST_CASE("launch mode: the poll matches no blocklist, so anti-cheat mapped beside the runtime is the FULL scan's "
+          "refusal, and nothing is injected",
+          "[guard][inject][launch]") {
+    Child child;
+    REQUIRE(StartHarness(child));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.modulesLate = {"kernel32.dll", "EasyAntiCheat_EOS.dll", "dxgi.dll", "d3d12.dll"};
+    g.moduleCallsBeforeLate = 2;
+    g.scanSet = {child.pi.dwProcessId};
+
+    const Verdict v = GuardedInjectWhenReadyWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, 10000, FakeSources());
+    INFO("reason " << ReasonName(v.reason) << " family=" << v.family << " signal=" << v.signal);
+    CHECK(v.reason == Reason::kBlockedModule);
+    CHECK(std::string(v.signal) == "EasyAntiCheat_EOS.dll");
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+TEST_CASE("launch mode against the real harness through the real module seam: injected once dxgi maps, and the "
+          "writer says how many presents ran unhooked",
+          "[guard][inject][shm][launch]") {
+    // The harness creates its device at startup and presents every 8 ms; the seam is
+    // the real EnumProcessModulesEx. What the writer reports afterwards is exactly the
+    // number 20_OPEN_QUESTIONS §S1 said nobody had: presents completed on the chain
+    // before the hook was in. Here that is however many the harness managed between
+    // its first present and our injection -- a measurement, not a target.
+    Child child;
+    REQUIRE(StartHarness(child, L"--real --hold-presenting 12"));
+
+    ResetFake();
+    g.scanSet = {child.pi.dwProcessId};
+    const ULONGLONG t0 = GetTickCount64();
+    const Verdict   v =
+        GuardedInjectWhenReadyWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, 10000, RealModulesAndSigner());
+    const ULONGLONG waited = GetTickCount64() - t0;
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal << " waited " << waited << " ms");
+    REQUIRE(v.Allowed());
+    CHECK(waited < 2000);    // the runtime was already there: one poll, then the full guard
+
+    MappedRing r;
+    REQUIRE(OpenRingFor(child.pi.dwProcessId, r));
+    for (int i = 0; i < 60 && r.st->writeIndex == 0; ++i) {
+        ++r.ctl->guardTicks;
+        Sleep(50);
+    }
+    REQUIRE(r.st->writeIndex > 0);
+    const uint32_t before = r.st->dxgiPresentsBeforeHook;
+    INFO("presents before the first hooked present: " << before);
+    CHECK(before != 0xFFFFFFFFu);    // read at the first hooked present
+    CHECK(before < 5000);            // the harness ran ~1 s at ~120/s before we were in; not a bound on a title
 }
 
 TEST_CASE("the injected Overlay records real presents into the ring", "[guard][inject][shm]") {

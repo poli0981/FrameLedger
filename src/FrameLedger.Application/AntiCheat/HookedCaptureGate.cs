@@ -76,6 +76,11 @@ public sealed class HookedCaptureGate(IAntiCheatGuard guard)
             return AntiCheatVerdict.Refused(AntiCheatRefusalReason.PreviouslyBlocked, "previously blocked", blocked);
         }
 
-        return await _guard.GuardedInjectAsync(request.TargetPid, request.PayloadPath, ct).ConfigureAwait(false);
+        // Launch mode is the same gate reached through the guard's WAITING entry: the consent checks
+        // above are identical, and what differs is only WHEN the guard's full scan runs (P1 item 2).
+        return request.WaitForPresentationRuntimeMs > 0
+            ? await _guard.GuardedInjectWhenReadyAsync(request.TargetPid, request.PayloadPath,
+                request.WaitForPresentationRuntimeMs, ct).ConfigureAwait(false)
+            : await _guard.GuardedInjectAsync(request.TargetPid, request.PayloadPath, ct).ConfigureAwait(false);
     }
 }

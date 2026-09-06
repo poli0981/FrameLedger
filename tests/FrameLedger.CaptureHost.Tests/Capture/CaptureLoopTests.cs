@@ -74,6 +74,13 @@ public sealed class CaptureLoopTests : IDisposable
             return ValueTask.FromResult(Verdict);
         }
 
+        public ValueTask<AntiCheatVerdict> GuardedInjectWhenReadyAsync(int targetPid, string payloadPath,
+            int timeoutMs, CancellationToken ct = default)
+        {
+            InjectCalls++;
+            return ValueTask.FromResult(Verdict);
+        }
+
         public ValueTask<AntiCheatVerdict> PreScanGameDirectoryAsync(string gameDirectory,
             CancellationToken ct = default) => ValueTask.FromResult(AntiCheatVerdict.Allowed());
     }

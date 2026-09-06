@@ -32,6 +32,13 @@ public sealed class HookRequestFromConsentTests
             return ValueTask.FromResult(AntiCheatVerdict.Allowed());
         }
 
+        public ValueTask<AntiCheatVerdict> GuardedInjectWhenReadyAsync(int targetPid, string payloadPath,
+            int timeoutMs, CancellationToken ct = default)
+        {
+            InjectCalls++;
+            return ValueTask.FromResult(AntiCheatVerdict.Allowed());
+        }
+
         public ValueTask<AntiCheatVerdict> PreScanGameDirectoryAsync(string gameDirectory,
             CancellationToken ct = default) => ValueTask.FromResult(AntiCheatVerdict.Allowed());
     }
@@ -160,6 +167,10 @@ public sealed class HookRequestFromConsentTests
     public void ThePayloadPathIsRequired()
     {
         Action act = () => HookRequest.FromConsent(Consented(), OnDisk, 1, "  ");
+        Action negativeWait = () => HookRequest.FromConsent(Consented(), OnDisk, 1, _payload, waitForPresentationRuntimeMs: -1);
+        negativeWait.Should().Throw<ArgumentOutOfRangeException>("a negative budget is a mistake, never attach mode");
+        HookRequest.FromConsent(Consented(), OnDisk, 1, _payload).WaitForPresentationRuntimeMs
+            .Should().Be(0, "attach mode is the default: inject now");
         act.Should().Throw<ArgumentException>();
     }
 }

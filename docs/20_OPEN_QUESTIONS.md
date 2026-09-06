@@ -73,8 +73,8 @@ or it becomes the next stale status claim this file exists to record.
 | **S28** | ✅ **resolved 2026-08-05** | The guard's entry points share process-wide statics; a concurrent call cleared the blocklist mid-match and every check fell through to `Allow`. Reproduced by CI, not argued |
 | **S27** | ✅ **resolved, and restated 2026-08-06** | The chokepoint is the anti-cheat gate, not the consent gate. It was closed by *not building* a capture host; item 1 built one, and the ✅ survives on the clause that was always load-bearing — **no injecting entry point on any SHIPPED binary**. `FrameLedger.CaptureHost` is unpublished, and `tools/package-closure-check.ps1` makes that a gate rather than a fact about today's csproj. `HookRequest` is get-only behind one factory, so this entry's own rejected synthesis no longer compiles |
 | S12 | 🅓 **deferred, rationale written** | Cautious mode → v1.1; it disabled nothing in v1. *(Marked ✅ until 2026-08-27 — same disposition, different glyph.)* |
-| **S1** | 🅓 **deferred, rationale written** | Owner decision 2026-08-05. Deciding input — a title loading a presentation runtime lazily — is not on this machine |
-| **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
+| **S1** | ◐ **launch mode built as "inject late" 2026-09-06 (P1 item 2); the cost is now measured per title** | `FlGuardedInjectWhenReady` polls until a presentation runtime is mapped, then runs the full guard; `dxgiPresentsBeforeHook` and the reported wait are the input the 2026-08-05 deferral lacked. The ruling "inject late vs. no launch mode" is answered by construction — inject late exists — and whether it is *preferred* per title is what the numbers decide |
+| **S13(c)** | ✅ **salvageable, and salvaged 2026-09-06** | The externally observable proxy the entry proposed is what was built; the missing input is produced by every launched session |
 | **S19(b)** | 🅓 **deferred, rationale written — and MEASURED** | CI 2026-08-05: the fragment fires on `System.Security.Cryptography.ProtectedData.dll` loaded by a .NET **test host**, i.e. inside a real scan set in the launch-mode arrangement — refusing our own injection. The entry's "plausible and unmeasured" is superseded; the deferral rationale (a `CryptCATAdmin*` PR doing network I/O inside the hard gate, NFR-10) still stands. *(Marked 🔴 until 2026-08-27. The measurement belongs in this cell, not in the marker — a glyph that means "deferred" and a glyph that means "open defect" cannot be the same one in a table audited by counting.)* |
 | **S14** | 🅓 **exe half wired 2026-08-05; store-id half deferred to P4, rationale written 2026-09-06** | The store-id half's only in-policy route is P4's platform metadata extractors feeding a guard-side resolver; a resolver with no extractor would refuse every title. No title is blocked by store id today because none is listed |
 | **S23-1** | ✅ **resolved 2026-08-05** | `FlGuardBuildId` gives the Agent a build id of its own, and `ShmHandshakeValidator` performs the comparison `07_IPC` and `04_CAPTURE` both specify. Every refusal path is driven, including **both ids empty** — the shape the feature shipped in, where `"" == ""` reported `Ok` for every process on the machine |
@@ -1246,7 +1246,32 @@ is still no fault-policy test at all**, so the fix has no regression net. The
 vehicle is the blocker, not the assertions; `src/native/tests/CMakeLists.txt`
 records both rejected approaches and why.
 
-### S1 · The guard is structurally blind in launch mode
+### S1 ◐ · The guard is structurally blind in launch mode — **launch mode built as "inject late", 2026-09-06 (P1 item 2)**
+
+> **Built, and the deferral's missing input is now something every launched session produces.**
+> The guard gained `GuardedInjectWhenReady(pid, dll, timeoutMs)` (ABI `FlGuardedInjectWhenReady`): it
+> polls the target every 50 ms through the module seam — a `Collected::kFailed` (the suspended /
+> still-in-loader `ERROR_PARTIAL_COPY`) is "not yet", never a pass — until `dxgi.dll` with
+> `d3d11.dll`/`d3d12.dll`, or `opengl32.dll`, or `vulkan-1.dll` is mapped, then runs `GuardedInjectImpl`
+> in full. The poll matches nothing against the blocklist; it chooses WHEN the guard runs and nothing
+> about whether it passes. Two new reasons end the poll with nothing injected: `LaunchTargetExited`
+> (24) and `LaunchNoPresentationRuntime` (25). The CaptureHost's `launch` verb starts the consented
+> executable itself (`ProcessLauncher`, `FRAMELEDGER_ENABLE_VK_LAYER=1`, handle held from birth) and
+> routes the same gate through `HookRequest.WaitForPresentationRuntimeMs`; it never terminates what it
+> launched. Measured, ctest `fl_guard` `[launch]`: the fake-driven poll injects on the first
+> enumeration that shows the runtime and not one before (7 polls, ~300 ms), a target that exits first
+> and a budget that runs out each answer their own reason, anti-cheat mapped beside the runtime is the
+> full scan's refusal, and the real-seam case against `hook-harness` injects within one poll (15 ms).
+>
+> **The number nobody had:** `FlWriterState.dxgiPresentsBeforeHook` @60 — DXGI's `GetLastPresentCount`
+> at the first hooked present on the first hooked chain, i.e. presents that ran before the hook was in
+> (0xFFFFFFFF = the hook never saw a present). With the reported wait (`launch: the guard injected N ms
+> after the process was started`) that is the early-init cost §S13(c) said needed a lazily loading title:
+> it now comes from every title, on every launched session. **What the numbers decide is whether launch
+> mode is *preferred* for a given title, not whether it exists.** The 2026-08-05 rationale stands as
+> written below; what it deferred is now measurable rather than argued. Owed: the first real-title launch
+> (the owner's next captures), which will also be the first look at a launcher-first title landing on
+> `LaunchTargetExited` and needing the Agent's descendant election (P2).
 
 > **§S1 does not gate the Vulkan path.** Added 2026-08-03, because "launch mode
 > is blocked by §S1 anyway" was being used as a reason to deprioritise §S18 and
@@ -1562,6 +1587,10 @@ prologue) cannot produce a figure that generalises.
 > entry proposes (resume, then poll until the target has mapped a presentation
 > runtime *and* the scan passes *and* the blocklist is clean) remains the only
 > candidate design for "inject late". It is unbuilt, not rejected.
+>
+> > **✅ Built 2026-09-06 (P1 item 2), exactly that proxy** — `FlGuardedInjectWhenReady`, §S1 carries
+> > the mechanism and the measurements. "Salvageable" is answered yes; the cost of injecting late is
+> > reported by the session itself (`dxgiPresentsBeforeHook`, and the wait).
 
 ### S15 ✅ · The four consequences of putting the guard in C++ (§S13(a)) — **closed**
 

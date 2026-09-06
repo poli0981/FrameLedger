@@ -33,6 +33,10 @@ public sealed class GuardSupervisorTests
             CancellationToken ct = default) =>
             ValueTask.FromResult(AntiCheatVerdict.Allowed());
 
+        public ValueTask<AntiCheatVerdict> GuardedInjectWhenReadyAsync(int targetPid, string payloadPath,
+            int timeoutMs, CancellationToken ct = default) =>
+            throw new InvalidOperationException("the supervisor must not launch or inject");
+
         // The supervisor never asks check 4 anything: it re-evaluates a process
         // it is already inside, and the pre-scan is the pre-launch question.
         public ValueTask<AntiCheatVerdict> PreScanGameDirectoryAsync(string gameDirectory,

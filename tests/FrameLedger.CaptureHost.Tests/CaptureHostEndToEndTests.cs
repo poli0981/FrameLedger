@@ -249,6 +249,32 @@ public sealed class CaptureHostEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task LaunchModeStartsTheHarnessItselfAndReportsWhatRanUnhooked()
+    {
+        // P1 item 2, from OUTSIDE the process: the host starts the consented harness, the guard waits
+        // for dxgi to map and injects, and the report carries the two numbers 20_OPEN_QUESTIONS §S1
+        // deferred on -- the wait, and DXGI's count of presents before the first hooked one.
+        var store = new FileGameConsentStore(HostConsentFile);
+        ExecutableFingerprint fingerprint = FrameLedger.Infrastructure.Io.ExecutableIdentity.Read(ConsentedExecutable)!.Value;
+        (await store.RecordOperatorAcknowledgementAsync(new OperatorAcknowledgement
+        {
+            Fingerprint = fingerprint,
+            DisclosureVersion = OperatorDisclosure.Version,
+            AcknowledgedAt = DateTimeOffset.UtcNow,
+        }, TestContext.Current.CancellationToken)).Should().Be(ConsentWriteOutcome.Written);
+
+        using Process host = StartHost("launch", "--exe", ConsentedExecutable, "--args", "--real --hold-presenting 6",
+            "--seconds", "4");
+        string stdout = await host.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+        await host.WaitForExitAsync(TestContext.Current.CancellationToken);
+
+        stdout.Should().Contain("launch: the guard injected", "the wait is printed, because it is the number §S1 lacked");
+        stdout.Should().Contain("presents before the first hooked present:");
+        stdout.Should().NotContain("not read", "the harness presents, so the first hooked present happened");
+        host.ExitCode.Should().Be(0, stdout);
+    }
+
+    [Fact]
     public async Task WhenTheTargetExitsTheHostStopsAndSaysWhy()
     {
         // §S29(e). The writer leaves status READY and writeIndex frozen on the way out — DllMain has no

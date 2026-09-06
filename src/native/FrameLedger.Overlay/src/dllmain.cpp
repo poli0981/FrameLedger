@@ -949,6 +949,9 @@ std::atomic<uint32_t> g_slTagCensus{0};
 // watchdog-published, monotonic.
 std::atomic<uint32_t> g_dxgiUnseen{0};
 std::atomic<uint32_t> g_dxgiSamples{0};
+// Whether FlWriterState::dxgiPresentsBeforeHook has been written: once, at the first
+// hooked present, whichever chain it lands on.
+std::atomic<bool> g_dxgiBeforeHookPublished{false};
 
 // A PRESENT THIS HOOK SAW AND DECLINED TO RECORD IS NOT ONE IT NEVER SAW. While a
 // session is paused (MayObserve false) the title keeps presenting and DXGI keeps
@@ -2194,6 +2197,12 @@ void RecordPresent(IDXGISwapChain* sc, UINT syncInterval, UINT flags) noexcept {
                     g_dxgiUnseen.fetch_add(delta - 1u, std::memory_order_relaxed);
                     dxgiUnseenHere = fl::slseen::SaturateToByte(delta - 1u);
                 }
+            } else if (!slot->haveDxgiCount && g_state != nullptr &&
+                       !g_dxgiBeforeHookPublished.exchange(true, std::memory_order_relaxed)) {
+                // The FIRST hooked present: DXGI's count is the presents that ran before
+                // this hook was in (fl_shm.h §dxgiPresentsBeforeHook). One store, once.
+                std::atomic_ref<uint32_t> before{g_state->dxgiPresentsBeforeHook};
+                before.store(dxgiCount, std::memory_order_relaxed);
             }
             slot->lastDxgiCount = dxgiCount;
             slot->dxgiEpoch = epoch;
@@ -2749,6 +2758,16 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
     }
 
     std::atomic_ref<uint32_t> status{g_state->status};
+
+    // "Not read" until the first hooked present, so a title that never presents is
+    // distinguishable from one whose first present the hook was in for. BEFORE the
+    // present hooks go in: a title presenting every 8 ms had its first hooked present
+    // between the install and a store placed after it, and the sentinel overwrote the
+    // measurement (caught by ctest fl_guard [launch] on the first run).
+    {
+        std::atomic_ref<uint32_t> before{g_state->dxgiPresentsBeforeHook};
+        before.store(0xFFFFFFFFu, std::memory_order_relaxed);
+    }
 
     if (MH_Initialize() != MH_OK || !InstallPresentHooks()) {
         // Hooking failed, so nothing will ever be recorded. Staying at INIT says
