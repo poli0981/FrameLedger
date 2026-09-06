@@ -31,7 +31,18 @@ and traps**. It deliberately carries **no status**.
 
 ## Where P0 actually stands
 
-Two exit criteria remain (`spike-notes.md` §Exit criteria). Do not re-derive them
+**P0 is closed (owner, 2026-09-06).** Both criteria read as met in `spike-notes.md`
+§Exit criteria — criterion 1 with the quality preset amended to an honest `N/A`,
+criterion 2 with §S24 counting zero S-items against it (🚫 S23-2 is a GitHub setting
+outside any PR). **What comes next is P1** (`15_ROADMAP` §P1): the Overlay proper —
+hook installation for D3D11/12/9/OGL, the `LoadLibrary` detour that §S6's early stop
+and lazily loaded runtimes both hang on, unhook path, native logging; the Injector's
+launch mode (§S13(c), §S1's deferred input); the Vulkan layer to `vkQueuePresentKHR`
+with §S2's in-layer supervision. The three P1-deferred S-items (S6, S2 part three, and
+the hand-run blast-radius script behind S29(d)) are the reminders. The text below is
+P0's history and stays as it stood.
+
+Two exit criteria ~~remain~~ were the gate (`spike-notes.md` §Exit criteria). Do not re-derive them
 from memory:
 
 1. **A throwaway build records a real session** from a real offline game reporting

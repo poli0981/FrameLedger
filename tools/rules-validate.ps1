@@ -129,6 +129,42 @@ if ($fragmentCanaryPassed) {
     exit 1
 }
 
+# --- Canary 3: `action` and `signerField` are CONSTANTS the schema pins (§S19(c)) --
+#
+# Neither field is read by the guard, and that is the design rather than a gap:
+# CLAUDE.md rule 2 says `allow` and `warn` do not exist, and 19_SAFETY's signer
+# comparison is the certificate subject's O= (measured — the CN is a WHQL
+# publisher string on every driver). The policy is CODE. The fields exist so that
+# the DATA cannot say otherwise, and this canary is what makes that true: mutate
+# each to the value it must never take and the schema must reject the document.
+# Delete either `const` and the field becomes a lie the guard would not notice.
+$policyCanaryPassed = $false
+try {
+    $mutant = $rulesRaw | ConvertFrom-Json
+    $mutant.anticheat.heuristic.action = 'allow'
+    $policyCanaryPassed = ($mutant | ConvertTo-Json -Depth 100 | Test-Json -Schema $schema -ErrorAction SilentlyContinue)
+}
+catch { $policyCanaryPassed = $false }
+if ($policyCanaryPassed) {
+    Write-Host 'RULES VALIDATION FAILED: the schema accepted anticheat.heuristic.action = "allow".' -ForegroundColor Red
+    Write-Host '  `action` is a const (`warn_and_refuse`) because CLAUDE.md rule 2 says no other' -ForegroundColor Red
+    Write-Host '  action exists; if a rules push can say otherwise, the const is gone. §S19(c).' -ForegroundColor Red
+    exit 1
+}
+$signerFieldCanaryPassed = $false
+try {
+    $mutant = $rulesRaw | ConvertFrom-Json
+    $mutant.anticheat.heuristic.signerField = 'CN'
+    $signerFieldCanaryPassed = ($mutant | ConvertTo-Json -Depth 100 | Test-Json -Schema $schema -ErrorAction SilentlyContinue)
+}
+catch { $signerFieldCanaryPassed = $false }
+if ($signerFieldCanaryPassed) {
+    Write-Host 'RULES VALIDATION FAILED: the schema accepted anticheat.heuristic.signerField = "CN".' -ForegroundColor Red
+    Write-Host '  The guard compares O= (19_SAFETY, measured 2026-08-02: CN is a WHQL publisher' -ForegroundColor Red
+    Write-Host '  string on every driver); a data file must not be able to claim otherwise. §S19(c).' -ForegroundColor Red
+    exit 1
+}
+
 function Test-Member($Object, [string]$Name) {
     return $null -ne $Object -and $Object.PSObject.Properties.Name -contains $Name
 }

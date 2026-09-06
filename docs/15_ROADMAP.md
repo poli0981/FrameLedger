@@ -22,6 +22,11 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 >
 > **Re-read 2026-09-04:** item 7 ✅ (the FG factor is measured, §S31 row P1), item 8's L2 half is written and measured (§M5 row R1), and exit criterion 1 reads **4 of 5** on Cyberpunk 2077 — the quality preset is the one value left, and `HANDOFF` item 7 carries the three things the next session does.
 >
+> **P0 CLOSED 2026-09-06 (owner).** Criterion 1 met with the quality preset amended to an
+> honest `N/A` (`spike-notes` §Exit criteria carries why); criterion 2 met — §S24 counts zero
+> S-items against it, with 🚫 S23-2 outside any PR. The measurement path this phase exists to
+> prove runs end to end in an unshipped capture host, on nine titles. **P1 starts.**
+>
 > The 08-06 block below is kept and is now wrong in one specific clause — it says the writer
 > *"records `measuredMask = FL_MEASURED_OUTPUT_RES | FL_MEASURED_PRESENT_ARGS` and nothing
 > else"*. It records upscaler identity, upscaler params, frame-generation counts and ray
@@ -264,7 +269,7 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 
 *(The former items 7 "Vulkan layer" and 8 "Guard prototype" are now items 1 and 0. §R1/§R2 are folded in, not pending.)*
 
-**Exit criteria:** a throwaway build records a real session from a real offline game reporting *correct* upscaler, quality preset, render→output resolution, FG factor and RT state — verified against the game's own settings menu.
+**Exit criteria:** a throwaway build records a real session from a real offline game reporting *correct* upscaler, quality preset, render→output resolution, FG factor and RT state — verified against the game's own settings menu. *(Met 2026-09-06; the preset is an honest `N/A` by measurement — `spike-notes` §Exit criteria.)*
 
 > **The FPS-impact criterion moves to the end of P1** (`20_OPEN_QUESTIONS` §R4,
 > decided 2026-08-02). "Records a real session" with an Agent CPU/RSS budget

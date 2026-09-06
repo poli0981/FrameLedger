@@ -76,22 +76,22 @@ or it becomes the next stale status claim this file exists to record.
 | **S1** | 🅓 **deferred, rationale written** | Owner decision 2026-08-05. Deciding input — a title loading a presentation runtime lazily — is not on this machine |
 | **S13(c)** | 🅓 **deferred, rationale written** | Same decision as S1; (a) and (b) were already settled |
 | **S19(b)** | 🅓 **deferred, rationale written — and MEASURED** | CI 2026-08-05: the fragment fires on `System.Security.Cryptography.ProtectedData.dll` loaded by a .NET **test host**, i.e. inside a real scan set in the launch-mode arrangement — refusing our own injection. The entry's "plausible and unmeasured" is superseded; the deferral rationale (a `CryptCATAdmin*` PR doing network I/O inside the hard gate, NFR-10) still stands. *(Marked 🔴 until 2026-08-27. The measurement belongs in this cell, not in the marker — a glyph that means "deferred" and a glyph that means "open defect" cannot be the same one in a table audited by counting.)* |
-| **S14** | ◐ **exe half wired 2026-08-05** | Owner decision 2026-08-05: wire it, empty list, unresolvable identity refuses. The **store-id half is blocked** on the platform metadata extractors and cannot be reached through the guard ABI by design |
+| **S14** | 🅓 **exe half wired 2026-08-05; store-id half deferred to P4, rationale written 2026-09-06** | The store-id half's only in-policy route is P4's platform metadata extractors feeding a guard-side resolver; a resolver with no extractor would refuse every title. No title is blocked by store id today because none is listed |
 | **S23-1** | ✅ **resolved 2026-08-05** | `FlGuardBuildId` gives the Agent a build id of its own, and `ShmHandshakeValidator` performs the comparison `07_IPC` and `04_CAPTURE` both specify. Every refusal path is driven, including **both ids empty** — the shape the feature shipped in, where `"" == ""` reported `Ok` for every process on the machine |
 | **S23-4** | ✅ **resolved 2026-08-05** | `19_SAFETY` §During a session said "the module scan and the driver scan"; `EvaluateImpl` runs four. Reworded to "every pre-injection check" so it cannot go stale when a check is added, with the two omissions named — `services` is the only tier measured firing on real anti-cheat, and the pre-scan is the only one touching the filesystem |
-| **S2 part three** | ⏳ **open, sequenced** | In-layer supervision lands with `vkQueuePresentKHR` (P1). Building it sooner would be a predicate whose wrong answer changes nothing observable |
-| **S4 signing** | ⏳ **open, residual accepted** | HTTPS authenticates the host, not the content. Recorded rather than closed — needs a rationale written or a decision |
-| **S6** | ❓ **open, disposition undecided** | Owner: work, or deferral-with-rationale? See the correction block under §S6 for what #40–#44 changed and what it does not |
+| **S2 part three** | 🅓 **deferred to P1, rationale written 2026-09-06** | In-layer supervision lands with `vkQueuePresentKHR` (P1). Building it sooner would be a predicate whose wrong answer changes nothing observable; the layer intercepts nothing, so nothing a user sees waits on it |
+| **S4 signing** | 🅓 **deferred to P4, rationale written 2026-09-06** | Signing is a property of the feed and there is no feed (§S20); every rules file today shipped inside a release whose checksum attests it. The P4 decision (compiled-in key, detached signature, fail-closed) is written in the entry |
+| **S6** | 🅓 **deferred to P1, rationale written 2026-09-06** | The `LoadLibrary` hook that would raise the stop flag on a blocklisted load needs the P1 detour lazily loaded graphics DLLs need; building it twice is the cost of doing it in P0. The 30 s window stays disclosed |
 | **S19(a)** | ✅ **resolved 2026-08-05** | `gameguard` could never fire — `guard` subsumed it. Removed; `rules-validate` now fails when any fragment contains another, so the class cannot return. Zero coverage lost: nProtect has its own named module family |
-| **S19(c)** | ❓ **open, disposition undecided** | `signerField` and `action` are schema-`required` and parsed by nobody. Costing `action` honestly means first deciding `warn`/`allow` may exist, and CLAUDE.md rule 2 says they may not |
+| **S19(c)** | ✅ **resolved 2026-09-06** | The fields are constants the schema pins and the guard never reads, because the policy is code by CLAUDE.md rule 2 and `19_SAFETY`; `rules-validate` now proves the schema rejects `action: "allow"` and `signerField: "CN"` (canary 3), so the data cannot say otherwise |
 | **S19(d) residual** | ✅ **resolved 2026-08-05** | A second canary, **derived from the shipped document** rather than hand-written, carries `nameFragments: []` and must be rejected. The entry's stated consequence was overstated and is corrected in place: the generated floor would not have disappeared, `gen-ac-floor.ps1` hard-errors and the native build fails — what was unguarded is the *schema* half |
-| **S20 feed half** | ❓ **open, disposition undecided** | **FR-7.3 is unmet**: a rules edit reaches no installed machine until a release |
-| **S23-3** | ⏳ **open, sequenced** | `08_UI`'s refusal notice is wrong in the commonest case; needs to reach `08_UI` and the `Safety_*` keys before any UI exists (P3) |
+| **S20 feed half** | 🅓 **deferred to P4, rationale written 2026-09-06** | **FR-7.3 stays unmet and written as unmet**: the fetch needs a shipped Agent, §S4's signing and the privacy policy's rows, all P4; until then a rules edit ships with the next release, checksum-attested |
+| **S23-3** | 🅓 **deferred to P3, rationale written 2026-09-06** | `08_UI`'s refusal notice is wrong in the commonest case; the requirement reaches `08_UI` and the `Safety_*` keys in the PR that creates the first refusal UI — a string with no view would read as done |
 | **S23-5** | ✅ **resolved 2026-08-05** | Closed the way §S23-4 closed the same class — by **removing** the restatement, not correcting it — and `rules-validate` now fails when any `$comment` enumerates checks again. The rule's own first version was scoped to the wrong object and could not fire; it now walks every `$comment` and fails if it finds none |
-| **S23-6** | ◐ **partly closed** | `license-check` now binds `THIRD_PARTY_NOTICES` bidirectionally — the first real gate over anything in `legal/`. The **accuracy blocks remain hand-maintained prose that nothing verifies**, and `DISCLAIMER.md`'s went stale a second time on 2026-08-05 |
+| **S23-6** | ✅ **closed 2026-09-06** | `license-check` binds `THIRD_PARTY_NOTICES` bidirectionally, and the accuracy blocks are now ONE text — `legal/ACCURACY.md`, embedded verbatim in `README.md` and `DISCLAIMER.md` §4, gated by `tools/accuracy-check.ps1` (self-tested both directions). Truth stays a human's job; drift between copies no longer is |
 | **S23-2** | 🚫 **owner only — no PR can close it** | `Rules / validate` is **not** a required status check on `main`. **Re-verified against the live branch protection 2026-08-05**, not repeated from the entry: `required_status_checks.contexts` is exactly `["check", "analyze (csharp, none)", "analyze (cpp, manual)"]` (`strict: true`, `enforce_admins: true`, `required_linear_history: true`). The `validate` job is path-filtered and `pull_request`-only, so a red removal check does not block the merge button. **The gate that exists to make the anti-cheat blocklist un-removable is advisory.** This is a branch-protection setting |
 
-| **S29** | 🔴 **open, new 2026-08-05 — six ✅ and one ◐, counted off the glyphs below on 2026-09-06** | (a) ✅ **closed 2026-09-06**: the managed drain is in the merge gate — §S19(b)'s signer half removed the refusal and `ci.yml` dropped `-SkipIntegration` in the same PR, both mechanisms at once, as the sharpening below said they had to be. *(History: ◐ CORRECTED — the honesty assertion *was* in the merge gate natively (`fl_guard`, 20.58 s on CI); only the **managed** drain was ungated, and §S19(b) was **not** a prerequisite of the feature hooks. Sharpened 2026-08-06: fixing §S19(b) alone would still have gated nothing, because `build.ps1`'s `-SkipIntegration` applied `--filter 'Category!=Integration'` before the guard was ever asked.)* (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) ◐ `vklayer-blastradius` case 3 is now an assertion, but the script still runs only by hand; (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ✅ **closed 2026-08-20**: the normative contradiction between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is settled the way the entry proposed — AS-build activity proves ray tracing is happening, *naming the technique* is what needs a DXIL scan — and rule 7 is amended in the PR that wrote the hooks. Its second half closes with it: `FL_MEASURED_RT` now has a producer (both command-list detours, installed off the game's own device), so all three conjuncts of the `No` branch are live and **`Yes` and `No` are both reachable for the first time**, proved by injection in both directions; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
+| **S29** | 🅓 **six ✅ and one 🅓 on 2026-09-06 — nothing 🔴 remains** | (a) ✅ **closed 2026-09-06**: the managed drain is in the merge gate — §S19(b)'s signer half removed the refusal and `ci.yml` dropped `-SkipIntegration` in the same PR, both mechanisms at once, as the sharpening below said they had to be. *(History: ◐ CORRECTED — the honesty assertion *was* in the merge gate natively (`fl_guard`, 20.58 s on CI); only the **managed** drain was ungated, and §S19(b) was **not** a prerequisite of the feature hooks. Sharpened 2026-08-06: fixing §S19(b) alone would still have gated nothing, because `build.ps1`'s `-SkipIntegration` applied `--filter 'Category!=Integration'` before the guard was ever asked.)* (b) ✅ `fl_vtable_indices` now pins the Overlay's indices through a shared header; (c) ✅ **closed 2026-08-06 by deleting `ShouldUnhookAsync`** — zero production callers, strictly weaker than `ScanOnceAsync`, and inverted in polarity; the gate's public instance surface is now pinned to `{StartAsync}`; (d) 🅓 **deferred 2026-09-06 on a measurement** — `ci.yml` now prints a Vulkan runtime census, and the script runs as a CI step the day a runner has a loader; until then it stays hand-run before any layer PR, with the P1 Vulkan entry as the reminder (the pre-commitment in the entry covers both rows); (e) ✅ **closed 2026-08-06 host-side**, with a held process handle and a classifier that takes no elapsed-time parameter, so a frozen `writeIndex` can never end a session; (f) ✅ **closed 2026-08-20**: the normative contradiction between CLAUDE.md rule 7 and `03_METRICS` about inline RayQuery is settled the way the entry proposed — AS-build activity proves ray tracing is happening, *naming the technique* is what needs a DXIL scan — and rule 7 is amended in the PR that wrote the hooks. Its second half closes with it: `FL_MEASURED_RT` now has a producer (both command-list detours, installed off the game's own device), so all three conjuncts of the `No` branch are live and **`Yes` and `No` are both reachable for the first time**, proved by injection in both directions; (g) ✅ the present-only writer claimed `FL_MEASURED_OUTPUT_RES` unconditionally, including on records with no size |
 | **S30** | ✅ **closed 2026-08-15** | Answered on the title that raised it: with Ray Reconstruction on, Cyberpunk 2077 evaluates `kFeatureDLSS_RR` on every application frame and `kFeatureDLSS` **not once**, so RR was doing the upscaling and the decode had no arm for it. Evidence rather than inference: `renderW/H` are published only on a frame that drained an evaluation and read 1485×835 = 0.58 × 2560×1440, so the scaling-input tag arrives ON the RR evaluation. Two further defects fell out — the pre-committed decision table had two holes, and the fix contaminated the census that found it (it derived the id from the decoded byte) |
 | **S31** | ✅ **resolved 2026-09-04 — row P1, and `tokens/batch = 1.00`** | Is a drained Streamline batch an application frame? **Yes.** The `slGetNewFrameToken` count (#103, #105) reads 1.00 / 2.99 / 3.99 against Cyberpunk's own off / ×3 / ×4 and 4.00 on Hell Is Us, and on every leg with batches the two counts agree to the frame. Two independent per-frame API counts are the oracle four instruments could not be. `fg_factor` is published; `none` is reachable by counting. *(The row as it stood while open:)* ◐ **row P2, 2026-08-27 — the ORACLE is retired, the QUESTION is not** | Is a drained Streamline batch an application frame? The PresentMon 2.x `FrameType` test, with its decision table pre-committed BEFORE the run and `tools/frametype-oracle.ps1` producing the input as two dimensionless ratios. **Two obstacles measured before it could be run**: the console binary will not start a trace session unelevated on the dev box (exit 6; the account is in neither Administrators nor Performance Log Users, and the running shared service does not help), and `--track_frame_type` is a **beta** option whose own help says it needs application or driver instrumentation of the Intel-PresentMon provider — so it may be as unavailable as `fl-baseline-probe` proved to be. Two of the table's six rows retire it outright. Blocks HANDOFF item 3's producer decision |
 | **H11** | ◐ **AMD ffx-api BUILT and RUN 2026-09-04 (A1–A3 accepted; the loader row added the same evening after three loader titles read silent); Intel closed at the census by licence; FSR 3.0 host route deferred to its own PR** | XeFG and FSR3-FG identity. The AMD half is measured on nine titles: the three ffx-api leaves AND the SDK 2.x loader are hooked (the loader turned out to be the game's entry on loader-shipping titles, with the leaves silent behind it), the vendored MIT headers (tag v2.3.0) decode the dispatch descriptor, and rows A1–A3 landed as pre-committed and **R6 closed on Dying Light: The Beast and KCD2 the same night** (`FSR (3.1 or 4 …)` / `FsrFg` / ×2 / 1.01 and `none` / 1.00 through the loader row). Wukong's FSR upscaling is compiled in (Rune Factory's shape; the title has no FSR frame generation), so nothing more is owed on the AMD half; the FSR 3.0 host route is the one deferred piece Intel's SDK failed the licence checklist, so XeSS/XeFG stay at the census (§Scope decisions). `ffx_fsr3_x64.dll` (FSR 3.0, Cyberpunk only here) ~~needs ten host headers from tag v1.1.4 and is deferred with that costing written~~ **built 2026-09-05** from tag `fsr3-v3.0.4` (the docs' `v1.1.4` was the wrong tag: twelve exports match 3.0.4, not 1.1.4's fifteen, and 1.1.4's descriptor appends fields after `renderSize`); one row, the host's UPSCALE; **rows B1–B4 owed** (below) |
@@ -133,6 +133,16 @@ the recount becomes the next thing that needs recounting.
 > **NINE on 2026-09-04.** S31 ✅ — the first S-item closed by a *measurement that answered
 > the question* rather than by a decision to stop asking it, since S30. ❓ three, ⏳ three,
 > ◐ two, 🔴 one, plus 🚫 S23-2. The list above moved in the same edit as this count.
+>
+> **ZERO on 2026-09-06 — exit criterion 2 reads as met, with one item outside any PR.** The
+> owner's closing sweep ("theo bảng"): S19(c) and S23-6 resolved by a gate each, S29 down to
+> one 🅓 on a pre-committed measurement, and six items deferred with their rationale written
+> in the entry and their phase named in this table — S6 and S2 part three to P1, S23-3 to P3,
+> S4 signing, S20 feed half and S14's store-id half to P4. ❓ zero, ⏳ zero, ◐ zero, 🔴 zero.
+> **What remains is 🚫 S23-2**, a branch-protection setting only the owner can change; it is
+> not resolved and not deferred, it is outside what a PR can do, and the criterion's own
+> wording does not reach it. The bullet list above is history as of 2026-09-04 and is left as
+> it stood; this paragraph is the current count.
 >
 > **STILL TEN on 2026-08-27, for the third consecutive movement.** S31 moved from ❓ to ◐,
 > so ❓ goes four to three and ◐ goes two to three. **The number has now stayed at ten across
@@ -406,6 +416,30 @@ writes `HKCU`, and a CI runner is the wrong place to register machine-wide Vulka
 layers) and needs `vulkaninfo` on `PATH`. So the assertion only fires when someone
 runs it by hand. Nothing reminds them, and a loader upgrade is exactly when it
 would matter.
+
+> #### Disposition 2026-09-06, pre-committed on a measurement the same PR takes
+>
+> The "wrong place" argument inverts on a hosted runner: it is disposable, so an implicit
+> layer registered under its `HKCU` harms nothing, and it IS the place a loader upgrade
+> would be noticed. What decides is whether the runner has a Vulkan loader and
+> `vulkaninfo.exe` at all — they ship with a GPU driver's runtime, not with Windows.
+> `ci.yml` now prints a **Vulkan runtime census** (`vulkan-1.dll`, `vulkaninfo.exe`, the
+> ICD registry key) as a measurement step. **Rows:** present → the next PR runs
+> `vklayer-blastradius.ps1` as a CI step and (d) closes ✅; absent → (d) is 🅓 **deferred on
+> that measurement**: the script stays hand-run before any layer PR (`HANDOFF` §Traps), and
+> the reminder is the P1 Vulkan entry that cannot land without running it. Either row ends
+> S29 as an S-item; the count below is written for the absent row and corrected if the
+> census says otherwise.
+>
+> **Read 2026-09-06 off the sweep PR's run (`windows-latest`): `vulkan-1.dll` PRESENT in
+> System32, `vulkaninfo.exe` absent (not in System32, not on PATH), no ICD registry key.** The
+> absent row: **🅓 deferred on that measurement.** The loader is there but nothing to drive it
+> with and nothing for it to drive — `vulkaninfo.exe` ships with a GPU driver's runtime, and
+> without an ICD `vkCreateInstance` fails before the layer question is fully asked. The script
+> stays hand-run before any layer PR. **Reopen condition, written now:** a Vulkan mode of
+> `hook-harness` (unwritten, `12_BUILD` §Targets) could replace `vulkaninfo.exe` as the driver,
+> and whether the loader's layer discovery and `enable_environment` behaviour is observable
+> with no ICD is one measurement away — the P1 Vulkan entry is where it is taken.
 
 **(e) ✅ The reader cannot tell a dead target from a quiet one — closed 2026-08-06,
 host-side, with no ABI change.**
@@ -1339,6 +1373,17 @@ ctest that always skips is a gate that cannot fail.
 
 ### ◐ Part three: mid-session guard inside a layered process — decided, half built
 
+> #### 🅓 Deferred to P1, rationale written 2026-09-06
+>
+> The decision is taken (below: supervision is the Agent's job; a layer that cannot confirm
+> supervision goes inert) and half of it is built. The other half is the in-layer check that
+> reads `guardTicks` — and it has nothing to run on until `vkQueuePresentKHR` is intercepted,
+> which is P1 (`15_ROADMAP` §P1: *"Vulkan layer to parity — `vkQueuePresentKHR` plus the
+> in-layer supervision check §S2 gates on it"*). Building the predicate now would be one
+> whose wrong answer changes nothing observable, the defect class this file records. Cost of
+> waiting: none a user can see — the layer intercepts nothing, so there is no Vulkan capture
+> to stop.
+
 **The mechanism is decided.** The layer does NOT re-scan on its own after init.
 Four options were pressure-tested (2026-08-02); the reasons the other three lost
 are worth keeping, because each looks reasonable until costed:
@@ -1439,6 +1484,16 @@ override with a timer on it.
 **Signing: still open, and deliberately not dismissed.** HTTPS authenticates the
 host, not the content. The rules above let a compromised feed be *rejected* but
 not a genuine one *proven*. Residual risk, recorded rather than closed.
+
+> #### 🅓 Deferred to P4, rationale written 2026-09-06
+>
+> Signing is a property of the feed, and there is no feed (§S20's feed half, deferred to
+> P4 in the same sweep): every rules file on every machine today shipped inside a build
+> whose SHA-256 is published, so the content IS attested, by the release. The decision that
+> belongs to P4 — a compiled-in public key and a detached signature over the rules file,
+> verified before validate-then-replace, with the same fail-closed polarity as the rest of
+> the feed rules — is written here so the feed cannot ship without it. Residual until then:
+> none beyond the release checksum, because nothing fetches.
 
 ### S5 ✅ · `detection-rules.json` schema — **closed**
 
@@ -2283,6 +2338,17 @@ configurable and never was; the field that would express it has no consumer.
 > `warn_and_refuse` — a predicate whose answer changes nothing observable, which
 > is the defect class this file exists to record. Wiring it means first deciding
 > that `warn` or `allow` may exist, and CLAUDE.md rule 2 says they may not.
+>
+> #### ✅ Resolved 2026-09-06 — the consumer is the validator, and the policy is code by rule
+>
+> Decided the way the paragraph above costs it: `warn` and `allow` do not exist (CLAUDE.md
+> rule 2), and the signer field is `O=` by measurement (`19_SAFETY`), so neither field is
+> for the guard to read — they exist so that the DATA cannot claim otherwise. What was
+> missing was the thing that makes that true: `rules-validate` now carries a third canary
+> that mutates the shipped document to `action: "allow"` and to `signerField: "CN"` and
+> requires the schema to reject both. Delete either `const` and the gate goes red. The
+> guard's hardcoded refusal is the specification, and `IsCompiledTrustedSigner` (§S19(b))
+> made the other half of the heuristic code-bounded the same day.
 
 **(d) ◐ The fragment list has unreconciled copies — more than three. The runtime
 hole is CLOSED.** `rules/detection-rules.json`, `guard_test.cpp` (the inline
@@ -2443,6 +2509,14 @@ disproved:
   with validate-then-replace; none of it exists. So **FR-7.3 is unmet**: anti-cheat
   entries cannot reach a machine on their own schedule, only with a release. A
   rules edit still changes nothing on any installed machine until the next build.
+
+  > **🅓 Deferred to P4, rationale written 2026-09-06.** The feed is the product's one
+  > permitted outbound request after the release check (CLAUDE.md rule 8), and it needs
+  > three things P0 does not have: a shipped Agent to run it in, the signing §S4 defers to
+  > the same phase, and the privacy policy's rows that describe it (`legal/PRIVACY_POLICY.md`
+  > already flags them as describing a request the software does not make). Until then a
+  > rules edit reaches a machine with the next release, whose checksum attests it — a slower
+  > delivery, not a weaker gate. FR-7.3 stays unmet and stays written as unmet.
 - **No binary/data handshake inside the guard.** `ParseRules` still walks only the
   `anticheat` subtree and never reads `schemaVersion` or `rulesVersion`. Teaching
   it to refuse an unknown version would be a second machine-wide refusal lever
@@ -2862,7 +2936,7 @@ required contexts are exactly `check`, `analyze (csharp, none)` and
 the gate that exists to make the anti-cheat blocklist un-removable is advisory.
 Fixing it is a branch-protection change, i.e. the owner's, not a code change.
 
-**3. `08_UI` describes a refusal notice that is wrong in the commonest case.** It
+**3. 🅓 Deferred to P3, rationale written 2026-09-06 — `08_UI` describes a refusal notice that is wrong in the commonest case.** *(The requirement below must reach `08_UI` and the `Safety_*` keys in the PR that creates the first refusal UI, and not before: there is no UI to be wrong in yet, and a `.resx` string with no view is the kind of fix that reads as done. The spike log carries the measurement; this line is the reminder.)* It
 promises "the specific signal named in plain language". Measured (`spike-notes`
 §13): while any Easy Anti-Cheat title is running, **every** target — including a
 freshly spawned, unrelated process — refuses with `BlockedService` naming
@@ -2948,6 +3022,15 @@ gate.
 > four-going-on-five unimplemented promises, and now this file's bundling audit —
 > remain hand-maintained prose that nothing verifies. A gate over one table is not
 > a gate over `legal/`.
+>
+> **✅ Closed 2026-09-06, by making there be one block.** `legal/ACCURACY.md` is the single
+> statement of what the software measures, dated; `README.md` and `legal/DISCLAIMER.md` §4
+> embed it verbatim between markers, and `tools/accuracy-check.ps1` — a `build.ps1` gate with
+> a four-case self-test, both directions — fails when any copy differs from the source, when
+> a copy has no markers, or when the source is empty. What the gate does NOT do is decide
+> whether the block is true; that stays with whoever changes the Overlay or the capture host,
+> and the block's own comment says so. The block was rewritten to 2026-09-06 truth in the same
+> PR (the previous §4 note still said frame generation and ray tracing had no hook).
 
 ### S14 ◐ · Pre-injection check 3 is **unwired**, and has no "cannot determine" state
 
@@ -3004,6 +3087,13 @@ nothing.
 > So `MatchesBlockedStoreId` stays implemented, tested and uncalled. **Do not
 > "fix" (2) by widening the ABI.** The route is the metadata extractors plus a
 > guard-side resolver, which is its own PR and its own fail-closed matrix row.
+>
+> **🅓 The store-id half is deferred to P4, rationale written 2026-09-06.** Its only
+> in-policy route is the platform metadata extractors (Steam/GOG/Epic/itch — P4's library
+> import) feeding a guard-side resolver, and a resolver with no extractor behind it would
+> refuse every title (an unresolved id refuses, by the matrix). The executable half is
+> wired and proven red; the data for both halves is empty by decision. Cost of waiting:
+> none — no title is blocked by store id today because none is listed.
 >
 > Proven red: disarming the matcher makes the guard **allow** a blocked
 > executable, and the test asserts `kBlockedExecutable` specifically rather than
@@ -3089,6 +3179,17 @@ the behavior the product treats as most critical.
 acceptable in that hook under the no-allocation rule (it should be), and a
 decision on whether it supplements or replaces the poll. Supplements — the poll
 also catches modules loaded before we hooked.
+
+> #### 🅓 Deferred to P1, rationale written 2026-09-06 (owner: "theo bảng")
+>
+> The mechanism is a `LoadLibrary` hook inside the Overlay raising the control-block flag
+> the moment a blocklisted module name loads, supplementing the 30 s poll. It is specified
+> (`17_HOOK_ENGINE` §DLL entry, deferred install per §H2) and it needs the P1 hook layer's
+> `LoadLibrary` detour to hang on — the same detour lazily loaded graphics DLLs need — so
+> building it in P0 would mean building that detour twice. The cost of waiting is the one
+> the Disclaimer already discloses: up to 30 s between a mid-session load and the stop.
+> Not closed: the name comparison in that hook must be against the compiled floor
+> families and allocation-free, and it supplements the poll rather than replacing it.
 
 ### S7 ✅ · Guard handle rights and WOW64 — **closed**
 

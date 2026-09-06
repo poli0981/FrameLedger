@@ -19,6 +19,19 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P0 closed — the closing sweep (owner: "theo bảng", 2026-09-06).** Exit criterion 1 is met with
+  the quality preset amended to an honest `N/A` by measurement; criterion 2 is met with §S24 counting
+  zero S-items against it. Three items closed by a gate each: **§S19(c)** — `rules-validate` gains a
+  third canary proving the schema rejects `action: "allow"` and `signerField: "CN"`, so the policy is
+  code and the data cannot say otherwise; **§S23-6** — the accuracy blocks are one text,
+  `legal/ACCURACY.md`, embedded verbatim in `README.md` and `legal/DISCLAIMER.md` §4 and gated by
+  `tools/accuracy-check.ps1` (self-tested both directions), and rewritten to 2026-09-06 truth (the old
+  §4 still said frame generation and ray tracing had no hook); **§S29(d)** — `ci.yml` prints a Vulkan
+  runtime census, and the blast-radius script runs as a CI step the day a runner has a loader, deferred
+  on that measurement until then. Six items deferred with their rationale written and their phase named:
+  S6 and S2 part three (P1), S23-3 (P3), S4 signing, S20 feed half and S14's store-id half (P4).
+  `15_ROADMAP` and `HANDOFF` now say P1 starts.
+
 - **The guard's signer half — the other conjunct of "name fragment AND not signed by a known vendor" —
   and the nine integration cases in the merge gate (§S19(b) row G1; owner's bound decision 2026-09-06).**
   Since 2026-08-05 the guard refused FrameLedger's own test host on CI because a .NET host loads
