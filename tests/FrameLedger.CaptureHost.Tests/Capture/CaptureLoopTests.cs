@@ -277,6 +277,56 @@ public sealed class CaptureLoopTests : IDisposable
         CaptureResult r = await loop.RunAsync(_exe, Fingerprint, "payload.dll", TestContext.Current.CancellationToken);
 
         r.RuntimeModules.Should().BeSameAs(RuntimeModuleSet.Empty);
+        r.NgxDriver.Should().BeSameAs(NgxDriverState.NotRun, "no probe was given to the loop");
+    }
+
+    [Fact]
+    public async Task TheDriverProbeRidesOnTheSameTouchAsTheModuleSnapshotAndIsMergedOntoTheResult()
+    {
+        // The probe is out of process and answers per pid; it rides the scan's cadence exactly as the
+        // module snapshot does, and a later answer that differs is reported as a CHANGE, not averaged.
+        var guard = new CountingGuard();
+        using var sink = new FakeSink();
+        int probes = 0;
+        var loop = new CaptureLoop(
+            await StoreWithAsync(), new HookedCaptureGate(guard), guard, new FixedResolver(_pid, SessionEndReason.Running),
+            _ => new FakeLiveness(),
+            _ => (sink, ShmAttachRefusal.Ok),
+            new CaptureOptions
+            {
+                DrainInterval = TimeSpan.FromMilliseconds(1),
+                ScanInterval = TimeSpan.FromMilliseconds(5),
+                AttachBudget = TimeSpan.FromMilliseconds(50),
+                MaxDuration = TimeSpan.FromMilliseconds(120),
+            },
+            modules: null,
+            ngx: pid =>
+            {
+                pid.Should().Be(_pid);
+                probes++;
+                sink.Events.Add("ngx");
+                // The first reading has DLSS not yet created; every later one has it created and evaluated.
+                ulong sr = probes == 1 ? NgxOverrideFlags.Initialized | NgxOverrideFlags.DllExists
+                                       : NgxOverrideFlags.Initialized | NgxOverrideFlags.DllExists | NgxOverrideFlags.CreatedAndEvaluated;
+                return NgxDriverState.Parse($"NGXSTATE status=ANSWERED sr=0x{sr:X16} rr=0x1 fg=0x5 ratio=0.0000 mode=0 preset=0 fgcount=0 fgpreset=0 fgmode=0 driver=61664");
+            });
+
+        CaptureResult r = await loop.RunAsync(_exe, Fingerprint, "payload.dll", TestContext.Current.CancellationToken);
+
+        probes.Should().Be(sink.Published.Count + 1, "one per scan, plus the one before the last drain");
+        r.NgxDriver.Outcome.Should().Be(NgxProbeOutcome.Answered);
+        r.NgxDriver.Readings.Should().Be(probes);
+        r.NgxDriver.Answered.Should().Be(probes);
+        r.NgxDriver.SrCreatedAndEvaluated.Should().BeTrue("the last answered reading is the state");
+        r.NgxDriver.Changed.Should().BeTrue("the first reading differed from the later ones");
+        r.NgxDriver.Driver.Should().Be(61664u);
+        for (int i = 0; i < sink.Events.Count; i++)
+        {
+            if (string.Equals(sink.Events[i], "publish", StringComparison.Ordinal))
+            {
+                sink.Events[i + 1].Should().Be("ngx", "the probe follows the publish directly, on the snapshot's touch");
+            }
+        }
     }
 
     [Fact]

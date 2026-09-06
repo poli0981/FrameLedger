@@ -18,7 +18,7 @@ Derived in the Agent from the record stream; the mapping is in `03_METRICS`. Sum
 | Graphics API + swapchain format, buffer count, swap effect, flags | `CreateSwapChain*` / present hooks |
 | Present mode (flip / blt / independent flip) | swapchain desc + `presentFlags` + `syncInterval` |
 | HDR output | `SetColorSpace1` |
-| Upscaler identity + quality preset | NGX / Streamline / FFX / XeSS create+evaluate calls |
+| Upscaler identity + quality preset | NGX / Streamline / FFX / XeSS create+evaluate calls — **or, when no hook saw one, the NVIDIA driver's per-process NGX word, out of process and attributed (`03_METRICS` §Upscaling, the driver-reported rung, 2026-09-06): identity only, never the preset** |
 | Render resolution vs output resolution (incl. mid-session changes) | upscaler parameter reads + `ResizeBuffers` |
 | Frame Generation mode + factor | NGX/SL/FFX FG feature evaluation, then cadence — **Tier 1 only**. ~~then (Tier 2 only) PresentMon `FrameType`~~ retired (§S31 row P2), and Tier 2 no longer produces frames to run cadence over either |
 | Ray Tracing active | AS builds + `DispatchRays` (both, to catch inline RayQuery) |

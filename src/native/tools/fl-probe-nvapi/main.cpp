@@ -124,6 +124,7 @@ int NgxState(unsigned long pid) {
         NvAPI_GetErrorMessage(init, desc);
         std::printf("  NvAPI_Initialize -> %d (%s)\n  BRANCH: DEGRADED — no usable NVIDIA driver on this machine.\n",
                     static_cast<int>(init), desc);
+        std::printf("NGXSTATE status=DEGRADED nvapi=%d\n", static_cast<int>(init));
         return 2;
     }
     NvU32             driverVersion = 0;
@@ -143,6 +144,7 @@ int NgxState(unsigned long pid) {
         std::printf("  BRANCH: UNANSWERED — the driver did not answer for pid %lu (not an NVIDIA-rendered process, a "
                     "driver older than R570, or the API refusing this caller).\n",
                     pid);
+        std::printf("NGXSTATE status=UNANSWERED nvapi=%d\n", static_cast<int>(status));
         NvAPI_Unload();
         return 3;
     }
@@ -160,6 +162,16 @@ int NgxState(unsigned long pid) {
     std::printf("  frameGenerationPreset %u\n", params.frameGenerationPreset);
     std::printf("  frameGenerationMode   %u\n", params.frameGenerationMode);
     std::printf("  reserved              %u %u\n", params.reserved[0], params.reserved[1]);
+    // THE MACHINE LINE. FrameLedger.CaptureHost spawns this probe beside each module snapshot
+    // (NgxDriverProbe) and reads exactly this line; everything above is for a human. One line,
+    // key=value, hex masks, so a parser cannot mistake a decoded name for a field.
+    std::printf(
+        "NGXSTATE status=ANSWERED sr=0x%016llX rr=0x%016llX fg=0x%016llX ratio=%.4f mode=%u preset=%u fgcount=%u "
+        "fgpreset=%u fgmode=%u driver=%u\n",
+        static_cast<unsigned long long>(params.feedbackMaskSR), static_cast<unsigned long long>(params.feedbackMaskRR),
+        static_cast<unsigned long long>(params.feedbackMaskFG), static_cast<double>(params.scalingRatio),
+        params.performanceMode, params.renderPreset, params.frameGenerationCount, params.frameGenerationPreset,
+        params.frameGenerationMode, driverVersion);
     NvAPI_Unload();
     return 0;
 }

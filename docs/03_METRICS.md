@@ -467,6 +467,33 @@ From the upscaler hooks we get, per frame:
 
 Tier 2 has none of this: `upscaler = unknown`, ratio `N/A`.
 
+> ### The driver-reported rung — owner decision 2026-09-06, identity only
+>
+> Three NGX-direct titles (Lies of P, Hell Is Us, Expedition 33) evaluate DLSS super resolution through
+> a path no hook of this build sees, and printed `upscaler: N/A` on every capture. The NVIDIA driver
+> keeps per-process bookkeeping of the feature — `NvAPI_NGX_GetNGXOverrideState` (R570+, MIT NVAPI,
+> `18_GPU_VENDOR_APIS` L3) returns a feedback word per feature — and **measured 2026-09-06 (driver
+> 616.64) its `CREATED | EVALUATE` bits are set for a process with NO NVIDIA-app override** on both
+> no-override titles (`20_OPEN_QUESTIONS` §H5). So the capture host probes it out of process beside
+> each module snapshot (`fl-probe-nvapi --ngx-state <pid>`, no injection, no consent), and the
+> `upscaler:` line has a rung between the hooks and `N/A`:
+>
+> ```
+> upscaler: Dlss (driver-reported: the NVIDIA driver reports an NGX super-resolution feature created
+>                and evaluated in this process - not counted by this hook)
+> ```
+>
+> **What it may claim: the vendor and the feature, attributed to the driver.** What it may NOT claim,
+> each one measured: a quality (`performanceMode` / `renderPreset` are populated only under an
+> NVIDIA-app override and are then the OVERRIDE's values), a ratio or render size (`scalingRatio` is
+> 0 even under the override), a frame-generation mode or multiplier (the FG word read
+> `INITIALIZED | DLL_EXISTS` beside a ×4 DLSS-G session, and `frameGenerationCount` is the override
+> target). Frame generation stays with the tags and the count. A hook's name always outranks it, and
+> beside a hook's name the driver's word is printed as agreement, or as a disagreement *printed rather
+> than resolved*. Beside an `N/A` with the bit clear it prints the driver's negative, attributed, which
+> says nothing about FSR or XeSS. **The negative is owed** (§H5): a title with DLSS switched off should
+> read the bit clear; if it does not, the rung is withdrawn.
+
 ## RT / PT / RR — evidence-based tri-state
 
 Tri-state `Yes | No | N/A` per session with `source` (`measured | manual | inherited`).

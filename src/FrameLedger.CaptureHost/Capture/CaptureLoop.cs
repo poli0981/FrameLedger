@@ -30,7 +30,8 @@ internal sealed class CaptureLoop(
     Func<int, ITargetLiveness?> liveness,
     Func<int, (ICaptureSink? Sink, ShmAttachRefusal Refusal)> attach,
     CaptureOptions options,
-    Func<int, RuntimeModuleSet>? modules = null)
+    Func<int, RuntimeModuleSet>? modules = null,
+    Func<int, NgxDriverState>? ngx = null)
 {
     /// <summary>Start one session, or say why not.</summary>
     /// <remarks>
@@ -160,13 +161,14 @@ internal sealed class CaptureLoop(
         var records = new List<FlFrameRecord>();
         var gaps = new List<ulong>();
         var focus = new FocusTally();
-        var loaded = new ModuleTally(modules);
+        var loaded = new ModuleTally(modules, ngx);
         SessionEndReason end = await SuperviseAsync(pid, alive, sink, supervisor, records, gaps, focus, loaded, ct)
             .ConfigureAwait(false);
 
         return new CaptureResult
         {
             RuntimeModules = loaded.Set,
+            NgxDriver = loaded.Ngx,
             TouchQpc = loaded.TouchQpc,
             Reason = end,
             Verdict = verdict,
@@ -297,10 +299,16 @@ internal sealed class CaptureLoop(
         return mayContinue;
     }
 
-    /// <summary>Accumulates module snapshots; a loop built without a source takes none.</summary>
-    private sealed class ModuleTally(Func<int, RuntimeModuleSet>? source)
+    /// <summary>
+    /// Accumulates module snapshots and the driver's NGX word; a loop built without a source takes none.
+    /// The NGX probe rides on the same touch as the snapshot: out of process, and the moment a title that
+    /// enabled DLSS from its menu is caught by the next scan, exactly as a late-loading module is.
+    /// </summary>
+    private sealed class ModuleTally(Func<int, RuntimeModuleSet>? source, Func<int, NgxDriverState>? ngxSource)
     {
         public RuntimeModuleSet Set { get; private set; } = RuntimeModuleSet.Empty;
+
+        public NgxDriverState Ngx { get; private set; } = NgxDriverState.NotRun;
 
         /// <summary>
         /// When this host touched the target — a guard scan just completed, and the module snapshot
@@ -316,6 +324,11 @@ internal sealed class CaptureLoop(
             if (source is not null)
             {
                 Set = Set.Merge(source(pid));
+            }
+
+            if (ngxSource is not null)
+            {
+                Ngx = Ngx.Merge(ngxSource(pid));
             }
         }
     }

@@ -54,6 +54,12 @@ internal sealed record CaptureResult
     public RuntimeModuleSet RuntimeModules { get; init; } = RuntimeModuleSet.Empty;
 
     /// <summary>
+    /// The NVIDIA driver's per-process NGX word, probed out of process beside each module snapshot and merged.
+    /// <see cref="NgxDriverState.NotRun"/> when the loop had no probe.
+    /// </summary>
+    public NgxDriverState NgxDriver { get; init; } = NgxDriverState.NotRun;
+
+    /// <summary>
     /// QPC timestamps of every moment this host touched the target's process — a guard scan
     /// completing, followed by the module snapshot — in the records' own clock, so a stall in the
     /// frame stream can be checked against what FrameLedger itself was doing at that moment.

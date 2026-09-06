@@ -763,10 +763,13 @@ Cyberpunk 2077 never chains `sl::DLSSOptions`, so 0xFF there is the title's trut
   gap the tags cannot close.~~ **RAN 2026-09-06 on Hell Is Us, Expedition 33 and Lies of P (§H5, `spike-notes`
   §9): `CREATED | EVALUATE` on the SR word without an override on both no-override titles — the identity
   exists in the driver's bookkeeping; the FG word does not see DLSS-G at ×4; `frameGenerationCount` is the
-  override target, `scalingRatio` is 0 even under an override.** **START HERE next: the owner decides the
+  override target, `scalingRatio` is 0 even under an override.** ~~**START HERE next: the owner decides the
   driver-reported rung (§H5 says exactly what it may claim: `Dlss (driver-reported …)` on a session where
   every hook says N/A, nothing about quality, ratio or FG), and the negative is owed first — the probe on
-  Lies of P with DLSS switched OFF, expected `CREATED` clear.** **The tag route LANDED on the owner's evening run (`spike-notes` §9): `DlssG` on
+  Lies of P with DLSS switched OFF, expected `CREATED` clear.**~~ **Decided and BUILT 2026-09-06: the capture
+  host probes the driver beside every module snapshot and the `upscaler:` line has the driver-reported rung
+  (`03_METRICS` §Upscaling). START HERE next: the owner's run — §H5 rows N1–N4, and N3 (Lies of P with DLSS
+  OFF) is the one that keeps or withdraws the rung.** **The tag route LANDED on the owner's evening run (`spike-notes` §9): `DlssG` on
   six of six Streamline titles, and DL:TB's census shows its scaling-input tag arrives with no size, which
   closes 7a's last question.** If the driver's per-process NGX feedback is
   populated without an NVIDIA-app override, the identity question has a producer that is not a
