@@ -110,6 +110,34 @@ add_dependencies(fl_guard_test hook-harness FrameLedger.Overlay fl_stage_overlay
 
 add_test(NAME fl_guard COMMAND fl_guard_test)
 
+# The Vulkan layer's capture side (P1 item 3), driven by a FAKE loader chain --
+# no registry, no loader, no GPU -- so it is merge-gated. Three ctests, three
+# processes, because one process carries one ring and each DLL flavour makes one.
+# fl_ac_rules.cpp is compiled in for LocalAppDataDir / RulesFilePath, the same
+# functions the layer reads through, so the files the test writes land exactly
+# where the layer looks.
+add_executable(fl_vklayer_test vklayer_test.cpp "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/src/fl_ac_rules.cpp")
+target_include_directories(fl_vklayer_test PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Injector/include")
+target_link_libraries(fl_vklayer_test PRIVATE FrameLedger.Shm fl_native_flags fl_jsmn fl_vulkan_headers
+    Catch2::Catch2WithMain Shell32 Ole32 fl_ac_floor)
+add_dependencies(fl_vklayer_test fl_ac_floor_gen FrameLedger.VkLayer fl_vklayer_shortdeadline hook-harness)
+target_compile_options(fl_vklayer_test PRIVATE /EHsc)
+target_compile_definitions(fl_vklayer_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX
+    FL_VKLAYER_DLL=L"$<TARGET_FILE:FrameLedger.VkLayer>"
+    FL_VKLAYER_SHORTDEADLINE_DLL=L"$<TARGET_FILE:fl_vklayer_shortdeadline>"
+    # The directory the loader is pointed at through VK_ADD_IMPLICIT_LAYER_PATH:
+    # it holds the generated manifest beside the DLL.
+    FL_VKLAYER_MANIFEST_DIR=L"$<TARGET_FILE_DIR:FrameLedger.VkLayer>"
+    FL_HARNESS_EXE=L"$<TARGET_FILE:hook-harness>"
+    FL_REPO_RULES=L"${CMAKE_SOURCE_DIR}/../../rules/detection-rules.json"
+)
+add_test(NAME fl_vklayer COMMAND fl_vklayer_test "[vklayer]")
+add_test(NAME fl_vklayer_supervision COMMAND fl_vklayer_test "[vklayer-deadline]")
+# The real-loader leg SKIPS (Catch2 exit 4) where there is no Vulkan loader or no
+# presentable device -- CI, per the §S29(d) census -- and runs on a dev box.
+add_test(NAME fl_vklayer_real COMMAND fl_vklayer_test "[vklayer-real]")
+set_tests_properties(fl_vklayer_real PROPERTIES SKIP_RETURN_CODE 4)
+
 # Check 4's fail-closed matrix, as its own ctest name so a regression in the
 # static pre-scan is legible in the ctest summary rather than buried in
 # fl_guard's total. Same binary, selected by tag — duplicating the evidence

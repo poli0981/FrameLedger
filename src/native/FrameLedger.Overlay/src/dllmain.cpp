@@ -49,10 +49,10 @@
 #include <fl_ring.h>
 #include <fl_rt_accum.h>
 #include <fl_shm.h>
+#include <fl_shm_host.h>
 #include <fl_sl_inputs.h>
 #include <fl_sl_seen.h>
 #include <MinHook.h>
-#include <sddl.h>
 
 // Its own block, below the sorted one, because it needs Family/Group/MatchKind
 // from fl_ac_rules.h and clang-format sorts each block independently. Types plus
@@ -101,134 +101,15 @@ void*          g_base = nullptr;
 fl::RingWriter g_writer;
 HANDLE         g_initThread = nullptr;
 
-// The mapping is created with a DACL granting ONLY the current user's SID, and
-// lives in the session-scoped Local\ namespace (docs/07_IPC.md §Security). No
-// Global\ object: it would need admin and would be visible across sessions for
-// no benefit.
-//
-// Returns false rather than falling back to a default DACL. A mapping the whole
-// machine can write is not a degraded version of this one -- the Agent's control
-// block is in it, and unhookRequested is the safety stop.
-bool BuildUserOnlySecurity(SECURITY_ATTRIBUTES& sa, PSECURITY_DESCRIPTOR& sd) noexcept {
-    sd = nullptr;
-
-    HANDLE token = nullptr;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
-        return false;
-    }
-
-    unsigned char buffer[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE]{};
-    DWORD         got = 0;
-    const BOOL    ok = GetTokenInformation(token, TokenUser, buffer, sizeof(buffer), &got);
-    CloseHandle(token);
-    if (!ok) {
-        return false;
-    }
-
-    LPWSTR      sidText = nullptr;
-    const auto* user = reinterpret_cast<const TOKEN_USER*>(buffer);
-    if (!ConvertSidToStringSidW(user->User.Sid, &sidText)) {
-        return false;
-    }
-
-    // D:P = a protected DACL, so nothing is inherited in. One ACE, generic all,
-    // for us alone.
-    wchar_t   sddl[256]{};
-    const int n = _snwprintf_s(sddl, _TRUNCATE, L"D:P(A;;GA;;;%ls)", sidText);
-    LocalFree(sidText);
-    if (n < 0) {
-        return false;
-    }
-
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, SDDL_REVISION_1, &sd, nullptr)) {
-        return false;
-    }
-
-    sa.nLength = sizeof(sa);
-    sa.lpSecurityDescriptor = sd;
-    sa.bInheritHandle = FALSE;
-    return true;
-}
-
-// Local\FrameLedger.Ring.<pid>. Deliberately plain and identifiable: 19_SAFETY
-// forbids obfuscated object names, because being visible to anti-cheat is the
-// whole design posture.
-bool MakeRingName(wchar_t* out, size_t cap, DWORD pid) noexcept {
-    return _snwprintf_s(out, cap, _TRUNCATE, L"Local\\FrameLedger.Ring.%lu", pid) >= 0;
-}
-
+// The ring host half -- the user-only DACL, the Local\FrameLedger.Ring.<pid> name,
+// the mapping and the handshake -- lives in fl_shm_host.h since P1 item 3, SHARED
+// with the Vulkan layer: one contract, one copy, for both capture sides.
 bool CreateRing() noexcept {
-    SECURITY_ATTRIBUTES  sa{};
-    PSECURITY_DESCRIPTOR sd = nullptr;
-    if (!BuildUserOnlySecurity(sa, sd)) {
-        return false;
-    }
-
-    wchar_t name[128]{};
-    if (!MakeRingName(name, 128, GetCurrentProcessId())) {
-        LocalFree(sd);
-        return false;
-    }
-
-    const size_t bytes = fl::FlShmSizeForCapacity(FL_SHM_DEFAULT_CAPACITY);
-    g_mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, &sa, PAGE_READWRITE, static_cast<DWORD>(bytes >> 32),
-                                   static_cast<DWORD>(bytes & 0xFFFFFFFFu), name);
-    const DWORD err = GetLastError();
-    LocalFree(sd);
-    if (g_mapping == nullptr) {
-        return false;
-    }
-    // A pre-existing mapping under our own pid is not a mapping we understand:
-    // either a stale object or another writer. Refuse rather than share a ring
-    // with an unknown producer.
-    if (err == ERROR_ALREADY_EXISTS) {
-        CloseHandle(g_mapping);
-        g_mapping = nullptr;
-        return false;
-    }
-
-    g_base = MapViewOfFile(g_mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, bytes);
-    if (g_base == nullptr) {
-        CloseHandle(g_mapping);
-        g_mapping = nullptr;
-        return false;
-    }
-    return true;
+    return fl::shmhost::CreateRingMapping(g_mapping, g_base);
 }
 
-// Write-once at init, per docs/07_IPC.md §A + B. adapterLuid is deliberately
-// left 0 = "not yet known": this runs two steps before any graphics module is
-// resolved, and our own dummy device's adapter is not the game's (#36). It is
-// published at first present, with the hook.
 void PublishHandshake() noexcept {
-    auto* h = reinterpret_cast<FlShmHandshake*>(static_cast<unsigned char*>(g_base) + FL_SHM_HANDSHAKE_OFFSET);
-    h->recordSize = sizeof(FlFrameRecord);
-    h->capacity = FL_SHM_DEFAULT_CAPACITY;
-    h->pid = GetCurrentProcessId();
-
-    // FL_BUILD_ID comes from git describe at configure time (FrameLedger.Shm's
-    // CMakeLists). It had no producer at all until #36; without one the Agent's
-    // refuse-to-attach-on-mismatch compares "" with "" forever.
-    const char* build = FL_BUILD_ID;
-    size_t      i = 0;
-    for (; i + 1 < sizeof(h->buildId) && build[i] != '\0'; ++i) {
-        h->buildId[i] = build[i];
-    }
-    h->buildId[i] = '\0';
-
-    LARGE_INTEGER qpc{};
-    QueryPerformanceCounter(&qpc);
-    h->qpcEpoch = static_cast<uint64_t>(qpc.QuadPart);
-
-    h->adapterLuid = 0;
-
-    // layoutVersion LAST, with a release fence in front of it. It is the field a
-    // reader validates first, so it must not become visible before the fields it
-    // vouches for. A reader that saw the version while capacity was still zero
-    // would compute a ring of no slots and read garbage.
-    std::atomic_thread_fence(std::memory_order_release);
-    std::atomic_ref<uint32_t> version{h->layoutVersion};
-    version.store(FL_SHM_LAYOUT_VERSION, std::memory_order_release);
+    fl::shmhost::PublishHandshake(g_base);
 }
 
 // ---------------------------------------------------------------------------

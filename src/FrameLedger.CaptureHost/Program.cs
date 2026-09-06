@@ -23,6 +23,7 @@ using FrameLedger.Infrastructure.AntiCheat;
 using FrameLedger.Infrastructure.Io;
 using FrameLedger.Infrastructure.Ipc;
 using FrameLedger.Infrastructure.Rules;
+using FrameLedger.Infrastructure.Vulkan;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost;
@@ -148,13 +149,26 @@ internal static class Program
     }
 
     /// <summary>Launch mode: the same loop, entered by starting the executable rather than finding it.</summary>
+    /// <remarks>
+    /// The Vulkan layer rides on the launch (P1 item 3): the process gets <c>VK_ADD_IMPLICIT_LAYER_PATH</c> and
+    /// the enable variable, and its image name goes on the layer's enable-list for the session -- no registry,
+    /// nothing machine-wide, removed when the session ends. A D3D title ignores all of it; a Vulkan title is
+    /// observed by the layer and the guard injects nothing (<c>TargetIsVulkanLayered</c>).
+    /// </remarks>
     private static async Task<int> LaunchAsync(FileGameConsentStore store, string exePath, string arguments,
         int seconds)
     {
         string normalised = ExecutableIdentity.Normalise(exePath);
         ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
 
-        CaptureResult result = await BuildLoop(store, seconds)
+        using var vulkan = VkLayerLaunchEnvironment.Prepare(normalised,
+            Path.Combine(AppContext.BaseDirectory, "FrameLedger.VkLayer.dll"));
+        HostConsole.Line(vulkan.ManifestPath is null
+            ? "vulkan layer: NOT staged beside this host - a Vulkan title will present unobserved"
+            : $"vulkan layer: {vulkan.ManifestPath} (via {VkLayerLaunchEnvironment.ImplicitLayerPathVariable}; " +
+              $"enable-list entry '{vulkan.ImageName}' for this session)");
+
+        CaptureResult result = await BuildLoop(store, seconds, (exe, args) => ProcessLauncher.Start(exe, args, vulkan.Variables))
             .RunLaunchedAsync(normalised, observed, Payload, arguments).ConfigureAwait(false);
 
         return await ConcludeAsync(store, normalised, observed, result).ConfigureAwait(false);
@@ -164,7 +178,12 @@ internal static class Program
         ExecutableFingerprint? observed, CaptureResult result)
     {
         HostConsole.Line($"session: {result.Reason}");
-        if (result.Verdict.Reason != Domain.AntiCheat.AntiCheatRefusalReason.Allow)
+        if (result.Verdict.Reason == Domain.AntiCheat.AntiCheatRefusalReason.TargetIsVulkanLayered)
+        {
+            HostConsole.Line("  capture side: the Vulkan implicit layer - the guard passed and nothing was injected " +
+                             "(one ring per process; 17_HOOK_ENGINE §Vulkan)");
+        }
+        else if (result.Verdict.Reason != Domain.AntiCheat.AntiCheatRefusalReason.Allow)
         {
             HostConsole.Line($"  verdict: {result.Verdict.Reason} {result.Verdict.Family} {result.Verdict.Signal}");
         }
@@ -326,7 +345,8 @@ internal static class Program
     }
 
     /// <summary>The loop and its four collaborators, wired the only way this host allows.</summary>
-    private static CaptureLoop BuildLoop(FileGameConsentStore store, int seconds)
+    private static CaptureLoop BuildLoop(FileGameConsentStore store, int seconds,
+        Func<string, string, (int Pid, ITargetLiveness Alive)?>? launcher = null)
     {
         var guard = new NativeAntiCheatGuard();
         return new CaptureLoop(
@@ -356,7 +376,7 @@ internal static class Program
             },
             pid => RuntimeModuleSnapshot.Take(pid, CensusNames.ModuleFileNames),
             NgxDriverProbe.Run,
-            ProcessLauncher.Start);
+            launcher ?? ((exe, args) => ProcessLauncher.Start(exe, args)));
     }
 
     /// <summary>

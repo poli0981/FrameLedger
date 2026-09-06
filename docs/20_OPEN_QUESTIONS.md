@@ -79,7 +79,7 @@ or it becomes the next stale status claim this file exists to record.
 | **S14** | 🅓 **exe half wired 2026-08-05; store-id half deferred to P4, rationale written 2026-09-06** | The store-id half's only in-policy route is P4's platform metadata extractors feeding a guard-side resolver; a resolver with no extractor would refuse every title. No title is blocked by store id today because none is listed |
 | **S23-1** | ✅ **resolved 2026-08-05** | `FlGuardBuildId` gives the Agent a build id of its own, and `ShmHandshakeValidator` performs the comparison `07_IPC` and `04_CAPTURE` both specify. Every refusal path is driven, including **both ids empty** — the shape the feature shipped in, where `"" == ""` reported `Ok` for every process on the machine |
 | **S23-4** | ✅ **resolved 2026-08-05** | `19_SAFETY` §During a session said "the module scan and the driver scan"; `EvaluateImpl` runs four. Reworded to "every pre-injection check" so it cannot go stale when a check is added, with the two omissions named — `services` is the only tier measured firing on real anti-cheat, and the pre-scan is the only one touching the filesystem |
-| **S2 part three** | 🅓 **deferred to P1, rationale written 2026-09-06** | In-layer supervision lands with `vkQueuePresentKHR` (P1). Building it sooner would be a predicate whose wrong answer changes nothing observable; the layer intercepts nothing, so nothing a user sees waits on it |
+| **S2 part three** | ✅ **built 2026-09-06 (P1 item 3)** | In-layer supervision on the present path, landed with `vkQueuePresentKHR`; `unhookRequested` and the tick deadline both stop the layer (passthrough with the reason on the mapping), proven by a fake loader chain and a 1.5 s test-only flavour of the DLL |
 | **S4 signing** | 🅓 **deferred to P4, rationale written 2026-09-06** | Signing is a property of the feed and there is no feed (§S20); every rules file today shipped inside a release whose checksum attests it. The P4 decision (compiled-in key, detached signature, fail-closed) is written in the entry |
 | **S6** | ✅ **built 2026-09-06 (P1 item 1)** | The detour on `kernelbase!LoadLibraryExW` stops the Overlay from inside on an exact-floor MODULE match, within one present or one watchdog iteration, and wakes the lazy installers within milliseconds for an inventoried module; measured against the real Overlay in ctest `fl_guard` `[loader]`/`[S6]`. Exact names only — fragment and signer stay the host's 30 s scan, so the disclosure does not change |
 | **S19(a)** | ✅ **resolved 2026-08-05** | `gameguard` could never fire — `guard` subsumed it. Removed; `rules-validate` now fails when any fragment contains another, so the class cannot return. Zero coverage lost: nProtect has its own named module family |
@@ -430,6 +430,14 @@ would matter.
 > the reminder is the P1 Vulkan entry that cannot land without running it. Either row ends
 > S29 as an S-item; the count below is written for the absent row and corrected if the
 > census says otherwise.
+>
+> **2026-09-06 (P1 item 3): the assertion now lives in a ctest, and it no longer needs the registry.**
+> `fl_vklayer_real` starts the harness's `--vulkan` mode with `VK_ADD_IMPLICIT_LAYER_PATH` pointed at the
+> build tree's manifest and the enable variable set, and asserts the loader mapped the layer and the layer
+> recorded the presents — on every dev-box build, with no HKCU write and nothing left behind. It SKIPS
+> where there is no loader or no presentable device, which is CI's row; the census still decides (d)'s
+> CI leg. `vklayer-blastradius.ps1` remains the hand-run check of the *unset-variable* case (it was run
+> before this PR, green), and the loader-upgrade reminder is now the ctest rather than a HANDOFF trap.
 >
 > **Read 2026-09-06 off the sweep PR's run (`windows-latest`): `vulkan-1.dll` PRESENT in
 > System32, `vulkaninfo.exe` absent (not in System32, not on PATH), no ICD registry key.** The
@@ -1340,7 +1348,7 @@ still lacks.
 > `opengl32` or `vulkan-1` lazily rather than at startup. The owner supplies real
 > fixtures on request; this one has not been found on this machine.
 
-### S2 ◐ · The Vulkan layer has no guard — **both halves done; mid-session unhook still open**
+### S2 ✅ · The Vulkan layer has no guard — **both halves done; part three built 2026-09-06 (P1 item 3)**
 
 An implicit layer is machine-wide and loads **before** anything of ours runs, so
 the injection guard cannot cover it: no module scan, no driver scan, no
@@ -1398,6 +1406,18 @@ ctest that always skips is a gate that cannot fail.
 
 ### ◐ Part three: mid-session guard inside a layered process — decided, half built
 
+> #### ✅ Built 2026-09-06 (P1 item 3), in the PR that added the present hook — as the deferral below said it would be
+>
+> The layer intercepts `vkQueuePresentKHR` (+ `vkCreateSwapchainKHR` / `vkDestroySwapchainKHR`), owns the
+> same ring the Overlay would (`fl_shm_host.h`, one per process) and runs the in-layer check **on the
+> present path**: `unhookRequested` → `UNHOOKED` within one present; `guardTicks` not advancing for the
+> 07_IPC deadline → `UNHOOKED`; `pauseRequested` → no record, still forwarded. "Stops" is passthrough forever
+> with the reason on the mapping. Driven end to end by a fake loader chain (ctest `fl_vklayer`), the deadline
+> proven with a 1.5 s test-only flavour of the DLL (`fl_vklayer_supervision`: ticks every 600 ms keep it
+> alive past the deadline, 1.8 s without one stops it), and the real loader + the harness's `--vulkan` mode
+> on the dev box (`fl_vklayer_real`, 241 records in 4 s; skips on CI, which has no loader). `17_HOOK_ENGINE`
+> §Vulkan carries the shape. **The residual below is unchanged** and the Disclaimer's wording with it.
+>
 > #### 🅓 Deferred to P1, rationale written 2026-09-06
 >
 > The decision is taken (below: supervision is the Agent's job; a layer that cannot confirm
@@ -1459,12 +1479,13 @@ process in the §S16 scan set — and the capture side would then keep observing
 "the Overlay keeps writing (harmless)" on heartbeat loss described an
 unsupervised hooked process as harmless.
 
-**◐ The in-layer half is deliberately NOT built yet, and this stays open.**
+**~~◐ The in-layer half is deliberately NOT built yet, and this stays open.~~ ✅ Built 2026-09-06, see the top of this part.**
 The layer intercepts nothing — `vkQueuePresentKHR` is P1 — so a `ShouldObserve()`
 today would be a predicate whose wrong answer *in either direction* changes
 nothing observable. That is a gate on something that does not exist, which is the
 defect class this file keeps recording. It lands in the PR that adds the present
-hook, where a fake loader chain can drive it end to end.
+hook, where a fake loader chain can drive it end to end. *(It did: `MayObserve()` in
+`layer.cpp`, ctest `fl_vklayer` / `fl_vklayer_supervision`.)*
 
 **Residual, to state rather than discover:** even once built, the mid-session
 *driver* case is invisible from inside a layered process, and a layer cannot

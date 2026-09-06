@@ -205,7 +205,16 @@ Idle → Detected(pid) → Guarded → Injecting → Capturing → Finalizing �
 
 **Vulkan sessions do not pass through `Injecting`.** The layer is loaded by the
 Vulkan loader when the Agent launches an opted-in game, so the path is
-`Detected(pid) → Guarded → Capturing`, skipping injection entirely. This is
+`Detected(pid) → Guarded → Capturing`, skipping injection entirely.
+
+> **Built 2026-09-06 (P1 item 3), through launch mode.** The guard's waiting entry classifies the
+> launched target by what it mapped: `vulkan-1.dll` with no D3D or OpenGL runtime runs the **full** guard
+> and, on a pass, injects nothing — `TargetIsVulkanLayered`, which the loop reads as "attach to the
+> layer's ring" with launch mode's budget (the ring appears at the title's first `vkCreateDevice`). The
+> CaptureHost's `launch` gives the process the layer's environment (`VkLayerLaunchEnvironment`:
+> `VK_ADD_IMPLICIT_LAYER_PATH`, the enable variable, the enable-list line for the session); a D3D title
+> ignores all of it. One ring per process, the first creator owns it (`fl_shm_host.h`). Attach mode on a
+> running Vulkan title stays Tier 2: only a launch can set the loader's environment. This is
 stated because the state machine above, read literally, meant the 30 s guard
 re-scan — which `19_SAFETY` calls the most important runtime behaviour in the
 capture layer — was not specified to run for Vulkan at all. It runs for **every

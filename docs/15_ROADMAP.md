@@ -290,8 +290,10 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > launch mode (§S13(c), §S1's deferred input) — **landed 2026-09-06 as "inject late"**
 > (`FlGuardedInjectWhenReady`, the CaptureHost `launch` verb, `dxgiPresentsBeforeHook` as the cost meter;
 > `04_CAPTURE` §Launch mode); **3** the Vulkan layer to `vkQueuePresentKHR` with §S2's
-> in-layer supervision and a harness Vulkan mode (reopens §S29(d)'s CI leg); **4** the unhook path,
-> native logging, D3D9 / OpenGL.
+> in-layer supervision and a harness Vulkan mode — **landed 2026-09-06** (`layer.cpp` capture side,
+> `fl_shm_host.h` shared with the Overlay, `hook-harness --vulkan`, ctest `fl_vklayer*`, launch mode's
+> `TargetIsVulkanLayered` branch; §S2 ✅, §S29(d)'s assertion now a ctest that skips on CI); **4** the
+> unhook path, native logging, D3D9 / OpenGL.
 
 > **The guard already shipped, in P0.** This line used to read "the guard,
 > complete and fully tested — it ships before the first real injection, not

@@ -275,6 +275,47 @@ public sealed class CaptureHostEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task LaunchModeOnAVulkanTargetAttachesToTheLayersRingAndInjectsNothing()
+    {
+        // P1 item 3, from OUTSIDE the process: the host launches the harness in its Vulkan mode with the
+        // layer's environment, the guard passes and injects nothing (TargetIsVulkanLayered), and the
+        // records come from the layer's ring. Skipped honestly where there is no Vulkan loader or no
+        // presentable device -- the harness says so with exit 77, which the session reports as
+        // LaunchTargetExited before any ring existed.
+        if (!File.Exists(Path.Combine(Environment.SystemDirectory, "vulkan-1.dll")))
+        {
+            Assert.Skip("no Vulkan loader on this machine");
+        }
+
+        var store = new FileGameConsentStore(HostConsentFile);
+        ExecutableFingerprint fingerprint = FrameLedger.Infrastructure.Io.ExecutableIdentity.Read(ConsentedExecutable)!.Value;
+        (await store.RecordOperatorAcknowledgementAsync(new OperatorAcknowledgement
+        {
+            Fingerprint = fingerprint,
+            DisclosureVersion = OperatorDisclosure.Version,
+            AcknowledgedAt = DateTimeOffset.UtcNow,
+        }, TestContext.Current.CancellationToken)).Should().Be(ConsentWriteOutcome.Written);
+
+        using Process host = StartHost("launch", "--exe", ConsentedExecutable, "--args", "--vulkan --hold-presenting 8",
+            "--seconds", "5");
+        Task<string> stderrTask = host.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        string stdout = await host.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+        await host.WaitForExitAsync(TestContext.Current.CancellationToken);
+        stdout += "\n---- stderr ----\n" + await stderrTask + $"\n---- exit {host.ExitCode} ----\n";
+
+        if (stdout.Contains(nameof(SessionEndReason.LaunchTargetExited), StringComparison.Ordinal))
+        {
+            Assert.Skip("the harness found no presentable Vulkan device on this machine: " + stdout);
+        }
+
+        stdout.Should().Contain("vulkan layer: ", "the launch names the manifest it wrote and the enable-list entry");
+        stdout.Should().Contain("capture side: the Vulkan implicit layer", stdout);
+        stdout.Should().Contain("apiMask=0x8", "FL_API_VULKAN is bit 3; the ring is the layer's, not an Overlay's");
+        stdout.Should().NotContain("records: 0 ", stdout);
+        host.ExitCode.Should().Be(0, stdout);
+    }
+
+    [Fact]
     public async Task WhenTheTargetExitsTheHostStopsAndSaysWhy()
     {
         // §S29(e). The writer leaves status READY and writeIndex frozen on the way out — DllMain has no

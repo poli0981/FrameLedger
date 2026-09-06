@@ -46,11 +46,14 @@
 #include <vulkan/vk_layer.h>
 #include <vulkan/vulkan.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fl_ac_rules.h>
+#include <fl_ring.h>
 #include <fl_shm.h>
+#include <fl_shm_host.h>
 #include <psapi.h>
 
 namespace fl::vklayer {
@@ -256,7 +259,356 @@ bool MustStayInert() noexcept {
 }
 
 // ---------------------------------------------------------------------------
-// Loader interface. Everything forwards; nothing is observed.
+// The capture side (P1 item 3): the ring, the present record, the stop.
+//
+// Created at the first vkCreateDevice of an ADMITTED process -- not at load, not
+// at vkCreateInstance -- so a process the gates refused never has a mapping
+// with its pid on it. Init is not a hook path; the present hook is, and it
+// follows the Overlay's rules: SEH-guarded, allocation-free, lock-free, no
+// logging, one record, forward.
+// ---------------------------------------------------------------------------
+bool ThisProcessIsEnabledCached();
+
+// The supervision deadline. FL_VKLAYER_TICK_DEADLINE_MS exists so a TEST-ONLY
+// flavour of this DLL (fl_vklayer_shortdeadline, never shipped) can prove the
+// stop within seconds; the shipped layer uses the one number 07_IPC pins, the
+// same the Overlay uses.
+#ifndef FL_VKLAYER_TICK_DEADLINE_MS
+#define FL_VKLAYER_TICK_DEADLINE_MS FL_GUARD_TICK_DEADLINE_MS
+#endif
+constexpr ULONGLONG kTickDeadlineMs = FL_VKLAYER_TICK_DEADLINE_MS;
+
+HANDLE                 g_mapping = nullptr;
+void*                  g_base = nullptr;
+FlWriterState*         g_state = nullptr;
+FlControlBlock*        g_control = nullptr;
+fl::RingWriter         g_writer;
+std::atomic<uint32_t>  g_observing{0};
+std::atomic<uint32_t>  g_captureState{0};    // 0 = not tried, 1 = live, 2 = failed (inert for good)
+std::atomic<uint32_t>  g_frameIndex{0};
+std::atomic<uint32_t>  g_lastTicks{0};
+std::atomic<ULONGLONG> g_lastTickAt{0};
+
+// Which device a queue belongs to is answered by the dispatch key: the loader
+// gives a VkDevice and every VkQueue created from it the SAME first-pointer
+// (the dispatch table), which is how every layer keys its per-device state.
+inline void* DispatchKey(const void* dispatchable) noexcept {
+    return *reinterpret_cast<void* const*>(dispatchable);
+}
+
+struct DeviceSlot {
+    void*                     key = nullptr;
+    PFN_vkQueuePresentKHR     present = nullptr;
+    PFN_vkCreateSwapchainKHR  createSwapchain = nullptr;
+    PFN_vkDestroySwapchainKHR destroySwapchain = nullptr;
+};
+constexpr size_t      kMaxDevices = 8;
+DeviceSlot            g_devices[kMaxDevices];
+std::atomic<uint32_t> g_deviceCount{0};
+
+bool HasDevice(void* key) noexcept {
+    const uint32_t n = g_deviceCount.load(std::memory_order_acquire);
+    for (uint32_t i = 0; i < n && i < kMaxDevices; ++i) {
+        if (g_devices[i].key == key) {
+            return true;
+        }
+    }
+    return false;
+}
+
+const DeviceSlot* FindDevice(void* key) noexcept {
+    const uint32_t n = g_deviceCount.load(std::memory_order_acquire);
+    for (uint32_t i = 0; i < n && i < kMaxDevices; ++i) {
+        if (g_devices[i].key == key) {
+            return &g_devices[i];
+        }
+    }
+    // A queue whose device we never registered (more than kMaxDevices, or a
+    // device created before the gates admitted us): forward through the first
+    // device's next pointer rather than through nothing.
+    return n != 0 ? &g_devices[0] : nullptr;
+}
+
+// Per-swapchain output size, keyed by the non-dispatchable handle; id 0 stays
+// "unidentified" (fl_shm.h), exactly as the Overlay's table does.
+struct SwapchainSlot {
+    std::atomic<uint64_t> handle{0};
+    uint32_t              id = 0;
+    uint16_t              w = 0;
+    uint16_t              h = 0;
+};
+constexpr size_t      kMaxSwapchains = 16;
+SwapchainSlot         g_swapchains[kMaxSwapchains];
+std::atomic<uint32_t> g_nextSwapchainId{1};
+
+const SwapchainSlot* FindSwapchain(VkSwapchainKHR sc) noexcept {
+    const uint64_t key = reinterpret_cast<uint64_t>(sc);
+    for (size_t i = 0; i < kMaxSwapchains; ++i) {
+        if (g_swapchains[i].handle.load(std::memory_order_acquire) == key) {
+            return &g_swapchains[i];
+        }
+    }
+    return nullptr;
+}
+
+void RememberSwapchain(VkSwapchainKHR sc, VkExtent2D extent) noexcept {
+    const uint64_t key = reinterpret_cast<uint64_t>(sc);
+    for (size_t i = 0; i < kMaxSwapchains; ++i) {
+        uint64_t none = 0;
+        if (g_swapchains[i].handle.compare_exchange_strong(none, ~0ull, std::memory_order_acq_rel)) {
+            g_swapchains[i].id = g_nextSwapchainId.fetch_add(1u, std::memory_order_relaxed);
+            g_swapchains[i].w = static_cast<uint16_t>(extent.width > 0xFFFFu ? 0u : extent.width);
+            g_swapchains[i].h = static_cast<uint16_t>(extent.height > 0xFFFFu ? 0u : extent.height);
+            g_swapchains[i].handle.store(key, std::memory_order_release);    // visible LAST
+            return;
+        }
+    }
+    // Full: the present will carry id 0 = unidentified, never a wrong id.
+}
+
+void ForgetSwapchain(VkSwapchainKHR sc) noexcept {
+    const uint64_t key = reinterpret_cast<uint64_t>(sc);
+    for (size_t i = 0; i < kMaxSwapchains; ++i) {
+        uint64_t have = key;
+        if (g_swapchains[i].handle.compare_exchange_strong(have, 0ull, std::memory_order_acq_rel)) {
+            return;
+        }
+    }
+}
+
+// "Stops" = passthrough forever, with the reason on the mapping. There is no
+// unhook: the loader owns the chain, and the Overlay's MH_DisableHook has no
+// equivalent here. First reason wins, exactly as in the Overlay.
+void StopObserving(uint32_t reason) noexcept {
+    uint32_t live = 1;
+    if (!g_observing.compare_exchange_strong(live, 0u, std::memory_order_acq_rel)) {
+        return;
+    }
+    if (g_state != nullptr) {
+        std::atomic_ref<uint32_t> status{g_state->status};
+        status.store(reason, std::memory_order_release);
+    }
+}
+
+LONG FlFilter(DWORD code) noexcept {
+    if (code == EXCEPTION_BREAKPOINT || code == EXCEPTION_SINGLE_STEP) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+void NoteFault() noexcept {
+    if (g_state == nullptr) {
+        return;
+    }
+    std::atomic_ref<uint32_t> faults{g_state->faultCount};
+    if (faults.fetch_add(1, std::memory_order_acq_rel) + 1 >= 3) {
+        StopObserving(fl::FL_STATUS_SELF_DISABLED);    // 17_HOOK_ENGINE §Fault policy: three faults, dormant
+    }
+}
+
+// The present-path decision. Same order and same polarity as the Overlay's
+// MayObserve, minus the LoadLibrary detour it has no equivalent of -- plus the
+// supervision check that the Overlay runs on its watchdog and this layer cannot
+// (§S2 part three). guardTicks counts COMPLETED guard evaluations, not seconds;
+// "never advanced" and "stopped advancing" are the same state, and the clock
+// starts when the mapping is published.
+bool MayObserve() noexcept {
+    if (g_observing.load(std::memory_order_acquire) == 0u) {
+        return false;
+    }
+    if (g_control == nullptr) {
+        return true;
+    }
+    std::atomic_ref<uint32_t> unhook{g_control->unhookRequested};
+    if (unhook.load(std::memory_order_acquire) != 0u) {
+        StopObserving(fl::FL_STATUS_UNHOOKED);
+        return false;
+    }
+
+    std::atomic_ref<uint32_t> ticks{g_control->guardTicks};
+    const uint32_t            now = ticks.load(std::memory_order_acquire);
+    const ULONGLONG           t = GetTickCount64();
+    if (now != g_lastTicks.load(std::memory_order_relaxed)) {
+        g_lastTicks.store(now, std::memory_order_relaxed);
+        g_lastTickAt.store(t, std::memory_order_relaxed);
+    } else if (t - g_lastTickAt.load(std::memory_order_relaxed) >= kTickDeadlineMs) {
+        StopObserving(fl::FL_STATUS_UNHOOKED);
+        return false;
+    }
+
+    std::atomic_ref<uint32_t> paused{g_control->pauseRequested};
+    return paused.load(std::memory_order_relaxed) == 0u;
+}
+
+// Once, on the first admitted vkCreateDevice. Failure -- most likely the ring
+// already existing because an Overlay got there first -- is final: the layer
+// forwards and observes nothing, which is what an un-owned ring requires.
+bool EnsureCapture() noexcept {
+    uint32_t expected = 0;
+    if (!g_captureState.compare_exchange_strong(expected, 3u, std::memory_order_acq_rel)) {
+        // 3 = in progress on another thread; treat as not yet live.
+        return g_captureState.load(std::memory_order_acquire) == 1u;
+    }
+    if (!fl::shmhost::CreateRingMapping(g_mapping, g_base)) {
+        g_captureState.store(2u, std::memory_order_release);
+        return false;
+    }
+    fl::shmhost::PublishHandshake(g_base);
+    g_state = reinterpret_cast<FlWriterState*>(static_cast<unsigned char*>(g_base) + FL_SHM_WRITER_OFFSET);
+    g_control = reinterpret_cast<FlControlBlock*>(static_cast<unsigned char*>(g_base) + FL_SHM_CONTROL_OFFSET);
+    if (!g_writer.Init(g_base, FL_SHM_DEFAULT_CAPACITY)) {
+        g_captureState.store(2u, std::memory_order_release);
+        return false;
+    }
+    g_lastTicks.store(0, std::memory_order_relaxed);
+    g_lastTickAt.store(GetTickCount64(), std::memory_order_relaxed);
+    {
+        std::atomic_ref<uint32_t> api{g_state->apiMask};
+        api.fetch_or(1u << fl::FL_API_VULKAN, std::memory_order_relaxed);
+        std::atomic_ref<uint32_t> hooks{g_state->hooksInstalledMask};
+        hooks.fetch_or(static_cast<uint32_t>(fl::FL_HOOK_PRESENT), std::memory_order_relaxed);
+        // No DXGI counter exists on this path; the word stays "not read".
+        std::atomic_ref<uint32_t> before{g_state->dxgiPresentsBeforeHook};
+        before.store(0xFFFFFFFFu, std::memory_order_relaxed);
+        std::atomic_ref<uint32_t> status{g_state->status};
+        status.store(fl::FL_STATUS_READY, std::memory_order_release);
+    }
+    g_observing.store(1u, std::memory_order_release);
+    g_captureState.store(1u, std::memory_order_release);
+    return true;
+}
+
+// RULE 4: `pPresentInfo` is the argument of the API we intercept, and the only
+// thing read from it is which swapchain(s) it names -- to look up an output size
+// WE recorded at creation. Nothing of the game's is dereferenced beyond that.
+void RecordPresent(const VkPresentInfoKHR* info) noexcept {
+    if (!MayObserve()) {
+        return;
+    }
+    LARGE_INTEGER qpc{};
+    QueryPerformanceCounter(&qpc);
+
+    const SwapchainSlot* slot = nullptr;
+    if (info != nullptr && info->swapchainCount > 0u && info->pSwapchains != nullptr) {
+        slot = FindSwapchain(info->pSwapchains[0]);
+    }
+
+    FlFrameRecord rec{};
+    rec.qpc = static_cast<uint64_t>(qpc.QuadPart);
+    rec.frameIndex = g_frameIndex.fetch_add(1u, std::memory_order_relaxed);
+    rec.api = static_cast<uint8_t>(fl::FL_API_VULKAN);
+    if (slot != nullptr) {
+        rec.swapchainId = slot->id;
+        rec.outputW = slot->w;
+        rec.outputH = slot->h;
+    }
+    // vkQueuePresentKHR carries no sync interval and no present flags, which is
+    // exactly why FL_MEASURED_PRESENT_ARGS exists rather than being assumed
+    // (fl_shm.h); only the output size may be claimed, and only when there is one.
+    rec.measuredMask = (rec.outputW != 0u && rec.outputH != 0u) ? fl::FL_MEASURED_OUTPUT_RES : 0u;
+    g_writer.Publish(rec);
+}
+
+// SEH around OUR code only, never around the forward (the Overlay's rule: a
+// game's fault inside the next layer must not be counted as ours). A separate
+// function because __try cannot share a frame with objects that need unwinding.
+void RecordPresentGuarded(const VkPresentInfoKHR* info) noexcept {
+    __try {
+        RecordPresent(info);
+    } __except (FlFilter(GetExceptionCode())) {
+        NoteFault();
+    }
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo) {
+    const DeviceSlot* d = (queue != nullptr) ? FindDevice(DispatchKey(queue)) : nullptr;
+    RecordPresentGuarded(pPresentInfo);
+    if (d == nullptr || d->present == nullptr) {
+        return VK_ERROR_DEVICE_LOST;    // unreachable by construction: we only hand out this hook for registered
+                                        // devices
+    }
+    return d->present(queue, pPresentInfo);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo,
+                                                  const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain) {
+    const DeviceSlot* d = (device != nullptr) ? FindDevice(DispatchKey(device)) : nullptr;
+    if (d == nullptr || d->createSwapchain == nullptr) {
+        return VK_ERROR_DEVICE_LOST;
+    }
+    const VkResult r = d->createSwapchain(device, pCreateInfo, pAllocator, pSwapchain);
+    if (r == VK_SUCCESS && pCreateInfo != nullptr && pSwapchain != nullptr && *pSwapchain != VK_NULL_HANDLE) {
+        RememberSwapchain(*pSwapchain, pCreateInfo->imageExtent);    // rule 4: the API's own argument
+    }
+    return r;
+}
+
+VKAPI_ATTR void VKAPI_CALL DestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapchain,
+                                               const VkAllocationCallbacks* pAllocator) {
+    if (swapchain != VK_NULL_HANDLE) {
+        ForgetSwapchain(swapchain);
+    }
+    const DeviceSlot* d = (device != nullptr) ? FindDevice(DispatchKey(device)) : nullptr;
+    if (d != nullptr && d->destroySwapchain != nullptr) {
+        d->destroySwapchain(device, swapchain, pAllocator);
+    }
+}
+
+// After the next layer's vkCreateDevice succeeded in an admitted process: the
+// ring (once) and this device's next-pointers, resolved through the chain's own
+// GetDeviceProcAddr so we call whatever sits below us and never the loader's
+// trampoline for ourselves.
+void RegisterDevice(VkDevice device) noexcept {
+    if (device == nullptr || g_nextGetDeviceProcAddr == nullptr || HasDevice(DispatchKey(device))) {
+        return;
+    }
+    // THE NEXT POINTERS FIRST, UNCONDITIONALLY. Once GetDeviceProcAddr has handed
+    // out our hooks, every present on this device passes through them, and a hook
+    // with nothing to forward to would fail the application's present -- measured
+    // 2026-09-06 as VK_ERROR_DEVICE_LOST on the harness when an injected Overlay
+    // owned the ring and the layer had registered nothing. The ring failing to
+    // come up must only ever mean "observe nothing", never "forward nothing".
+    const uint32_t i = g_deviceCount.load(std::memory_order_acquire);
+    if (i >= kMaxDevices) {
+        return;
+    }
+    DeviceSlot& d = g_devices[i];
+    d.key = DispatchKey(device);
+    d.present = reinterpret_cast<PFN_vkQueuePresentKHR>(g_nextGetDeviceProcAddr(device, "vkQueuePresentKHR"));
+    d.createSwapchain =
+        reinterpret_cast<PFN_vkCreateSwapchainKHR>(g_nextGetDeviceProcAddr(device, "vkCreateSwapchainKHR"));
+    d.destroySwapchain =
+        reinterpret_cast<PFN_vkDestroySwapchainKHR>(g_nextGetDeviceProcAddr(device, "vkDestroySwapchainKHR"));
+    g_deviceCount.store(i + 1u, std::memory_order_release);    // visible LAST
+
+    // Then the capture side, whose failure (an Overlay already owning the ring,
+    // most likely) leaves the hooks in place as pure forwarders.
+    EnsureCapture();
+}
+
+bool Active() noexcept {
+    return ThisProcessIsEnabledCached() && !MustStayInert();
+}
+
+// The three names we answer for, in an admitted process, from either proc-addr
+// entry: applications and layers above us may fetch device functions through
+// vkGetInstanceProcAddr as well.
+PFN_vkVoidFunction OurDeviceFunction(const char* pName) noexcept {
+    if (std::strcmp(pName, "vkQueuePresentKHR") == 0) {
+        return reinterpret_cast<PFN_vkVoidFunction>(&QueuePresentKHR);
+    }
+    if (std::strcmp(pName, "vkCreateSwapchainKHR") == 0) {
+        return reinterpret_cast<PFN_vkVoidFunction>(&CreateSwapchainKHR);
+    }
+    if (std::strcmp(pName, "vkDestroySwapchainKHR") == 0) {
+        return reinterpret_cast<PFN_vkVoidFunction>(&DestroySwapchainKHR);
+    }
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Loader interface. Everything forwards; an admitted process is also observed.
 // ---------------------------------------------------------------------------
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance, const char* pName);
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddr(VkDevice device, const char* pName);
@@ -309,7 +661,13 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDevice(VkPhysicalDevice physicalDevice, con
     }
 
     chain->u.pLayerInfo = chain->u.pLayerInfo->pNext;
-    return createDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
+    const VkResult r = createDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
+    // The capture side comes up HERE and only here: after the next layer built the
+    // device, and only in a process both gates admitted (P1 item 3).
+    if (r == VK_SUCCESS && pDevice != nullptr && Active()) {
+        RegisterDevice(*pDevice);
+    }
+    return r;
 }
 
 // Evaluated once, on first use. The enable-list decides what we INTERCEPT, not
@@ -339,8 +697,7 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance
         return (g_nextGetInstanceProcAddr != nullptr) ? g_nextGetInstanceProcAddr(instance, pName) : nullptr;
     }
 
-    // Exactly the entry points needed to stay in the chain and forward.
-    // vkQueuePresentKHR is deliberately absent — see the file header.
+    // The entry points needed to stay in the chain and forward, then ours.
     if (std::strcmp(pName, "vkGetInstanceProcAddr") == 0) {
         return reinterpret_cast<PFN_vkVoidFunction>(&GetInstanceProcAddr);
     }
@@ -349,6 +706,10 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance
     }
     if (std::strcmp(pName, "vkCreateDevice") == 0) {
         return reinterpret_cast<PFN_vkVoidFunction>(&CreateDevice);
+    }
+    // Past the gate: an admitted process gets our present / swapchain entries.
+    if (PFN_vkVoidFunction ours = OurDeviceFunction(pName); ours != nullptr) {
+        return ours;
     }
     if (g_nextGetInstanceProcAddr == nullptr) {
         return nullptr;
@@ -362,6 +723,17 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddr(VkDevice device, cons
     }
     if (std::strcmp(pName, "vkGetDeviceProcAddr") == 0) {
         return reinterpret_cast<PFN_vkVoidFunction>(&GetDeviceProcAddr);
+    }
+    if (Active()) {
+        if (PFN_vkVoidFunction ours = OurDeviceFunction(pName); ours != nullptr) {
+            // A device that reached us here without passing through CreateDevice
+            // (created before the gates were consulted, or beyond the table) is
+            // registered now, so the hook we hand out always has a next pointer.
+            if (device != nullptr) {
+                RegisterDevice(device);
+            }
+            return ours;
+        }
     }
     if (g_nextGetDeviceProcAddr == nullptr) {
         return nullptr;

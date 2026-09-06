@@ -2125,6 +2125,44 @@ TEST_CASE("launch mode: the poll matches no blocklist, so anti-cheat mapped besi
     CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
 }
 
+TEST_CASE("launch mode: a Vulkan-only presenter passes the FULL guard and is NOT injected -- the layer is the capture "
+          "side",
+          "[guard][inject][launch][vulkan]") {
+    Child child;
+    REQUIRE(StartHarness(child));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.modulesLate = {"kernel32.dll", "vulkan-1.dll"};    // no dxgi, no d3d, no opengl32
+    g.moduleCallsBeforeLate = 2;
+    g.scanSet = {child.pi.dwProcessId};
+
+    const Verdict v = GuardedInjectWhenReadyWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, 10000, FakeSources());
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+    CHECK(v.reason == Reason::kTargetIsVulkanLayered);
+    CHECK_FALSE(v.Allowed());
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+
+    // ...and the full guard really ran: anti-cheat beside vulkan-1 is refused by name.
+    ResetFake();
+    g.modules = {"kernel32.dll", "vulkan-1.dll", "BEClient_x64.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    const Verdict blocked =
+        GuardedInjectWhenReadyWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, 10000, FakeSources());
+    CHECK(blocked.reason == Reason::kBlockedModule);
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+
+    // A title that maps vulkan-1 BESIDE a D3D runtime is STILL the layer's: an NVIDIA
+    // Vulkan ICD maps dxgi + d3d12 itself (measured on the harness's --vulkan mode),
+    // so this is what every Vulkan title looks like there.
+    ResetFake();
+    g.modules = {"kernel32.dll", "vulkan-1.dll", "dxgi.dll", "d3d12.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    const Verdict both = GuardedInjectWhenReadyWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, 10000, FakeSources());
+    CHECK(both.reason == Reason::kTargetIsVulkanLayered);
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
 TEST_CASE("launch mode against the real harness through the real module seam: injected once dxgi maps, and the "
           "writer says how many presents ran unhooked",
           "[guard][inject][shm][launch]") {

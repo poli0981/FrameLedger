@@ -165,6 +165,18 @@ enum class Reason : std::uint8_t {
     kLaunchTargetExited,
     kLaunchNoPresentationRuntime,
 
+    // LAUNCH MODE, the Vulkan branch (P1 item 3). The launched target mapped
+    // vulkan-1.dll (with or without a D3D runtime beside it -- an NVIDIA Vulkan
+    // ICD maps dxgi + d3d12 itself, measured), the full guard PASSED, and
+    // nothing was injected on purpose: a Vulkan title is captured by the implicit
+    // layer the loader mapped into it (17_HOOK_ENGINE §Vulkan), and one process
+    // carries ONE ring -- an Overlay injected beside the layer would find the
+    // mapping already there and stay inert, or win the race and leave the layer
+    // inert with nothing to hook (fl_shm_host.h). Allowed() is false because the
+    // DLL is NOT loaded in the target; the host reads this as "attach to the
+    // layer's ring", not as a refusal.
+    kTargetIsVulkanLayered,
+
     // NOT A REASON. The count, so appending above it updates the exported
     // FlGuardReasonCount by construction.
     //

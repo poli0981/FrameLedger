@@ -19,6 +19,21 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P1 item 3 — the Vulkan layer intercepts `vkQueuePresentKHR` (2026-09-06; `20_OPEN_QUESTIONS` §S2 ✅).**
+  In a process both gates admitted, the layer creates the same ring the Overlay would (`fl_shm_host.h`,
+  now the one home of the DACL / name / handshake for both capture sides; one ring per process, first
+  creator owns it) at the first `vkCreateDevice`, writes one record per present (`api` = Vulkan, output
+  size from `vkCreateSwapchainKHR`'s `imageExtent`, no `PRESENT_ARGS` because the call has none), and
+  forwards everything — including when the ring is not its own, which the first fixture run proved
+  necessary. §S2 part three lands with it: `unhookRequested` and the 07_IPC tick deadline both stop the
+  layer on the present path (passthrough with the reason on the mapping), proven by a fake loader chain
+  (ctest `fl_vklayer`) and a 1.5 s test-only flavour of the DLL (`fl_vklayer_supervision`). The harness
+  gains `--vulkan --hold-presenting N` (real loader via `LoadLibraryW`, hidden window, exit 77 = cannot
+  run here) and ctest `fl_vklayer_real` drives it through the real loader with `VK_ADD_IMPLICIT_LAYER_PATH`
+  — measured honoured by loader 1.4.357 with no registry — skipping on CI. Launch mode classifies a
+  Vulkan-only target as the layer's (`TargetIsVulkanLayered` = 26: full guard, nothing injected, attach to
+  the layer's ring) and the CaptureHost hands the launched process the layer's environment
+  (`VkLayerLaunchEnvironment`: manifest, enable variable, enable-list line for the session).
 - **P1 item 2 — launch mode, built as "inject late" (2026-09-06; `20_OPEN_QUESTIONS` §S1 ◐, §S13(c) ✅).**
   The guard gains `FlGuardedInjectWhenReady(pid, dll, timeoutMs)`: it polls the launched target through
   the module seam — matching no blocklist — until a presentation runtime is mapped, then runs every

@@ -17,7 +17,9 @@
 > charts, no library import, no UI and no installer yet.
 >
 > - **Frame times and output resolution:** measured, from the present hook, for injected D3D11/12
->   titles. The Vulkan layer and OpenGL/D3D9 intercept nothing yet.
+>   titles, and for Vulkan titles **launched through FrameLedger** (the layer intercepts
+>   `vkQueuePresentKHR` since 2026-09-06; a Vulkan title already running when FrameLedger attaches is
+>   not observed). OpenGL/D3D9 intercept nothing yet.
 > - **Which upscaler is running:** measured from the API the game calls — DLSS (with Ray
 >   Reconstruction Yes/No) through NVIDIA Streamline; FSR 2/3.x/4 through AMD's shipped DLLs; DLSS on
 >   titles that bypass Streamline is reported from the NVIDIA driver's own per-process record,

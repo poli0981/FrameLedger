@@ -32,7 +32,14 @@ internal static class ProcessLauncher
     public const string VulkanLayerEnableVariable = "FRAMELEDGER_ENABLE_VK_LAYER";
 
     /// <summary>Start <paramref name="exePath"/> with <paramref name="arguments"/>; null when it could not be started or pinned.</summary>
-    public static (int Pid, ITargetLiveness Alive)? Start(string exePath, string arguments)
+    /// <param name="exePath">The consented executable.</param>
+    /// <param name="arguments">Its own command line, verbatim.</param>
+    /// <param name="environment">
+    /// Variables added to the child's environment — the Vulkan layer's, from
+    /// <c>VkLayerLaunchEnvironment</c>, when the layer is staged beside this host (P1 item 3).
+    /// </param>
+    public static (int Pid, ITargetLiveness Alive)? Start(string exePath, string arguments,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(exePath);
 
@@ -42,6 +49,10 @@ internal static class ProcessLauncher
             WorkingDirectory = Path.GetDirectoryName(exePath) ?? string.Empty,
         };
         psi.Environment[VulkanLayerEnableVariable] = "1";
+        foreach ((string name, string value) in environment ?? new Dictionary<string, string>(StringComparer.Ordinal))
+        {
+            psi.Environment[name] = value;
+        }
 
         Process? process;
         try

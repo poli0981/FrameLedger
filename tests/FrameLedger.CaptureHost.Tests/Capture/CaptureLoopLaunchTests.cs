@@ -200,6 +200,42 @@ public sealed class CaptureLoopLaunchTests : IDisposable
     }
 
     [Fact]
+    public async Task AVulkanLayeredVerdictIsNeitherAllowNorRefusalAndTheLoopAttachesToTheLayersRing()
+    {
+        // P1 item 3: the guard passed, injected nothing, and the ring is the layer's -- so the loop goes
+        // on to attach exactly as it would after an injection, carrying the verdict for the report.
+        var guard = new WaitingGuard
+        {
+            Verdict = AntiCheatVerdict.Refused(AntiCheatRefusalReason.TargetIsVulkanLayered, string.Empty, "vulkan-1 only"),
+        };
+        int attachCalls = 0;
+        var loop = new CaptureLoop(await StoreAsync(consented: true), new HookedCaptureGate(guard), guard,
+            new NeverResolves(), _ => new NoLiveness(),
+            _ =>
+            {
+                attachCalls++;
+                return (null, ShmAttachRefusal.BuildIdMismatch);
+            },
+            new CaptureOptions
+            {
+                DrainInterval = TimeSpan.FromMilliseconds(1),
+                ScanInterval = TimeSpan.FromMilliseconds(5),
+                AttachBudget = TimeSpan.FromMilliseconds(20),
+                MaxDuration = TimeSpan.FromMilliseconds(50),
+                LaunchWaitBudget = TimeSpan.FromSeconds(42),
+            },
+            launcher: (_, _) => (_pid, new NoLiveness()));
+
+        CaptureResult r = await loop.RunLaunchedAsync(_exe, Fingerprint, "payload.dll", string.Empty,
+            TestContext.Current.CancellationToken);
+
+        attachCalls.Should().BeGreaterThan(0, "a layered target is attached to, not refused");
+        r.Reason.Should().Be(SessionEndReason.AttachRefused, "this fixture has no ring");
+        r.Verdict.Reason.Should().Be(AntiCheatRefusalReason.TargetIsVulkanLayered);
+        guard.InjectCalls.Should().Be(0);
+    }
+
+    [Fact]
     public async Task ALoopBuiltWithoutALauncherCannotLaunch()
     {
         var guard = new WaitingGuard();

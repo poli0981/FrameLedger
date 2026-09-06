@@ -45,6 +45,12 @@
 //                        LoadLibrary detour (17_HOOK_ENGINE §DLL entry, §S6): a
 //                        vendor module that appears LATE, or an anti-cheat-named
 //                        one, is what the detour must react to. Up to 4
+//   --vulkan         with --hold-presenting N: a REAL Vulkan swapchain on a hidden
+//                    window instead of the D3D11 one, presented every few ms, so
+//                    the implicit layer's vkQueuePresentKHR is exercised under the
+//                    real loader (P1 item 3). Exit 77 = this machine cannot run it
+//                    (no loader / no presentable device), which the test that
+//                    spawns it reads as SKIP, never as failure. vk_hold.cpp.
 //   --hold-presenting-overflow N
 //                    fill the Overlay's fixed 16-slot swapchain table, then
 //                    present for N seconds on one that cannot get a slot. The
@@ -2778,11 +2784,31 @@ bool ProbeFrameIdentity(Gfx& g) {
 
 }    // namespace
 
+// vk_hold.cpp -- the Vulkan mode (P1 item 3).
+int HoldPresentingVulkan(int seconds, int presentIntervalMs);
+
 int main(int argc, char** argv) {
     std::printf("FrameLedger hook-harness (WARP, headless — no GPU or window required)\n");
 
+    // --vulkan skips the D3D11 device entirely: a Vulkan fixture that also mapped
+    // dxgi + d3d11 would be classified as a D3D target by the launch-mode guard
+    // (fl_guard.cpp FindPresentationRuntime) and get the Overlay instead of the
+    // layer -- the Overlay owning the ring and the layer observing nothing.
+    bool vulkanMode = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--vulkan") == 0) {
+            vulkanMode = true;
+        }
+    }
+    if (vulkanMode) {
+        // A real Vulkan title imports vulkan-1.dll, so it is mapped before its
+        // first instruction; this fixture imports d3d11/dxgi instead. Map the
+        // loader NOW so the launch-mode guard's first poll sees what it would see
+        // on a real title, rather than a D3D process that turns Vulkan later.
+        LoadLibraryW(L"vulkan-1.dll");
+    }
     Gfx g;
-    if (!CreateGfx(g)) {
+    if (!vulkanMode && !CreateGfx(g)) {
         std::printf("FAILED: could not create the graphics objects\n");
         return 2;
     }
@@ -2796,6 +2822,7 @@ int main(int argc, char** argv) {
     bool ranSomething = false;
     // --real applies to --present and --hold, wherever it appears on the line.
     bool real = false;
+    bool vulkan = false;
     int  plusUi = 0;
 
     // MILLISECONDS BETWEEN PRESENTS in the --hold-presenting modes. 8 is ~120/s and is the default for
@@ -2830,6 +2857,8 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0) {
             real = true;
+        } else if (std::strcmp(argv[i], "--vulkan") == 0) {
+            vulkan = true;
         } else if (std::strcmp(argv[i], "--plus-ui") == 0 && i + 1 < argc) {
             plusUi = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--present-interval-ms") == 0 && i + 1 < argc) {
@@ -2892,10 +2921,11 @@ int main(int argc, char** argv) {
     }
 
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--plus-ui") == 0 ||
-            std::strcmp(argv[i], "--present-interval-ms") == 0 || std::strcmp(argv[i], "--presents-per-eval") == 0 ||
-            std::strcmp(argv[i], "--ffx-topology") == 0 || std::strcmp(argv[i], "--ffx-no-prepare") == 0 ||
-            std::strcmp(argv[i], "--sl-tag-for-frame") == 0 || std::strcmp(argv[i], "--sl-tag-whole-resource") == 0 ||
+        if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--vulkan") == 0 ||
+            std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
+            std::strcmp(argv[i], "--presents-per-eval") == 0 || std::strcmp(argv[i], "--ffx-topology") == 0 ||
+            std::strcmp(argv[i], "--ffx-no-prepare") == 0 || std::strcmp(argv[i], "--sl-tag-for-frame") == 0 ||
+            std::strcmp(argv[i], "--sl-tag-whole-resource") == 0 ||
             std::strcmp(argv[i], "--sl-tag-dlssg-inputs") == 0 || std::strcmp(argv[i], "--load") == 0 ||
             std::strcmp(argv[i], "--load-after-ms") == 0) {
             if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
@@ -3056,6 +3086,13 @@ int main(int argc, char** argv) {
             }
             if (f != nullptr) {
                 f->Release();
+            }
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting") == 0 && i + 1 < argc && vulkan) {
+            // The Vulkan mode: its own file, its own exit codes (77 = cannot run here).
+            const int code = HoldPresentingVulkan(std::atoi(argv[++i]), presentIntervalMs);
+            if (code != 0) {
+                return code;
             }
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting") == 0 && i + 1 < argc) {
