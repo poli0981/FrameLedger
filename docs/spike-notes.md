@@ -1913,6 +1913,17 @@ one launch per capture, consent granted after launch. Exit codes and full report
   patches cover; the bypass measured on Dying Light: The Beast is that title's integration. With this row
   every measured NVIDIA title prints the rule-6 trio or a counted `none`, and the owner closed the item.
 
+- **2026-09-06, 12:46, Lies of P at FSR 3.1 + FSR frame generation, on the #129 build — §H11 row A1 again,
+  now with every witness on the page.** `upscaler: Fsr3`, `render -> output: 2560x1440 -> 2560x1440 = 1x` on
+  3,538 records, `frame generation: FsrFg`, `Native FPS: 59.77 -> Displayed FPS: 119.55 (x2 FG)` over 7,042
+  presents; the ffx census `upscale-drained=3518  fg-dispatch-drained=3518  frames=3520`, `presents/frame=2.00`,
+  `frames/upscale-drained=1.00`; `DXGI present counter: unseen=0 over samples=7096` (the FSR 3.1 pacer presents
+  through the patched body); the NVIDIA driver's word `SR 0x5` / `FG 0x90001` — nothing created, so the
+  driver-reported rung correctly says nothing beside an AMD identity. The census names only
+  `amd_fidelityfx_dx12.dll` (the 3.1 monolith Lies of P calls) — the AMD half of 7c is complete on its oracle.
+  Same run, Rune Factory at DLSS + FG ×4: `125.45 → 498.51 (×3.97)`, `Dlss (driver-reported)`, `DlssG` with the
+  driver agreeing — the 7b title on its NVIDIA path.
+
 ## 10 · Telemetry layering
 
 - L1 baseline vendor-neutral:
