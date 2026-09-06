@@ -92,25 +92,21 @@ jobs:
       # not part of `build.ps1 check`: it mutates HKCU, and a CI runner is the
       # wrong place to be registering machine-wide Vulkan layers.
 
-      # -SkipIntegration, and the reason is a MEASURED property of the hard gate
-      # rather than CI being awkward.
-      #
-      # The drain end-to-end tests inject the Overlay into hook-harness, which
-      # makes the TEST HOST the target's parent — and §S16 puts a target's
-      # ancestors in the scan set. A .NET host can load
-      # System.Security.Cryptography.ProtectedData.dll, whose name contains the
-      # heuristic fragment `protect`, so the guard refuses our own harness with
-      # SuspiciousUnsigned. Measured here on 2026-08-05; it passes on a dev box
-      # whose test host happens not to load that assembly, which is why CI is the
-      # machine that found it.
-      #
-      # That is the guard behaving as specified. The defect is §S19(b) — the
-      # fragment matching a benign, widely-loaded Microsoft assembly — and fixing
-      # it is a guard change with its own PR, not something to work around here.
-      # Until then these run locally and CI says out loud that it skipped them.
+      # NO -SkipIntegration, since 2026-09-06, and the reason it was here is worth
+      # keeping: the drain end-to-end tests inject the Overlay into hook-harness,
+      # which makes the TEST HOST the target's parent — §S16 puts ancestors in the
+      # scan set — and a .NET host loads System.Security.Cryptography.ProtectedData.dll,
+      # whose name carries the heuristic fragment `protect`. From 2026-08-05 the
+      # guard refused our own harness here with SuspiciousUnsigned, and CI said out
+      # loud that it skipped nine cases. §S19(b)'s signer half now verifies that
+      # module's embedded signature offline and reads O=Microsoft Corporation, so
+      # the refusal is gone for the reason 19_SAFETY always gave ("fragment AND not
+      # signed by a known vendor"), and the nine cases are in the merge gate. The
+      # switch still exists in build.ps1 for a developer who must, and it skips
+      # loudly; CI is no longer a place it is passed.
       - name: Quality gate
         shell: pwsh
-        run: ./build.ps1 check -SkipIntegration
+        run: ./build.ps1 check
         env:
           CI: 'true'
 

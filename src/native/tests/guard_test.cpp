@@ -142,6 +142,13 @@ struct Fake {
     // exempted, so it must refuse.
     std::set<std::string> pathlessModules;
 
+    // §S19(b) — the signer seam: which modules verify, and as whom. A module absent
+    // from the map has no valid embedded signature (kFailed), which is what an
+    // unsigned DLL and a catalog-only system binary both look like to the embedded
+    // half. Empty by default, so no existing case is silently trusted.
+    std::map<std::string, std::string> signerByModule;
+    Collected                          signerResult = Collected::kOk;
+
     // §S22 — the payload identity seam.
     //
     // DEFAULTS TO THE REAL IMPLEMENTATION, unlike every other member here, and
@@ -297,6 +304,35 @@ Collected FakeModuleIsOurOwn(const wchar_t* modulePath, bool* isOurs) {
     return Collected::kOk;
 }
 
+Collected FakeModuleSignerOrganisation(const wchar_t* modulePath, char* out, std::size_t cap) {
+    if (g.signerResult != Collected::kOk) {
+        // Writes a TRUSTED name and THEN fails — the same trap FakeModuleIsOurOwn
+        // sets: a caller that ignores the return code and reads the buffer would
+        // trust a module the seam could not verify.
+        if (out != nullptr && cap > 0) {
+            strcpy_s(out, cap, "Microsoft Corporation");
+        }
+        return g.signerResult;
+    }
+    if (out == nullptr || cap == 0) {
+        return Collected::kFailed;
+    }
+    out[0] = '\0';
+    if (modulePath == nullptr) {
+        // As the ours fake: answer "trusted" for a null path, deliberately wrong, so
+        // the guard's own null clause is load-bearing rather than redundant.
+        strcpy_s(out, cap, "Microsoft Corporation");
+        return Collected::kOk;
+    }
+    for (const auto& [name, org] : g.signerByModule) {
+        if (FakeModulePath(name) == modulePath) {
+            strcpy_s(out, cap, org.c_str());
+            return Collected::kOk;
+        }
+    }
+    return Collected::kFailed;
+}
+
 Collected FakePayloadIsOurOwn(const wchar_t* dllPath, bool* isOurs) {
     switch (g.payload) {
     case Fake::Payload::kOurs:
@@ -330,6 +366,7 @@ Sources FakeSources() {
     s.EnumerateDirEntries = &FakeEnumDirEntries;
     s.ModuleIsOurOwn = &FakeModuleIsOurOwn;
     s.PayloadIsOurOwn = &FakePayloadIsOurOwn;
+    s.ModuleSignerOrganisation = &FakeModuleSignerOrganisation;
     return s;
 }
 
@@ -1075,13 +1112,158 @@ TEST_CASE("signer comparison is against O=, exact, and untrusted-by-default", "[
     CHECK_FALSE(IsTrustedSigner(rules, ""));
 }
 
-TEST_CASE("a suspicious module name refuses while the signer path is unwired", "[guard][heuristic]") {
+TEST_CASE("a suspicious module name refuses when the signer seam cannot vouch for it", "[guard][heuristic]") {
     ResetFake();
-    g.modules = {"kernel32.dll", "someantitamper64.dll"};
+    g.modules = {"kernel32.dll", "someantitamper64.dll"};    // not in signerByModule: no valid signature
 
     const Verdict v = EvaluateWithSources(1234, FakeSources());
     REQUIRE_FALSE(v.Allowed());
     CHECK(v.reason == Reason::kSuspiciousUnsigned);
+}
+
+// ===========================================================================
+// §S19(b) — the signer half, wired 2026-09-06 on row G1.
+//
+// 19_SAFETY's heuristic is "name fragment AND not signed by a known vendor". The
+// fragment half has refused alone since the guard was written; this is the other
+// conjunct. Most of the cases below are about what it must NOT do, because a
+// clause that can turn a refusal into an allow is a clause that can be reached
+// by the wrong module.
+// ===========================================================================
+TEST_CASE("§S19(b) — the compiled-in bound: the rules file may only INTERSECT it", "[guard][heuristic][S19]") {
+    ResetFake();
+    Rules rules;
+    REQUIRE(ParseRules(g.rulesJson.data(), g.rulesJson.size(), rules) == ParseResult::kOk);
+
+    // On both lists: trusted.
+    CHECK(IsCompiledTrustedSigner("Microsoft Corporation"));
+    CHECK(IsTrustedSigner(rules, "Microsoft Corporation"));
+
+    // On the compiled list, NOT in this rules file (the fixture names three): the
+    // data may narrow, so it is not trusted here.
+    CHECK(IsCompiledTrustedSigner("Intel Corporation"));
+    CHECK_FALSE(IsTrustedSigner(rules, "Intel Corporation"));
+
+    // In the rules file, NOT on the compiled list: the data may not widen. This is
+    // the owner's decision of 2026-09-06 in one assertion.
+    std::string       widened = g.rulesJson;
+    const std::string needle = "\"Valve Corp.\"";
+    const std::size_t at = widened.find(needle);
+    REQUIRE(at != std::string::npos);
+    widened.replace(at, needle.size(), "\"Valve Corp.\", \"Evil Corp\"");
+    Rules wide;
+    REQUIRE(ParseRules(widened.data(), widened.size(), wide) == ParseResult::kOk);
+    CHECK_FALSE(IsCompiledTrustedSigner("Evil Corp"));
+    CHECK_FALSE(IsTrustedSigner(wide, "Evil Corp"));
+    CHECK(IsTrustedSigner(wide, "Valve Corp."));
+
+    // Never a substring, never a prefix, never empty.
+    CHECK_FALSE(IsCompiledTrustedSigner("Microsoft"));
+    CHECK_FALSE(IsCompiledTrustedSigner("NVIDIA Corporation Ltd"));
+    CHECK_FALSE(IsCompiledTrustedSigner(""));
+    CHECK_FALSE(IsCompiledTrustedSigner(nullptr));
+}
+
+TEST_CASE(
+    "§S19(b) — the fragment tier is suppressed for a module signed by a trusted organisation, and for nothing else",
+    "[guard][failclosed][S19]") {
+    ResetFake();
+    g.scanSet = {1234, 4000};
+
+    SECTION("a Microsoft-signed fragment module in an ANCESTOR -> Allow (the CI blocker's shape)") {
+        g.modulesByPid[1234] = {"kernel32.dll", "d3d11.dll"};
+        g.modulesByPid[4000] = {"kernel32.dll", "System.Security.Cryptography.ProtectedData.dll"};
+        g.signerByModule["System.Security.Cryptography.ProtectedData.dll"] = "Microsoft Corporation";
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        INFO("reason was " << ReasonName(v.reason) << " signal=" << v.signal);
+        CHECK(v.Allowed());
+    }
+
+    SECTION("a Microsoft-signed fragment module in the TARGET -> Allow, unlike the ours exemption") {
+        // A game loading a signed key-protection provider is the false refusal
+        // this half exists to remove, so the target is NOT excluded here.
+        g.modulesByPid[1234] = {"kernel32.dll", "mskeyprotect.dll"};
+        g.signerByModule["mskeyprotect.dll"] = "Microsoft Corporation";
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        INFO("reason was " << ReasonName(v.reason) << " signal=" << v.signal);
+        CHECK(v.Allowed());
+    }
+
+    SECTION("signed by an organisation the rules name but the binary does not -> refuse") {
+        std::string       widened = g.rulesJson;
+        const std::string needle = "\"Valve Corp.\"";
+        widened.replace(widened.find(needle), needle.size(), "\"Valve Corp.\", \"Evil Corp\"");
+        g.rulesJson = widened;
+        g.modulesByPid[4000] = {"evilprotect.dll"};
+        g.signerByModule["evilprotect.dll"] = "Evil Corp";
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+    }
+
+    SECTION("signed by an organisation on the compiled list but NOT in this rules file -> refuse") {
+        g.modulesByPid[4000] = {"intelprotect.dll"};
+        g.signerByModule["intelprotect.dll"] = "Intel Corporation";    // the fixture rules name three, not five
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+    }
+
+    SECTION("a seam that CANNOT VERIFY does not suppress, even when it wrote a trusted name") {
+        g.modulesByPid[4000] = {"mskeyprotect.dll"};
+        g.signerByModule["mskeyprotect.dll"] = "Microsoft Corporation";
+        g.signerResult = Collected::kFailed;
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+    }
+
+    SECTION("a MISSING seam does not suppress") {
+        g.modulesByPid[4000] = {"mskeyprotect.dll"};
+        g.signerByModule["mskeyprotect.dll"] = "Microsoft Corporation";
+        Sources s = FakeSources();
+        s.ModuleSignerOrganisation = nullptr;
+
+        const Verdict v = EvaluateWithSources(1234, s);
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+    }
+
+    SECTION("a module we could not LOCATE is not verified") {
+        g.modulesByPid[4000] = {"mskeyprotect.dll"};
+        g.signerByModule["mskeyprotect.dll"] = "Microsoft Corporation";
+        g.pathlessModules = {"mskeyprotect.dll"};
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+    }
+
+    SECTION("LOAD ORDER: a trusted fragment module first, an unsigned one second -> refuse, naming the second") {
+        // The fail-open §S19(b) predicted for a latch-and-skip sink. The trusted
+        // module returns KEEP LOOKING, so the unsigned one after it is still seen.
+        g.modulesByPid[4000] = {"mskeyprotect.dll", "shadyprotect.dll"};
+        g.signerByModule["mskeyprotect.dll"] = "Microsoft Corporation";
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+        CHECK(std::strcmp(v.signal, "shadyprotect.dll") == 0);
+    }
+
+    SECTION("only the FUZZY tier is suppressed — an EXACT blocklist hit stays a hit whoever signed it") {
+        g.modulesByPid[4000] = {"EasyAntiCheat.dll"};
+        g.signerByModule["EasyAntiCheat.dll"] = "Microsoft Corporation";
+
+        const Verdict v = EvaluateWithSources(1234, FakeSources());
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kBlockedModule);
+    }
 }
 
 // ===========================================================================
@@ -1272,6 +1454,115 @@ TEST_CASE("the injection primitive really loads our DLL into another process", "
     CHECK(v.signal[0] == '\0');    // an empty signal means the injection took
 
     CHECK(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+// §S19(b) against the REAL seams. The fakes above prove the decision; these two
+// prove the seam: a real Authenticode verification of a real file the real
+// module walk reported, in a process the real injection targets.
+namespace {
+
+// The CI blocker itself, where the test host's copy is staged from (the NuGet cache).
+// fl-probe-signer looks in the same place, for the same reason.
+std::wstring FindProtectedDataDll() {
+    wchar_t profile[MAX_PATH]{};
+    if (GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH) == 0) {
+        return {};
+    }
+    const std::wstring root = std::wstring(profile) + L"\\.nuget\\packages\\system.security.cryptography.protecteddata";
+    WIN32_FIND_DATAW   fd{};
+    HANDLE             h = FindFirstFileW((root + L"\\*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        return {};
+    }
+    std::wstring best;
+    do {
+        if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 || fd.cFileName[0] == L'.') {
+            continue;
+        }
+        for (const wchar_t* under : {L"\\runtimes\\win\\lib\\net6.0\\", L"\\lib\\net6.0\\"}) {
+            const std::wstring c =
+                root + L"\\" + fd.cFileName + under + L"System.Security.Cryptography.ProtectedData.dll";
+            if (GetFileAttributesW(c.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                best = c;
+            }
+        }
+    } while (FindNextFileW(h, &fd) != 0);
+    FindClose(h);
+    return best;
+}
+
+// Real module walk and real signer, fake everything else: the scan set is the
+// child alone, the rules are the fixture's, and the payload check is real (kReal).
+Sources RealModulesAndSigner() {
+    Sources       s = FakeSources();
+    const Sources real = SystemSources();
+    s.EnumerateModules = real.EnumerateModules;
+    s.ModuleSignerOrganisation = real.ModuleSignerOrganisation;
+    s.ModuleIsOurOwn = real.ModuleIsOurOwn;
+    return s;
+}
+
+bool StartHarnessLoading(Child& child, const std::wstring& dll) {
+    std::wstring cmd = std::wstring(L"\"") + FL_HARNESS_EXE + L"\" --load \"" + dll + L"\" --hold 30";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    if (!CreateProcessW(FL_HARNESS_EXE, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                        &child.pi)) {
+        return false;
+    }
+    Sleep(800);
+    return WaitForSingleObject(child.pi.hProcess, 0) == WAIT_TIMEOUT;
+}
+
+}    // namespace
+
+TEST_CASE("§S19(b), real seams — a target that loaded the Microsoft-signed CI blocker is ALLOWED",
+          "[guard][inject][S19]") {
+    const std::wstring dll = FindProtectedDataDll();
+    if (dll.empty()) {
+        // The NuGet cache is what stages it; a machine that never restored the test
+        // SDK has no copy. Loud, not green: the managed integration cases are the
+        // gate that cannot skip this.
+        SKIP("System.Security.Cryptography.ProtectedData.dll not in the NuGet cache on this machine");
+    }
+
+    Child child;
+    REQUIRE(StartHarnessLoading(child, dll));
+    REQUIRE(TargetHasModule(child.pi.dwProcessId, L"System.Security.Cryptography.ProtectedData.dll"));
+
+    ResetFake();
+    g.scanSet = {child.pi.dwProcessId};
+    const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, RealModulesAndSigner());
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+    REQUIRE(v.Allowed());
+    CHECK(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+}
+
+TEST_CASE("§S19(b), real seams — a target that loaded an UNSIGNED fragment module is REFUSED, naming it",
+          "[guard][inject][S19]") {
+    // The negative: our own unsigned Overlay, copied under a fragment-bearing name to
+    // a directory that is not the guard's — unsigned (CLAUDE.md rule 9), `protect`
+    // in the name, and not ours by file id. Every clause of the heuristic, true.
+    wchar_t temp[MAX_PATH]{};
+    REQUIRE(GetTempPathW(MAX_PATH, temp) != 0);
+    const std::wstring copy = std::wstring(temp) + L"fl_s19_unsigned_protect_fixture.dll";
+    REQUIRE(CopyFileW(FL_OVERLAY_DLL, copy.c_str(), FALSE));
+
+    {
+        Child child;
+        REQUIRE(StartHarnessLoading(child, copy));
+        REQUIRE(TargetHasModule(child.pi.dwProcessId, L"fl_s19_unsigned_protect_fixture.dll"));
+
+        ResetFake();
+        g.scanSet = {child.pi.dwProcessId};
+        const Verdict v = GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, RealModulesAndSigner());
+        INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+        REQUIRE_FALSE(v.Allowed());
+        CHECK(v.reason == Reason::kSuspiciousUnsigned);
+        CHECK(_stricmp(v.signal, "fl_s19_unsigned_protect_fixture.dll") == 0);
+        CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+    }    // the child is gone before its module file is deleted
+    DeleteFileW(copy.c_str());
 }
 
 TEST_CASE("the injected Overlay publishes a handshake the Agent can validate", "[guard][inject][shm]") {

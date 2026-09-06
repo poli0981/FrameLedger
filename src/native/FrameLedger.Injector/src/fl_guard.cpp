@@ -247,6 +247,33 @@ bool ModuleIsExempt(const MatchState& st, const wchar_t* modulePath) noexcept {
     return st.sources->ModuleIsOurOwn(modulePath, &ours) == Collected::kOk && ours;
 }
 
+// §S19(b) — is this fragment-matching module signed by a TRUSTED organisation?
+//
+// The other half of 19_SAFETY's heuristic ("name fragment AND not signed by a
+// known vendor"), wired 2026-09-06 on row G1. Every clause fails towards refusing:
+//
+//   - a null seam does not suppress (Sources members default to nullptr);
+//   - a module whose path we could not obtain cannot be verified;
+//   - anything but kOk from the seam is "could not tell", which is untrusted;
+//   - the organisation must be on BOTH the rules list and the compiled-in bound
+//     (IsTrustedSigner) — full equality, never a substring.
+//
+// Unlike ModuleIsExempt this applies to the TARGET too: a game that loads a
+// Microsoft-signed key-protection provider is exactly the false refusal the
+// signer half exists to remove. Reached only after the fragment matched, so the
+// ~2-4 ms verification is not on the ordinary path.
+bool ModuleIsTrustedSigned(const MatchState& st, const wchar_t* modulePath) noexcept {
+    if (st.sources == nullptr || st.sources->ModuleSignerOrganisation == nullptr || modulePath == nullptr ||
+        st.rules == nullptr) {
+        return false;
+    }
+    char org[kMaxValueLen] = {};
+    if (st.sources->ModuleSignerOrganisation(modulePath, org, sizeof(org)) != Collected::kOk) {
+        return false;
+    }
+    return IsTrustedSigner(*st.rules, org);
+}
+
 // Check 1's sink. The ordering here is the whole of §S22(b).
 bool ModuleSinkFn(void* ctx, const char* name, const wchar_t* modulePath) noexcept {
     auto* st = static_cast<MatchState*>(ctx);
@@ -272,6 +299,13 @@ bool ModuleSinkFn(void* ctx, const char* name, const wchar_t* modulePath) noexce
     // Allow. §S19(b) predicted exactly this and said the detection half has to be
     // restructured rather than extended. This return is that restructure.
     if (ModuleIsExempt(*st, modulePath)) {
+        return true;
+    }
+    // TRUSTED SIGNER: the same KEEP LOOKING, for the same reason. A trusted module
+    // must never STOP the scan, or a genuinely suspicious module loaded after it
+    // is never recorded — the load-order fail-open the paragraph above describes,
+    // reachable through this clause exactly as through the exemption.
+    if (ModuleIsTrustedSigned(*st, modulePath)) {
         return true;
     }
     st->sawSuspicious = true;

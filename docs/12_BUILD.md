@@ -196,9 +196,10 @@ document the app displays for acceptance (FR-11) is a defect, not a template.
 > list of what `check` does was missing 40% of it, which is worse than having no list: a reader
 > plans against it. `13_CI_CD.md` repeats the struct-mirror claim and is corrected with it.
 
-CI runs the identical script (`13_CI_CD`), **with `-SkipIntegration`** — so a green CI is not
-evidence for anything touching the managed drain, and `./build.ps1 check` with no switches is what a
-developer runs before pushing.
+CI runs the identical script (`13_CI_CD`) with no switches since 2026-09-06 — `-SkipIntegration` was
+CI's from 2026-08-05 until §S19(b)'s signer half removed the refusal behind it — so a green CI is now
+evidence for the managed drain too, and `./build.ps1 check` with no switches is what a developer runs
+before pushing.
 
 **Gates skip loudly.** A gate whose tool is not installed (no `cl.exe`) or not
 yet written prints `SKIPPED`, is listed again in the summary, and the run ends

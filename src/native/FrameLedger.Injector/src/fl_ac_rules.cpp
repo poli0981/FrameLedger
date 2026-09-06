@@ -636,11 +636,36 @@ bool HasSuspiciousFragment(const Rules& rules, const char* moduleName) noexcept 
     return false;
 }
 
+// The five organisations the shipped rules name, measured on this machine's
+// binaries (spike-notes §1: WHQL re-signing leaves O= intact, so both GPU vendors'
+// drivers read as Microsoft; their own launchers read as themselves). Adding one is
+// a code change with a review, which is the whole point of the list being here.
+constexpr const char* kCompiledTrustedSigners[] = {
+    "Microsoft Corporation", "NVIDIA Corporation", "Valve Corp.", "Intel Corporation", "Advanced Micro Devices, Inc.",
+};
+
+bool IsCompiledTrustedSigner(const char* signerOrganisation) noexcept {
+    if (signerOrganisation == nullptr || signerOrganisation[0] == '\0') {
+        return false;
+    }
+    for (const char* s : kCompiledTrustedSigners) {
+        if (IEquals(signerOrganisation, s)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool IsTrustedSigner(const Rules& rules, const char* signerOrganisation) noexcept {
     // A signature that is absent, invalid, or simply could not be checked is
     // NOT trusted. The caller passes nullptr for all three, and they all land
     // here as false — which refuses. That direction is deliberate.
     if (signerOrganisation == nullptr || signerOrganisation[0] == '\0') {
+        return false;
+    }
+    // The bound first: an organisation the binary does not know cannot be made
+    // trusted by the data file, whatever the file says.
+    if (!IsCompiledTrustedSigner(signerOrganisation)) {
         return false;
     }
     for (std::size_t i = 0; i < rules.trustedSignerCount; ++i) {

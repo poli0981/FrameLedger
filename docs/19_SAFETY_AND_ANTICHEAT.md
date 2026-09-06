@@ -502,6 +502,23 @@ the entire driver stack read as untrusted, and combined with the `guard` and
 theoretical one. A signature that is absent, invalid, or simply could not be
 checked stays untrusted and refuses — that direction is deliberate.
 
+> **Wired 2026-09-06, the EMBEDDED half only, under a compiled-in bound** (`20_OPEN_QUESTIONS`
+> §S19(b), row G1: the CI leg and the owner's adapters-disabled leg both left every verdict
+> unchanged). `Sources::ModuleSignerOrganisation` verifies a fragment-matching module's embedded
+> Authenticode signature with `WinVerifyTrust` under `WTD_REVOKE_NONE | WTD_CACHE_ONLY_URL_RETRIEVAL`
+> — no CRL or OCSP fetch, measured rather than assumed — and only then reads the subject `O=`. The
+> guard trusts it only if the organisation is on the rules file's `trustedSigners` **and** on the list
+> compiled into the binary (`IsCompiledTrustedSigner`): the rules file may narrow that list and may
+> never widen it, so a rules push cannot widen the hard gate — the boundary of what the gate trusts is
+> code, as it is for the launcher list. A trusted module keeps the scan looking; it never stops it, so
+> an untrusted module loaded after it is still judged. It applies to the injection target as well as
+> to its ancestors — a game that loads a Microsoft-signed key-protection provider is the false refusal
+> this half exists to remove. **Fail-closed rows:** no embedded signature (catalog-only system
+> binaries such as `mskeyprotect.dll` — the `CryptCATAdmin*` half is deferred with its own rationale),
+> an invalid signature, an unreadable `O=`, a null path, a null or failing seam, an organisation on
+> one list but not the other — every one is untrusted and refuses. Cost: ~2–4 ms per verified module,
+> reached only on a fragment hit, inside the 30 s loop.
+
 ### During a session
 
 Re-run **every pre-injection check** every 30 s, for **every Tier-1 session —
