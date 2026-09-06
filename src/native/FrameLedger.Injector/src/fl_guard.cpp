@@ -795,6 +795,15 @@ Verdict GuardedInjectWhenReadyImpl(std::uint32_t targetPid, const wchar_t* dllPa
         }
         Sleep(kPollMs);
     }
+    // A target that died UNDER the scan reads as unreadable from every seam --
+    // "could not name the target's executable" -- which is true and misleading:
+    // the reason it could not be named is that it had gone (measured on CI, a
+    // harness exiting 77 within 100 ms of mapping vulkan-1). The exit is the fact
+    // the caller can act on; the unreadable scan is its consequence.
+    if (!v.Allowed() && v.reason != Reason::kTargetIsVulkanLayered && WaitForSingleObject(proc, 0) == WAIT_OBJECT_0) {
+        v = Refuse(Reason::kLaunchTargetExited, nullptr,
+                   "the target exited while the guard was still looking at it; nothing was injected");
+    }
     CloseHandle(proc);
     return v;
 }

@@ -303,7 +303,12 @@ public sealed class CaptureHostEndToEndTests : IDisposable
         await host.WaitForExitAsync(TestContext.Current.CancellationToken);
         stdout += "\n---- stderr ----\n" + await stderrTask + $"\n---- exit {host.ExitCode} ----\n";
 
-        if (stdout.Contains(nameof(SessionEndReason.LaunchTargetExited), StringComparison.Ordinal))
+        // The harness says so itself (exit 77, a "[SKIP]" line on the shared console) when this
+        // machine has a loader but no device -- a hosted runner's shape. Its exit races the guard's
+        // poll, so the session may read LaunchTargetExited or, if it died under the scan, whatever
+        // the scan could not read; the harness's own line is the signal that does not race.
+        if (stdout.Contains("[SKIP]", StringComparison.Ordinal)
+            || stdout.Contains(nameof(SessionEndReason.LaunchTargetExited), StringComparison.Ordinal))
         {
             Assert.Skip("the harness found no presentable Vulkan device on this machine: " + stdout);
         }
