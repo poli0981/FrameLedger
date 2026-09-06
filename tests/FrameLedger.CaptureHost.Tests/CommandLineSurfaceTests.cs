@@ -24,7 +24,24 @@ public sealed class CommandLineSurfaceTests
         // property that separates it from the --pid / --payload / --force / --yes this host
         // refuses. It exists because CaptureLoop honoured MaxDuration and nothing could set
         // it, so a bounded real-title measurement was impossible to take.
-        CommandLine.AcceptedOptions.Should().BeEquivalentTo(["--exe", "--seconds"]);
+        // THREE since P1 item 2: `--args` is the command line the launched GAME receives. It names
+        // nothing about injection -- payload, target and evidence are exactly what they were -- so it
+        // has the same property `--seconds` has: it cannot widen what is injected or skip a check.
+        CommandLine.AcceptedOptions.Should().BeEquivalentTo(["--exe", "--seconds", "--args"]);
+    }
+
+    [Fact]
+    public void LaunchTakesTheExecutableItsArgumentsAndABound()
+    {
+        CommandLine parsed = CommandLine.Parse(["launch", "--exe", @"C:\a\game.exe", "--args", "--real --hold 3", "--seconds", "9"]);
+
+        parsed.Error.Should().BeNull();
+        parsed.Verb.Should().Be(Verb.Launch);
+        parsed.ExePath.Should().Be(@"C:\a\game.exe");
+        parsed.Arguments.Should().Be("--real --hold 3", "handed to the game verbatim");
+        parsed.Seconds.Should().Be(9);
+        CommandLine.Parse(["launch"]).Error.Should().NotBeNull("--exe is required: there is nothing else to launch");
+        CommandLine.Parse(["launch", "--exe", "g.exe"]).Arguments.Should().BeEmpty();
     }
 
     [Fact]

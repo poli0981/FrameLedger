@@ -66,6 +66,11 @@ watcher sees tracked exe launch
 
 **Launch mode (preferred when FrameLedger starts the game):** `CreateProcess(CREATE_SUSPENDED)` → guard → inject → `ResumeThread`. This catches swapchain creation and early upscaler init, which attach mode can miss. Attach mode remains for games launched from Steam/GOG directly.
 
+> **Built 2026-09-06 as start → the guard waits for a presentation runtime → the full guard → inject**
+> (`FlGuardedInjectWhenReady`, P1 item 2), because a suspended target has loaded nothing for the module
+> scan to read (`20_OPEN_QUESTIONS` §S1). What it costs is measured by the session itself:
+> `FlWriterState.dxgiPresentsBeforeHook`. `04_CAPTURE` §Launch mode carries the shape.
+
 Guard re-runs every 30 s for the life of the session; anti-cheat appearing late ⇒ clean unhook (`19_SAFETY` §During a session).
 
 ## Lifecycle

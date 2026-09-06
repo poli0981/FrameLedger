@@ -23,6 +23,18 @@ public sealed class HookedCaptureGateTests
             return ValueTask.FromResult(Next);
         }
 
+        public int WhenReadyCalls { get; private set; }
+
+        public int WhenReadyWaitMs { get; private set; }
+
+        public ValueTask<AntiCheatVerdict> GuardedInjectWhenReadyAsync(int targetPid, string payloadPath,
+            int timeoutMs, CancellationToken ct = default)
+        {
+            WhenReadyCalls++;
+            WhenReadyWaitMs = timeoutMs;
+            return ValueTask.FromResult(Next);
+        }
+
         public int PreScanCalls { get; private set; }
 
         public ValueTask<AntiCheatVerdict> PreScanGameDirectoryAsync(string gameDirectory,
@@ -47,14 +59,16 @@ public sealed class HookedCaptureGateTests
     private static HookRequest Request(
         bool enabled = true,
         ConsentProvenance provenance = ConsentProvenance.UnshippedHostOperator,
-        string? blocked = null) =>
+        string? blocked = null,
+        int waitMs = 0) =>
         HookRequest.FromConsent(
             GameConsentRecord.Stored(
                 OnDisk, enabled, DateTimeOffset.UnixEpoch, provenance, "unshipped-host-operator/1",
                 blocked, preScanUnverified: false, updatedAt: DateTimeOffset.UnixEpoch),
             OnDisk,
             targetPid: 1234,
-            payloadPath: @"C:\FrameLedger\FrameLedger.Overlay.dll");
+            payloadPath: @"C:\FrameLedger\FrameLedger.Overlay.dll",
+            waitMs);
 
     [Fact]
     public async Task AnEnabledConsentedGame_ReachesTheGuard()
@@ -66,6 +80,37 @@ public sealed class HookedCaptureGateTests
 
         v.IsAllowed.Should().BeTrue();
         guard.InjectCalls.Should().Be(1);
+        guard.WhenReadyCalls.Should().Be(0, "attach mode injects now, not after a wait");
+    }
+
+    [Fact]
+    public async Task ALaunchModeRequest_ReachesTheGuardThroughTheWaitingEntryOnly()
+    {
+        // P1 item 2. The consent checks are the same three, in the same order; the only thing a wait
+        // changes is WHICH guard entry runs the full scan -- and it must never be both.
+        RecordingGuard guard = new();
+        HookedCaptureGate gate = new(guard);
+
+        AntiCheatVerdict v = await gate.StartAsync(Request(waitMs: 60_000), TestContext.Current.CancellationToken);
+
+        v.IsAllowed.Should().BeTrue();
+        guard.WhenReadyCalls.Should().Be(1);
+        guard.WhenReadyWaitMs.Should().Be(60_000);
+        guard.InjectCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ALaunchModeRequestWithoutConsent_ReachesNeitherEntry()
+    {
+        RecordingGuard guard = new();
+        HookedCaptureGate gate = new(guard);
+
+        AntiCheatVerdict v = await gate.StartAsync(Request(provenance: ConsentProvenance.NotRecorded, waitMs: 60_000),
+            TestContext.Current.CancellationToken);
+
+        v.Reason.Should().Be(AntiCheatRefusalReason.ConsentMissing);
+        guard.WhenReadyCalls.Should().Be(0);
+        guard.InjectCalls.Should().Be(0);
     }
 
     [Fact]

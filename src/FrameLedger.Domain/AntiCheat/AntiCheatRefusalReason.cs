@@ -170,4 +170,20 @@ public enum AntiCheatRefusalReason
     /// watchlist resurrecting the game after <c>hook_enabled</c> was forced to 0.
     /// </remarks>
     PreviouslyBlocked = 23,
+
+    /// <summary>
+    /// Launch mode (P1 item 2): the guard was waiting for the launched target to map a presentation
+    /// runtime and the target exited first. Nothing was injected.
+    /// </summary>
+    /// <remarks>
+    /// A launcher that spawned the real game and quit is the ordinary cause (the descendant election is
+    /// the Agent's, P2); a crash is the other. <c>20_OPEN_QUESTIONS</c> §S1 / §S13(c).
+    /// </remarks>
+    LaunchTargetExited = 24,
+
+    /// <summary>
+    /// Launch mode: the budget ran out and the target had mapped no presentation runtime — a 2D title,
+    /// or a launcher still sitting on its window. Nothing was injected.
+    /// </summary>
+    LaunchNoPresentationRuntime = 25,
 }

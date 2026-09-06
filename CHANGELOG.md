@@ -19,6 +19,19 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P1 item 2 — launch mode, built as "inject late" (2026-09-06; `20_OPEN_QUESTIONS` §S1 ◐, §S13(c) ✅).**
+  The guard gains `FlGuardedInjectWhenReady(pid, dll, timeoutMs)`: it polls the launched target through
+  the module seam — matching no blocklist — until a presentation runtime is mapped, then runs every
+  check and injects exactly as `FlGuardedInject` does; a target that exits first or maps no runtime in
+  the budget answers the new `LaunchTargetExited` / `LaunchNoPresentationRuntime` with nothing injected
+  (ctest `fl_guard` `[launch]`, five cases incl. the real seam against `hook-harness`). The CaptureHost
+  gains `launch --exe <path> [--args "…"] [--seconds n]` (`ProcessLauncher`: handle held from birth,
+  `FRAMELEDGER_ENABLE_VK_LAYER=1`; the host never terminates what it launched), routed through the same
+  gate by `HookRequest.WaitForPresentationRuntimeMs`, with `IAntiCheatGuard.GuardedInjectWhenReadyAsync`
+  as the port's fourth method. The Overlay publishes `FlWriterState.dxgiPresentsBeforeHook` @60 — DXGI's
+  count of presents before the first hooked one, the early-init cost §S1 deferred on — from the last
+  reserved word (no layout bump; the writer state now has no slack), and the report prints it beside the
+  measured wait. `04_CAPTURE` §Launch mode carries the shape and why it is not `CREATE_SUSPENDED`.
 - **P1 item 1 — the `LoadLibrary` detour, both jobs (2026-09-06).** The Overlay patches
   `kernelbase.dll!LoadLibraryExW` after its present hooks (`17_HOOK_ENGINE` §DLL entry step 3): a module
   the hook inventory or runtime census names **wakes the watchdog** through an auto-reset event, so the

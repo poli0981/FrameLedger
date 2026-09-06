@@ -77,6 +77,35 @@ which makes the notification more important than it was, not less.
 
 **Launch mode (preferred).** User starts the game from FrameLedger (or FrameLedger is set as the launch wrapper): `CreateProcess(CREATE_SUSPENDED)` → guard → inject → `ResumeThread`. Catches swapchain creation and upscaler init, which attach mode can miss entirely — a game that creates its DLSS feature during startup will otherwise report `upscaler = unknown` for the whole session.
 
+> **Built 2026-09-06 (P1 item 2) as "inject late", which is the only shape §S1 left possible, and the
+> sentence above is kept as the intent it does not quite describe.** A `CREATE_SUSPENDED` target has
+> loaded nothing and the module scan *fails* against it (`ERROR_PARTIAL_COPY`, §S1 measured), so the guard
+> cannot run before the loader has. The built order is **start → the guard WAITS → inject**: the host
+> starts the consented executable (`ProcessLauncher`: working directory beside the exe,
+> `FRAMELEDGER_ENABLE_VK_LAYER=1` in its environment for the Vulkan layer, the handle held from birth so
+> the pid cannot recycle), then asks the guard through its new waiting entry, `FlGuardedInjectWhenReady`,
+> which polls the loader every 50 ms — through the module seam, matching **no** blocklist — until
+> `dxgi.dll` with `d3d11.dll` or `d3d12.dll`, or `opengl32.dll`, or `vulkan-1.dll` is mapped, and *then*
+> runs every check and injects exactly as attach mode does. The poll decides **when** the full scan runs,
+> never whether it passes. A target that exits first, or maps no runtime inside the budget (60 s in the
+> host), answers `LaunchTargetExited` / `LaunchNoPresentationRuntime` with nothing injected; a launcher
+> that spawns the real game and quits lands on the first, and re-electing the descendant is the Agent's
+> (P2, §Process watcher). **The host never terminates what it launched**: any refusal after the start
+> leaves the title running unhooked, which is Tier 2.
+>
+> **What it measures about itself, which is the input §S1 deferred on.** The report prints the wait
+> (`launch: the guard injected N ms after the process was started`) and `FlWriterState.dxgiPresentsBeforeHook`
+> — DXGI's own count, read at the first hooked present on the first hooked chain, of presents completed
+> before the hook was in. **0 means nothing ran unhooked on that chain**; N is the early-init cost, per
+> title, from the title itself. On `hook-harness` (device at startup, presenting every 8 ms) the real-seam
+> fixture injects within one poll and reports the ~1 s of presents the fixture ran before asking — a
+> measurement of the fixture, not a bound on a title. What launch mode can *never* see is anything before
+> its own injection, and a swapchain created before the runtime-mapped poll fired is exactly that; the
+> number says how much.
+>
+> The CaptureHost's verb is `launch --exe <path> [--args "<game's own arguments>"] [--seconds <n>]`; the
+> consent record, the gate and the payload are the ones `capture` uses, reached one process later.
+
 **Attach mode.** Game launched from Steam/GOG/Epic normally; watcher sees it, guard runs, inject. Feature hooks install late, so early-init facts may be missed; the Overlay compensates by re-reading state on the first `EvaluateFeature` call it does observe, and the session is flagged `late_attach = true` so the UI can note that startup-time settings may be incomplete.
 
 Steam users can also set FrameLedger as a launch option wrapper; documented in the UI rather than automated (never modify a user's Steam config for them).

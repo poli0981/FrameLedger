@@ -69,6 +69,7 @@ internal static class Program
             Verb.ConsentGrant => await GrantAsync(store, cmd.ExePath!).ConfigureAwait(false),
             Verb.ConsentRevoke => await RevokeAsync(store, cmd.ExePath!).ConfigureAwait(false),
             Verb.Capture => await CaptureAsync(store, cmd.ExePath!, cmd.Seconds).ConfigureAwait(false),
+            Verb.Launch => await LaunchAsync(store, cmd.ExePath!, cmd.Arguments, cmd.Seconds).ConfigureAwait(false),
             Verb.ProbeLhm => LhmProbe.Run(cmd.Seconds == 0 ? LhmProbe.DefaultSeconds : cmd.Seconds),
             _ => _exitUsage,
         };
@@ -131,18 +132,37 @@ internal static class Program
         return outcome is ConsentWriteOutcome.Written or ConsentWriteOutcome.NotFound ? _exitOk : _exitRefused;
     }
 
+    // §S22: the payload must resolve into the directory the GUARD's own code was loaded from,
+    // compared by file id. There is no way to name a different one, which is the point.
+    private static string Payload => Path.Combine(AppContext.BaseDirectory, "FrameLedger.Overlay.dll");
+
     private static async Task<int> CaptureAsync(FileGameConsentStore store, string exePath, int seconds)
     {
         string normalised = ExecutableIdentity.Normalise(exePath);
         ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
 
-        // §S22: the payload must resolve into the directory the GUARD's own code was loaded from,
-        // compared by file id. There is no way to name a different one, which is the point.
-        string payload = Path.Combine(AppContext.BaseDirectory, "FrameLedger.Overlay.dll");
+        CaptureResult result = await BuildLoop(store, seconds)
+            .RunAsync(normalised, observed, Payload).ConfigureAwait(false);
+
+        return await ConcludeAsync(store, normalised, observed, result).ConfigureAwait(false);
+    }
+
+    /// <summary>Launch mode: the same loop, entered by starting the executable rather than finding it.</summary>
+    private static async Task<int> LaunchAsync(FileGameConsentStore store, string exePath, string arguments,
+        int seconds)
+    {
+        string normalised = ExecutableIdentity.Normalise(exePath);
+        ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
 
         CaptureResult result = await BuildLoop(store, seconds)
-            .RunAsync(normalised, observed, payload).ConfigureAwait(false);
+            .RunLaunchedAsync(normalised, observed, Payload, arguments).ConfigureAwait(false);
 
+        return await ConcludeAsync(store, normalised, observed, result).ConfigureAwait(false);
+    }
+
+    private static async Task<int> ConcludeAsync(FileGameConsentStore store, string normalised,
+        ExecutableFingerprint? observed, CaptureResult result)
+    {
         HostConsole.Line($"session: {result.Reason}");
         if (result.Verdict.Reason != Domain.AntiCheat.AntiCheatRefusalReason.Allow)
         {
@@ -166,7 +186,7 @@ internal static class Program
             SessionEndReason.TargetExited => _exitOk,
             SessionEndReason.Running => _exitOk,
             SessionEndReason.TargetNotRunning or SessionEndReason.TargetAmbiguous
-                or SessionEndReason.TargetCannotBePinned => _exitTargetNotResolved,
+                or SessionEndReason.TargetCannotBePinned or SessionEndReason.LaunchCannotStart => _exitTargetNotResolved,
             SessionEndReason.AttachRefused => _exitAttachRefused,
             SessionEndReason.SafetyUnhook or SessionEndReason.SupervisionLost
                 or SessionEndReason.SupervisionFaulted or SessionEndReason.WriterStoppedBlocklisted => _exitStoppedForSafety,
@@ -335,7 +355,8 @@ internal static class Program
                 MaxDuration = seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero,
             },
             pid => RuntimeModuleSnapshot.Take(pid, CensusNames.ModuleFileNames),
-            NgxDriverProbe.Run);
+            NgxDriverProbe.Run,
+            ProcessLauncher.Start);
     }
 
     /// <summary>
@@ -393,6 +414,11 @@ internal static class Program
     {
         HostConsole.Line(WriterNote(result));
         foreach (string line in EarlyStop.Describe(result.WriterState, EarlyStop.StagedRulesPath))
+        {
+            HostConsole.Line(line);
+        }
+
+        foreach (string line in LaunchNote.Describe(result.LaunchWait, result.WriterState))
         {
             HostConsole.Line(line);
         }

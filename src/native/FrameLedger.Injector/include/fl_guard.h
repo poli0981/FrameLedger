@@ -152,6 +152,19 @@ enum class Reason : std::uint8_t {
     kConsentMissing,
     kPreviouslyBlocked,
 
+    // LAUNCH MODE (P1 item 2; 20_OPEN_QUESTIONS §S1 / §S13(c)): the guard was asked
+    // to inject AS SOON AS the target had mapped a presentation runtime, and it
+    // never did. A CREATE_SUSPENDED target has loaded nothing and
+    // EnumProcessModulesEx fails against it with ERROR_PARTIAL_COPY (§S1, measured),
+    // so launch mode cannot be create -> guard -> inject -> resume. It is create ->
+    // resume -> POLL until dxgi+d3d11/d3d12, opengl32 or vulkan-1 is mapped -> the
+    // full guard -> inject. These two are the poll's own ends: the process exited
+    // first (a launcher that spawned the real game and quit -- the Agent's election,
+    // P2 -- or a crash), or the budget ran out with no runtime mapped (a 2D title, or
+    // a launcher still sitting on its window). Nothing was injected in either case.
+    kLaunchTargetExited,
+    kLaunchNoPresentationRuntime,
+
     // NOT A REASON. The count, so appending above it updates the exported
     // FlGuardReasonCount by construction.
     //
@@ -408,6 +421,18 @@ struct Sources {
 // a way into a game process that never consulted a single genuine signal.
 [[nodiscard]] Verdict GuardedInject(std::uint32_t targetPid, const wchar_t* dllPath) noexcept;
 
+// LAUNCH MODE. Poll `targetPid` -- every 50 ms, up to `timeoutMs` -- until it has
+// mapped a presentation runtime (dxgi.dll with d3d11.dll or d3d12.dll, or
+// opengl32.dll, or vulkan-1.dll: the earliest externally observable moment at which
+// a swapchain can exist), then run GuardedInject in full. The poll reads module
+// names through the same seam the module scan uses and matches NOTHING against the
+// blocklist: it decides WHEN the guard runs, never WHETHER it passes. A target that
+// exits first, or never maps a runtime inside the budget, is refused with
+// kLaunchTargetExited / kLaunchNoPresentationRuntime and nothing is injected.
+// 04_CAPTURE §Launch mode; 20_OPEN_QUESTIONS §S1 / §S13(c).
+[[nodiscard]] Verdict GuardedInjectWhenReady(std::uint32_t targetPid, const wchar_t* dllPath,
+                                             std::uint32_t timeoutMs) noexcept;
+
 // Evaluate the guard WITHOUT injecting. Exists for the 30 s in-session re-scan
 // (19_SAFETY §During a session), which must reach a verdict on a process it is
 // already inside and has nothing to inject. Deliberately cannot be used to
@@ -430,6 +455,8 @@ struct Sources {
 [[nodiscard]] Verdict EvaluateWithSources(std::uint32_t targetPid, const Sources& sources) noexcept;
 [[nodiscard]] Verdict GuardedInjectWithSources(std::uint32_t targetPid, const wchar_t* dllPath,
                                                const Sources& sources) noexcept;
+[[nodiscard]] Verdict GuardedInjectWhenReadyWithSources(std::uint32_t targetPid, const wchar_t* dllPath,
+                                                        std::uint32_t timeoutMs, const Sources& sources) noexcept;
 #endif
 
 // Human-readable reason, for logs and for mapping to resx keys.

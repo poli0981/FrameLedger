@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FrameLedger.Application.AntiCheat;
 using FrameLedger.Application.Consent;
 using FrameLedger.CaptureHost.Consume;
@@ -31,7 +32,8 @@ internal sealed class CaptureLoop(
     Func<int, (ICaptureSink? Sink, ShmAttachRefusal Refusal)> attach,
     CaptureOptions options,
     Func<int, RuntimeModuleSet>? modules = null,
-    Func<int, NgxDriverState>? ngx = null)
+    Func<int, NgxDriverState>? ngx = null,
+    Func<string, string, (int Pid, ITargetLiveness Alive)?>? launcher = null)
 {
     /// <summary>Start one session, or say why not.</summary>
     /// <remarks>
@@ -84,24 +86,84 @@ internal sealed class CaptureLoop(
         }
 
         GameConsentRecord record = await store.FindAsync(normalisedExePath, ct).ConfigureAwait(false);
+        if (ConsentRefusal(record, observed) is SessionEndReason refused)
+        {
+            return new CaptureResult { Reason = refused };
+        }
+
+        return await SessionAsync(pid.Value, alive, record, observed!.Value, payloadPath, started: null, ct)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Launch mode (P1 item 2): start the consented executable, then the same session.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The process is started FIRST and consent is still the gate's, one process later.</b> Attach mode
+    /// resolves a pid before consent because a <see cref="HookRequest"/> needs one; here the pid is made
+    /// rather than found, and the operator asked for the game to start. A refusal of any kind — no
+    /// record, an anti-cheat hit, no runtime inside the budget — leaves the title running, unhooked,
+    /// which is the product's Tier 2: this host never terminates what it launched.
+    /// </para>
+    /// <para>
+    /// <b>The guard is reached through its waiting entry, with the loop's budget, and never the plain
+    /// one</b>: <see cref="HookRequest.WaitForPresentationRuntimeMs"/> is what routes it, and the wait is
+    /// measured here — from the start of the process to the guard's answer — because that number is
+    /// the cost <c>20_OPEN_QUESTIONS</c> §S1 deferred on. <c>FlWriterState.dxgiPresentsBeforeHook</c>
+    /// is its other half.
+    /// </para>
+    /// </remarks>
+    public async Task<CaptureResult> RunLaunchedAsync(string normalisedExePath, ExecutableFingerprint? observed,
+        string payloadPath, string arguments, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(normalisedExePath);
+        if (launcher is null)
+        {
+            throw new InvalidOperationException("this loop was built without a launcher; launch mode is unavailable");
+        }
+
+        var started = Stopwatch.StartNew();
+        (int Pid, ITargetLiveness Alive)? launched = launcher(normalisedExePath, arguments ?? string.Empty);
+        if (launched is null)
+        {
+            return new CaptureResult { Reason = SessionEndReason.LaunchCannotStart };
+        }
+
+        using ITargetLiveness alive = launched.Value.Alive;
+        GameConsentRecord record = await store.FindAsync(normalisedExePath, ct).ConfigureAwait(false);
+        if (ConsentRefusal(record, observed) is SessionEndReason refused)
+        {
+            return new CaptureResult { Reason = refused };
+        }
+
+        return await SessionAsync(launched.Value.Pid, alive, record, observed!.Value, payloadPath, started, ct)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>The two refusals the loop makes itself, before the gate (see <see cref="RunAsync"/>'s remarks).</summary>
+    private static SessionEndReason? ConsentRefusal(GameConsentRecord record, ExecutableFingerprint? observed)
+    {
         if (record.PreScanUnverified)
         {
-            return new CaptureResult { Reason = SessionEndReason.PreScanCouldNotVerify };
+            return SessionEndReason.PreScanCouldNotVerify;
         }
 
-        if (observed is null)
-        {
-            return new CaptureResult { Reason = SessionEndReason.ExecutableUnreadable };
-        }
+        return observed is null ? SessionEndReason.ExecutableUnreadable : null;
+    }
 
-        HookRequest request = HookRequest.FromConsent(record, observed.Value, pid.Value, payloadPath);
+    /// <summary>Gate, attach, drain — shared by both modes; <paramref name="started"/> non-null is launch mode.</summary>
+    private async Task<CaptureResult> SessionAsync(int pid, ITargetLiveness alive, GameConsentRecord record,
+        ExecutableFingerprint observed, string payloadPath, Stopwatch? started, CancellationToken ct)
+    {
+        int waitMs = started is null ? 0 : checked((int)options.LaunchWaitBudget.TotalMilliseconds);
+        HookRequest request = HookRequest.FromConsent(record, observed, pid, payloadPath, waitMs);
         AntiCheatVerdict verdict = await gate.StartAsync(request, ct).ConfigureAwait(false);
+        TimeSpan? launchWait = started?.Elapsed;
         if (!verdict.IsAllowed)
         {
-            return new CaptureResult { Reason = RefusalOf(verdict.Reason), Verdict = verdict };
+            return new CaptureResult { Reason = RefusalOf(verdict.Reason), Verdict = verdict, LaunchWait = launchWait };
         }
 
-        (ICaptureSink? sink, ShmAttachRefusal refusal) = await AttachAsync(pid.Value, ct).ConfigureAwait(false);
+        (ICaptureSink? sink, ShmAttachRefusal refusal) = await AttachAsync(pid, ct).ConfigureAwait(false);
         if (sink is null)
         {
             return new CaptureResult
@@ -109,12 +171,14 @@ internal sealed class CaptureLoop(
                 Reason = SessionEndReason.AttachRefused,
                 Verdict = verdict,
                 AttachRefusal = refusal,
+                LaunchWait = launchWait,
             };
         }
 
         using (sink)
         {
-            return await DrainAsync(pid.Value, alive, sink, verdict, ct).ConfigureAwait(false);
+            CaptureResult result = await DrainAsync(pid, alive, sink, verdict, ct).ConfigureAwait(false);
+            return result with { LaunchWait = launchWait };
         }
     }
 
@@ -123,6 +187,8 @@ internal sealed class CaptureLoop(
         AntiCheatRefusalReason.HookNotEnabled => SessionEndReason.RefusedHookNotEnabled,
         AntiCheatRefusalReason.ConsentMissing => SessionEndReason.RefusedConsentMissing,
         AntiCheatRefusalReason.PreviouslyBlocked => SessionEndReason.RefusedPreviouslyBlocked,
+        AntiCheatRefusalReason.LaunchTargetExited => SessionEndReason.LaunchTargetExited,
+        AntiCheatRefusalReason.LaunchNoPresentationRuntime => SessionEndReason.LaunchNoPresentationRuntime,
         _ => SessionEndReason.RefusedByGuard,
     };
 

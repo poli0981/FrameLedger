@@ -287,7 +287,9 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > **P1 item 1 landed 2026-09-06: the `LoadLibrary` detour** (`kernelbase!LoadLibraryExW`; wake for lazily
 > loaded runtimes + §S6's in-process anti-cheat stop, `FL_STATUS_STOPPED_BLOCKLISTED`), measured in
 > ctest `fl_guard` `[loader]` / `[S6]`. Order for the rest, as proposed and accepted: **2** the Injector's
-> launch mode (§S13(c), §S1's deferred input); **3** the Vulkan layer to `vkQueuePresentKHR` with §S2's
+> launch mode (§S13(c), §S1's deferred input) — **landed 2026-09-06 as "inject late"**
+> (`FlGuardedInjectWhenReady`, the CaptureHost `launch` verb, `dxgiPresentsBeforeHook` as the cost meter;
+> `04_CAPTURE` §Launch mode); **3** the Vulkan layer to `vkQueuePresentKHR` with §S2's
 > in-layer supervision and a harness Vulkan mode (reopens §S29(d)'s CI leg); **4** the unhook path,
 > native logging, D3D9 / OpenGL.
 

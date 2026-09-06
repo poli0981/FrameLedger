@@ -55,6 +55,17 @@ FL_GUARD_ABI void FlGuardEvaluate(std::uint32_t targetPid, FlGuardResult* out);
 // in evidence — the guard collects its own.
 FL_GUARD_ABI void FlGuardedInject(std::uint32_t targetPid, const wchar_t* dllPath, FlGuardResult* out);
 
+// LAUNCH MODE (P1 item 2). Wait -- polling every 50 ms, up to `timeoutMs` -- until
+// `targetPid` has mapped a presentation runtime, then run every check and inject
+// exactly as FlGuardedInject does. The wait decides WHEN the guard runs and
+// nothing about whether it passes: the poll matches no blocklist and the full scan
+// runs once the runtime is there. A target that exits first, or never maps a
+// runtime inside the budget, answers LaunchTargetExited / LaunchNoPresentationRuntime
+// with nothing injected. The caller launches and holds the process; this never
+// creates or terminates one (04_CAPTURE §Launch mode, 20_OPEN_QUESTIONS §S1).
+FL_GUARD_ABI void FlGuardedInjectWhenReady(std::uint32_t targetPid, const wchar_t* dllPath, std::uint32_t timeoutMs,
+                                           FlGuardResult* out);
+
 // Check 4 against a directory, before anything is launched (FR-2.2). ADVISORY:
 // it answers "may this game's hooking toggle be offered at all", and gates
 // nothing. The same scan runs inside FlGuardEvaluate and FlGuardedInject

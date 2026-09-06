@@ -37,6 +37,23 @@ public interface IAntiCheatGuard
     ValueTask<AntiCheatVerdict> GuardedInjectAsync(int targetPid, string payloadPath, CancellationToken ct = default);
 
     /// <summary>
+    /// Launch mode (P1 item 2). Wait — up to <paramref name="timeoutMs"/> — until the target has mapped a
+    /// presentation runtime, then run every check and inject exactly as <see cref="GuardedInjectAsync"/>
+    /// does. The wait decides WHEN the guard runs and nothing about whether it passes.
+    /// </summary>
+    /// <remarks>
+    /// <c>20_OPEN_QUESTIONS</c> §S1: a target held at its first instruction has loaded nothing, so the
+    /// module scan cannot run before the loader has. The guard therefore polls the loader's own answer
+    /// (through the module seam, matching no blocklist) and runs in full the moment a runtime is there. A
+    /// target that exits first, or never maps one, refuses with
+    /// <see cref="AntiCheatRefusalReason.LaunchTargetExited"/> /
+    /// <see cref="AntiCheatRefusalReason.LaunchNoPresentationRuntime"/>. The caller launched and holds
+    /// the process; the guard creates and terminates nothing.
+    /// </remarks>
+    ValueTask<AntiCheatVerdict> GuardedInjectWhenReadyAsync(int targetPid, string payloadPath, int timeoutMs,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Check 4 asked before anything is launched: does this game directory ship
     /// anti-cheat? Answers FR-2.2's question — whether the hooking toggle may be
     /// offered for this title at all.

@@ -22,7 +22,7 @@ namespace FrameLedger.CaptureHost;
 internal sealed record CommandLine
 {
     /// <summary>Every option this host accepts. A test pins it.</summary>
-    public static readonly string[] AcceptedOptions = ["--exe", "--seconds"];
+    public static readonly string[] AcceptedOptions = ["--exe", "--seconds", "--args"];
 
     public Verb Verb { get; init; }
 
@@ -48,6 +48,16 @@ internal sealed record CommandLine
     /// </remarks>
     public int Seconds { get; init; }
 
+    /// <summary>
+    /// The command line handed to the executable <c>launch</c> starts, verbatim. Empty by default.
+    /// </summary>
+    /// <remarks>
+    /// It names nothing about injection: the payload is still the Overlay beside this binary, the target
+    /// is still the consented executable, and the guard still collects its own evidence. What it changes
+    /// is what the GAME sees, which is the operator's business and not this host's.
+    /// </remarks>
+    public string Arguments { get; init; } = string.Empty;
+
     public string? Error { get; init; }
 
     public static CommandLine Parse(string[] args)
@@ -58,11 +68,12 @@ internal sealed record CommandLine
 
         if (verb == Verb.None)
         {
-            return new CommandLine { Error = "usage: consent list | consent grant --exe <path> | consent revoke --exe <path> | capture --exe <path> [--seconds <n>] | probe-lhm [--seconds <n>]" };
+            return new CommandLine { Error = "usage: consent list | consent grant --exe <path> | consent revoke --exe <path> | capture --exe <path> [--seconds <n>] | launch --exe <path> [--args \"<string>\"] [--seconds <n>] | probe-lhm [--seconds <n>]" };
         }
 
         string? exe = null;
         int seconds = 0;
+        string arguments = string.Empty;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i].StartsWith("--", StringComparison.Ordinal))
@@ -91,6 +102,10 @@ internal sealed record CommandLine
                         return new CommandLine { Error = "'--seconds' needs a positive whole number" };
                     }
                 }
+                else if (string.Equals(option, "--args", StringComparison.Ordinal))
+                {
+                    arguments = value;
+                }
                 else
                 {
                     exe = value;
@@ -105,7 +120,7 @@ internal sealed record CommandLine
             return new CommandLine { Error = "--exe <path> is required" };
         }
 
-        return new CommandLine { Verb = verb, ExePath = exe, Seconds = seconds };
+        return new CommandLine { Verb = verb, ExePath = exe, Seconds = seconds, Arguments = arguments };
     }
 
     private static Verb VerbOf(string[] args) => args switch
@@ -114,6 +129,7 @@ internal sealed record CommandLine
         ["consent", "grant", ..] => Verb.ConsentGrant,
         ["consent", "revoke", ..] => Verb.ConsentRevoke,
         ["capture", ..] => Verb.Capture,
+        ["launch", ..] => Verb.Launch,
         ["probe-lhm", ..] => Verb.ProbeLhm,
         _ => Verb.None,
     };

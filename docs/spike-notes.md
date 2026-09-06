@@ -335,6 +335,9 @@ owner's before anything is built.
   loads a presentation runtime lazily, and the only local fixtures are
   `hook-harness` (creates D3D at startup) and a 2D GOG prologue. A number from
   those would not generalise, which is worse than recording it as unmeasured.
+  *(2026-09-06: built as "inject late" — P1 item 2 — and the number now comes
+  from every launched session, as `dxgiPresentsBeforeHook` plus the reported
+  wait. `20_OPEN_QUESTIONS` §S1.)*
 
 ### ✅ Signer field for the unknown-but-suspicious heuristic — **`O=`, not `CN=`**
 

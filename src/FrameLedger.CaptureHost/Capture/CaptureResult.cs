@@ -65,4 +65,10 @@ internal sealed record CaptureResult
     /// frame stream can be checked against what FrameLedger itself was doing at that moment.
     /// </summary>
     public IReadOnlyList<long> TouchQpc { get; init; } = [];
+
+    /// <summary>
+    /// Launch mode only: from the process being started to the guard's answer — the wait for a
+    /// presentation runtime plus the full scan and the injection. Null in attach mode.
+    /// </summary>
+    public TimeSpan? LaunchWait { get; init; }
 }

@@ -50,6 +50,13 @@ Implemented in `FrameLedger.Injector` and reached from managed code through a th
    > against a suspended target (§S1). Neither is "no modules found". The read
    > handle rights above are confirmed sufficient for every target this call can
    > legitimately reach.
+   >
+   > **Launch mode (2026-09-06, P1 item 2) does not weaken this.** `FlGuardedInjectWhenReady` polls
+   > the same enumeration to learn *when* the launched target has mapped a presentation runtime, and a
+   > failing enumeration there means "not yet" — the poll continues. That is not a pass: the poll
+   > matches nothing against the blocklist, and the injection happens only after check 1 has run in
+   > full, with the enumeration succeeding, exactly as in attach mode. A launched target that never
+   > becomes scannable is never injected (`LaunchNoPresentationRuntime`).
    > **Which processes get scanned: the game's own subtree.** `04_CAPTURE`
    > §The guard writes `Check(pid)` — singular — while `04_CAPTURE` §Process
    > watcher says the capture target is a *descendant* elected from a ppid

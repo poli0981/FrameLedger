@@ -583,8 +583,15 @@ public unsafe struct FlWriterState
     /// </summary>
     public ushort EarlyStopFamily;
 
-    /// <summary>Must be zero; room for additive fields.</summary>
-    public fixed uint Reserved[1];
+    /// <summary>
+    /// DXGI's count of presents the first hooked chain had completed before this hook saw one — how many
+    /// presents ran unhooked, launch mode's own cost meter. <see cref="DxgiPresentsBeforeHookNotRead"/> (all
+    /// bits set) means the hook never saw a present.
+    /// </summary>
+    public uint DxgiPresentsBeforeHook;
+
+    /// <summary>The value <see cref="DxgiPresentsBeforeHook"/> carries until the first hooked present.</summary>
+    public const uint DxgiPresentsBeforeHookNotRead = 0xFFFFFFFF;
 
     // WHY THE COUNTERS ARE PUBLISHED AT 1 Hz AND NOT ACCUMULATED HERE PER FRAME: this struct is
     // region 2, which the Overlay writes on the present path, and the regions are separate cache lines

@@ -518,6 +518,10 @@ const char* ReasonName(Reason r) noexcept {
         return "RulesMalformed";
     case Reason::kRulesIncomplete:
         return "RulesIncomplete";
+    case Reason::kLaunchTargetExited:
+        return "LaunchTargetExited";
+    case Reason::kLaunchNoPresentationRuntime:
+        return "LaunchNoPresentationRuntime";
     case Reason::kCount:
         break;    // not a reason; falls through to the guard below
     }
@@ -689,10 +693,92 @@ Verdict GuardedInjectImpl(std::uint32_t targetPid, const wchar_t* dllPath, const
     return v;
 }
 
+// ---------------------------------------------------------------------------
+// Launch mode (P1 item 2) -- WHEN the guard runs, never WHETHER it passes.
+// ---------------------------------------------------------------------------
+
+// The poll's one question: has the target mapped a presentation runtime yet? Read
+// through Sources::EnumerateModules -- the module scan's own seam -- so a test can
+// drive it and so the answer comes from the loader rather than from a guess about
+// the title. The sink looks for five system names and MATCHES NOTHING AGAINST THE
+// BLOCKLIST; the verdict is GuardedInjectImpl's, run in full once the answer is
+// yes. An enumeration that fails is "not yet" here rather than a refusal, because
+// ERROR_PARTIAL_COPY is exactly what a target still inside its loader returns
+// (§S1), and the refusal, if one is due, is the full scan's to make.
+struct RuntimeProbe {
+    bool dxgi = false;
+    bool d3d = false;
+    bool gl = false;
+    bool vk = false;
+};
+
+bool RuntimeSinkFn(void* ctx, const char* name, const wchar_t*) noexcept {
+    auto* p = static_cast<RuntimeProbe*>(ctx);
+    if (p == nullptr || name == nullptr) {
+        return false;
+    }
+    if (_stricmp(name, "dxgi.dll") == 0) {
+        p->dxgi = true;
+    } else if (_stricmp(name, "d3d11.dll") == 0 || _stricmp(name, "d3d12.dll") == 0) {
+        p->d3d = true;
+    } else if (_stricmp(name, "opengl32.dll") == 0) {
+        p->gl = true;
+    } else if (_stricmp(name, "vulkan-1.dll") == 0) {
+        p->vk = true;
+    }
+    return true;
+}
+
+bool HasPresentationRuntime(const Sources& s, std::uint32_t pid) noexcept {
+    if (s.EnumerateModules == nullptr) {
+        return false;
+    }
+    RuntimeProbe p;
+    if (s.EnumerateModules(pid, &RuntimeSinkFn, &p) == Collected::kFailed) {
+        return false;    // still in its loader, or unreadable -- the full scan is what refuses the latter
+    }
+    return (p.dxgi && p.d3d) || p.gl || p.vk;
+}
+
+Verdict GuardedInjectWhenReadyImpl(std::uint32_t targetPid, const wchar_t* dllPath, std::uint32_t timeoutMs,
+                                   const Sources& sources) noexcept {
+    // SYNCHRONIZE only: this handle exists to notice an exit and for nothing else.
+    HANDLE proc = OpenProcess(SYNCHRONIZE, FALSE, targetPid);
+    if (proc == nullptr) {
+        return Refuse(Reason::kProcessUnreadable, nullptr, "could not open the launched target to wait on it");
+    }
+    constexpr DWORD kPollMs = 50;
+    const ULONGLONG start = GetTickCount64();
+    Verdict         v;    // fail-closed default, like every Verdict
+    for (;;) {
+        if (WaitForSingleObject(proc, 0) == WAIT_OBJECT_0) {
+            v = Refuse(Reason::kLaunchTargetExited, nullptr,
+                       "the target exited before it mapped a presentation runtime; nothing was injected");
+            break;
+        }
+        if (HasPresentationRuntime(sources, targetPid)) {
+            v = GuardedInjectImpl(targetPid, dllPath, sources);
+            break;
+        }
+        if (GetTickCount64() - start >= timeoutMs) {
+            v = Refuse(Reason::kLaunchNoPresentationRuntime, nullptr,
+                       "no presentation runtime was mapped within the launch budget; nothing was injected");
+            break;
+        }
+        Sleep(kPollMs);
+    }
+    CloseHandle(proc);
+    return v;
+}
+
 }    // namespace
 
 Verdict Evaluate(std::uint32_t targetPid) noexcept {
     return EvaluateImpl(targetPid, SystemSources());
+}
+
+Verdict GuardedInjectWhenReady(std::uint32_t targetPid, const wchar_t* dllPath, std::uint32_t timeoutMs) noexcept {
+    return GuardedInjectWhenReadyImpl(targetPid, dllPath, timeoutMs, SystemSources());
 }
 
 Verdict GuardedInject(std::uint32_t targetPid, const wchar_t* dllPath) noexcept {
@@ -706,6 +792,11 @@ Verdict EvaluateWithSources(std::uint32_t targetPid, const Sources& sources) noe
 
 Verdict GuardedInjectWithSources(std::uint32_t targetPid, const wchar_t* dllPath, const Sources& sources) noexcept {
     return GuardedInjectImpl(targetPid, dllPath, sources);
+}
+
+Verdict GuardedInjectWhenReadyWithSources(std::uint32_t targetPid, const wchar_t* dllPath, std::uint32_t timeoutMs,
+                                          const Sources& sources) noexcept {
+    return GuardedInjectWhenReadyImpl(targetPid, dllPath, timeoutMs, sources);
 }
 #endif
 

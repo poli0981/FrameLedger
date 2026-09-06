@@ -14,4 +14,11 @@ internal sealed record CaptureOptions
 
     /// <summary>Zero means "until the target exits".</summary>
     public TimeSpan MaxDuration { get; init; } = TimeSpan.Zero;
+
+    /// <summary>
+    /// Launch mode: how long the guard may wait for the launched target to map a presentation runtime
+    /// before it gives up with <c>LaunchNoPresentationRuntime</c>. A launcher that sits on its window
+    /// past this is a launcher, and the descendant election is the Agent's (P2).
+    /// </summary>
+    public TimeSpan LaunchWaitBudget { get; init; } = TimeSpan.FromSeconds(60);
 }
