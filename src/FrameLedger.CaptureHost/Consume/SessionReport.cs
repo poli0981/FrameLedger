@@ -256,11 +256,16 @@ internal static class SessionReport
             sb.Append(" — ").Append(driver);
         }
 
+        if (facts.XessByLicenceNote is string xess)
+        {
+            sb.Append(" — ").Append(xess);
+        }
+
         sb.AppendLine();
         sb.Append("  render -> output: ").AppendLine(RenderToOutput(facts.Extent));
         sb.Append("  frame generation: ").Append(facts.FgModePrinted
             ?? (facts.FgHookRan
-                ? "N/A (a hook ran and saw no frame-generation evaluation — see the FG counts above)"
+                ? facts.FgNotEvaluatedPrinted
                 : NoHookRan("frame-generation", facts.CensusRan, facts.FgRuntimesLoaded)));
         if (facts.FgDriverNote is string fgDriver)
         {

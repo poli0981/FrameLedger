@@ -1924,6 +1924,21 @@ one launch per capture, consent granted after launch. Exit codes and full report
   Same run, Rune Factory at DLSS + FG ×4: `125.45 → 498.51 (×3.97)`, `Dlss (driver-reported)`, `DlssG` with the
   driver agreeing — the 7b title on its NVIDIA path.
 
+- **2026-09-06, 13:45–14:02, the owner's run on #132 (rung 3 by elimination + the executable scan): Cronos at
+  XeSS (no FG option), Hell Is Us at XeSS + XeSS-FG, Rune Factory at FSR + FSR FG.**
+
+  | Title / setting | Line | `frame generation:` | `executable markers:` |
+  |---|---|---|---|
+  | **Cronos**, XeSS, no FG | `FPS: 110.02`, `none` by count, DXGI agrees | `None` | ffxFrameInterpolation ×1, NVSDK_NGX ×112, xefgSwapChain ×13 |
+  | **Hell Is Us**, XeSS + **XeSS-FG** | `Presented FPS: 186.47`, **`tokens=0`**, `unseen=0` | N/A — no token on this plugin at XeSS; witnesses: not DLSS-G, no FSR dispatch, runtimes nvngx_dlssg + libxess_fg + amd FG, file carries xefgSwapChain | same set |
+  | **Rune Factory**, FSR + **FSR FG** (compiled in) | `30.05 → 60.05 (×2 FG)` from the token, `unseen=0` | `Active (technology not identified) — by elimination …; the executable itself carries ffxFsr3, ffxFrameInterpolation` | ffxFsr3 ×13, ffxFrameInterpolation ×9, NVSDK_NGX ×112 |
+
+  Three readings. Rune Factory is the pre-committed 7b line, verbatim. XeFG presents through the patched
+  body (0 unseen) so its Displayed rate is measured; its Native is not, because Hell Is Us's plugin requests
+  no Streamline token at XeSS (it does at DLSS, and Cronos's does at XeSS) — the count producer is the
+  plugin's choice, and nothing in policy replaces it. The Steam overlay could not show FG on that session
+  either. The upscaler N/A on both XeSS titles now names Intel's licence as the reason (7c item 4).
+
 ## 10 · Telemetry layering
 
 - L1 baseline vendor-neutral:
