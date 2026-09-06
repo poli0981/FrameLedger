@@ -2197,6 +2197,17 @@ admits it has no data for (Ricochet, VAC). Three refuters agreed.
 > as `19_SAFETY` ruled for the launcher list, and it needs no branch-protection change; the
 > alternative, making `Rules / validate` a required check, is §S23-2 and is the owner's
 > GitHub setting, not a file in this repository.
+>
+> **THE CI LEG, READ 2026-09-06 off the new step (run on `ci/signer-probe-leg`, `windows-latest`,
+> the probe reporting `elevated: yes` — the runner is an administrator; the dev-box leg was
+> unelevated).** The blocker at the runner's NuGet cache (`system.security.cryptography.protecteddata`
+> 6.0.0, `lib/net6.0`): embedded/offline **`ERROR_SUCCESS`, 3.47 ms, `O= Microsoft Corporation`**,
+> no catalog; `mskeyprotect.dll` `TRUST_E_NOSIGNATURE` / catalog `ERROR_SUCCESS`; `kernel32.dll` both;
+> cold 3.45 ms, warm 3.53 ms; `cryptnet.dll` newly loaded under the offline flags, as on the dev box;
+> the canary `TRUST_E_NOSIGNATURE`; the probe's own verdict *"G1 is a CANDIDATE"*. **So G3 does not
+> fire (the `O=` premise holds on CI's copy), G4 does not fire (CI's copy is embedded-signed), G5 does
+> not fire (3.5 ms).** What is left before G1 can be read is exactly the two owner-only legs above:
+> adapters disabled (G1 against G2), and the bound.
 
 **(c) `signerField` and `action` are required by the schema and parsed by
 nobody.** Both are `required` in `detection-rules.schema.json`, both carry
