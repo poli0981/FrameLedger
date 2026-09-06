@@ -443,6 +443,31 @@ the same shape as defects found elsewhere in this project:
 The unambiguous signal is the loader printing `Insert instance layer` /
 `Inserted device layer` with our name and DLL path.
 
+### ✅ `VK_ADD_IMPLICIT_LAYER_PATH` is honoured, and it needs no registry (2026-09-06, P1 item 3)
+
+Measured against the same loader 1.4.357 with `vulkaninfo --summary` and `VK_LOADER_DEBUG=layer`: with
+`VK_ADD_IMPLICIT_LAYER_PATH` pointed at the build tree's `FrameLedger.VkLayer` directory and
+`FRAMELEDGER_ENABLE_VK_LAYER=1`, the loader prints `Insert instance layer "VK_LAYER_FRAMELEDGER_overlay"
+(…\FrameLedger.VkLayer.dll)` and `Inserted device layer …` — the unambiguous signal above — with nothing
+under `HKCU` or `HKLM`, and `vulkaninfo` exits 0 with the layer inert (no enable-list entry for it). The
+first run's `grep … | head` cut the log before the `Insert` lines and read as "found, not inserted"; the
+lines are at the instance-creation point, ~850 lines in. So the operator host launches Vulkan titles with
+no registration at all, and the real-loader ctest (`fl_vklayer_real`) does the same: the harness's
+`--vulkan` mode presented 241 frames in 4 s on a hidden 240-wide window and the layer recorded every one.
+
+### ✅ On NVIDIA a Vulkan swapchain presents through DXGI — and the DXGI hook sees it (2026-09-06)
+
+Found by the first end-to-end run of `launch` on the harness's `--vulkan` mode: the guard's poll saw
+`dxgi.dll` + `d3d12.dll` (the fixture imports d3d11/dxgi; but the NVIDIA Vulkan ICD `nvoglv64` maps them
+too) and injected the Overlay, whose `Present` hook then recorded **295 DXGI presents in 5 s with
+`apiMask = D3D12` and DXGI's counter agreeing (248 samples, 0 unseen)** — the Vulkan swapchain's own
+presents, made by the driver on an internal DXGI flip-model chain. So on this driver the injected Overlay
+*can* measure a Vulkan title's presents; that is a driver property, not a portable one (AMD's and Intel's
+WSI need not do it), which is why the layer stays the capture side. Two consequences landed: the
+launch-mode guard now classifies **any** process that mapped `vulkan-1.dll` as the layer's, and the
+harness's `--vulkan` mode maps the loader before anything else so the fixture looks like a real Vulkan
+title to the first poll.
+
 ### ✅ The in-layer blocklist scan — §S2's second half
 
 The layer scans its own process at init and goes fully passthrough on any hit,

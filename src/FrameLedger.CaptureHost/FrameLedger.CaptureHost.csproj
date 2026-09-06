@@ -100,4 +100,20 @@
     </None>
   </ItemGroup>
 
+  <!--
+    The Vulkan implicit layer beside the host (P1 item 3). `launch` writes a manifest pointing at THIS
+    copy and hands the launched process VK_ADD_IMPLICIT_LAYER_PATH, so the layer is discoverable only by
+    that process: no registry, nothing machine-wide (VkLayerLaunchEnvironment). Warn-not-fail like the
+    others: build.ps1 runs the native build first, and a missing DLL is reported by `launch` itself.
+  -->
+  <PropertyGroup>
+    <FlVkLayerDir>$(MSBuildThisFileDirectory)..\..\build\native\x64-release\FrameLedger.VkLayer\</FlVkLayerDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(FlVkLayerDir)FrameLedger.VkLayer.dll" Condition="Exists('$(FlVkLayerDir)FrameLedger.VkLayer.dll')">
+      <Link>FrameLedger.VkLayer.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

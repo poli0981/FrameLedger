@@ -4,14 +4,17 @@
 # Deliberately NOT built with fl_hostile_env_flags. This is our own process, not
 # an injected DLL: it has no reason to give up exceptions, and the COM proxy in
 # proxy_swapchain.h is ordinary C++ that benefits from them.
-add_executable(hook-harness main.cpp proxy_swapchain.h)
+# vk_hold.cpp is the Vulkan mode (P1 item 3): the loader is reached through
+# LoadLibraryW at run time, so only the vendored Khronos HEADERS are needed and
+# the harness still builds and runs on a machine with no Vulkan at all.
+add_executable(hook-harness main.cpp vk_hold.cpp proxy_swapchain.h)
 # fl_dxgi_vtable, not a local copy of the slot numbers: this harness proves the
 # indices by behaviour, and it must prove the SHIPPED ones (§S29(b)). The same
 # reasoning brings in fl_hook_inventory.h from the Overlay's include directory:
 # --probe-upscaler-resolve calls the OVERLAY'S resolver, not a copy of it, or it
 # would prove a fact about GetProcAddress.
 target_link_libraries(hook-harness PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags fl_streamline_headers
-    fl_fidelityfx_headers fl_fsr3_host_headers)
+    fl_fidelityfx_headers fl_fsr3_host_headers fl_vulkan_headers)
 target_include_directories(hook-harness PRIVATE "${CMAKE_SOURCE_DIR}/FrameLedger.Overlay/include")
 target_compile_definitions(hook-harness PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 

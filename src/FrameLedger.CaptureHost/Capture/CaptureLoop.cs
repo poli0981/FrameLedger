@@ -158,12 +158,18 @@ internal sealed class CaptureLoop(
         HookRequest request = HookRequest.FromConsent(record, observed, pid, payloadPath, waitMs);
         AntiCheatVerdict verdict = await gate.StartAsync(request, ct).ConfigureAwait(false);
         TimeSpan? launchWait = started?.Elapsed;
-        if (!verdict.IsAllowed)
+        // THE ONE VERDICT THAT IS NEITHER: the guard passed and injected nothing because the target
+        // presents through Vulkan, where the implicit layer is the capture side (P1 item 3). The ring
+        // to attach to is the layer's, and it appears at the title's first vkCreateDevice -- which is
+        // why the attach budget is launch mode's, not the 5 s an already-injected Overlay gets.
+        bool layered = verdict.Reason == AntiCheatRefusalReason.TargetIsVulkanLayered;
+        if (!verdict.IsAllowed && !layered)
         {
             return new CaptureResult { Reason = RefusalOf(verdict.Reason), Verdict = verdict, LaunchWait = launchWait };
         }
 
-        (ICaptureSink? sink, ShmAttachRefusal refusal) = await AttachAsync(pid, ct).ConfigureAwait(false);
+        TimeSpan attachBudget = layered ? options.LaunchWaitBudget : options.AttachBudget;
+        (ICaptureSink? sink, ShmAttachRefusal refusal) = await AttachAsync(pid, attachBudget, ct).ConfigureAwait(false);
         if (sink is null)
         {
             return new CaptureResult
@@ -202,10 +208,11 @@ internal sealed class CaptureLoop(
     /// middle one is transient. Every other refusal is terminal, and retrying one
     /// would turn a clear answer into a timeout.
     /// </remarks>
-    private async Task<(ICaptureSink? Sink, ShmAttachRefusal Refusal)> AttachAsync(int pid, CancellationToken ct)
+    private async Task<(ICaptureSink? Sink, ShmAttachRefusal Refusal)> AttachAsync(int pid, TimeSpan budget,
+        CancellationToken ct)
     {
         ShmAttachRefusal refusal = ShmAttachRefusal.NotEvaluated;
-        DateTimeOffset deadline = DateTimeOffset.UtcNow + options.AttachBudget;
+        DateTimeOffset deadline = DateTimeOffset.UtcNow + budget;
         while (DateTimeOffset.UtcNow < deadline)
         {
             (ICaptureSink? sink, refusal) = attach(pid);

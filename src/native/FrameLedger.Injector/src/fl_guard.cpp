@@ -522,6 +522,8 @@ const char* ReasonName(Reason r) noexcept {
         return "LaunchTargetExited";
     case Reason::kLaunchNoPresentationRuntime:
         return "LaunchNoPresentationRuntime";
+    case Reason::kTargetIsVulkanLayered:
+        return "TargetIsVulkanLayered";
     case Reason::kCount:
         break;    // not a reason; falls through to the guard below
     }
@@ -729,15 +731,29 @@ bool RuntimeSinkFn(void* ctx, const char* name, const wchar_t*) noexcept {
     return true;
 }
 
-bool HasPresentationRuntime(const Sources& s, std::uint32_t pid) noexcept {
+// What the target presents through, as far as the loader can say. kVulkan is the
+// branch the guard must NOT inject (Reason::kTargetIsVulkanLayered), and IT WINS
+// over a D3D runtime mapped beside it. Measured 2026-09-06 on the harness's
+// Vulkan mode under an NVIDIA driver: the Vulkan ICD itself maps dxgi.dll and
+// d3d12.dll and presents the Vulkan swapchain through a DXGI chain, so "vulkan-1
+// beside d3d12" is what EVERY Vulkan title looks like there -- treating it as D3D
+// injected the Overlay, which owned the ring, and left the layer forwarding into
+// nothing. A process does not map vulkan-1.dll unless it uses Vulkan; a D3D title
+// that happens to is the rarer shape and the one this rule gets wrong.
+enum class PresentationRuntime : std::uint8_t { kNone, kD3dOrOpenGl, kVulkan };
+
+PresentationRuntime FindPresentationRuntime(const Sources& s, std::uint32_t pid) noexcept {
     if (s.EnumerateModules == nullptr) {
-        return false;
+        return PresentationRuntime::kNone;
     }
     RuntimeProbe p;
     if (s.EnumerateModules(pid, &RuntimeSinkFn, &p) == Collected::kFailed) {
-        return false;    // still in its loader, or unreadable -- the full scan is what refuses the latter
+        return PresentationRuntime::kNone;    // still in its loader, or unreadable -- the full scan refuses the latter
     }
-    return (p.dxgi && p.d3d) || p.gl || p.vk;
+    if (p.vk) {
+        return PresentationRuntime::kVulkan;
+    }
+    return ((p.dxgi && p.d3d) || p.gl) ? PresentationRuntime::kD3dOrOpenGl : PresentationRuntime::kNone;
 }
 
 Verdict GuardedInjectWhenReadyImpl(std::uint32_t targetPid, const wchar_t* dllPath, std::uint32_t timeoutMs,
@@ -756,8 +772,20 @@ Verdict GuardedInjectWhenReadyImpl(std::uint32_t targetPid, const wchar_t* dllPa
                        "the target exited before it mapped a presentation runtime; nothing was injected");
             break;
         }
-        if (HasPresentationRuntime(sources, targetPid)) {
+        const PresentationRuntime runtime = FindPresentationRuntime(sources, targetPid);
+        if (runtime == PresentationRuntime::kD3dOrOpenGl) {
             v = GuardedInjectImpl(targetPid, dllPath, sources);
+            break;
+        }
+        if (runtime == PresentationRuntime::kVulkan) {
+            // The FULL guard still runs -- a Vulkan title with anti-cheat is refused
+            // by name exactly as a D3D one is -- and on a pass nothing is injected.
+            v = EvaluateImpl(targetPid, sources);
+            if (v.Allowed()) {
+                v = Refuse(Reason::kTargetIsVulkanLayered, nullptr,
+                           "the guard passed; the target presents through Vulkan, where the implicit layer is the "
+                           "capture side, so nothing was injected");
+            }
             break;
         }
         if (GetTickCount64() - start >= timeoutMs) {

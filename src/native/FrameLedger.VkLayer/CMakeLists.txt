@@ -30,6 +30,24 @@ target_link_libraries(FrameLedger.VkLayer PRIVATE
 add_dependencies(FrameLedger.VkLayer fl_ac_floor_gen)
 set_target_properties(FrameLedger.VkLayer PROPERTIES OUTPUT_NAME "FrameLedger.VkLayer")
 
+# TEST-ONLY flavour: the same sources with the supervision deadline shortened
+# from 65 s to 1.5 s, so ctest fl_vklayer can prove §S2 part three -- the
+# in-layer stop when guardTicks stops advancing -- in seconds rather than
+# minutes. Never shipped: no version resource, no manifest, a different file
+# name, and 12_BUILD publishes only what the App/Agent projects stage. The
+# shipped DLL keeps FL_GUARD_TICK_DEADLINE_MS, the one number 07_IPC pins.
+add_library(fl_vklayer_shortdeadline SHARED
+    src/layer.cpp
+    ../FrameLedger.Injector/src/fl_ac_rules.cpp
+    FrameLedger.VkLayer.def
+)
+target_include_directories(fl_vklayer_shortdeadline PRIVATE ../FrameLedger.Injector/include)
+target_link_libraries(fl_vklayer_shortdeadline PRIVATE
+    FrameLedger.Shm fl_native_flags fl_hostile_env_flags fl_vulkan_headers fl_jsmn Shell32 Ole32 fl_ac_floor)
+add_dependencies(fl_vklayer_shortdeadline fl_ac_floor_gen)
+target_compile_definitions(fl_vklayer_shortdeadline PRIVATE FL_VKLAYER_TICK_DEADLINE_MS=1500u)
+set_target_properties(fl_vklayer_shortdeadline PROPERTIES OUTPUT_NAME "FrameLedger.VkLayer.shortdeadline")
+
 # Same requirement as the Overlay, and arguably sharper here: an implicit layer
 # is machine-wide, so it can appear inside processes the user never associated
 # with FrameLedger. It had better say who it is (docs/19_SAFETY).

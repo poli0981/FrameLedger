@@ -186,4 +186,15 @@ public enum AntiCheatRefusalReason
     /// or a launcher still sitting on its window. Nothing was injected.
     /// </summary>
     LaunchNoPresentationRuntime = 25,
+
+    /// <summary>
+    /// Launch mode, the Vulkan branch (P1 item 3): the target mapped <c>vulkan-1.dll</c> and no D3D or OpenGL
+    /// runtime, the FULL guard passed, and nothing was injected on purpose — a Vulkan title is captured by the
+    /// implicit layer, and one process carries one ring (<c>fl_shm_host.h</c>).
+    /// </summary>
+    /// <remarks>
+    /// Not an allow — the Overlay is not in the target — and not a refusal either: the host reads it as
+    /// "attach to the layer's ring". <c>CaptureLoop</c> is the one place that distinction is made.
+    /// </remarks>
+    TargetIsVulkanLayered = 26,
 }

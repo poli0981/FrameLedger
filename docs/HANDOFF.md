@@ -40,7 +40,9 @@ and lazily loaded runtimes both hang on, unhook path, native logging; the Inject
 launch mode (§S13(c), §S1's deferred input); the Vulkan layer to `vkQueuePresentKHR`
 with §S2's in-layer supervision. **P1 item 1 — the `LoadLibrary` detour — landed 2026-09-06
 (§S6 ✅); item 2, launch mode, landed the same day as "inject late" (§S1 ◐, §S13(c) ✅ —
-`04_CAPTURE` §Launch mode); next is item 3, the Vulkan layer to `vkQueuePresentKHR`.** The ~~three~~ two P1-deferred S-items (~~S6~~, S2 part three, and
+`04_CAPTURE` §Launch mode); item 3, the Vulkan layer to `vkQueuePresentKHR` with §S2's in-layer
+supervision, landed the same day (§S2 ✅; `17_HOOK_ENGINE` §Vulkan); next is item 4 — the unhook
+path, native logging, D3D9 / OpenGL.** The ~~three~~ ~~two~~ one P1-deferred S-item (~~S6~~, ~~S2 part three~~, and
 the hand-run blast-radius script behind S29(d)) are the reminders. The text below is
 P0's history and stays as it stood.
 
