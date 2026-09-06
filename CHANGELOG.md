@@ -19,6 +19,19 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P1 item 4 — the unhook path, the native log, OpenGL (2026-09-06).** `StopObserving` no longer calls
+  `MH_DisableHook(MH_ALL_HOOKS)`: every patch the Overlay made is in a registry, and each is restored
+  **only while the bytes at its target are still our jump** (`fl_patch_check.h`; §H7 in its inline form —
+  an overlay that patched after us chains through our jump and the blanket restore would have removed it
+  silently). A fixed ring of structured events (`FAULT` with the exception code and the hook's name,
+  `STOP`, `UNHOOK_RESTORED` / `UNHOOK_DECLINED` per patch, `HOOK_INSTALLED`, `SYMBOL_MISSING`,
+  `SUPERVISION_LOST`…) is flushed to `%LOCALAPPDATA%\FrameLedger\logs\overlay-<pid>-*.log` at init, when
+  the Agent bumps the new `FlControlBlock.logFlushRequested` counter at session end, and on the stop —
+  never mid-frame; the CaptureHost prints the file and its notable lines. `opengl32!wglSwapBuffers` is
+  hooked (`api` = OpenGL, output size from the DC's window, no `PRESENT_ARGS`), installed at init or lazily
+  with the `LoadLibrary` detour waking the watchdog for `opengl32.dll`; `hook-harness --opengl
+  --hold-presenting N` exercises it through gdi32's `SwapBuffers`. ctests `fl_unhook_inline`, `fl_guard`
+  `[opengl]` / `[log]`. D3D9 is struck from the P1 line per `20_OPEN_QUESTIONS` §Scope decisions.
 - **P1 item 3 — the Vulkan layer intercepts `vkQueuePresentKHR` (2026-09-06; `20_OPEN_QUESTIONS` §S2 ✅).**
   In a process both gates admitted, the layer creates the same ring the Overlay would (`fl_shm_host.h`,
   now the one home of the DACL / name / handshake for both capture sides; one ring per process, first

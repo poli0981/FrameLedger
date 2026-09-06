@@ -155,6 +155,7 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 
 | Hook | Purpose |
 |---|---|
+| ✅ `opengl32.dll!wglSwapBuffers` (2026-09-06, P1 item 4) | The OpenGL present hook (§Presentation). A system module, not a vendor one, so — like the row below — it is deliberately **not** in `FL_HOOK_INVENTORY` and `hookinventory-check` does not cover it; listed here so the table above and these two rows together are the whole inventory |
 | ✅ `kernelbase.dll!LoadLibraryExW` (2026-09-06, P1 item 1) | The wake for lazily loaded runtimes and the in-process anti-cheat stop — §DLL entry step 3 above carries the mechanism. **Rule 4:** it reads one argument the API was given (`flags`) and one property of a handle the loader just returned to *its own caller* (the module file name); nothing of the game's. **It is the only hook on a system module, and it is deliberately not in `FL_HOOK_INVENTORY`:** that table is *vendor* symbols resolved by name and gated by `hookinventory-check` against `vendor-exports.json`, and `LoadLibraryExW` is neither vendor nor uncertain. It is listed here instead so the table above and this row together are the whole inventory. It **never** installs, uninstalls or patches anything itself (§H2) |
 
 ### Watchdog observations — not hooks, and listed here so nobody mistakes them for one
@@ -171,7 +172,7 @@ Every hook must be listed here with a purpose. Anything not on this list is not 
 | ⏳ `IDXGISwapChain::SetFullscreenState` | Fullscreen ↔ borderless transitions |
 | ⏳ `IDXGISwapChain3::SetColorSpace1` | HDR output detection. **`IDXGISwapChain3`, not 4** — 4 adds only `SetHDRMetaData` (`20_OPEN_QUESTIONS` §H9). Unbuilt, which is why `colorSpace` reads `NOT_REPORTED` and `FL_MEASURED_HDR` stays clear. **When it is built, the writer must initialise `colorSpace = FL_COLOR_SPACE_SDR` at swapchain identification** — an SDR title never calls `SetColorSpace1`, so "hook live, no call" would otherwise sit at `NOT_REPORTED` forever and HDR's definite `No` would be unreachable. DXGI documents G22/Rec.709 as the default, which makes SDR a *measured* default rather than an affirmative negative |
 | ⏳ `IDXGIFactory::CreateSwapChain*` | Capture swapchain desc (format, buffer count, swap effect, flags) at creation. Unbuilt — the swapchain description is currently read on demand in the present hook via `GetDesc` |
-| ⏳ `wglSwapBuffers` | OpenGL titles. Unbuilt, and deliberately not attempted before `hook-harness` has an OpenGL mode: the hook is small (a flat export, no vtable) but shipping an unexercised hook into a game process is not something this project does. Measured 2026-08-05: `opengl32!wglSwapBuffers` is a `jmp` thunk (`E9 <rel32>`) into the vendor ICD, which is already mapped before the first call |
+| ✅ `wglSwapBuffers` (2026-09-06, P1 item 4) | OpenGL titles: one record per `opengl32!wglSwapBuffers`, `api` = OpenGL, the output size from `GetClientRect` on the window the HDC belongs to (first sighting and every 256th present, so a resize is caught without a second hook), **no `FL_MEASURED_PRESENT_ARGS`** — the call has no sync interval and no flags. A MinHook inline patch on the flat export (measured 2026-08-05: a `jmp` thunk into the vendor ICD, relocated like any first instruction), installed at init when `opengl32.dll` is already mapped and lazily on the watchdog otherwise, with the `LoadLibrary` detour waking it for `opengl32.dll`. Exercised by `hook-harness --opengl --hold-presenting N`, which calls **gdi32's `SwapBuffers`** the way a title does — measured to reach the hook (ctest `fl_guard` `[opengl]`, on Microsoft's generic renderer, so it runs on CI too). The one system-module row below carries the inventory asymmetry |
 | ✅ Vulkan `vkQueuePresentKHR` (2026-09-06, P1 item 3) | via layer, not hook (below). Frame boundary and QPC, one record per present; `vkCreateSwapchainKHR` / `vkDestroySwapchainKHR` intercepted beside it for the output size (`imageExtent`, the API's own argument — rule 4). **No `FL_MEASURED_PRESENT_ARGS`**: `vkQueuePresentKHR` carries no sync interval and no flags, which is why that bit exists. §S2's in-layer supervision check landed with it, on the present path. Measured under the real loader on the harness's `--vulkan` mode: 241 records in 4 s, status READY, `apiMask` = Vulkan (ctest `fl_vklayer_real`) |
 
 ### Upscaling / frame generation (the accuracy problem this rewrite exists to solve)
@@ -590,6 +591,21 @@ Every hook body is wrapped:
 
 ## Unhooking
 
+> **Built 2026-09-06 (P1 item 4) as compare-and-restore PER INLINE PATCH.** The Overlay swaps no vtable
+> entries — every hook it installs is a MinHook inline patch on a function's first bytes — so the sentence
+> below applies in its inline form: `StopObserving` walks a registry of every patch this DLL made (target,
+> detour, name; filled by `PatchTarget` and the two direct sites) and calls `MH_DisableHook` on a target
+> **only while the bytes there are still the jump MinHook wrote for us** — `fl_patch_check.h`
+> `StillOurs`: `E9 rel32` → a `FF 25 00000000 <addr>` relay whose address is our detour, or the
+> hot-patch `EB F9` form of the same. `MH_DisableHook(MH_ALL_HOOKS)`, which this replaced, wrote every
+> saved prologue back without looking, and an overlay that patched the same function after us chains
+> through our jump — that write would have removed their hook silently (§H7). A patch that is no longer
+> ours is left in place, logged `UNHOOK_DECLINED`, and our detour stays in their chain forwarding (every
+> body consults `g_observing`). Proven both directions against a real MinHook patch and a simulated
+> foreign one in ctest `fl_unhook_inline` (the vtable form stays in `fl_unhook_preserves_foreign`), and
+> against the injected Overlay in ctest `fl_guard` `[log]`, where every patch reads `UNHOOK_RESTORED`
+> because the harness is alone in its process.
+
 `FlRequestUnhook()` (or the control flag) ⇒ `MH_DisableHook(MH_ALL_HOOKS)`, restore vtable entries **only where they are still ours**, flush the ring, set status. **The DLL is not `FreeLibrary`'d from the live process** — a thread could still be inside a trampoline. It goes dormant and unloads with the process. This is deliberate and documented.
 
 ### Compare-and-restore, never unconditional restore
@@ -627,6 +643,22 @@ compare-and-restore that never restores is not a fix.
 
 No logging in hook bodies. A small fixed-size in-memory ring of structured events (hook installed, symbol missing, fault, unhook) is flushed to `logs\overlay-<pid>-*.log` by the init thread at session end, on unhook, or on Agent request — never mid-frame.
 
+> **Built 2026-09-06 (P1 item 4), as specified, with the details a bug report needs.** A ring of 256 ×
+> 64-byte events (`qpc`, code, two operands, a 40-char name) appended with one `fetch_add` from init and
+> watchdog paths and from a hook's **SEH handler** — `NoteFault` records the exception code and the hook's
+> `__func__` — never from a hook body. Codes: `RING_CREATED`, `PRESENT_HOOKS`, `HOOK_INSTALLED` (one per
+> patch, with the target address), `SYMBOL_MISSING` (once per pair, and only when the module IS mapped),
+> `FAULT`, `STOP` (the reason), `UNHOOK_RESTORED` / `UNHOOK_DECLINED` (one per patch), `LOADER_DETOUR`,
+> `SUPERVISION_LOST`. **Three flush points, none on a present path:** the end of `InitThread` (so the
+> file exists from the start of the session and a crash mid-session still leaves it), the watchdog when
+> `FlControlBlock.logFlushRequested` changes (a counter the Agent bumps at session end; nothing clears it),
+> and the watchdog on its way out after any stop. Appended, never recreated; events overwritten before a
+> flush are counted in a `#` line. Path: `%LOCALAPPDATA%\FrameLedger\logs\overlay-<pid>-<yyyymmdd-hhmmss>.log`,
+> resolved by `SHGetKnownFolderPath` (§S21's rule, not the environment). No allocation: static ring,
+> static 64 KiB format buffer, static path. The CaptureHost prints the file and its `FAULT` / `STOP` /
+> `UNHOOK_*` / `SYMBOL_MISSING` / `SUPERVISION_LOST` lines at the end of every session
+> (`Consume/OverlayLog.cs`).
+
 ## Test harness
 
 `src/native/tools/hook-harness` — a minimal D3D11 app that presents at a controlled rate. It lets CI and local dev exercise hook paths with **no game and no anti-cheat surface at all** (`14_TESTING`).
@@ -637,7 +669,7 @@ verification a dev-machine-only affair before:
 - **WARP** (`D3D_DRIVER_TYPE_WARP`) — a software rasteriser, so no adapter is required.
 - **`CreateSwapChainForComposition`** — no `HWND`, so no dependency on a window station or an interactive session.
 
-Current modes: `--probe-vtable` (§H4, ctest `fl_vtable_indices`), `--probe-proxy` (§H5, ctest `fl_proxy_swapchain`), `--probe-unhook` (§H7, ctest `fl_unhook_preserves_foreign`), `--probe-cost` (NFR-1, measurement only), **`--probe-frames`** (ctest `fl_frame_identity` — what counts as a frame, against `GetLastPresentCount`), **`--probe-d3d12`** (ctest `fl_d3d12_acquisition` — device → command queue → swapchain), `--present N`, `--hold N`, **`--real`** and **`--plus-ui K``**.
+Current modes: `--probe-vtable` (§H4, ctest `fl_vtable_indices`), `--probe-proxy` (§H5, ctest `fl_proxy_swapchain`), `--probe-unhook` (§H7, ctest `fl_unhook_preserves_foreign`), `--probe-cost` (NFR-1, measurement only), **`--probe-frames`** (ctest `fl_frame_identity` — what counts as a frame, against `GetLastPresentCount`), **`--probe-d3d12`** (ctest `fl_d3d12_acquisition` — device → command queue → swapchain), `--present N`, `--hold N`, **`--real`** and **`--plus-ui K``**, **`--vulkan --hold-presenting N`** (P1 item 3, real loader, exit 77 = cannot run here) and **`--opengl --hold-presenting N`** (P1 item 4, gdi32 `SwapBuffers` on a hidden window, Microsoft's generic renderer — runs on CI).
 
 > **Every present here used to carry `DXGI_PRESENT_TEST`, which submits nothing.** Measured: 500 of them leave `GetLastPresentCount` at 0 while 37 real presents move it by 37. "N presents → N records" was therefore satisfiable only by a writer counting non-frames. `--real` issues real presents; the test-present path is kept as a named mode because it is what an alt-tabbed title actually runs.
 

@@ -23,5 +23,7 @@ internal sealed class ShmCaptureSink(ShmRingReader reader) : ICaptureSink
 
     public void SetPaused(bool paused) => _reader.SetPaused(paused);
 
+    public void RequestLogFlush() => _reader.RequestLogFlush();
+
     public void Dispose() => _reader.Dispose();
 }

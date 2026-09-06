@@ -71,4 +71,7 @@ internal sealed record CaptureResult
     /// presentation runtime plus the full scan and the injection. Null in attach mode.
     /// </summary>
     public TimeSpan? LaunchWait { get; init; }
+
+    /// <summary>The captured process, for the report's look-ups (the native log is named after it).</summary>
+    public int TargetPid { get; init; }
 }

@@ -2197,6 +2197,161 @@ TEST_CASE("launch mode against the real harness through the real module seam: in
     CHECK(before < 5000);            // the harness ran ~1 s at ~120/s before we were in; not a bound on a title
 }
 
+// ===========================================================================
+// P1 item 4 -- OpenGL through opengl32!wglSwapBuffers, and the native log.
+// ===========================================================================
+namespace {
+
+// The newest logs\overlay-<pid>-*.log under %LOCALAPPDATA%\FrameLedger, if any.
+bool FindOverlayLog(DWORD pid, std::wstring& out) {
+    wchar_t base[fl::guard::kMaxRulesPathLen]{};
+    if (!fl::guard::LocalAppDataDir(base, fl::guard::kMaxRulesPathLen)) {
+        return false;
+    }
+    wchar_t pattern[fl::guard::kMaxRulesPathLen]{};
+    _snwprintf_s(pattern, _TRUNCATE, L"%s\\FrameLedger\\logs\\overlay-%lu-*.log", base, pid);
+    WIN32_FIND_DATAW fd{};
+    HANDLE           h = FindFirstFileW(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    std::wstring dir = pattern;
+    dir = dir.substr(0, dir.find_last_of(L'\\'));
+    out = dir + L"\\" + fd.cFileName;
+    FindClose(h);
+    return true;
+}
+
+std::string ReadWholeFile(const std::wstring& path) {
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return {};
+    }
+    std::string out;
+    char        buf[4096];
+    DWORD       n = 0;
+    while (ReadFile(h, buf, sizeof(buf), &n, nullptr) && n > 0) {
+        out.append(buf, n);
+    }
+    CloseHandle(h);
+    return out;
+}
+
+std::string Narrow(const std::wstring& w) {
+    std::string out;
+    for (wchar_t c : w) {
+        out.push_back(c < 128 ? static_cast<char>(c) : '?');
+    }
+    return out;
+}
+
+}    // namespace
+
+TEST_CASE("OpenGL: the injected Overlay hooks opengl32!wglSwapBuffers and records the harness's SwapBuffers calls",
+          "[guard][inject][shm][opengl]") {
+    // The harness's --opengl mode calls gdi32's SwapBuffers -- the route a real title
+    // takes -- and the Overlay's hook must see it through opengl32!wglSwapBuffers.
+    Child child;
+    if (!StartHarness(child, L"--opengl --hold-presenting 8")) {
+        DWORD code = 0;
+        GetExitCodeProcess(child.pi.hProcess, &code);
+        if (code == 77u) {
+            SKIP("the harness could not make an OpenGL context on this machine (exit 77)");
+        }
+        FAIL("the harness died (exit " << code << ")");
+    }
+
+    ResetFake();
+    g.modules = {"kernel32.dll", "opengl32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    MappedRing r;
+    REQUIRE(OpenRingFor(child.pi.dwProcessId, r));
+    for (int i = 0; i < 80 && r.st->writeIndex < 20; ++i) {
+        ++r.ctl->guardTicks;
+        Sleep(50);
+    }
+    INFO("writeIndex " << r.st->writeIndex << " apiMask 0x" << std::hex << r.st->apiMask);
+    REQUIRE(r.st->writeIndex >= 20u);
+    CHECK((r.st->apiMask & (1u << fl::FL_API_OPENGL)) != 0u);
+    CHECK((r.st->hooksInstalledMask & fl::FL_HOOK_PRESENT) != 0u);
+    const auto* ring =
+        reinterpret_cast<const fl::FlFrameRecord*>(static_cast<unsigned char*>(r.base) + FL_SHM_RING_OFFSET);
+    CHECK(ring[0].api == static_cast<uint8_t>(fl::FL_API_OPENGL));
+    CHECK(ring[0].swapchainId != 0u);
+    CHECK(ring[0].outputW != 0u);    // GetClientRect on the window the HDC belongs to
+    CHECK((ring[0].measuredMask & fl::FL_MEASURED_OUTPUT_RES) != 0u);
+    CHECK((ring[0].measuredMask & fl::FL_MEASURED_PRESENT_ARGS) == 0u);    // wglSwapBuffers has none
+    CHECK(ring[5].qpc > ring[0].qpc);
+    CHECK(r.st->faultCount == 0u);
+    CHECK(r.st->status == fl::FL_STATUS_READY);
+}
+
+TEST_CASE("the native log: written at init, on the Agent's request, and on the stop -- and the stop restores each "
+          "patch by compare-and-restore",
+          "[guard][inject][shm][log]") {
+    Child child;
+    REQUIRE(StartHarness(child, L"--real --hold-presenting 14"));
+
+    ResetFake();
+    g.modules = {"kernel32.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    REQUIRE(GuardedInjectWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, FakeSources()).Allowed());
+
+    MappedRing r;
+    REQUIRE(OpenRingFor(child.pi.dwProcessId, r));
+
+    // Init flushed once: the file exists from the start of the session.
+    std::wstring log;
+    bool         found = false;
+    for (int i = 0; i < 40 && !found; ++i) {
+        found = FindOverlayLog(child.pi.dwProcessId, log);
+        if (!found) {
+            Sleep(50);
+        }
+    }
+    REQUIRE(found);
+    std::string text = ReadWholeFile(log);
+    INFO("log " << Narrow(log) << ":\n" << text);
+    CHECK(text.find("# FrameLedger.Overlay build ") != std::string::npos);
+    CHECK(text.find("RING_CREATED") != std::string::npos);
+    CHECK(text.find("PRESENT_HOOKS") != std::string::npos);
+    CHECK(text.find("dxgi!IDXGISwapChain::Present") != std::string::npos);
+    CHECK(text.find("LOADER_DETOUR") != std::string::npos);
+
+    // The Agent's request: a counter, acted on by the watchdog within a tick.
+    for (int i = 0; i < 5; ++i) {
+        ++r.ctl->guardTicks;
+        Sleep(100);
+    }
+    ++r.ctl->logFlushRequested;
+    Sleep(1500);
+    text = ReadWholeFile(log);
+    // Nothing new necessarily happened, but the request must not have broken the file
+    // and it must still be one file (appended, never recreated).
+    CHECK(text.find("RING_CREATED") != std::string::npos);
+    CHECK(text.find("RING_CREATED") == text.rfind("RING_CREATED"));
+
+    // The stop: every patch restored (the harness is alone in its process, so every
+    // slot is still ours), logged one line each, then flushed by the watchdog.
+    r.ctl->unhookRequested = 1;
+    for (int i = 0; i < 60 && r.st->status != fl::FL_STATUS_UNHOOKED; ++i) {
+        ++r.ctl->guardTicks;
+        Sleep(50);
+    }
+    REQUIRE(r.st->status == fl::FL_STATUS_UNHOOKED);
+    Sleep(1500);
+    text = ReadWholeFile(log);
+    INFO("after the stop:\n" << text);
+    CHECK(text.find("STOP") != std::string::npos);
+    CHECK(text.find("UNHOOK_RESTORED  dxgi!IDXGISwapChain::Present") != std::string::npos);
+    CHECK(text.find("UNHOOK_RESTORED  kernelbase!LoadLibraryExW") != std::string::npos);
+    CHECK(text.find("UNHOOK_DECLINED") == std::string::npos);
+    CHECK(text.find("FAULT") == std::string::npos);
+}
+
 TEST_CASE("the injected Overlay records real presents into the ring", "[guard][inject][shm]") {
     // The end-to-end claim the whole hook layer exists for, against a target that
     // is PRESENTING WHILE WE INJECT. --hold cannot be used here: it presents 240

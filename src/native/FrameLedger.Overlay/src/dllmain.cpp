@@ -46,13 +46,16 @@
 #include <fl_d3d12_vtable.h>
 #include <fl_dxgi_vtable.h>
 #include <fl_hook_inventory.h>
+#include <fl_patch_check.h>
 #include <fl_ring.h>
 #include <fl_rt_accum.h>
 #include <fl_shm.h>
 #include <fl_shm_host.h>
 #include <fl_sl_inputs.h>
 #include <fl_sl_seen.h>
+#include <knownfolders.h>
 #include <MinHook.h>
+#include <shlobj_core.h>
 
 // Its own block, below the sorted one, because it needs Family/Group/MatchKind
 // from fl_ac_rules.h and clang-format sorts each block independently. Types plus
@@ -113,6 +116,211 @@ void PublishHandshake() noexcept {
 }
 
 // ---------------------------------------------------------------------------
+// Native logging (17_HOOK_ENGINE §Native logging; P1 item 4).
+//
+// A fixed ring of structured events -- hook installed, symbol missing, fault,
+// stop, unhook restored / declined -- appended from init and watchdog paths and
+// from the SEH handler of a hook (never from a hook BODY), and flushed to
+// %LOCALAPPDATA%\FrameLedger\logs\overlay-<pid>-<stamp>.log by the init thread
+// at the end of init, by the watchdog when the Agent asks (logFlushRequested)
+// and when observing stops. Never mid-frame: FlushLog is never reachable from a
+// present path. No allocation anywhere: the ring, the format buffer and the path
+// are static; the one system call that could allocate (SHGetKnownFolderPath)
+// runs on the init/watchdog thread and is freed at once.
+// ---------------------------------------------------------------------------
+enum FlLogCode : uint32_t {
+    kLogRingCreated = 1,
+    kLogPresentHooks,
+    kLogHookInstalled,
+    kLogSymbolMissing,
+    kLogFault,
+    kLogStop,
+    kLogUnhookRestored,
+    kLogUnhookDeclined,
+    kLogLoaderDetour,
+    kLogSupervisionLost,
+};
+
+const char* LogCodeName(uint32_t code) noexcept {
+    switch (code) {
+    case kLogRingCreated:
+        return "RING_CREATED";
+    case kLogPresentHooks:
+        return "PRESENT_HOOKS";
+    case kLogHookInstalled:
+        return "HOOK_INSTALLED";
+    case kLogSymbolMissing:
+        return "SYMBOL_MISSING";
+    case kLogFault:
+        return "FAULT";
+    case kLogStop:
+        return "STOP";
+    case kLogUnhookRestored:
+        return "UNHOOK_RESTORED";
+    case kLogUnhookDeclined:
+        return "UNHOOK_DECLINED";
+    case kLogLoaderDetour:
+        return "LOADER_DETOUR";
+    case kLogSupervisionLost:
+        return "SUPERVISION_LOST";
+    default:
+        return "?";
+    }
+}
+
+struct FlLogEvent {
+    uint64_t qpc;
+    uint32_t code;
+    uint32_t a;
+    uint64_t b;
+    char     text[40];
+};
+
+constexpr uint32_t    kLogCapacity = 256;
+FlLogEvent            g_log[kLogCapacity]{};
+std::atomic<uint32_t> g_logNext{0};
+uint32_t              g_logFlushed = 0;      // watchdog / init thread only
+uint32_t              g_logFlushSeen = 0;    // last logFlushRequested acted on
+uint64_t              g_logEpochQpc = 0;
+uint64_t              g_logQpcFreq = 1;
+wchar_t               g_logPath[512]{};
+
+void LogNote(uint32_t code, const char* text, uint32_t a = 0, uint64_t b = 0) noexcept {
+    const uint32_t idx = g_logNext.fetch_add(1u, std::memory_order_acq_rel);
+    FlLogEvent&    e = g_log[idx % kLogCapacity];
+    LARGE_INTEGER  qpc{};
+    QueryPerformanceCounter(&qpc);
+    e.qpc = static_cast<uint64_t>(qpc.QuadPart);
+    e.code = code;
+    e.a = a;
+    e.b = b;
+    size_t i = 0;
+    if (text != nullptr) {
+        for (; i + 1 < sizeof(e.text) && text[i] != '\0'; ++i) {
+            e.text[i] = text[i];
+        }
+    }
+    e.text[i] = '\0';
+}
+
+// Narrow ASCII copy of a module name for the log; anything outside ASCII is '?'.
+void LogNoteW(uint32_t code, const wchar_t* text, uint32_t a = 0, uint64_t b = 0) noexcept {
+    char   narrow[40]{};
+    size_t i = 0;
+    for (; text != nullptr && i + 1 < sizeof(narrow) && text[i] != L'\0'; ++i) {
+        narrow[i] = (text[i] < 128) ? static_cast<char>(text[i]) : '?';
+    }
+    narrow[i] = '\0';
+    LogNote(code, narrow, a, b);
+}
+
+// %LOCALAPPDATA%\FrameLedger\logs\overlay-<pid>-<yyyymmdd-hhmmss>.log, resolved
+// once. Shell-resolved like the rules path (§S21): the environment was inherited
+// from whoever launched the game.
+bool EnsureLogPath() noexcept {
+    if (g_logPath[0] != L'\0') {
+        return true;
+    }
+    PWSTR base = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &base)) || base == nullptr) {
+        return false;
+    }
+    wchar_t   dir[512]{};
+    const int n = _snwprintf_s(dir, _TRUNCATE, L"%s\\FrameLedger", base);
+    CoTaskMemFree(base);
+    if (n <= 0) {
+        return false;
+    }
+    CreateDirectoryW(dir, nullptr);
+    wchar_t logs[512]{};
+    if (_snwprintf_s(logs, _TRUNCATE, L"%s\\logs", dir) <= 0) {
+        return false;
+    }
+    CreateDirectoryW(logs, nullptr);
+    SYSTEMTIME st{};
+    GetLocalTime(&st);
+    if (_snwprintf_s(g_logPath, _TRUNCATE, L"%s\\overlay-%lu-%04u%02u%02u-%02u%02u%02u.log", logs,
+                     GetCurrentProcessId(), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond) <= 0) {
+        g_logPath[0] = L'\0';
+        return false;
+    }
+    return true;
+}
+
+// Init / watchdog thread ONLY. Appends what has not been written yet.
+void FlushLog() noexcept {
+    if (!EnsureLogPath()) {
+        return;
+    }
+    HANDLE h =
+        CreateFileW(g_logPath, FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    static char buf[65536];
+    int         used = 0;
+    if (g_logFlushed == 0) {
+        char image[MAX_PATH]{};
+        GetModuleFileNameA(nullptr, image, MAX_PATH);
+        used += _snprintf_s(buf, sizeof(buf), _TRUNCATE, "# FrameLedger.Overlay build %s pid %lu layout v%u image %s\n",
+                            FL_BUILD_ID, GetCurrentProcessId(), FL_SHM_LAYOUT_VERSION, image);
+    }
+    const uint32_t next = g_logNext.load(std::memory_order_acquire);
+    uint32_t       from = g_logFlushed;
+    if (next - from > kLogCapacity) {
+        const uint32_t dropped = next - from - kLogCapacity;
+        used += _snprintf_s(buf + used, sizeof(buf) - static_cast<size_t>(used), _TRUNCATE,
+                            "# %u event(s) overwritten before they could be flushed\n", dropped);
+        from = next - kLogCapacity;
+    }
+    for (; from != next; ++from) {
+        const FlLogEvent& e = g_log[from % kLogCapacity];
+        const double      t = (e.qpc >= g_logEpochQpc && g_logQpcFreq != 0)
+                                  ? static_cast<double>(e.qpc - g_logEpochQpc) / static_cast<double>(g_logQpcFreq)
+                                  : 0.0;
+        if (static_cast<size_t>(used) + 200 > sizeof(buf)) {
+            DWORD written = 0;
+            WriteFile(h, buf, static_cast<DWORD>(used), &written, nullptr);
+            used = 0;
+        }
+        used += _snprintf_s(buf + used, sizeof(buf) - static_cast<size_t>(used), _TRUNCATE,
+                            "+%10.3fs  %-16s %-40s a=%u b=0x%llx\n", t, LogCodeName(e.code), e.text, e.a,
+                            static_cast<unsigned long long>(e.b));
+    }
+    g_logFlushed = next;
+    if (used > 0) {
+        DWORD written = 0;
+        WriteFile(h, buf, static_cast<DWORD>(used), &written, nullptr);
+    }
+    CloseHandle(h);
+}
+
+// ---------------------------------------------------------------------------
+// The patch registry (17_HOOK_ENGINE §Unhooking; P1 item 4). Every MinHook
+// patch this DLL installs is recorded here so the stop can ask, per patch,
+// whether the bytes at the target are still OUR jump before writing the saved
+// prologue back -- the inline-patch form of §H7's compare-and-restore.
+// ---------------------------------------------------------------------------
+struct PatchEntry {
+    void*       target = nullptr;
+    void*       detour = nullptr;
+    const char* name = nullptr;
+};
+constexpr uint32_t    kMaxPatches = 48;
+PatchEntry            g_patches[kMaxPatches]{};
+std::atomic<uint32_t> g_patchCount{0};
+
+void RegisterPatch(void* target, void* detour, const char* name) noexcept {
+    const uint32_t i = g_patchCount.fetch_add(1u, std::memory_order_acq_rel);
+    if (i < kMaxPatches) {
+        g_patches[i].target = target;
+        g_patches[i].detour = detour;
+        g_patches[i].name = name;
+        LogNote(kLogHookInstalled, name, 0, reinterpret_cast<uint64_t>(target));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Fault policy (docs/17_HOOK_ENGINE.md §Fault policy, NFR-3).
 // ---------------------------------------------------------------------------
 FlWriterState* g_state = nullptr;
@@ -132,7 +340,10 @@ LONG FlFilter(DWORD code) noexcept {
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
-void NoteFault() noexcept {
+void NoteFault(DWORD code, const char* where) noexcept {
+    // From the SEH HANDLER of a hook, outside the guarded body: one ring slot, no
+    // allocation, no lock (17_HOOK_ENGINE §Native logging).
+    LogNote(kLogFault, where, static_cast<uint32_t>(code));
     if (g_state == nullptr) {
         return;
     }
@@ -162,7 +373,7 @@ void NoteFault() noexcept {
     __try {                                                                                                            \
         body                                                                                                           \
     } __except (FlFilter(GetExceptionCode())) {                                                                        \
-        NoteFault();                                                                                                   \
+        NoteFault(GetExceptionCode(), __func__);                                                                       \
     }
 
 // ---------------------------------------------------------------------------
@@ -490,7 +701,24 @@ void StopObserving(uint32_t reason) noexcept {
     if (!g_observing.compare_exchange_strong(expected, 0, std::memory_order_acq_rel, std::memory_order_acquire)) {
         return;
     }
-    MH_DisableHook(MH_ALL_HOOKS);
+    LogNote(kLogStop, "observing stopped", reason);
+    // COMPARE-AND-RESTORE, PER PATCH (17_HOOK_ENGINE §Unhooking, §H7 in its inline
+    // form). MH_DisableHook(MH_ALL_HOOKS) wrote every saved prologue back without
+    // looking; an overlay that patched the same function after us chains through
+    // OUR jump, and that write would have removed its hook silently. So each patch
+    // is restored only while the bytes at its target are still the jump MinHook
+    // wrote for us; otherwise it is left in place and our detour stays in the
+    // other overlay's chain doing nothing -- g_observing is 0, every body forwards.
+    const uint32_t n = g_patchCount.load(std::memory_order_acquire);
+    for (uint32_t i = 0; i < n && i < kMaxPatches; ++i) {
+        const PatchEntry& p = g_patches[i];
+        if (fl::patch::StillOurs(p.target, p.detour)) {
+            const bool ok = MH_DisableHook(p.target) == MH_OK;
+            LogNote(kLogUnhookRestored, p.name, ok ? 1u : 0u, reinterpret_cast<uint64_t>(p.target));
+        } else {
+            LogNote(kLogUnhookDeclined, p.name, 0u, reinterpret_cast<uint64_t>(p.target));
+        }
+    }
     if (g_state != nullptr) {
         std::atomic_ref<uint32_t> status{g_state->status};
         status.store(reason, std::memory_order_release);
@@ -508,6 +736,8 @@ void StopObserving(uint32_t reason) noexcept {
 // families in rules order.
 std::atomic<uint32_t> g_earlyStopFamily{0};
 void                  PublishLoaderWords() noexcept;
+// Defined with the OpenGL hook below; the watchdog installs it lazily.
+bool InstallOpenGlHook() noexcept;
 
 bool MayObserve() noexcept {
     if (g_observing.load(std::memory_order_acquire) == 0) {
@@ -973,7 +1203,7 @@ HMODULE WINAPI Hook_LoadLibraryExW(LPCWSTR name, HANDLE file, DWORD flags) noexc
                     uint32_t none = 0;
                     g_earlyStopFamily.compare_exchange_strong(none, family, std::memory_order_acq_rel);
                     WakeWatchdog();
-                } else if (ModuleIsInventoried(base)) {
+                } else if (ModuleIsInventoried(base) || _wcsicmp(base, L"opengl32.dll") == 0) {
                     uint32_t cur = g_loaderSignals.load(std::memory_order_relaxed);
                     while ((cur & kLoaderCountMask) < kLoaderCountMask &&
                            !g_loaderSignals.compare_exchange_weak(cur, cur + 1u, std::memory_order_relaxed)) {
@@ -1001,9 +1231,12 @@ bool InstallLoaderHook() noexcept {
     if (MH_CreateHook(target, reinterpret_cast<void*>(&Hook_LoadLibraryExW),
                       reinterpret_cast<void**>(&g_origLoadLibraryExW)) != MH_OK ||
         MH_EnableHook(target) != MH_OK) {
+        LogNote(kLogLoaderDetour, "kernelbase!LoadLibraryExW", 0);
         return false;
     }
+    RegisterPatch(target, reinterpret_cast<void*>(&Hook_LoadLibraryExW), "kernelbase!LoadLibraryExW");
     g_loaderSignals.fetch_or(kLoaderInstalledBit, std::memory_order_release);
+    LogNote(kLogLoaderDetour, "kernelbase!LoadLibraryExW", 1);
     return true;
 }
 
@@ -1501,7 +1734,7 @@ void STDMETHODCALLTYPE Hook_BuildRtAs(ID3D12GraphicsCommandList4*               
 // second one, and it cannot reuse InstallRow because its targets come from a
 // VTABLE rather than from a name. Sharing this is what keeps the window closed in
 // one place rather than in two that can drift.
-bool PatchTarget(void* target, void* detour, void** original) noexcept {
+bool PatchTarget(void* target, void* detour, void** original, const char* name = "hook") noexcept {
     if (target == nullptr) {
         return false;
     }
@@ -1512,6 +1745,7 @@ bool PatchTarget(void* target, void* detour, void** original) noexcept {
         MH_DisableHook(target);
         return false;
     }
+    RegisterPatch(target, detour, name);
     return true;
 }
 
@@ -1566,6 +1800,27 @@ void PublishSlTagCensus() noexcept {
     census.fetch_or(seen, std::memory_order_relaxed);
 }
 
+// Once per (module, symbol) pair, and only when the module is mapped: a module
+// that is not there is the ordinary case, a mapped module without the export is
+// the one a bug report needs to say.
+const char* g_symbolMissingSeen[16]{};
+void        NoteSymbolMissingOnce(const wchar_t* module, const char* symbol) noexcept {
+    HMODULE h = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, module, &h) || h == nullptr) {
+        return;
+    }
+    for (const char*& seen : g_symbolMissingSeen) {
+        if (seen == symbol) {
+            return;
+        }
+        if (seen == nullptr) {
+            seen = symbol;
+            LogNote(kLogSymbolMissing, symbol, 0, reinterpret_cast<uint64_t>(h));
+            return;
+        }
+    }
+}
+
 bool InstallRow(const wchar_t* module, const char* symbol, uint32_t family, void* detour, void** original,
                 std::atomic<uint32_t>& live) noexcept {
     if (live.load(std::memory_order_acquire) != 0) {
@@ -1575,11 +1830,13 @@ bool InstallRow(const wchar_t* module, const char* symbol, uint32_t family, void
     void* target = fl::inventory::ResolveScoped(module, symbol);
     if (target == nullptr) {
         // The game has not loaded Streamline, or loaded a generation whose ABI we
-        // do not speak (#71). An answer, not a failure.
+        // do not speak (#71). An answer, not a failure -- logged once when the
+        // module IS there and the symbol is not, which is the shape worth reading.
+        NoteSymbolMissingOnce(module, symbol);
         return false;
     }
 
-    if (!PatchTarget(target, detour, original)) {
+    if (!PatchTarget(target, detour, original, symbol)) {
         return false;
     }
 
@@ -1923,7 +2180,7 @@ bool InstallRtHooks() noexcept {
 // The watchdog. Runs whether or not the game presents, which is the reason it
 // exists; see the block comment above for why a thread is acceptable in the
 // Overlay and was not in the Vulkan layer.
-DWORD WINAPI WatchdogThread(LPVOID) noexcept {
+DWORD WatchdogLoop() noexcept {
     for (;;) {
         // The 1 s tick, OR the LoadLibrary detour's wake -- whichever comes first.
         // An event that failed to create degrades to the plain sleep.
@@ -1944,6 +2201,14 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
         if (unhook.load(std::memory_order_acquire) != 0) {
             StopObserving(FL_STATUS_UNHOOKED);
             return 0;
+        }
+
+        // The Agent asked for the native log now (session end, before it lets go):
+        // a counter, acted on when it changes, on this thread and never mid-frame.
+        std::atomic_ref<uint32_t> flushReq{g_control->logFlushRequested};
+        if (const uint32_t req = flushReq.load(std::memory_order_acquire); req != g_logFlushSeen) {
+            g_logFlushSeen = req;
+            FlushLog();
         }
 
         // The in-process stop, for a title that is NOT presenting (menu, hung,
@@ -1978,6 +2243,10 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
         // moment chosen by our sleep rather than by the game.
         InstallUpscalerHooks();
 
+        // OpenGL, on the same vehicle: opengl32 may map after us, and the LoadLibrary
+        // detour wakes this thread for it.
+        InstallOpenGlHook();
+
         // The ray-tracing hooks, on the same vehicle and for a related reason: the
         // device only becomes available when a D3D12 swapchain first presents, which
         // is a moment chosen by the game rather than by our init. It RETRIES and
@@ -2009,10 +2278,19 @@ DWORD WINAPI WatchdogThread(LPVOID) noexcept {
             continue;
         }
         if (t - g_lastTickAt >= FL_GUARD_TICK_DEADLINE_MS) {
+            LogNote(kLogSupervisionLost, "guardTicks stalled past the deadline", now, t - g_lastTickAt);
             StopObserving(FL_STATUS_UNHOOKED);
             return 0;
         }
     }
+}
+
+// The thread itself: the loop, then ONE flush of everything the stop wrote, on
+// this thread, after the last hook body that could have logged has had its say.
+DWORD WINAPI WatchdogThread(LPVOID) noexcept {
+    const DWORD r = WatchdogLoop();
+    FlushLog();
+    return r;
 }
 
 // The hot path. One QPC read, a few cached-state reads, one 60-byte store in two
@@ -2551,6 +2829,122 @@ HRESULT STDMETHODCALLTYPE Hook_ResizeBuffers(IDXGISwapChain* sc, UINT count, UIN
     return hr;
 }
 
+// ---------------------------------------------------------------------------
+// OpenGL: opengl32!wglSwapBuffers (17_HOOK_ENGINE §Presentation; P1 item 4).
+//
+// A flat export, so a MinHook inline patch (§Hook inventory: "use MinHook inline
+// hooks for flat C exports"). Measured 2026-08-05: the export is a `jmp` thunk
+// into the vendor ICD, which MinHook relocates like any other first instruction.
+// Installed lazily on the watchdog -- opengl32.dll may load after us, and the
+// LoadLibrary detour wakes the watchdog for it -- and at init when it is
+// already mapped.
+//
+// RULE 4: the one argument is an HDC the title passed; the output size comes
+// from GetClientRect on the window that DC belongs to, read at first sighting
+// and every 256th present so a resize is picked up without a second hook.
+// wglSwapBuffers carries no sync interval and no flags, so like vkQueuePresentKHR
+// it claims no FL_MEASURED_PRESENT_ARGS.
+// ---------------------------------------------------------------------------
+using PFN_wglSwapBuffers = BOOL(WINAPI*)(HDC);
+PFN_wglSwapBuffers    g_origWglSwapBuffers = nullptr;
+std::atomic<uint32_t> g_glLive{0};
+
+struct GlSlot {
+    HDC      hdc = nullptr;
+    uint32_t id = 0;
+    uint16_t w = 0;
+    uint16_t h = 0;
+    uint32_t presents = 0;
+};
+constexpr size_t kMaxGlSlots = 8;
+GlSlot           g_gl[kMaxGlSlots]{};
+
+void ReadGlSize(GlSlot& s) noexcept {
+    const HWND wnd = WindowFromDC(s.hdc);
+    RECT       r{};
+    if (wnd != nullptr && GetClientRect(wnd, &r) && r.right > 0 && r.bottom > 0) {
+        s.w = static_cast<uint16_t>(r.right > 0xFFFF ? 0 : r.right);
+        s.h = static_cast<uint16_t>(r.bottom > 0xFFFF ? 0 : r.bottom);
+    }
+}
+
+GlSlot* FindOrAddGl(HDC hdc) noexcept {
+    for (auto& s : g_gl) {
+        if (s.hdc == hdc) {
+            if ((++s.presents & 0xFFu) == 0u) {
+                ReadGlSize(s);
+            }
+            return &s;
+        }
+    }
+    for (auto& s : g_gl) {
+        if (s.hdc == nullptr) {
+            s.hdc = hdc;
+            s.id = g_nextChainId++;    // shares the DXGI chains' id space: one stream table on the reader
+            s.presents = 1;
+            ReadGlSize(s);
+            return &s;
+        }
+    }
+    return nullptr;    // full: id 0 = unidentified, never a wrong id
+}
+
+void RecordGlPresent(HDC hdc) noexcept {
+    if (!MayObserve()) {
+        return;
+    }
+    LARGE_INTEGER qpc{};
+    QueryPerformanceCounter(&qpc);
+    GlSlot* slot = FindOrAddGl(hdc);
+
+    FlFrameRecord rec{};
+    rec.qpc = static_cast<uint64_t>(qpc.QuadPart);
+    rec.frameIndex = g_frameIndex++;
+    rec.api = static_cast<uint8_t>(FL_API_OPENGL);
+    if (slot != nullptr) {
+        rec.swapchainId = slot->id;
+        rec.outputW = slot->w;
+        rec.outputH = slot->h;
+    }
+    rec.measuredMask = (rec.outputW != 0u && rec.outputH != 0u) ? static_cast<uint16_t>(FL_MEASURED_OUTPUT_RES) : 0u;
+    g_writer.Publish(rec);
+}
+
+BOOL WINAPI Hook_WglSwapBuffers(HDC hdc) {
+    FL_HOOK_GUARD({ RecordGlPresent(hdc); })
+    // ALWAYS exactly once, never inside the __try (the present hooks' rule).
+    return g_origWglSwapBuffers(hdc);
+}
+
+// Retries until it succeeds and latches only on success, like every lazy
+// installer here. opengl32 absent is "not an OpenGL title (yet)", not a failure.
+bool InstallOpenGlHook() noexcept {
+    if (g_glLive.load(std::memory_order_acquire) != 0u) {
+        return true;
+    }
+    HMODULE gl = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"opengl32.dll", &gl) || gl == nullptr) {
+        return false;
+    }
+    void* target = reinterpret_cast<void*>(GetProcAddress(gl, "wglSwapBuffers"));
+    if (target == nullptr) {
+        LogNote(kLogSymbolMissing, "opengl32!wglSwapBuffers", 0, reinterpret_cast<uint64_t>(gl));
+        return false;
+    }
+    if (!PatchTarget(target, reinterpret_cast<void*>(&Hook_WglSwapBuffers),
+                     reinterpret_cast<void**>(&g_origWglSwapBuffers), "opengl32!wglSwapBuffers")) {
+        return false;
+    }
+    if (g_state != nullptr) {
+        std::atomic_ref<uint32_t> mask{g_state->apiMask};
+        mask.fetch_or(1u << FL_API_OPENGL, std::memory_order_relaxed);
+        std::atomic_ref<uint32_t> hooks{g_state->hooksInstalledMask};
+        hooks.fetch_or(static_cast<uint32_t>(FL_HOOK_PRESENT), std::memory_order_relaxed);
+    }
+    g_glLive.store(1u, std::memory_order_release);
+    return true;
+}
+
 // A throwaway WARP swapchain, purely to read the shared class vtable. Released
 // immediately: 17_HOOK_ENGINE §Getting vtable addresses. Never hardcode the
 // pointer, never keep the object.
@@ -2597,6 +2991,14 @@ bool InstallPresentHooks() noexcept {
                  MH_CreateHook(vtbl[fl::dxgi::kPresent1Index], reinterpret_cast<void*>(&Hook_Present1),
                                reinterpret_cast<void**>(&g_origPresent1)) == MH_OK &&
                  MH_EnableHook(MH_ALL_HOOKS) == MH_OK;
+            if (ok) {
+                RegisterPatch(vtbl[fl::dxgi::kPresentIndex], reinterpret_cast<void*>(&Hook_Present),
+                              "dxgi!IDXGISwapChain::Present");
+                RegisterPatch(vtbl[fl::dxgi::kResizeBuffersIndex], reinterpret_cast<void*>(&Hook_ResizeBuffers),
+                              "dxgi!IDXGISwapChain::ResizeBuffers");
+                RegisterPatch(vtbl[fl::dxgi::kPresent1Index], reinterpret_cast<void*>(&Hook_Present1),
+                              "dxgi!IDXGISwapChain1::Present1");
+            }
         }
     }
 
@@ -2637,6 +3039,15 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
     if (!g_writer.Init(g_base, FL_SHM_DEFAULT_CAPACITY)) {
         return 1;
     }
+    {
+        LARGE_INTEGER f{};
+        LARGE_INTEGER q{};
+        QueryPerformanceFrequency(&f);
+        QueryPerformanceCounter(&q);
+        g_logQpcFreq = static_cast<uint64_t>(f.QuadPart);
+        g_logEpochQpc = static_cast<uint64_t>(q.QuadPart);
+    }
+    LogNote(kLogRingCreated, "Local\\FrameLedger.Ring.<pid>", FL_SHM_DEFAULT_CAPACITY);
 
     std::atomic_ref<uint32_t> status{g_state->status};
 
@@ -2654,9 +3065,12 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
         // Hooking failed, so nothing will ever be recorded. Staying at INIT says
         // exactly that; READY would be a claim about a capture side that does not
         // exist, and the Agent's degradation path is what should run instead.
+        LogNote(kLogPresentHooks, "MinHook init or the DXGI present hooks FAILED", 0);
         status.store(FL_STATUS_INIT, std::memory_order_release);
+        FlushLog();
         return 1;
     }
+    LogNote(kLogPresentHooks, "dxgi Present / Present1 / ResizeBuffers patched", 1);
 
     // hooksInstalledMask GETS ITS FIRST PRODUCER HERE, and it had none anywhere
     // in the tree -- not even this bit, which the present hook has always been
@@ -2675,6 +3089,9 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
     g_watchdogWake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     InstallLoaderHook();
     PublishLoaderWords();
+    // An OpenGL title has opengl32 mapped before we arrive; the watchdog retries
+    // for one that maps it later.
+    InstallOpenGlHook();
 
     status.store(FL_STATUS_READY, std::memory_order_release);
 
@@ -2693,6 +3110,10 @@ DWORD WINAPI InitThread(LPVOID) noexcept {
     } else {
         CloseHandle(watchdog);    // fire and forget; it exits on its own once stopped
     }
+    // The first flush: init is over, on the init thread, never mid-frame. The
+    // file therefore exists from the start of the session, which is what makes a
+    // crash mid-session diagnosable at all (10_LOGGING).
+    FlushLog();
     return 0;
 }
 

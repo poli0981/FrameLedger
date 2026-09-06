@@ -57,7 +57,8 @@ struct alignas(64) FlControlBlock {  // Agent-written
     uint32_t unhookRequested;    // @4  19_SAFETY: set when the guard fires mid-session
     uint32_t overlayEnabled;     // @8  in-game overlay draw toggle (v1.1)
     uint32_t guardTicks;         // @12 completed guard evaluations, NOT a timer
-    uint32_t reserved[12];       // @16..63 must be zero
+    uint32_t logFlushRequested;  // @16 a COUNTER: bumped by the Agent at session end; the watchdog flushes the native log on a change (17_HOOK_ENGINE §Native logging, 2026-09-06)
+    uint32_t reserved[11];       // @20..63 must be zero
 };
 
 static_assert(sizeof(FlShmHandshake) == 64);

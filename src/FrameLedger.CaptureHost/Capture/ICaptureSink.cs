@@ -30,4 +30,7 @@ internal interface ICaptureSink : IDisposable
     void PublishGuardResult(uint completedEvaluations, bool unhookRequested);
 
     void SetPaused(bool paused);
+
+    /// <summary>Ask the capture side to write its native log now (session end).</summary>
+    void RequestLogFlush();
 }

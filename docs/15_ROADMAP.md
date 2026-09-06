@@ -293,7 +293,15 @@ Findings written to `docs/spike-notes.md`. Nothing in P1 starts until the exit c
 > in-layer supervision and a harness Vulkan mode — **landed 2026-09-06** (`layer.cpp` capture side,
 > `fl_shm_host.h` shared with the Overlay, `hook-harness --vulkan`, ctest `fl_vklayer*`, launch mode's
 > `TargetIsVulkanLayered` branch; §S2 ✅, §S29(d)'s assertion now a ctest that skips on CI); **4** the
-> unhook path, native logging, D3D9 / OpenGL.
+> unhook path, native logging, D3D9 / OpenGL — **landed 2026-09-06**: compare-and-restore per inline
+> patch (`fl_patch_check.h`, ctest `fl_unhook_inline`), the native event ring flushed to
+> `logs\overlay-<pid>-*.log` (init / Agent request / stop), `opengl32!wglSwapBuffers` with the harness's
+> `--opengl` mode. **D3D9 is not built and will not be**: `20_OPEN_QUESTIONS` §Scope decisions rules it out
+> of v1 (the Overlay is x64-only and those titles are 32-bit); listing it here was the roadmap's, not the
+> scope's. What P1 still leaves ⏳ in `17_HOOK_ENGINE` §Hook inventory: `SetFullscreenState`,
+> `SetColorSpace1`, `CreateSwapChain*`, `ID3D12Device5::CreateStateObject`, the Vulkan RT / pipeline entries,
+> §Pipeline and §Memory/latency — feature rows, each with its own measurement question, not P1's core. P2
+> (the Agent, the recorder, SQLite) is next per this file.
 
 > **The guard already shipped, in P0.** This line used to read "the guard,
 > complete and fully tested — it ships before the first real injection, not

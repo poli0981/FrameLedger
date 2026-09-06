@@ -442,6 +442,11 @@ internal static class Program
         {
             HostConsole.Line(line);
         }
+
+        foreach (string line in OverlayLog.Describe(result.TargetPid, OverlayLog.DefaultDirectory))
+        {
+            HostConsole.Line(line);
+        }
     }
 
     /// <summary>

@@ -51,6 +51,10 @@
 //                    real loader (P1 item 3). Exit 77 = this machine cannot run it
 //                    (no loader / no presentable device), which the test that
 //                    spawns it reads as SKIP, never as failure. vk_hold.cpp.
+//   --opengl         with --hold-presenting N: a REAL OpenGL context on a hidden
+//                    window, SwapBuffers'd through gdi32 every few ms, so the
+//                    Overlay's wglSwapBuffers hook is exercised (P1 item 4). Exit 77
+//                    = cannot run here (no window / pixel format / context). gl_hold.cpp.
 //   --hold-presenting-overflow N
 //                    fill the Overlay's fixed 16-slot swapchain table, then
 //                    present for N seconds on one that cannot get a slot. The
@@ -2786,6 +2790,8 @@ bool ProbeFrameIdentity(Gfx& g) {
 
 // vk_hold.cpp -- the Vulkan mode (P1 item 3).
 int HoldPresentingVulkan(int seconds, int presentIntervalMs);
+// gl_hold.cpp -- the OpenGL mode (P1 item 4).
+int HoldPresentingOpenGl(int seconds, int presentIntervalMs);
 
 int main(int argc, char** argv) {
     std::printf("FrameLedger hook-harness (WARP, headless — no GPU or window required)\n");
@@ -2795,9 +2801,12 @@ int main(int argc, char** argv) {
     // (fl_guard.cpp FindPresentationRuntime) and get the Overlay instead of the
     // layer -- the Overlay owning the ring and the layer observing nothing.
     bool vulkanMode = false;
+    bool openglMode = false;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--vulkan") == 0) {
             vulkanMode = true;
+        } else if (std::strcmp(argv[i], "--opengl") == 0) {
+            openglMode = true;    // opengl32 is a static import of this binary: mapped from the first instruction
         }
     }
     if (vulkanMode) {
@@ -2808,7 +2817,7 @@ int main(int argc, char** argv) {
         LoadLibraryW(L"vulkan-1.dll");
     }
     Gfx g;
-    if (!vulkanMode && !CreateGfx(g)) {
+    if (!vulkanMode && !openglMode && !CreateGfx(g)) {
         std::printf("FAILED: could not create the graphics objects\n");
         return 2;
     }
@@ -2823,6 +2832,7 @@ int main(int argc, char** argv) {
     // --real applies to --present and --hold, wherever it appears on the line.
     bool real = false;
     bool vulkan = false;
+    bool opengl = false;
     int  plusUi = 0;
 
     // MILLISECONDS BETWEEN PRESENTS in the --hold-presenting modes. 8 is ~120/s and is the default for
@@ -2859,6 +2869,8 @@ int main(int argc, char** argv) {
             real = true;
         } else if (std::strcmp(argv[i], "--vulkan") == 0) {
             vulkan = true;
+        } else if (std::strcmp(argv[i], "--opengl") == 0) {
+            opengl = true;
         } else if (std::strcmp(argv[i], "--plus-ui") == 0 && i + 1 < argc) {
             plusUi = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--present-interval-ms") == 0 && i + 1 < argc) {
@@ -2922,10 +2934,10 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--real") == 0 || std::strcmp(argv[i], "--vulkan") == 0 ||
-            std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
-            std::strcmp(argv[i], "--presents-per-eval") == 0 || std::strcmp(argv[i], "--ffx-topology") == 0 ||
-            std::strcmp(argv[i], "--ffx-no-prepare") == 0 || std::strcmp(argv[i], "--sl-tag-for-frame") == 0 ||
-            std::strcmp(argv[i], "--sl-tag-whole-resource") == 0 ||
+            std::strcmp(argv[i], "--opengl") == 0 || std::strcmp(argv[i], "--plus-ui") == 0 ||
+            std::strcmp(argv[i], "--present-interval-ms") == 0 || std::strcmp(argv[i], "--presents-per-eval") == 0 ||
+            std::strcmp(argv[i], "--ffx-topology") == 0 || std::strcmp(argv[i], "--ffx-no-prepare") == 0 ||
+            std::strcmp(argv[i], "--sl-tag-for-frame") == 0 || std::strcmp(argv[i], "--sl-tag-whole-resource") == 0 ||
             std::strcmp(argv[i], "--sl-tag-dlssg-inputs") == 0 || std::strcmp(argv[i], "--load") == 0 ||
             std::strcmp(argv[i], "--load-after-ms") == 0) {
             if (std::strcmp(argv[i], "--plus-ui") == 0 || std::strcmp(argv[i], "--present-interval-ms") == 0 ||
@@ -3086,6 +3098,12 @@ int main(int argc, char** argv) {
             }
             if (f != nullptr) {
                 f->Release();
+            }
+            ranSomething = true;
+        } else if (std::strcmp(argv[i], "--hold-presenting") == 0 && i + 1 < argc && opengl) {
+            const int code = HoldPresentingOpenGl(std::atoi(argv[++i]), presentIntervalMs);
+            if (code != 0) {
+                return code;
             }
             ranSomething = true;
         } else if (std::strcmp(argv[i], "--hold-presenting") == 0 && i + 1 < argc && vulkan) {

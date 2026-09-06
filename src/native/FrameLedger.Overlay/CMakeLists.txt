@@ -34,7 +34,10 @@ add_dependencies(FrameLedger.Overlay fl_ac_floor_gen)
 target_link_libraries(FrameLedger.Overlay PRIVATE fl_ac_floor)
 target_link_libraries(FrameLedger.Overlay PRIVATE FrameLedger.Shm fl_dxgi_vtable fl_native_flags fl_hostile_env_flags minhook
     fl_streamline_headers fl_fidelityfx_headers fl_fsr3_host_headers
-    Advapi32 d3d11 d3d12 dxgi)
+    # Advapi32: the ring's DACL. User32: WindowFromDC / GetClientRect for the OpenGL
+    # output size. Shell32 + Ole32: SHGetKnownFolderPath for the native log's
+    # directory (§S21's resolution, not the environment), init/watchdog thread only.
+    Advapi32 User32 Shell32 Ole32 d3d11 d3d12 dxgi)
 set_target_properties(FrameLedger.Overlay PROPERTIES OUTPUT_NAME "FrameLedger.Overlay")
 
 # VERSIONINFO is mandatory and the build fails without it: being plainly

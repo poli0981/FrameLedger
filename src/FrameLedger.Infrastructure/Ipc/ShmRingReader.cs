@@ -292,6 +292,18 @@ public sealed unsafe class ShmRingReader : IDisposable
         Volatile.Write(ref control->PauseRequested, paused ? 1u : 0u);
     }
 
+    /// <summary>
+    /// Ask the capture side to flush its native event ring to <c>logs\overlay-&lt;pid&gt;-*.log</c> now
+    /// (<c>17_HOOK_ENGINE</c> §Native logging). A counter: the watchdog acts on a change within one tick,
+    /// and this side never clears anything.
+    /// </summary>
+    public void RequestLogFlush()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var control = (FlControlBlock*)(_base + ShmLayout.ControlOffset);
+        Volatile.Write(ref control->LogFlushRequested, Volatile.Read(ref control->LogFlushRequested) + 1u);
+    }
+
     public void Dispose()
     {
         if (_disposed)
