@@ -9,8 +9,9 @@ namespace FrameLedger.Application.Telemetry;
 /// <para>
 /// Implementations compose rather than compete: <c>BaselineTelemetrySource</c> (L1),
 /// <c>LhmTelemetrySource</c> (L2), <c>NvapiTelemetrySource</c> (L3), merged by a
-/// <c>CompositeTelemetrySource</c> with fixed per-field precedence. As of 2026-09-03 only L2
-/// exists, and it exists because §M5 could not be measured without it.
+/// <c>CompositeTelemetrySource</c> with fixed per-field precedence. L2 came first (2026-09-03,
+/// because §M5 could not be measured without it); L1 and the composite followed on 2026-09-09;
+/// L3 is P2's PR-E2.
 /// </para>
 /// <para>
 /// <b>Read-only, always.</b> The libraries behind these layers can also set clocks, fan
@@ -32,6 +33,13 @@ public interface IGpuTelemetrySource : IDisposable
     /// <see cref="GpuCapabilities.None"/>.
     /// </summary>
     GpuCapabilities Capabilities { get; }
+
+    /// <summary>
+    /// True once the layer has been disabled for the session (<c>18_GPU_VENDOR_APIS</c> §Runtime
+    /// policy: it threw or hung twice). Never clears. Distinguishes "nothing yet" from "never
+    /// again" for the composite descriptor, which lists the layers still standing.
+    /// </summary>
+    bool IsDisabled { get; }
 
     /// <summary>
     /// The most recent sample. False when there is none yet, or when the source has been

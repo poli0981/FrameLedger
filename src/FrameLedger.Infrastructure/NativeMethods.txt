@@ -1,0 +1,19 @@
+// CsWin32 — the only P/Invoke surface besides NativeAntiCheatGuard (CLAUDE.md: native reachable
+// only through Infrastructure). Marshaling is OFF (NativeMethods.json): DXGI objects are raw
+// vtables, not RCWs, so no apartment ever gets a say in which thread may touch them.
+CreateDXGIFactory1
+IDXGIFactory6
+IDXGIAdapter3
+IDXGIDevice
+DXGI_ADAPTER_DESC1
+DXGI_ADAPTER_FLAG
+DXGI_GPU_PREFERENCE
+PdhOpenQueryW
+PdhAddEnglishCounterW
+PdhCollectQueryData
+PdhGetFormattedCounterValue
+PdhCloseQuery
+PDH_FMT_COUNTERVALUE
+PDH_FMT
+QueryPerformanceCounter
+QueryPerformanceFrequency
