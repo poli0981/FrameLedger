@@ -72,7 +72,10 @@ src/
   FrameLedger.Application/     # use cases, ports — incl. Capture/ since 2026-09-09 (P2 PR-C):
                                #   CaptureSession (the loop: gate -> inject -> attach -> drain
                                #   under the 30 s re-scan), ICaptureSink and the ports the Agent
-                               #   composes it from, SessionEndReason, the census/NGX/marker facts
+                               #   composes it from, SessionEndReason, the census/NGX/marker facts;
+                               #   and Recording/ since 2026-09-10 (PR-D): SessionRecorder,
+                               #   SessionAggregator + FgLadder, SessionFinalizer, the .partial
+                               #   writer and PartialRecovery, ExitStatusMapper, the crash policy
   FrameLedger.Infrastructure/  # SQLite, shm reader, vendor APIs, injector interop, parsers,
                                #   and Capture/ (PR-C): ShmRingAttacher/ShmCaptureSink over the
                                #   reader, HeldProcessLivenessSource, TargetResolver (path only,

@@ -3,9 +3,13 @@ using System.IO.MemoryMappedFiles;
 using FluentAssertions;
 using FrameLedger.Application.Capture;
 using FrameLedger.Application.Consent;
+using FrameLedger.Application.Persistence;
+using FrameLedger.Application.Recording;
 using FrameLedger.CaptureHost.Consent;
 using FrameLedger.Domain.Consent;
+using FrameLedger.Domain.Sessions;
 using FrameLedger.Infrastructure.Persistence;
+using FrameLedger.Infrastructure.Recording;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Tests;
@@ -278,8 +282,8 @@ public sealed class CaptureHostEndToEndTests : IDisposable
         // deferred on -- the wait, and DXGI's count of presents before the first hooked one.
         (await GrantConsentAsync()).Should().Be(ConsentWriteOutcome.Written);
 
-        using Process host = StartHost("launch", "--exe", ConsentedExecutable, "--args", "--real --hold-presenting 6",
-            "--seconds", "4");
+        using Process host = StartHost("launch", "--exe", ConsentedExecutable, "--args", "--real --hold-presenting 9",
+            "--seconds", "6");
         string stdout = await host.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
         await host.WaitForExitAsync(TestContext.Current.CancellationToken);
 
@@ -287,6 +291,107 @@ public sealed class CaptureHostEndToEndTests : IDisposable
         stdout.Should().Contain("presents before the first hooked present:");
         stdout.Should().NotContain("not read", "the harness presents, so the first hooked present happened");
         host.ExitCode.Should().Be(0, stdout);
+
+        // P2 PR-D, THE MILESTONE'S FIRST HALF from outside the process: the session is a ROW in the host's
+        // own ledger, with the blobs beside it, written by the same code path the Agent will use.
+        stdout.Should().Contain("ledger: session ").And.Contain("SAVED as sessions.id=", stdout);
+        LedgerDatabase db = await LedgerDatabase.OpenAsync(HostLedger, ct: TestContext.Current.CancellationToken).ConfigureAwait(true);
+        await using (db.ConfigureAwait(true))
+        {
+            var sessions = new SqliteSessionRepository(db);
+            IReadOnlyList<SessionRow> rows = await sessions.ListRecentAsync(1, TestContext.Current.CancellationToken).ConfigureAwait(true);
+            SessionRow row = rows.Should().ContainSingle().Subject;
+            row.Tier.Should().Be(CaptureTier.Hooked);
+            row.Mode.Should().Be(CaptureMode.Launch);
+            row.ExitStatus.Should().Be(ExitStatus.Normal, "the harness was still presenting when the bounded capture ended");
+            row.FrameCount.Should().BeGreaterThan(100, "6 s at ~120/s");
+            row.PresentedFps.Should().BeGreaterThan(30);
+            row.Api.Should().Be("d3d11");
+            row.GuardTicksPublished.Should().BeGreaterThanOrEqualTo(1);
+            row.LaunchWaitMs.Should().NotBeNull();
+            row.OverlayBuildId.Should().NotBeNullOrEmpty("the handshake names the Overlay build");
+            row.TelemetrySource.Should().Contain("l1", "the host composes L1 + L2 for every session");
+            row.QpcFrequency.Should().Be(System.Diagnostics.Stopwatch.Frequency);
+            FrameBlobs? frames = await sessions.FindFramesAsync(row.Id, TestContext.Current.CancellationToken).ConfigureAwait(true);
+            frames.Should().NotBeNull("the blobs land in the same transaction as the row");
+            frames!.SampleCount.Should().Be(row.FrameCount);
+            // THIS session's .partial is gone; a sibling case kills a host on purpose and leaves one behind.
+            string guid = System.Text.RegularExpressions.Regex.Match(stdout, @"ledger: session (?<guid>[0-9a-f]{32}) SAVED",
+                System.Text.RegularExpressions.RegexOptions.ExplicitCapture, TimeSpan.FromSeconds(1)).Groups["guid"].Value;
+            guid.Should().HaveLength(32, stdout);
+            File.Exists(Path.Combine(PartialDirectory, guid + ".partial")).Should().BeFalse("finalize deletes the .partial");
+        }
+    }
+
+    private static string PartialDirectory => Path.Combine(Path.GetDirectoryName(Host)!, "tmp");
+
+    private static async Task AssertInterruptedRowAsync(Guid guid, int expectedFrames)
+    {
+        LedgerDatabase db = await LedgerDatabase.OpenAsync(HostLedger, ct: TestContext.Current.CancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            SessionRow? row = await new SqliteSessionRepository(db).FindAsync(guid, TestContext.Current.CancellationToken).ConfigureAwait(false);
+            row.Should().NotBeNull();
+            row!.ExitStatus.Should().Be(ExitStatus.Interrupted);
+            row.Tier.Should().Be(CaptureTier.Hooked);
+            row.FrameCount.Should().Be(expectedFrames, "the prefix is the session");
+            row.DurationSeconds.Should().BeGreaterThanOrEqualTo(5, "ended at the last flush, past the host's minimum");
+            row.CaptureNotes.Should().Contain("recovered from .partial");
+        }
+    }
+
+    [Fact]
+    public async Task AKilledHostLeavesAPartialThatRecoverTurnsIntoAnInterruptedSession()
+    {
+        // P2 PR-D, the recovery half from OUTSIDE the process: the host is killed mid-session, the file it
+        // flushed every 3 s is the only record, and `recover` -- what the Agent runs first at every start --
+        // turns it into an `interrupted` row and removes it. Nothing here waits on a clock it does not own:
+        // the guard tick is polled for, and the kill comes after two flushes have had time to land.
+        (await GrantConsentAsync()).Should().Be(ConsentWriteOutcome.Written);
+        Directory.CreateDirectory(PartialDirectory);
+        HashSet<string> before = [.. Directory.EnumerateFiles(PartialDirectory, "*.partial")];
+
+        Process harness = StartHarness("--real --hold-presenting 40");
+        Process? host = null;
+        string? file = null;
+        try
+        {
+            host = StartHost("capture", "--exe", ConsentedExecutable);
+            await PollGuardTicksAsync(harness.Id, atLeast: 1, TimeSpan.FromSeconds(20));
+            await Task.Delay(TimeSpan.FromSeconds(8), TestContext.Current.CancellationToken);
+            Kill(host);
+
+            file = Directory.EnumerateFiles(PartialDirectory, "*.partial").Should().ContainSingle(f => !before.Contains(f),
+                "the killed host left exactly one file, its own").Subject;
+            PartialSession? partial = PartialSessionFile.Read(file);
+            partial.Should().NotBeNull();
+            partial!.LastTick.Should().NotBeNull("two 3 s flushes fit inside 8 s");
+            partial.Records.Should().NotBeEmpty();
+
+            using Process recover = StartHost("recover");
+            string stdout = await recover.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+            await recover.WaitForExitAsync(TestContext.Current.CancellationToken);
+
+            recover.ExitCode.Should().Be(0, stdout);
+            string guid = Path.GetFileNameWithoutExtension(file);
+            stdout.Should().Contain(guid + ": Recovered as session", stdout);
+            File.Exists(file).Should().BeFalse("recovery removes what it stored");
+
+            await AssertInterruptedRowAsync(Guid.ParseExact(guid, "N"), partial.Records.Count);
+        }
+        finally
+        {
+            if (host is not null)
+            {
+                Kill(host);
+            }
+
+            Kill(harness);
+            if (file is not null && File.Exists(file))
+            {
+                File.Delete(file);
+            }
+        }
     }
 
     [Fact]

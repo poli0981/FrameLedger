@@ -2163,6 +2163,41 @@ TEST_CASE("launch mode: a Vulkan-only presenter passes the FULL guard and is NOT
     CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
 }
 
+TEST_CASE("launch mode: a Vulkan title whose static OpenGL or D3D import maps a poll ahead of vulkan-1 is STILL the "
+          "layer's, and a D3D title that never maps vulkan-1 is injected one poll later",
+          "[guard][inject][launch][vulkan]") {
+    // The race, as measured 2026-09-10 on the harness's own --vulkan mode: opengl32 is a
+    // static import of that binary and is in the module list from the first instruction;
+    // vulkan-1.dll is LoadLibrary'd a few milliseconds into main. A poll landing between
+    // the two used to read the title as OpenGL and inject -- and the Overlay, first to
+    // create the ring, left the layer forwarding into nothing. The guard now reads once
+    // more, one interval later, before it commits to the injecting branch.
+    Child child;
+    REQUIRE(StartHarness(child));
+
+    ResetFake();
+    g.modules = {"kernel32.dll", "opengl32.dll"};                        // the first poll: the static import
+    g.modulesLate = {"kernel32.dll", "opengl32.dll", "vulkan-1.dll"};    // one poll later: the loader mapped
+    g.moduleCallsBeforeLate = 1;
+    g.scanSet = {child.pi.dwProcessId};
+
+    const Verdict v = GuardedInjectWhenReadyWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, 10000, FakeSources());
+    INFO("reason " << ReasonName(v.reason) << " signal=" << v.signal);
+    CHECK(v.reason == Reason::kTargetIsVulkanLayered);
+    CHECK_FALSE(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+
+    // The other direction, so the extra poll is a grace and not a refusal: a D3D title that
+    // never maps vulkan-1 is injected on the second look.
+    ResetFake();
+    g.modules = {"kernel32.dll", "dxgi.dll", "d3d11.dll"};
+    g.scanSet = {child.pi.dwProcessId};
+    const Verdict d3d = GuardedInjectWhenReadyWithSources(child.pi.dwProcessId, FL_OVERLAY_DLL, 10000, FakeSources());
+    INFO("reason " << ReasonName(d3d.reason) << " signal=" << d3d.signal);
+    CHECK(d3d.Allowed());
+    CHECK(TargetHasModule(child.pi.dwProcessId, L"FrameLedger.Overlay.dll"));
+    CHECK(g.moduleCalls >= 2);
+}
+
 TEST_CASE("launch mode against the real harness through the real module seam: injected once dxgi maps, and the "
           "writer says how many presents ran unhooked",
           "[guard][inject][shm][launch]") {

@@ -288,7 +288,42 @@ Because Tier-1 and Tier-2 sessions carry different fields, every query that comp
 
 ## Blob encoding
 
-`float32`/`uint16`/`uint32` little-endian arrays through `DeflateStream` (Optimal). One hour at 100 fps ≈ 360k frames ≈ 1.4 MB raw frametimes ≈ **≤ 0.7 MB stored**; flags compress far better; render-res only stored when it varies. Decode helpers in `Infrastructure.Blobs` with round-trip tests (NaN forbidden — assert).
+`float32`/`uint16`/`uint32` little-endian arrays through `DeflateStream` (Optimal). One hour at 100 fps ≈ 360k frames ≈ 1.4 MB raw frametimes ≈ **≤ 0.7 MB stored**; flags compress far better; render-res only stored when it varies. Decode helpers in `Infrastructure.Blobs` with round-trip test
+
+> **Two rules the finalizer applies (2026-09-10, P2 PR-D).** `frametimes[i]` is the interval from the previous
+> record ON THE SAME SWAPCHAIN; the first record of a stream, and any record after a torn slot or an
+> overwrite skip, carries 0 with the `frame_flags` gap bit set, so the statistics exclude it and the export
+> still reconstructs `qpc_ms`. `swapchain_ids` is present only when the session held more than one stream.
+> Sensor series are aligned to `t_ms` (milliseconds from `qpc_epoch`) and a tick with no reading is stored as
+> **−1** — never 0, which would be a reading — because temperatures, loads, power and memory are never negative.s (NaN forbidden — assert).
+
+## The `.partial` file
+
+> **Built 2026-09-10 (P2 PR-D), as HANDOFF §P2 pre-committed it.** `%LOCALAPPDATA%\FrameLedger\tmp\<sessionGuid>.partial`
+> (the unshipped host: `tmp\` beside its binary, decision D5), one per session, append-only, written at every
+> state transition and every flush interval (60 s), deleted by the finalize's success, read by recovery at the
+> next start. Format: `chunk := u32 type | u32 length | payload | u32 crc32(type ‖ length ‖ payload)`,
+> little-endian, and **the valid prefix wins** — the reader stops at the first chunk that is short or fails
+> its check, so a kill at any byte loses at most the chunk being written (`PartialSessionFileTests` kills
+> at every offset of a fixture and asserts exactly the complete chunks survive). The file is flushed to the
+> OS after every chunk; the threat is the Agent dying, not the machine losing power.
+>
+> | type | payload | when |
+> |---|---|---|
+> | 1 `Header` | UTF-8 JSON: format version, `session_guid`, `started_at`, `qpc_epoch`/`qpc_frequency`, `game_id`, `snapshot_id`, exe path, pid, tier, mode, Overlay build id, telemetry descriptor, launch wait | on create — the breadcrumb `19_SAFETY` §Crash safety asks for before injection |
+> | 2 `Records` | `i64` first ordinal, then N raw `FlFrameRecord` (64 B each); a chunk that does not continue the sequence is refused | each flush |
+> | 3 `Gaps` | N × `i32` gap-before record indices | each flush |
+> | 4 `Sensors` | N × one telemetry sample: QPC, wall clock, layer, presence mask, then only the fields that carry a value — null stays null | each flush |
+> | 5 `Tick` | drain/foreground ticks, dropped, gaps, guard ticks, wall clock, the raw `FlWriterState`; the last one wins | each flush |
+> | 6 `Note` | wall clock + UTF-8 text: a state transition | each transition |
+> | 7 `Touches` | N × `i64` QPC at which the host touched the target | each flush |
+>
+> Recovery (`PartialRecovery`): a file whose guid is already a row is deleted (the finalize had landed);
+> one under the minimum session length is discarded; one with no readable header is dropped; the rest
+> become `interrupted` rows ended at the last flush (or the last record's clock), with every measured
+> column computed from the prefix exactly as a live finalize would. **Rejected:** a `sessions_in_progress`
+> table — a blob churn every minute, a lock fight with the UI in P3, and `04_CAPTURE` had already named a
+> file under `tmp\`.
 
 ## Retention
 

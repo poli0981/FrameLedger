@@ -10,6 +10,12 @@ internal enum Verb
     Capture,
 
     /// <summary>
+    /// Startup's first act, run by hand (P2 PR-D): every <c>.partial</c> under the host's <c>tmp\</c> becomes an
+    /// <c>interrupted</c> session or is dropped for a stated reason. The Agent runs the same code before any capture.
+    /// </summary>
+    Recover,
+
+    /// <summary>
     /// Launch mode (P1 item 2): start the consented executable, hold it, and let the guard inject the
     /// moment it has mapped a presentation runtime. The same consent record, the same gate, the same
     /// payload; only WHEN the full scan runs differs.

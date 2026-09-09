@@ -49,6 +49,7 @@
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Dapper" />
     <PackageReference Include="LibreHardwareMonitorLib" />
+    <PackageReference Include="System.Diagnostics.EventLog" />
     <PackageReference Include="Serilog" />
     <PackageReference Include="Microsoft.Windows.CsWin32">
       <PrivateAssets>all</PrivateAssets>

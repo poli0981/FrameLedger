@@ -22,7 +22,8 @@ namespace FrameLedger.Infrastructure.Telemetry;
 /// discard a lower layer's fresh field whenever the top layer's had not moved.
 /// </para>
 /// <para>
-/// Does not own the source: the composition root that built the layers disposes them.
+/// Does not own the source unless told so at construction: by default the composition root that built
+/// the layers disposes them.
 /// </para>
 /// </remarks>
 public sealed class TelemetryPoller : ITelemetryPoller
@@ -33,14 +34,25 @@ public sealed class TelemetryPoller : ITelemetryPoller
     private readonly ConcurrentQueue<TelemetrySample> _queue = new();
     private readonly ManualResetEventSlim _stop = new(false);
 
+    private readonly bool _ownsSource;
+
     private Thread? _thread;
     private int _queued;
     private long _dropped;
     private bool _disposed;
 
-    public TelemetryPoller(IGpuTelemetrySource source, TelemetryPollerOptions options, TimeProvider clock)
+    /// <summary>A poller over <paramref name="source"/>, reading every <paramref name="options"/>.Interval on <paramref name="clock"/>.</summary>
+    /// <param name="source">The composite (or single layer) to read.</param>
+    /// <param name="options">Cadence and queue bound.</param>
+    /// <param name="clock">Stamps samples with its <see cref="TimeProvider.GetTimestamp"/>, which is QPC.</param>
+    /// <param name="ownsSource">
+    /// True when the poller is the source's only owner and should dispose it — a composition root that
+    /// builds the layers for one session and hands them over. False (the default) when the container owns them.
+    /// </param>
+    public TelemetryPoller(IGpuTelemetrySource source, TelemetryPollerOptions options, TimeProvider clock, bool ownsSource = false)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
+        _ownsSource = ownsSource;
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         if (options.Interval < TelemetryPollerOptions.MinimumInterval)
@@ -124,6 +136,10 @@ public sealed class TelemetryPoller : ITelemetryPoller
         _stop.Set();
         _thread?.Join(TimeSpan.FromSeconds(2));
         _stop.Dispose();
+        if (_ownsSource)
+        {
+            _source.Dispose();
+        }
     }
 
     private void Loop()

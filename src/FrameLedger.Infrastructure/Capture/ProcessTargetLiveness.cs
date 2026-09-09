@@ -31,6 +31,8 @@ public sealed class ProcessTargetLiveness(HeldProcessHandle handle, int pid) : I
 
     public bool HasExited => _handle.HasExited;
 
+    public int? ExitCode => _handle.ExitCode;
+
     /// <summary>
     /// Asked of the pid rather than of the held handle, because window ownership is not a
     /// property this handle's rights can answer.

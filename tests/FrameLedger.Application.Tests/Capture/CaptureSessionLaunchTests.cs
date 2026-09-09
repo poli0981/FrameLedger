@@ -78,6 +78,8 @@ public sealed class CaptureSessionLaunchTests : IAsyncDisposable
     {
         public bool HasExited => false;
 
+        public int? ExitCode => null;
+
         public bool IsForeground => true;
 
         public void Dispose()

@@ -120,7 +120,11 @@ which makes the notification more important than it was, not less.
 > which polls the loader every 50 ms — through the module seam, matching **no** blocklist — until
 > `dxgi.dll` with `d3d11.dll` or `d3d12.dll`, or `opengl32.dll`, or `vulkan-1.dll` is mapped, and *then*
 > runs every check and injects exactly as attach mode does. The poll decides **when** the full scan runs,
-> never whether it passes. A target that exits first, or maps no runtime inside the budget (60 s in the
+> never whether it passes. **Vulkan wins over a D3D or OpenGL runtime beside it, and since 2026-09-10 over
+> one mapped a poll ahead of it:** a static D3D/OpenGL import is in the module list from the first
+> instruction while a Vulkan title's loader arrives milliseconds later, so the guard reads once more, one
+> interval later, before it commits to the injecting branch (measured on the harness's own `--vulkan` mode
+> the moment PR-D's warmer host reached the poll 20 ms sooner; `fl_guard` pins it in both directions). A target that exits first, or maps no runtime inside the budget (60 s in the
 > host), answers `LaunchTargetExited` / `LaunchNoPresentationRuntime` with nothing injected; a launcher
 > that spawns the real game and quits lands on the first, and re-electing the descendant is the Agent's
 > (P2, §Process watcher). **The host never terminates what it launched**: any refusal after the start
@@ -283,6 +287,28 @@ because a layer cannot leave a running game's loader chain.
 
 **Discard rule:** duration < min session length (default 30 s) → discard silently (log only).
 
+> **Built 2026-09-10 (P2 PR-D): `Application.Recording`.** The state machine above is the intent; what
+> runs is one class per box. `SessionRecorder` owns a session end to end — the row's identity and time
+> base (`session_guid`, `qpc_epoch`/`qpc_frequency` from `TimeProvider.GetTimestamp`, which is QPC), the
+> `games` and `hardware_snapshots` rows, the telemetry poller for the session, the `.partial` from before
+> the first record to after the last, the loop, the classification, the finalize, the crash policy. The
+> loop (`CaptureSession`) owns `Guarded → Injecting → Capturing` and reports them as ONE outcome, so what
+> the recorder observes and writes as breadcrumbs is `started` (the file exists) → `attached` (the ring is
+> ours; Tier 1 from here) → `ended <reason>` → `finalizing <exit_status>`; a loop that never attached is a
+> Tier-2 row with the reason in `capture_notes` (`tier2: attach=…; guard=<reason>/<family>/<signal>`).
+> Everything the recorder does runs on the loop's task through `ICaptureObserver`: after every drain it
+> drains the poller's queue and, on the flush interval, appends to the `.partial` — the loop stays the
+> ring's only reader (§Threading model). **Finalizing as built:** step 1 is the loop's own last drain;
+> steps 2–3 are `SessionAggregator` over Domain's calculators and `FgLadder` (the identity and withhold
+> rules, moved out of the host's report so the row and the report read one implementation); step 4 is the
+> FULL blob set through `ISeriesCodec` — every column of `frame_blobs` that any record claimed, `latency_us`
+> included, and one `sensor_blobs` series per field any sample carried, aligned to `t_ms` with −1 where a
+> tick had no reading; step 5 is `ISessionRepository.InsertFinalizedAsync` (one transaction) then the
+> retention sweep, and the `.partial` is deleted only on `Saved` or `Discarded`. `Interrupted` is
+> `PartialRecovery`'s alone: at startup every pending file becomes an `interrupted` row from its valid
+> prefix, or is dropped for one of three stated reasons (already stored, too short, unreadable). The
+> unshipped host lowers the discard threshold to 5 s for bounded operator captures; the Agent keeps 30 s.
+
 ## Crash & exit classification
 
 - Normal: presenting PID exit code 0.
@@ -292,6 +318,17 @@ because a layer cannot leave a running game's loader chain.
 - `interrupted`: Agent died mid-session; recovered from `.partial` on next start.
 
 Crash-within-60s-of-injection happening twice for the same game ⇒ **hooking auto-disabled for that game** and the reason stored on the `games` row (`19_SAFETY` §Crash safety). The UI explains it and offers a manual re-enable after the user has, e.g., updated their GPU driver.
+
+> **Built 2026-09-10 (P2 PR-D).** `ExitStatusMapper` is the table above as one function of what the
+> session saw: our own safety stop is `unhooked_safety` whatever the process did next; the capture side
+> stopping on its own (self-disabled, blocklisted mid-session, supervision lost, hooks never installed) is
+> `degraded`; a non-zero exit code — read from the held handle, so it is the target's own — or an
+> Application Error (1000) / WER (1001) event naming the executable inside `[start, end + 30 s]`
+> (`EventLogCrashSource`, read-only, unprivileged, false when the log cannot be read) is `crashed`; a
+> target still running when a bounded capture ends is `normal`. `capture_notes` keeps the fine reason, the
+> exit code and the witness (`end=TargetExited; exit_code=-1073741819; crash_event=application_log`).
+> `CrashAutoDisablePolicy` counts only crashes inside the 60 s window after the attach — `hook_crash_count`
+> is that count and nothing else — and disables on the second; it never re-enables.
 
 ## Live progress
 

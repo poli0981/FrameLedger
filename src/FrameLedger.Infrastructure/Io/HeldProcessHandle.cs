@@ -99,6 +99,13 @@ public sealed class HeldProcessHandle : IDisposable
         }
     }
 
+    /// <summary>
+    /// The exit code, once the process has exited; null while it runs (<c>STILL_ACTIVE</c> is not an exit
+    /// code here — <see cref="HasExited"/> decides first) or when the query fails.
+    /// </summary>
+    public int? ExitCode =>
+        HasExited && GetExitCodeProcess(_handle, out uint code) && code != _stillActive ? unchecked((int)code) : null;
+
     public void Dispose() => _handle.Dispose();
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
