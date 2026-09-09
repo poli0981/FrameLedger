@@ -701,7 +701,7 @@ Written rationales for whatever is still ❓/⏳/◐ in §S24, and unify the gly
 disposition currently wears three (`✅ deferred` / `🅓 deferred` / `🔴 deferred`) in a
 table whose only purpose is being auditable by counting them.
 
-### 7. **START HERE** — the three things left once the FG blocker fell (2026-09-04, owner's list)
+### ~~7. **START HERE**~~ — the three things left once the FG blocker fell (2026-09-04, owner's list) — **CLOSED 2026-09-06; the live head is §P2 below (struck 2026-09-09 so this file holds one START HERE, not two)**
 
 P0 exit criterion 1 reads **4 of 5** as of 2026-09-04: upscaler identity, render → output,
 FG factor and RT state are measured against the titles' own menus. What follows is the
@@ -1120,6 +1120,69 @@ reference comes out.~~ — **L2 was written, 2026-09-03.** The obligation now bu
 
 ---
 
+## P2 — **START HERE** (2026-09-09, owner-approved plan)
+
+P1's core is merged (`15_ROADMAP` §P1). What comes next is P2 — the Agent, the recorder,
+SQLite — and this section carries its **order**, the **decisions that live in no other file**,
+and what each slice must make fail on unmodified `main`. Status lives where it lives.
+
+**The order, one PR each, merged one at a time** (`main` is `strict: true` — every merge puts
+the next PR `BEHIND`, and every PR touching `src/` conflicts in `CHANGELOG.md`):
+
+| PR | Slice | Fails on unmodified `main` because… |
+|---|---|---|
+| A | `FrameLedger.Domain.Metrics` + golden tests; the CaptureHost's throwaway consumer re-pointed at it | no type in Domain computes a frame time, and `tools/coverage-gate.ps1` prints `metric calculators none found` — the 95 % floor has never been evaluated against anything |
+| B | SQLite core: `0001_init.sql`, migrations, blob codecs, `SqliteGameConsentStore`, repositories | `Microsoft.Data.Sqlite` and `Dapper` are referenced by zero lines; `IGameConsentStore` has one adapter and it is a file in an unshipped host |
+| C | Promote the capture path (`CaptureLoop` → `Application.Capture.CaptureSession` + Infrastructure adapters); the CaptureHost becomes a thin shell | every capture type is `internal` to `FrameLedger.CaptureHost`, and the Agent referencing it turns `package-closure-check` red |
+| E1 | Telemetry L1 (`BaselineTelemetrySource`), `CompositeTelemetrySource`, the 1 Hz poller | `IGpuTelemetrySource` has one adapter; nothing produces the `l1+lhm+nvapi` descriptor or stamps a sample with the session QPC epoch |
+| D | Session recorder: state machine, `.partial`, five-step finalize, exit classification, crash auto-disable, recovery | nothing persists a session; no `.partial` is ever written; `exit_status` has no producer |
+| F | Agent Generic Host: DI, watcher, `DescendantElection`, `--serve` / `--console`, kill switch, consent verb | `Agent/Program.cs` is 61 lines that seed the rules file and exit |
+| E2 | NVAPI bridge (native `FrameLedger.NvapiBridge.dll`, C ABI) + L3 + the NGX probe in-process | the only NVAPI consumer is `fl-probe-nvapi.exe`, unshipped and spawned |
+| G | Real-title milestone, kill-and-recover e2e, the ≤ 0.5 % FPS-impact run, doc sweep | no `ledger.db` anywhere holds a hooked session; `14_TESTING` §Hook overhead item 2 has no number |
+
+**Why A first:** it is pure, it arms the 95 % gate *before* any calculator exists (the gate's own
+rationale), and every later slice consumes it. **Why D before F:** the orchestrator is thin over the
+recorder; building F first re-creates the recorder inside the Agent. **Why E2 after F:** the
+milestone must not wait on a new native target crossing every gate — it lands LHM-only
+(`telemetry_source = 'l1+lhm'`) and L3 joins afterwards.
+
+**Decisions taken 2026-09-09 (owner), so nobody re-derives them:**
+
+- **D4 — the Agent ships `--console consent grant`.** It prints the operator disclosure, requires a
+  typed acknowledgement, and stamps `hook_consent_at` from the Agent's own clock under a new
+  `ConsentProvenance.AgentConsoleOperator` — the stamp `19_SAFETY` §User-facing consent requires and
+  a file store cannot uphold. **This changes the basis §S27 was closed on**: the Agent becomes the
+  shipped injecting entry point *by design* (`01_ARCHITECTURE` always said so); what holds rule 1
+  is the consent store, its provenance and the disclosure, and `package-closure-check` keeps only
+  the CaptureHost out. Restate §S27 and §S18 blocker 3 in the PRs that do it (C, F); the
+  re-ratification is the owner's (below). P3's dialog retires the console provenance.
+- **D7 — the FR-2.4 kill switch is the FOURTH input of `HookedCaptureGate`**, not an upstream
+  check: the gate's own remark calls itself *"the ONLY managed logic between the user's intent and
+  the guard"*, and a global switch is intent. `HookRequest.FromConsent` gains the parameter. The
+  Vulkan layer honours it by the Agent **not** setting `FRAMELEDGER_ENABLE_VK_LAYER`; mid-session it
+  is `unhookRequested`.
+- **D8 — FR-11 is NOT a consent precondition in P2.** `ILegalAcceptanceStore` (read-only) is declared
+  in B so the precondition is one `if` when the owner turns it on.
+- **D9 — P2 never clears `hook_blocked_reason`.** A tri-state `hook_prescan_state`
+  (`not_run|clean|blocked|unverified`) carries *could not verify* without touching the column
+  (`06_DATA_MODEL` §games' open question stays the owner's).
+- **No `FlWriterState` field may be added** — it has no slack (every reserved word was taken
+  2026-09-03/05/06), so any new field is a layout bump. P2 needs none: finalize's "stop writing" is
+  `SetPaused`, and every counter to be stored already exists. `FlControlBlock.Reserved[11]` is the
+  Agent-side slack if one is ever needed.
+- **`FrameLedger.Application` gains a reference to `FrameLedger.Shared`** (A); Domain still
+  references nothing and mirrors the record enums with a bidirectional test.
+- **The pipe (`07_IPC`) is P3**, not P2; `--serve` is watcher-driven and logs. **No `EtwFrameSource`**
+  (§G). **`FileGameConsentStore` is retired in B**; the CaptureHost writes a build-tree `ledger.db`
+  so the Agent stays the sole owner of `%LOCALAPPDATA%\FrameLedger`.
+
+**What P1 still owes, and where it lands:** the ≤ 0.5 % real-game FPS-impact measurement
+(`14_TESTING` §Hook overhead item 2, moved to the end of P1 by §R4) needs the drain and the
+recorder to exist — it runs in **G**; §S1's first real-title launch-mode run and the descendant
+election are **F** and **G**; the ⏳ feature rows in `17_HOOK_ENGINE` §Hook inventory are not P2 —
+their columns (`hdr_flag`, `pt_confidence`, `pso_stutter_pct`, `vram_proc*`, `latency_*`) are an
+honest NULL in P2's schema, never a 0.
+
 ## Owner-only — no PR can close these
 
 1. **§S23-2 — branch protection.** `Rules / validate` is not a required status check on
@@ -1137,6 +1200,13 @@ reference comes out.~~ — **L2 was written, 2026-09-03.** The obligation now bu
    the DLSS-G identity on a title where `kFeatureDLSS_G` is evaluated, if one exists.
 3. **Which titles** go in `blockedExecutables` — a product decision with false-refusal
    consequences. The list ships empty until it is taken.
+4. **§H7's confirmation against the overlays actually resident on the dev machine.** The
+   compare-and-restore path is proven against a fixture (ctest `fl_unhook_inline`); §H7 still
+   says the six real overlays are *"worth doing once the Overlay has real hooks"*, and it has
+   them since P1. One capture with each overlay active; the result is a `spike-notes` row.
+5. **Re-ratify §S18 blocker 3 and §S27's basis** once P2's PR-C/PR-F make the Agent the shipped
+   injecting entry point (§P2, decision D4). The PRs restate both entries; whether the
+   restatement stands is the owner's.
 
 **Answered 2026-08-05, do not re-ask:** remove `gameguard` and keep `guard` (approved
 over a red `Rules` gate, with the reasoning recorded in the merge commit); vendor NVAPI
