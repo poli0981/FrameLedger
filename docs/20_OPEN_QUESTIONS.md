@@ -1200,6 +1200,21 @@ rather than a missing feature.~~
 > the App as a stdout capability report while `12_BUILD` and `Program.cs` list it
 > as an Agent flag. Whatever the eventual capture flag is called, it is not that.
 
+> **Restated 2026-09-09 (P2 PR-B), because the basis moved.** The 2026-08-06 restatement held the ✅
+> on *"no injecting entry point on any SHIPPED binary"* and on the consent adapter living in the
+> unshipped host. Neither is true now: `Infrastructure.Persistence.SqliteGameConsentStore` — the
+> adapter `04_CAPTURE` said P2 would write — SHIPS in both publish roots, and `GameConsentRecord.Stored`'s
+> `InternalsVisibleTo` list names `FrameLedger.Infrastructure` (the "deliberate, reviewable act"
+> `Domain.csproj` asked for). PR-C/PR-F then make the Agent the injecting entry point by design, which
+> `01_ARCHITECTURE` always said it was. **What holds rule 1 from here is not packaging.** It is that
+> the only producers of an acknowledgement are a disclosure shown to a human — the unshipped host's
+> verb today, the Agent's console verb (HANDOFF §P2 decision D4), the UI's dialog (P3) — that the
+> provenance is recorded by NAME and an unknown one reads as `NotRecorded`, that `HookRequest.FromConsent`
+> stays the gate's only producer, and that every anti-cheat check still runs afterwards.
+> `package-closure-check` keeps its meaning for the CaptureHost only. **The owner re-ratifies this
+> and §S18 blocker 3 together** (HANDOFF §Owner-only item 5); until then the ✅ stands on the four
+> properties above, stated, rather than on the one that no longer holds.
+
 ### S25 ✅ · Both runtime stops were unreachable in a non-presenting process, and pause was unreachable on a ticking one — **closed 2026-08-05**
 
 Found by tracing call paths while planning the next phase, in code merged the
@@ -4252,7 +4267,7 @@ Each of these is referenced by an existing doc but specified nowhere.
 | Area | What is missing | Referenced by |
 |---|---|---|
 | **Agent lifecycle** | Scheduled-task definition, start-at-logon, how elevation is requested and persisted, what "Repair" repairs | `08_UI` Settings, `11_UPDATER`, `12_BUILD` flags |
-| **Session identity** | `sessions` has no GUID column, yet `SessionStarted`/`StopSession`/`.partial` files are all keyed by `sessionGuid`. Also: the `.partial` file format is undefined, and it is the crash-recovery artifact | `07_IPC`, `04_CAPTURE`, `06_DATA_MODEL` |
+| **Session identity** | ~~`sessions` has no GUID column, yet `SessionStarted`/`StopSession`/`.partial` files are all keyed by `sessionGuid`.~~ **`sessions.session_guid` (UNIQUE) exists since 2026-09-09 (P2 PR-B), with `qpc_epoch` / `qpc_frequency` beside it.** Still open: the `.partial` file format is undefined, and it is the crash-recovery artifact — PR-D's, pre-committed in HANDOFF §P2 (CRC-framed append-only chunks, the valid prefix wins) | `07_IPC`, `04_CAPTURE`, `06_DATA_MODEL` |
 | **Settings registry** | The `settings` table is key/value with no key list, defaults, types, or validation — and no message for the UI to push a changed setting to the Agent | `06_DATA_MODEL`, FR-10 |
 | **Error taxonomy** | `07_IPC` lists `CaptureError` codes; no canonical mapping to resx keys and user-facing text, though `09_I18N` requires safety strings to be reviewed as legal text | `07_IPC`, `09_I18N` |
 | **Threading model** | Which component owns which thread, UI-thread rules, and how the 1 Hz telemetry poller, 10 Hz drain and pipe reader interact | `04_CAPTURE`, `18_GPU_VENDOR_APIS` |

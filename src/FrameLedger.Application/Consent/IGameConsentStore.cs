@@ -30,9 +30,10 @@ namespace FrameLedger.Application.Consent;
 /// persistence rather than to matching.
 /// </para>
 /// <para>
-/// P2's SQLite is another adapter for this port. It is not written, and
-/// <c>06_DATA_MODEL</c> declines to guess <c>0001_init.sql</c> before its consumers
-/// exist.
+/// <c>Infrastructure.Persistence.SqliteGameConsentStore</c> is the adapter since P2 PR-B
+/// (2026-09-09), over the <c>games</c> table <c>0001_init.sql</c> creates; the file-backed
+/// store in the unshipped host is gone. The adapter SHIPS, which is what changed the basis
+/// <c>20_OPEN_QUESTIONS</c> §S27 was closed on — read the restatement there.
 /// </para>
 /// </remarks>
 public interface IGameConsentStore

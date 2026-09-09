@@ -126,10 +126,16 @@ What the Agent checks **before** asking the guard is the thing the native side s
 > **Where it lives, corrected 2026-08-06.** This sentence said "lives in SQLite", and was the
 > only line in the tree that said where consent lives — while no database, no `games` table
 > and no consent writer existed in any `.cs` file (§S27). The port is
-> `Application.Consent.IGameConsentStore`; **SQLite is P2's adapter for it** and is still
+> `Application.Consent.IGameConsentStore`; ~~**SQLite is P2's adapter for it** and is still
 > unwritten, and `06_DATA_MODEL` declines to guess `0001_init.sql` before its consumers exist.
 > The only adapter today is a file-backed store inside the unshipped `FrameLedger.CaptureHost`,
-> whose record dies with the build tree and is **not** a migration source.
+> whose record dies with the build tree and is **not** a migration source.~~ **Written 2026-09-09
+> (P2 PR-B): `Infrastructure.Persistence.SqliteGameConsentStore` over the `games` table of
+> `0001_init.sql`, with the file store deleted rather than migrated.** The unshipped host now opens
+> its OWN `ledger.db` beside its binary (HANDOFF §P2 decision D5), so the Agent stays the sole owner
+> of `%LOCALAPPDATA%\FrameLedger`; the Agent's console verb (PR-F, D4) and the UI's dialog (P3) are
+> the producers that stamp from the Agent's clock, which is the property the paragraph below says a
+> file could not uphold.
 >
 > **A file cannot uphold the Agent-stamp property, and saying so is the honest position.**
 > `19_SAFETY` §User-facing consent requires the timestamp to be *"stamped by the Agent, never

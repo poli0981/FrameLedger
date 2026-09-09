@@ -26,9 +26,12 @@
     looks". The point of this list is that the same act stays as visible as that
     string was, instead of reading as a call to a sanctioned API.
 
-    FrameLedger.CaptureHost is the unshipped host that owns the file-backed
-    store. When P2 adds a SQLite adapter in FrameLedger.Infrastructure, adding it
-    here is the deliberate, reviewable act — not a discovery.
+    FrameLedger.Infrastructure is on the list since P2 PR-B (2026-09-09): it
+    hosts SqliteGameConsentStore, the adapter 04_CAPTURE said P2 would write. It
+    SHIPS in both publish roots, so this line is the deliberate, reviewable act
+    the paragraph above asked for — and it is what changed the basis §S27 was
+    closed on (20_OPEN_QUESTIONS §S27, restated there). The unshipped capture
+    host no longer mints anything: its file-backed store is gone.
 
     Test assemblies are on the list because they are not published — no publish
     root references them — and the alternative is a suite that can only exercise
@@ -36,7 +39,7 @@
     whose managed pass covers tests/ as well as src/.
   -->
   <ItemGroup>
-    <InternalsVisibleTo Include="FrameLedger.CaptureHost" />
+    <InternalsVisibleTo Include="FrameLedger.Infrastructure" />
     <InternalsVisibleTo Include="FrameLedger.Domain.Tests" />
     <InternalsVisibleTo Include="FrameLedger.Application.Tests" />
     <InternalsVisibleTo Include="FrameLedger.CaptureHost.Tests" />

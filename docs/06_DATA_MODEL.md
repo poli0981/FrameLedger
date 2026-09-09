@@ -6,6 +6,34 @@
 
 ## Schema (v2 — hook architecture)
 
+> **`src/FrameLedger.Infrastructure/Persistence/Migrations/0001_init.sql` is normative since 2026-09-09
+> (P2 PR-B).** The block below is the shape as drafted and is kept for its comments; the script adds
+> what this document had no column for, each with the reason beside it in the script:
+>
+> - `sessions.session_guid` (UNIQUE) — the identity the `.partial` file, the pipe and recovery key on
+>   (`20_OPEN_QUESTIONS` §G "Session identity"); `qpc_epoch` + `qpc_frequency` — the time base the
+>   blobs and sensor series are aligned to (`03_METRICS` §Export, §Sensor aggregates);
+>   `capture_mode` (`attach|launch`); the drain's own accounting (`drain_ticks`, `foreground_ticks`,
+>   `records_before_attach`, `dxgi_presents_before_hook`, `gap_count`, `guard_ticks_published`,
+>   `launch_wait_ms`); the 2026-09 metric additions (`presented_fps` + `presented_qualifier`,
+>   `dxgi_unseen_total` / `dxgi_present_samples` / `displayed_counted_by`, `sl_tag_census`,
+>   `sl_interposer_version`, `upscaler_driver_reported` / `fg_driver_reported` / `ngx_driver_words`,
+>   `fg_none_withheld_reason`, `runtime_modules`, `executable_markers`, `writer_status_at_end`,
+>   `early_stop_family`, `loader_signals`).
+> - `games.exe_size_bytes` / `exe_mtime_ms` (the `ExecutableFingerprint`),
+>   `hook_consent_provenance` (the `ConsentProvenance` NAME, default `NotRecorded`),
+>   `hook_consent_disclosure_version`, **`hook_prescan_state`** (`not_run|clean|blocked|unverified` —
+>   the third state one nullable `hook_blocked_reason` could not carry; nothing in P2 clears the
+>   reason, per the owner question below), `hook_autodisabled_at`, `hook_last_injected_at`.
+> - `frame_blobs.frame_index`, `swapchain_ids`; `sensor_blobs` gains the `t_ms` series.
+> - **`fg_source`'s domain is `api|cadence|none|manual`, NULL = not measured** — this document said
+>   `api|cadence|manual` while `03_METRICS` names rung 4 `none`; the CHECK carries the union.
+> - **Every `*_at` / `*_ms` INTEGER is unix-ms UTC** (CLAUDE.md §Coding conventions), stated in the
+>   script because it was stated nowhere in this file. QPC never leaves the pipeline except
+>   `qpc_epoch` / `qpc_frequency`.
+> - `exe_path` is `UNIQUE COLLATE NOCASE`, because consent matches `OrdinalIgnoreCase` on the
+>   normalised full path and the index must agree with the lookup.
+
 ```sql
 CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
 
@@ -54,10 +82,12 @@ CREATE TABLE games (
 > `05_DETECTION` §Caching and is enforced by `StaticDetectionResult.ShouldWrite`,
 > which is tested even though nothing persists yet.
 >
-> No migration is written here. There is no SQLite layer at all, and §Migrations
+> ~~No migration is written here. There is no SQLite layer at all, and §Migrations
 > forbids editing an applied script — so guessing the shape into `0001_init.sql`
 > before its consumers exist maximises the chance of baking in a wrong guess that
-> can only be appended to.
+> can only be appended to.~~ **Written 2026-09-09 (P2 PR-B), with its first consumer:** the
+> column exists in `0001_init.sql`; the writer (the detection cache, P4) and the reader (the
+> library card, P3) are still unbuilt, so it is decided, created, and empty.
 
 > **The three hook-state columns have a consumer before they have a table, and two
 > fields it needs are not here.** Added 2026-08-06 with `IGameConsentStore`, whose
@@ -80,10 +110,12 @@ CREATE TABLE games (
 >   toggle (a false refusal with no appeal) nor be cleared (a fail-open). One nullable
 >   TEXT column cannot carry three states.
 >
-> **The file-backed record is NOT a migration source.** It lives in a build output,
-> `git clean` removes it, and this section's own argument against guessing a schema
-> applies just as well to inheriting one from a throwaway. When the `games` table is
-> written it is written from this document.
+> **The file-backed record was NOT a migration source, and was not migrated.** It lived in a
+> build output, `git clean` removed it, and when the `games` table was written (2026-09-09, P2
+> PR-B) it was written from this document — the file store and its DTOs were deleted the same day.
+> The two fields the consumer needed and this table lacked are columns now:
+> `hook_consent_provenance` and `hook_consent_disclosure_version`; the third pre-scan state is
+> `hook_prescan_state`.
 >
 > **Still unanswered, and it is an owner decision rather than a coding one:** who
 > clears `hook_blocked_reason` when a re-scan comes back clean. `19_SAFETY` §A game
@@ -264,7 +296,17 @@ Default: raw blobs for the **last 20 sessions per game** (configurable N or unli
 
 ## Migrations
 
-Sequential embedded SQL (`Migrations/0001_init.sql`, `0002_*.sql`, …), applied at startup by whichever process opens the DB first, guarded by `schema_migrations` + a global mutex. Never edit an applied script; only append.
+Sequential embedded SQL (`Migrations/0001_init.sql`, `0002_*.sql`, …), applied at startup by whichever process opens the DB first, guarded by `schema_migrations` + a named mutex. Never edit an applied script; only append.
+
+> **Built 2026-09-09 (P2 PR-B):** `Infrastructure.Persistence.MigrationRunner` over scripts embedded in
+> the assembly (so the schema a build applies is the one it was tested against), one transaction per
+> script, under `Local\FrameLedger.Ledger.Migrate` — session-local rather than `Global\`, because the
+> Agent and the UI share a session and the global namespace asks for a privilege a standard user need
+> not hold. **A ledger at a version newer than the build's scripts is refused, not read**
+> (`LedgerSchemaException`): guessing at a schema we do not understand is the one option that could
+> turn a newer file into wrong answers. `LedgerDatabase` opens with the four pragmas above, one
+> connection per process behind a gate, and every write in an explicit transaction — a failing blob
+> insert leaves no session row behind (`SqliteSessionRepositoryTests`).
 
 **`0001_init.sql` creates the schema above directly.** There is no v1 → v2
 upgrade path, because there is no released v1: nothing has shipped, so no

@@ -19,6 +19,42 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P2 PR-B — the SQLite ledger: `0001_init.sql`, migrations, the consent adapter, the repositories, the
+  blob codecs (2026-09-09).** `Microsoft.Data.Sqlite` and `Dapper` were referenced by zero lines; they now
+  back `Infrastructure.Persistence`: `LedgerDatabase` (WAL, `synchronous=NORMAL`, `foreign_keys=ON`,
+  `busy_timeout=5000`; one connection per process behind a gate; every write an explicit transaction),
+  `MigrationRunner` (scripts embedded in the assembly, one transaction each, under a session-local mutex;
+  a ledger NEWER than the build's scripts is refused — `LedgerSchemaException` — not read on a guess),
+  and `0001_init.sql`, the `06_DATA_MODEL` v2 schema plus the columns it had no home for: `session_guid`,
+  `qpc_epoch` / `qpc_frequency`, `capture_mode`, the drain's own accounting, the 2026-09 metric additions
+  (Presented FPS + qualifier, DXGI-COUNTED, tag census, the driver-reported rungs, the withheld `none`),
+  `fg_source` with `none` in its domain and NULL = not measured, `games.hook_prescan_state` (the third
+  pre-scan state one nullable reason could not carry; nothing clears `hook_blocked_reason`), the consent
+  provenance and disclosure version, and the fingerprint. Every `*_at` is unix-ms UTC, stated in the
+  script. **`SqliteGameConsentStore` replaces the capture host's file store** — same semantics, every case
+  of `FileGameConsentStoreTests` re-targeted (`SqliteGameConsentStoreTests`): a grant cannot clear a
+  block, a block preserves the stamp, a revoke withdraws it, a default verdict is `unverified` and never
+  a block, a re-grant against a different binary cannot inherit a block, an unreadable ledger answers
+  `Failed` and consents to nothing. **It ships**, and `20_OPEN_QUESTIONS` §S27 is restated on that basis
+  (`Domain.csproj`'s `InternalsVisibleTo` names Infrastructure now, not the CaptureHost). The unshipped
+  host opens its OWN `ledger.db` beside its binary (HANDOFF §P2 decision D5) — the Agent stays the sole
+  owner of `%LOCALAPPDATA%\FrameLedger` — and its e2e cases run through that ledger. Also new:
+  `SqliteGameRepository` (the non-consent face of `games`: crash count, auto-disable, last injection),
+  `SqliteSessionRepository` (row + segments + `frame_blobs` + `sensor_blobs` in ONE transaction — a failing
+  blob insert leaves no row behind — `ExistsAsync` by guid for recovery, retention keeps the last N
+  sessions' raw series and every aggregate), `SqliteHardwareSnapshotRepository` (hash-deduplicated),
+  `SqliteSettingsStore`, `SqliteLegalAcceptanceStore` (read-only; FR-11 stays the UI's — decision D8),
+  the Application ports and DTOs behind them (`SessionRow` column for column, generated with the SQL from
+  one table so the INSERT, the parameters and the reader cannot drift), `Domain.Sessions` (`ExitStatus`,
+  `CaptureTier`, `CaptureMode`), and `Infrastructure.Blobs.SeriesCodec` / `RenderResCodec`
+  (`deflate-le-v1`, little-endian arrays through Deflate, NaN refused at encode time, two pairs per frame
+  for `render_res`, all three RT bits preserved; 360k frame times round-trip under half their raw size).
+  Hook-path overhead: none (managed only). `06_DATA_MODEL`, `04_CAPTURE` §The guard, `20_OPEN_QUESTIONS`
+  §S27 and §G "Session identity", `CLAUDE.md` §Solution layout corrected in place. Also fixed in passing:
+  `ShmDrainIntegrationTests.TheReaderReportsRecordsItLostWhileItWasNotDraining` read `INIT` instead of `READY`
+  about one run in four (on unmodified `main` too) — the handshake is published before the present hooks and
+  the present hook records before the READY store, so a case that laps the ring in ~50 ms could assert inside
+  that window; it now polls, bounded, for the writer to leave `INIT` first.
 - **P2 PR-A — `FrameLedger.Domain.Metrics`, and the capture host's consumer re-pointed at it (2026-09-09).**
   The calculators `03_METRICS` says to implement in Domain now exist there, under `tools/coverage-gate.ps1`'s
   95 % per-class floor, which had never evaluated anything: `FrameTimeSeries` (QPC → ms, the interval
