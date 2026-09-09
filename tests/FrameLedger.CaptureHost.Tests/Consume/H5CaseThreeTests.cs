@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using FluentAssertions;
+using FrameLedger.Application.Metrics;
 using FrameLedger.CaptureHost.Consume;
+using FrameLedger.Domain.Metrics;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Tests.Consume;
@@ -77,7 +79,7 @@ public sealed partial class H5CaseThreeTests
             DxgiPresentSamples = dxgiSamples,
         };
         MeasuredFacts facts = MeasuredFacts.From(stream, writer, Stopwatch.Frequency, 0, 0,
-            FgWindow.From(stream, Stopwatch.Frequency), modules);
+            FgWindow.From(FrameSampleMapper.Map(stream), Stopwatch.Frequency), modules);
         return (facts, SessionReport.Render(facts));
     }
 

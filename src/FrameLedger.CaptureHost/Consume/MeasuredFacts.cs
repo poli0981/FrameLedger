@@ -1,3 +1,5 @@
+using FrameLedger.Application.Metrics;
+using FrameLedger.Domain.Metrics;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Consume;
@@ -8,11 +10,11 @@ namespace FrameLedger.CaptureHost.Consume;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A throwaway consumer, deliberately here in the unshipped host and NOT in
-/// <c>FrameLedger.Domain.Metrics.*</c>. P2 owns the real calculators, CLAUDE.md
-/// records that nothing computes a frame time anywhere in the tree yet, and
-/// <c>coverage-gate</c> carries a separate 95% floor for that namespace. A
-/// throwaway must not be mistaken for the thing it stands in for.
+/// The report's facts, in the unshipped host. <b>The arithmetic is not here any more</b>:
+/// since P2 PR-A the window, the extent, the segments and the three tri-states come from
+/// <c>FrameLedger.Domain.Metrics</c> (under <c>coverage-gate</c>'s 95% floor), reached through
+/// <c>FrameSampleMapper</c>; what stays here is the prose — which N/A, which qualifier, which
+/// witness — and it is still throwaway, replaced by the recorder and the UI.
 /// </para>
 /// <para>
 /// <b>Every field that today's present-only writer cannot measure is nullable or
@@ -456,10 +458,15 @@ internal sealed record MeasuredFacts
         // four lines before it assigns swapchainId, so within one stream consecutive records
         // differ by however many streams are interleaving. Measured: the overflow harness
         // interleaves 17, so the dominant stream's indices step by ~17 and D would have been 0.
-        double seconds = RecordWindow.SecondsOf(stream, 0, qpcFrequency);
+        double seconds = RecordWindow.SecondsOf(stream, 0, qpcFrequency, static r => r.Qpc);
 
         var entitled = EntitledBy((FlHookFamily)writer.HooksInstalledMask);
         int violations = stream.Count(r => !IsHonest(r, entitled));
+
+        // ONE mapping, and the calculators see samples only: Domain references nothing, so the
+        // shared-memory record stops at this line (CLAUDE.md §Solution layout, decision D1/D2).
+        IReadOnlyList<FrameSample> samples = FrameSampleMapper.Map(stream);
+        WriterFacts facts = FrameSampleMapper.Map(writer);
 
         var census = (FlRuntimeCensus)writer.RuntimeCensus;
         string? withheld = fg?.IsNone == true ? WithholdNone(census, modules, writer) : null;
@@ -483,13 +490,13 @@ internal sealed record MeasuredFacts
                 stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Fg)) < stream.Count,
             RuntimeCensus = census,
 
-            Extent = UpscaleExtent.From(stream),
+            Extent = UpscaleExtent.From(samples),
             Upscaler = UpscalerOf(stream),
             NgxDriver = ngx ?? NgxDriverState.NotRun,
             Markers = markers ?? ExecutableMarkers.NotScanned,
-            RayTracing = RayTracingOf(stream, writer),
-            RayReconstruction = RayReconstructionOf(stream),
-            Hdr = HdrOf(stream),
+            RayTracing = RtVerdict.RayTracing(samples, facts),
+            RayReconstruction = RtVerdict.RayReconstruction(samples),
+            Hdr = HdrVerdict.Of(samples),
             HonestyViolations = violations,
             HasDataGaps = totalGaps > 0 || totalDropped > 0,
         };
@@ -814,111 +821,4 @@ internal sealed record MeasuredFacts
     /// <summary>What <see cref="Upscaler"/> carries for <see cref="FlUpscaler.FsrUnversioned"/>.</summary>
     public const string UpscalerFsrUnversioned =
         "FSR (3.1 or 4 — the SDK 2.x upscaler DLL hosts both, and the dispatch does not name the version)";
-
-    private static Tri RayTracingOf(IReadOnlyList<FlFrameRecord> stream, FlWriterState writer)
-    {
-        // ONE RECORD SET FOR BOTH THE EVIDENCE AND ITS DENOMINATOR. Counting evidence over
-        // the whole stream while `measured` is decided over a suffix would divide by records
-        // the claim does not cover — a different number from either honest choice.
-        int start = RecordWindow.ClaimedSuffixStart(stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Rt));
-        bool measured = start < stream.Count;
-        int frames = stream.Count - start;
-
-        int evidence = 0;
-        for (int i = start; i < stream.Count; i++)
-        {
-            if (((FlRtFlags)stream[i].RtFlags & (FlRtFlags.AsBuildObserved | FlRtFlags.DispatchObserved))
-                != FlRtFlags.None)
-            {
-                evidence++;
-            }
-        }
-
-        if (measured && evidence * 20 >= frames)
-        {
-            return Tri.Yes;    // 03_METRICS: AS-build or DispatchRays in >= 5% of frames.
-        }
-
-        // THREE CONJUNCTS, and the middle one is the one that is easy to drop. A writer with only the
-        // DispatchRays hook sees nothing on an inline-RayQuery title, and its silence is
-        // indistinguishable from a real negative — so `No` needs the AS-BUILD hook to have been
-        // INSTALLED, not merely for RT to have been "measured".
-        //
-        // Both conjuncts now have producers: hooksInstalledMask since the present hook, rtTier since
-        // ResolveApi started asking the D3D12 device. What is still missing is the RT hooks themselves,
-        // so FlMeasured.Rt is never set and `measured` is false — which is why this still reaches
-        // NotApplicable on every session. The gap moved; it did not close.
-        //
-        // CapableMin, not a literal 10. rtTier holds D3D12_RAYTRACING_TIER's own value, and a device
-        // that answered NOT_SUPPORTED is FlRtTier.Unsupported (1) rather than 0 — so `>=` correctly
-        // excludes it while 0 keeps meaning nobody looked.
-        bool capable = writer.RtTier >= (uint)FlRtTier.CapableMin;
-        bool asBuildInstalled = ((FlHookFamily)writer.HooksInstalledMask).HasFlag(FlHookFamily.RtAsBuild);
-        return measured && capable && asBuildInstalled && evidence == 0 ? Tri.No : Tri.NotApplicable;
-    }
-
-    private static Tri RayReconstructionOf(IReadOnlyList<FlFrameRecord> stream)
-    {
-        // Gated on the in-band OBSERVED bit, NOT on measuredMask. FL_MEASURED_UPSCALER also covers FFX,
-        // XeSS and NIS, so a writer with FFX hooks and no NGX hooks has "upscaler measured" and knows
-        // nothing whatever about RR — sharing the mask bit would publish RR = No.
-        //
-        // AND THAT IS WHY THIS IS NOT A ClaimedSuffixStart CALLER, THOUGH IT LOOKS LIKE ONE.
-        // The other three axes are gated on a HOOK-LIVENESS bit, which is monotonic, so excluding the
-        // install prefix is the whole fix. This one is gated on a PER-PRESENT OBSERVATION: dllmain.cpp
-        // sets RayReconstructionObserved under `seen != 0`, deliberately, so an NGX-direct title running
-        // DLSS-RR does not get a fabricated `No`. Under frame generation that bit is intermittent by
-        // construction — on the Cyberpunk stream one Streamline batch spans ~4 presents, so ~24% of
-        // records carry it.
-        //
-        // THE POPULATION IS THE PRESENTS THAT DRAINED A BATCH, NOT EVERY RECORD, and requiring it on
-        // every record is what made this N/A on every frame-generating title. Demanding a bit the
-        // writer only ever sets on one present in N is a condition that cannot hold at N > 1, so the
-        // answer was decided by the frame-generation setting rather than by whether Ray Reconstruction
-        // ran. An earlier note here reasoned that the alternative was a whole-session verdict from a
-        // single frame and that fixing it needed the application-frame unit HANDOFF item 3 would
-        // introduce. Both halves were wrong: the natural population for "did RR run" is the presents
-        // that carry a Streamline observation at all, which on the Cyberpunk stream is 2,461 batches
-        // rather than one frame, and it needs no application-frame unit — which is fortunate, because
-        // item 3 could not produce one.
-        //
-        // The three answers this now yields:
-        //
-        //   no present carries OBSERVED  -> N/A. Nothing looked, including the whole install prefix,
-        //                                   which drops out for free instead of forcing N/A.
-        //   some batch carried RR        -> Yes.
-        //   batches, and none carried RR -> No, and this is the branch that was unreachable.
-        //
-        // `Any` rather than `All` for Yes is the pre-existing semantics and is kept: a title that turns
-        // RR off mid-session still ran it, and splitting that belongs to 03_METRICS §Upscaling's
-        // segment list rather than to a session-level tri-state.
-        bool observedAny = false;
-        foreach (FlFrameRecord r in stream)
-        {
-            var flags = (FlFeatureFlags)r.FeatureFlags;
-            if (!flags.HasFlag(FlFeatureFlags.RayReconstructionObserved))
-            {
-                continue;
-            }
-
-            observedAny = true;
-            if (flags.HasFlag(FlFeatureFlags.RayReconstruction))
-            {
-                return Tri.Yes;
-            }
-        }
-
-        return observedAny ? Tri.No : Tri.NotApplicable;
-    }
-
-    private static Tri HdrOf(IReadOnlyList<FlFrameRecord> stream)
-    {
-        int start = RecordWindow.ClaimedSuffixStart(stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Hdr));
-        if (start == stream.Count)
-        {
-            return Tri.NotApplicable;
-        }
-
-        return (FlColorSpace)stream[^1].ColorSpace is FlColorSpace.Hdr10 or FlColorSpace.ScRgb ? Tri.Yes : Tri.No;
-    }
 }

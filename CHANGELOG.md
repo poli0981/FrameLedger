@@ -19,6 +19,30 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P2 PR-A — `FrameLedger.Domain.Metrics`, and the capture host's consumer re-pointed at it (2026-09-09).**
+  The calculators `03_METRICS` says to implement in Domain now exist there, under `tools/coverage-gate.ps1`'s
+  95 % per-class floor, which had never evaluated anything: `FrameTimeSeries` (QPC → ms, the interval
+  spanning a gap EXCLUDED rather than counted as a long frame), `Percentile` (linear interpolation, NumPy
+  `linear`), `FrameStatistics` (median / 1 % / 0.1 % lows as `1000 / p`, min / max, population σ, the
+  FR-4.8 guards at exactly 1,000 and 10,000 frames, the `(presented)` label carried not decided),
+  `RollingMedian` (19 frames, truncated symmetric at both edges) + `StutterDetector` (`> 2 × median`, stutter
+  time %, `pso_stutter_pct`), `VramAggregates` / `LatencyAggregates` / `SeriesAggregates` (N/A, never 0).
+  Ported out of `FrameLedger.CaptureHost` with their tests: `FgWindow` (the factor and every refusal —
+  now a `FgRefusalKind` + numbers, the English staying with the report as `FgRefusalText`, byte-identical),
+  `UpscaleExtent`, `StreamSegmenter` → `SegmentBuilder`, `RecordWindow` (generic), `Tri`, and the three
+  tri-states as `RtVerdict` (`RtSummary` carries `rt_frame_pct` over presents and `rays_per_pixel` over
+  RT-active presents, the ×4 falsifier pinned) and `HdrVerdict`. Domain references nothing, so the
+  calculators consume `FrameSample` / `WriterFacts` with Domain's own enums; `FrameLedger.Application`
+  gains a reference to `FrameLedger.Shared` (HANDOFF §P2 decision D1) and
+  `Application.Metrics.FrameSampleMapper` is the one place a record becomes a sample, with the two
+  writer-state sentinels (`VramBudgetMb = 0`, `DxgiPresentsBeforeHook = 0xFFFFFFFF`) resolved to null
+  there. `MetricEnumMirrorTests` pins every Domain enum to its Shared twin in both directions — a member
+  added on one side alone fails. `MeasuredFacts` keeps the prose (which N/A, which qualifier, the withheld
+  `none`) and calls Domain for the numbers; every report fixture in `CaptureHost.Tests` passes unchanged.
+  Not in this PR: the FG ladder as a Domain verdict (`fg_mode` / the withheld `none` are still
+  `MeasuredFacts` strings) — it lands with the recorder that stores it (PR-D). Hook-path overhead: none
+  (managed only). `03_METRICS` §header, `14_TESTING` §Golden metric tests (the FG-ladder row named two
+  retired rungs and an "ambiguous → `none`") and `CLAUDE.md` §Solution layout are corrected in place.
 - **P1 item 4 — the unhook path, the native log, OpenGL (2026-09-06).** `StopObserving` no longer calls
   `MH_DisableHook(MH_ALL_HOOKS)`: every patch the Overlay made is in a registry, and each is restored
   **only while the bytes at its target are still our jump** (`fl_patch_check.h`; §H7 in its inline form —

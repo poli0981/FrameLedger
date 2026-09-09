@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using FrameLedger.Domain.Metrics;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Consume;

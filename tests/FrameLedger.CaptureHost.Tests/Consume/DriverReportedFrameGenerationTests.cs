@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using FluentAssertions;
+using FrameLedger.Application.Metrics;
 using FrameLedger.CaptureHost.Consume;
+using FrameLedger.Domain.Metrics;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Tests.Consume;
@@ -60,7 +62,7 @@ public sealed class DriverReportedFrameGenerationTests
             DxgiPresentSamples = (uint)stream.Count,
         };
         MeasuredFacts facts = MeasuredFacts.From(stream, writer, Stopwatch.Frequency, 0, 0,
-            FgWindow.From(stream, Stopwatch.Frequency), ngx: ngx);
+            FgWindow.From(FrameSampleMapper.Map(stream), Stopwatch.Frequency), ngx: ngx);
         return (facts, SessionReport.Render(facts));
     }
 
@@ -128,7 +130,7 @@ public sealed class DriverReportedFrameGenerationTests
 
         (MeasuredFacts facts, string text) = Render(s, _fgCreated);
 
-        facts.Fg!.Refusal.Should().Contain("changed during the session");
+        FgRefusalText.Describe(facts.Fg!.Refusal).Should().Contain("changed during the session");
         text.Should().Contain("Presented FPS:");
         text.Should().Contain("WARNING: frame generation was counted (400 application-frame token(s), and DXGI counted 600 present(s) this hook never saw, so the Displayed rate is ABOVE this number) and its factor is REFUSED");
         text.Should().Contain("read it as neither Native nor Displayed");

@@ -3,8 +3,18 @@
   <!-- Use cases and ports. Infrastructure implements these; Application never
        references Infrastructure (CLAUDE.md §Solution layout). -->
 
+  <!--
+    FrameLedger.Shared since P2 PR-A (2026-09-09, CLAUDE.md §Solution layout, decision D1
+    in HANDOFF §P2). The capture loop this assembly is about to host is written over
+    FlFrameRecord / FlWriterState / DrainResult / ShmAttachRefusal, and Shared references
+    nothing, is in both publish closures already, and already hosts policy
+    (ShmHandshakeValidator). The alternative was a THIRD mirror of the record here — the
+    drift ShmLayoutMirrorTests exists to prevent. Domain still references nothing:
+    Application.Metrics.FrameSampleMapper is where the record becomes Domain's FrameSample.
+  -->
   <ItemGroup>
     <ProjectReference Include="..\FrameLedger.Domain\FrameLedger.Domain.csproj" />
+    <ProjectReference Include="..\FrameLedger.Shared\FrameLedger.Shared.csproj" />
   </ItemGroup>
 
 </Project>
