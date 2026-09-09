@@ -144,6 +144,15 @@ the recount becomes the next thing that needs recounting.
 > wording does not reach it. The bullet list above is history as of 2026-09-04 and is left as
 > it stood; this paragraph is the current count.
 >
+> **Corrected 2026-09-09: ◐ is TWO, not zero.** S1 and H11 carry ◐ in their own headings and in
+> the rows above — both *built, with a residue that is an owner measurement* (S1: the first
+> real-title launch and the descendant election, now P2's; H11: rows B2–B4 unfired). The count
+> *against exit criterion 2* is unchanged — neither is a safety gap and P0 stays closed — but the
+> glyph column said ◐ while the sentence above said ◐ zero, which is exactly the failure this
+> table records about itself (*"a count that is correct while its own list is wrong"*). Kept
+> as ◐ two here rather than re-glyphing the rows: the rows were right and the paragraph was
+> wrong, and the residue of each is a run, not a rationale. P2's sequencing is `HANDOFF` §P2.
+>
 > **STILL TEN on 2026-08-27, for the third consecutive movement.** S31 moved from ❓ to ◐,
 > so ❓ goes four to three and ◐ goes two to three. **The number has now stayed at ten across
 > three different changes**, and that is worth saying out loud precisely because a reader

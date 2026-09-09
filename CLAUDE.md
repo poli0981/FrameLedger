@@ -39,7 +39,7 @@ A C++ DLL (`FrameLedger.Overlay.dll`) is injected into games the user explicitly
 | UI | WPF + WPF UI (`WPF-UI` pinned = 4.3.0) + CommunityToolkit.Mvvm — `docs/16_WPFUI_SYNTAX.md` |
 | App composition | .NET Generic Host + DI in `FrameLedger.App` |
 | Charts | ScottPlot 5 |
-| GPU telemetry | Layered: DXGI + PDH counters (all vendors) → LibreHardwareMonitorLib (MPL-2.0, all vendors) → **NVAPI (MIT, headers + `amd64/nvapi64.lib` vendored 2026-08-05** at `src/native/third_party/nvapi/`, consumed via the `fl_nvapi` target; NVIDIA extras + Reflex). **No AMD/Intel vendor SDK** — `docs/18_GPU_VENDOR_APIS.md`. **No telemetry source exists in code yet** — `ctest fl_nvapi_probe` is the only consumer, and it exists so the vendoring is verified rather than asserted. This row previously claimed the vendoring in the present tense while `third_party/` held only `vulkan-headers`; `legal/` had already caught the identical claim about itself and gained a bidirectional gate, which is what made the real vendoring a red-then-green |
+| GPU telemetry | Layered: DXGI + PDH counters (all vendors) → LibreHardwareMonitorLib (MPL-2.0, all vendors) → **NVAPI (MIT, headers + `amd64/nvapi64.lib` vendored 2026-08-05** at `src/native/third_party/nvapi/`, consumed via the `fl_nvapi` target; NVIDIA extras + Reflex). **No AMD/Intel vendor SDK** — `docs/18_GPU_VENDOR_APIS.md`. ~~**No telemetry source exists in code yet**~~ **`LhmTelemetrySource` (L2) exists since 2026-09-03 (`20_OPEN_QUESTIONS` §M5 row R1, eight GPU fields unelevated); L1, L3 and the composite are unwritten and are P2's** — `ctest fl_nvapi_probe` is still the only NVAPI consumer, and it exists so the vendoring is verified rather than asserted. This row said no source existed for six days after one did, recorded 2026-09-09 rather than repaired quietly. This row previously claimed the vendoring in the present tense while `third_party/` held only `vulkan-headers`; `legal/` had already caught the identical claim about itself and gained a bidirectional gate, which is what made the real vendoring a red-then-green |
 | CPU/board sensors | LibreHardwareMonitorLib ≥ 0.9.6 (PawnIO) — **optional**, elevated only |
 | Tier-2 fallback | **There is none, and Tier 2 is not a measurement.** Owner decision 2026-08-28: the ladder is two rungs — hooked, or duration + sensors + the reason. ~~ETW-based, no injection~~; ~~Intel PresentMon console binary~~ dropped 2026-08-27 after §S31 retired it. Whether a shipped build ever regains a no-injection measurement is `docs/20_OPEN_QUESTIONS.md` §G |
 | Storage | SQLite via Microsoft.Data.Sqlite + Dapper (no EF) |
@@ -94,7 +94,8 @@ tools/                         # changelog-check, chokepoint-check, coverage-gat
                                # — resx-audit — does not exist.
                                # native tooling lives under src/native/tools:
                                #   fl-layout-dump  -> struct offsets for the C# mirror test
-                               #   hook-harness    -> dummy D3D11 + D3D12 app (Vulkan/OpenGL unwritten)
+                               #   hook-harness    -> dummy D3D11 + D3D12 + Vulkan + OpenGL app
+                               #                      (--vulkan since #140, --opengl since #141)
 rules/detection-rules.json     # engine/platform/capability + anticheat blocklist
 docs/  legal/  legal/licenses/
 ```
@@ -115,7 +116,7 @@ It also asserts **blittability** (`RuntimeHelpers.IsReferenceOrContainsReference
 
 The version handshake is wired end to end as of 2026-08-05: `FlGuardBuildId` gives the Agent a build id of its own and `ShmHandshakeValidator` performs the refuse-to-attach comparison `07_IPC` specifies (§S23-1). **Its default is `NotEvaluated`, not `Ok`** — a result nobody produced has validated nothing, the same rule `AntiCheatVerdict` follows.
 
-**Dev mode —** `FL_MOCK=1` is **specified but not implemented** — `grep -rn FL_MOCK src tests tools build.ps1` returns nothing (recorded 2026-08-04). When it exists it runs the whole app with a synthetic frame source and no injection at all, and it is how the UI is meant to be developed; until then, do not plan work on the assumption that it is there. `tools/hook-harness` is a dummy **D3D11 + D3D12** app used to exercise hooks without a real game; Vulkan and OpenGL modes are unwritten (`docs/12_BUILD.md` §Targets is the accurate list).
+**Dev mode —** `FL_MOCK=1` is **specified but not implemented** — `grep -rn FL_MOCK src tests tools build.ps1` returns nothing (recorded 2026-08-04). When it exists it runs the whole app with a synthetic frame source and no injection at all, and it is how the UI is meant to be developed; until then, do not plan work on the assumption that it is there. `tools/hook-harness` is a dummy **D3D11 + D3D12 + Vulkan + OpenGL** app used to exercise hooks without a real game — `--vulkan` since #140 and `--opengl` since #141 (2026-09-06); this sentence said both were unwritten until 2026-09-09 (`docs/12_BUILD.md` §Targets is the accurate list).
 
 ## Definition of done (per PR)
 
