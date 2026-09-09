@@ -1,6 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using FrameLedger.CaptureHost.Consume;
+using FrameLedger.Application.Capture;
 
 namespace FrameLedger.CaptureHost.Capture;
 
@@ -20,13 +20,16 @@ namespace FrameLedger.CaptureHost.Capture;
 /// an outcome the report prints, never an exception the loop sees.
 /// </para>
 /// </remarks>
-internal static class NgxDriverProbe
+internal sealed class NgxDriverProbe : INgxDriverProbe
 {
     private const string _probeFileName = "fl-probe-nvapi.exe";
 
     private static readonly TimeSpan _budget = TimeSpan.FromSeconds(5);
 
     public static string ProbePath => Path.Combine(AppContext.BaseDirectory, _probeFileName);
+
+    /// <inheritdoc />
+    NgxDriverState INgxDriverProbe.Run(int pid) => Run(pid);
 
     public static NgxDriverState Run(int pid) => Run(pid, ProbePath);
 

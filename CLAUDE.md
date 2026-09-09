@@ -69,21 +69,27 @@ src/
                                #    aggregates — over Domain's own FrameSample, under the
                                #    95% per-class floor. The CaptureHost's consumer now
                                #    calls it; the FG ladder's prose is still there, PR-D's)
-  FrameLedger.Application/     # use cases, ports
-  FrameLedger.Infrastructure/  # SQLite, shm reader, vendor APIs, injector interop, parsers
+  FrameLedger.Application/     # use cases, ports — incl. Capture/ since 2026-09-09 (P2 PR-C):
+                               #   CaptureSession (the loop: gate -> inject -> attach -> drain
+                               #   under the 30 s re-scan), ICaptureSink and the ports the Agent
+                               #   composes it from, SessionEndReason, the census/NGX/marker facts
+  FrameLedger.Infrastructure/  # SQLite, shm reader, vendor APIs, injector interop, parsers,
+                               #   and Capture/ (PR-C): ShmRingAttacher/ShmCaptureSink over the
+                               #   reader, HeldProcessLivenessSource, TargetResolver (path only,
+                               #   never a pid), ProcessLauncher, the module snapshot, the marker scan
   FrameLedger.Shared/          # IPC contracts (System.Text.Json source-gen) + ShmRecord struct mirror
   FrameLedger.Agent/           # capture orchestrator: watcher, injector control, shm drain, recorder
   FrameLedger.App/             # WPF UI
-  FrameLedger.CaptureHost/     # UNSHIPPED. The first production driver of the guard loop:
-                               #   HookedCaptureGate -> FlGuardedInject -> ShmRingReader ->
-                               #   10 Hz drain + GuardSupervisor + PublishGuardResult, plus the
-                               #   report consumer. Its consent store is SQLite since P2 PR-B
-                               #   (2026-09-09) — Infrastructure's adapter over its OWN
-                               #   ledger.db beside the binary, never the Agent's (D5).
-                               #   12_BUILD publishes App and Agent ONLY, and neither references
-                               #   this — tools/package-closure-check.ps1 is what keeps that true.
-                               #   §S27 was closed on that basis and is RESTATED there: the
-                               #   consent adapter now ships, so packaging is not what holds rule 1.
+  FrameLedger.CaptureHost/     # UNSHIPPED, and since P2 PR-C (2026-09-09) a THIN SHELL: verbs,
+                               #   the operator disclosure, the report consumer, and the composition
+                               #   of Application.Capture.CaptureSession over Infrastructure's
+                               #   adapters — the loop itself no longer lives here. Its consent
+                               #   store is SQLite (PR-B) over its OWN ledger.db beside the binary,
+                               #   never the Agent's (D5). 12_BUILD publishes App and Agent ONLY,
+                               #   and neither references this — tools/package-closure-check.ps1
+                               #   keeps that true. §S27 was closed on that basis and is RESTATED
+                               #   there: the consent adapter AND the loop now ship, so packaging
+                               #   is not what holds rule 1.
 tests/
   FrameLedger.Domain.Tests/  FrameLedger.Application.Tests/  FrameLedger.Infrastructure.Tests/
   FrameLedger.CaptureHost.Tests/      # incl. the Category=Integration end-to-end case
@@ -102,7 +108,7 @@ rules/detection-rules.json     # engine/platform/capability + anticheat blocklis
 docs/  legal/  legal/licenses/
 ```
 
-Dependency direction: `App/Agent → Application → Domain`; **`Application → Shared` since 2026-09-09** (P2 PR-A, decision D1 — `Application.Metrics.FrameSampleMapper` is where `FlFrameRecord` becomes Domain's `FrameSample`, and the capture loop it will host is written over the record); `Infrastructure` implements `Application` ports; Domain references nothing. **The native layer is reachable only through `Infrastructure`** — no P/Invoke anywhere else.
+Dependency direction: `App/Agent → Application → Domain`; **`Application → Shared` since 2026-09-09** (P2 PR-A, decision D1 — `Application.Metrics.FrameSampleMapper` is where `FlFrameRecord` becomes Domain's `FrameSample`, and `Application.Capture.CaptureSession`, hosted there since PR-C the same day, is written over the record; `DrainResult` moved to Shared with it); `Infrastructure` implements `Application` ports; Domain references nothing. **The native layer is reachable only through `Infrastructure`** — no P/Invoke anywhere else.
 
 ## Coding conventions
 

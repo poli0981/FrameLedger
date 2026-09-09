@@ -1,4 +1,5 @@
 using FluentAssertions;
+using FrameLedger.Application.Capture;
 using FrameLedger.CaptureHost.Capture;
 using FrameLedger.CaptureHost.Consume;
 

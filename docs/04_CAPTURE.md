@@ -4,19 +4,52 @@ The Agent decides *whether* to capture, *how* (tier), starts it, drains data, an
 
 ## Frame source abstraction (retained from the ETW design — and now with ONE implementation, which is the point)
 
-```csharp
+~~```csharp
 public interface IFrameSource : IAsyncDisposable
 {
     CaptureTier Tier { get; }
     IAsyncEnumerable<FrameEvent> StreamAsync(CaptureTarget target, CancellationToken ct);
 }
-```
+```~~
+
+> **Never written, and replaced rather than built — 2026-09-09 (P2 PR-C).** No `IFrameSource`,
+> `FrameEvent` or `IAsyncEnumerable` stream ever existed in a `.cs` file; what ran every hooked
+> session since 2026-08-06 is a *loop over a sink*, and that is the shape promoted into the
+> shipped assemblies:
+>
+> ```csharp
+> public interface ICaptureSink : IDisposable           // Application.Capture — what the loop needs from the ring
+> {
+>     FlWriterState WriterState { get; }   FlShmHandshake Handshake { get; }
+>     long TotalDropped { get; }           long TotalGaps { get; }
+>     DrainResult Drain(Span<FlFrameRecord> into, IList<ulong> gapIndices);
+>     void PublishGuardResult(uint completedEvaluations, bool unhookRequested);
+>     void SetPaused(bool paused);         void RequestLogFlush();
+> }
+> public sealed class CaptureSession(...)              // the loop: gate → inject → attach → drain, until something ends it
+> {
+>     Task<CaptureOutcome> RunAsync(normalisedExePath, observed, payloadPath, ct);          // attach mode
+>     Task<CaptureOutcome> RunLaunchedAsync(normalisedExePath, observed, payloadPath, args, ct); // launch mode
+> }
+> ```
+>
+> `CaptureSession` takes ports, not delegates, so the Agent's composition root supplies the
+> adapters: `IRingAttacher` (`Infrastructure.Capture.ShmRingAttacher` over `ShmRingReader.TryAttach`
+> with `FlGuardBuildId`), `ITargetLivenessSource` (`HeldProcessLivenessSource`, §S29(e)),
+> `ITargetResolver` (`TargetResolver`, path only — never a pid), `IProcessLauncher`
+> (`ProcessLauncher`, launch mode), `IRuntimeModuleSnapshot`, `INgxDriverProbe`,
+> `IExecutableMarkerScan`. `ShmRingReader` itself gains no interface and no second consumer
+> (`NoSecondRingReaderTests`). A **pure move**: the loop's ordering rules, its tests and the
+> capture host's report are byte-for-byte what they were; the host is now a thin shell that
+> composes the same objects. What the table below used to call `HookedFrameSource` is this.
+> `MockFrameSource` / `FL_MOCK=1` remains specified and unwritten (CLAUDE.md §Dev mode); when it
+> exists it is a second `ICaptureSink`, not a second loop.
 
 | Implementation | Tier | Notes |
 |---|---|---|
-| `HookedFrameSource` | 1 | Injects (or relies on the Vulkan layer), maps the ring, drains at 10 Hz |
+| ~~`HookedFrameSource`~~ `CaptureSession` + `ShmCaptureSink` | 1 | Injects (or relies on the Vulkan layer), attaches to the ring, drains at 10 Hz under the 30 s re-scan |
 | ~~`EtwFrameSource`~~ | — | **Deleted from the design, 2026-08-28.** Tier 2 is not a frame source: it produces no frames. PresentMon was dropped (§S31 row P2), no mechanism replaced it (§G), and a port with no adapter on a tier that measures nothing is a row that only invites someone to implement it. The interface keeps its shape for `MockFrameSource` and for whatever Vulkan needs |
-| `MockFrameSource` | dev | Synthetic frames incl. simulated FG/upscaler/RT records; `FL_MOCK=1` |
+| `MockFrameSource` | dev | Synthetic frames incl. simulated FG/upscaler/RT records; `FL_MOCK=1` — unwritten; would be a second `ICaptureSink` |
 
 Tier selection per launch:
 
@@ -187,6 +220,26 @@ What the Agent checks **before** asking the guard is the thing the native side s
   > a stall and must not raise this warning.
 - **A torn record is a gap, not a skipped frame.** Silently dropping it merges two frame times into one double-length interval, i.e. fabricates a stutter. Record an explicit gap at that index; `03_METRICS` excludes gap-adjacent intervals from frame-time statistics.
 - Records go into an in-memory buffer (`ArrayPool<FlFrameRecord>` segments). Every 60 s, a crash-safety flush writes raw buffers to `%LOCALAPPDATA%\FrameLedger\tmp\<sessionGuid>.partial`.
+
+## Threading model
+
+> **Written 2026-09-09 (P2 PR-C), because `20_OPEN_QUESTIONS` §G listed it as unspecified and the
+> loop had just become shipped code.** Four kinds of thread, one owner per shared object.
+
+| Thread | Cadence | Owns | Touches |
+|---|---|---|---|
+| **Session loop** (`CaptureSession.RunAsync`, one async loop per session) | `Task.Delay(100 ms)` drain ticks; the 30 s guard scan is awaited inline | The ring reader, for the life of the session — drain, `PublishGuardResult`, `SetPaused`, `RequestLogFlush` — and the record buffer it fills | Samples foreground per tick, drains the telemetry queue per tick (PR-D), writes `.partial` itself (PR-D) |
+| **Telemetry** (`fl-telemetry`, `TelemetryPoller`, one per session) | 1 Hz, never faster than 500 ms | Its own `ConcurrentQueue` of `TelemetrySample` | Reads the composite source only; L2 has a thread of its own inside the library, and the composite is read from this thread and no other |
+| **Watcher** (PR-F, `PeriodicTimer(1 s)`) | 1 Hz process snapshot | A `Channel<WatcherEvent>` with the orchestrator as single consumer | Never the ring, never the database |
+| **Finalize** (PR-D) | Once, on the session loop's task | The one SQLite connection, behind a `SemaphoreSlim(1)` | `ApplicationStopping` cancels the loop; finalize gets a grace window, then the `.partial` stays for recovery |
+
+Rules the table encodes: **nothing but the session loop touches `ShmRingReader`** — no lock is
+added to the reader, because there is no second party; a diagnostic wanting a look at the ring
+is a second consumer on a single-consumer ring and is refused by review and by
+`NoSecondRingReaderTests`. The ring holds ~16 s at a game's present rate, so a 100 ms cadence
+has two orders of magnitude of headroom, and `TotalDropped > 0` stays a session warning rather
+than a tuning knob. There is no UI thread in P2; the pipe reader (P3) joins as one more
+`Channel` producer, not as a reader of anything above.
 
 ## Telemetry poller
 

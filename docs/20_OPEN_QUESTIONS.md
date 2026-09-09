@@ -1215,6 +1215,18 @@ rather than a missing feature.~~
 > and §S18 blocker 3 together** (HANDOFF §Owner-only item 5); until then the ✅ stands on the four
 > properties above, stated, rather than on the one that no longer holds.
 
+> **Restated again 2026-09-09 (P2 PR-C): the loop ships too.** `CaptureLoop` — the code that has
+> reached `FlGuardedInject` on every hooked session since 2026-08-06 — is now
+> `Application.Capture.CaptureSession`, in both publish closures, with `Infrastructure.Capture`
+> holding the adapters (`ShmRingAttacher`, `HeldProcessLivenessSource`, `TargetResolver`,
+> `ProcessLauncher`). Nothing in the Agent calls it yet (PR-F), so today's shipped binaries still
+> carry no injecting *entry point*; what they carry is the injecting *code path*, and that is by
+> design (`01_ARCHITECTURE`). The four properties above are what hold, and PR-C adds two pins:
+> `HookRequestSoleProducerTests` (reflection: no public constructor, no setter, exactly one factory)
+> and `NoSecondRingReaderTests` (nothing but `ShmRingReader` opens the ring). The resolver still has
+> no pid parameter — `TargetResolver.Resolve(normalisedExePath)` is the only way to a pid, and the
+> gate is the only way from a pid to the guard.
+
 ### S25 ✅ · Both runtime stops were unreachable in a non-presenting process, and pause was unreachable on a ticking one — **closed 2026-08-05**
 
 Found by tracing call paths while planning the next phase, in code merged the
