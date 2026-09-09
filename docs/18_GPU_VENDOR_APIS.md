@@ -41,17 +41,43 @@ Implementations compose rather than compete:
 
 `sessions.telemetry_source` stores the **composite descriptor** (e.g. `l1+lhm+nvapi`), not a single name, so a user can see exactly why a field is missing.
 
+> **Written 2026-09-09 (P2 PR-E1): `BaselineTelemetrySource` (L1), `CompositeTelemetrySource`
+> and the 1 Hz thread (`TelemetryPoller`, `fl-telemetry`).** Three things this block did not say
+> and the code now does. (1) The port gained `IsDisabled`: a layer that has fallen to
+> `Capabilities.None` because it was disabled and one that has simply not read yet were
+> indistinguishable through the port, and the **descriptor lists the layers still standing**
+> — `TelemetryLayerNames.Describe`, lowest first — so a layer disabled mid-session drops out of
+> the string the session is stored under. (2) The composite is **not a layer**: its `Layer` is
+> `None`, a merged sample's `Layer` is the highest layer that contributed anything, and
+> `LayerOf(field)` answers per field. It also applies the two-fault rule one level up — a layer
+> whose `TryRead` throws (which the port forbids) is excluded on the second throw, the others
+> untouched. (3) Identity is its own record, `GpuAdapterIdentity` (name, LUID, ids, memory sizes,
+> user-mode driver version), read once per session from DXGI; the Agent hands the handshake's
+> `adapterLuid` to `SelectAdapter` so samples describe the adapter the game presented on. Every
+> poller sample is stamped with QPC (`TelemetrySample.QpcTicks`), the ring's clock, and
+> `QpcClockTests` pins `Stopwatch` / `TimeProvider.GetTimestamp` to the real counter.
+
 > Per-process VRAM comes from the **Overlay** (`IDXGIAdapter3::QueryVideoMemoryInfo` inside the game), not from here. Adapter-wide VRAM is a separate series with a different label — they answer different questions and users will otherwise think one of them is broken.
 
 ## L1 — baseline (no licence, all vendors)
 
-- **DXGI:** `IDXGIFactory6::EnumAdapterByGpuPreference` → adapter description, LUID (matches the swapchain adapter from the Overlay handshake), dedicated/shared memory sizes. `IDXGIAdapter3::QueryVideoMemoryInfo` for adapter-wide usage/budget.
+- **DXGI:** `IDXGIFactory6::EnumAdapterByGpuPreference` → adapter description, LUID (matches the swapchain adapter from the Overlay handshake), dedicated/shared memory sizes. ~~`IDXGIAdapter3::QueryVideoMemoryInfo` for adapter-wide usage/budget.~~ **Measured wrong, 2026-09-09:** `DXGI_QUERY_VIDEO_MEMORY_INFO.CurrentUsage` is the *calling process's* usage by the structure's own definition — which is exactly why the Overlay reads it inside the game for `vram_proc` — and from the Agent it read **0 bytes** beside a 16 GB adapter. Adapter-wide usage is the PDH counter below, as this list always said; DXGI is identity only (`DxgiAdapters`, the first CsWin32 consumer in the tree).
 - **PDH performance counters** — the same source Task Manager uses, fully documented, vendor-neutral:
   - `\GPU Engine(*)\Utilization Percentage` (sum per engine type: 3D, Compute, Copy, VideoDecode)
   - `\GPU Adapter Memory(*)\Dedicated Usage`
   - `\GPU Process Memory(*)\Dedicated Usage` (cross-check against the Overlay's figure)
   - Instance names embed the LUID — parse and filter to our adapter, don't sum blindly across GPUs.
-- **Driver version:** `SetupAPI` / registry adapter properties. Feeds the hardware snapshot and the trend-chart change markers (`06_DATA_MODEL`).
+
+  > **Built 2026-09-09 (PR-E1), one counter of the three:** `PdhAdapterMemoryCounter` binds
+  > `\GPU Adapter Memory(luid_0x<High>_0x<Low>_phys_0)\Dedicated Usage` by the selected
+  > adapter's LUID — addressed directly, never a wildcard summed — and it is L1's one live field
+  > (`GpuSample.VramAdapterMb`). Measured on the dev box: **1301 MB** in use on the RTX 5080 at an
+  > idle desktop, moving tick to tick. A machine without the counter set fails the open and the
+  > field is N/A with the layer standing — not a fault. **`Utilization Percentage` is deliberately
+  > not read** (`20_OPEN_QUESTIONS` §M10, decided): `LoadPct` is L2's vendor-reported load and is
+  > labelled as such. `GPU Process Memory` is not read either — the Overlay's in-process figure is
+  > the one the pipeline stores, and a cross-check is a diagnostic, not a field.
+- **Driver version:** ~~`SetupAPI` / registry adapter properties.~~ **`IDXGIAdapter::CheckInterfaceSupport(IDXGIDevice)`** — its documented second output is the user-mode driver version for that interface, four 16-bit fields of one 64-bit value (`32.0.16.1664` on the dev box, 2026-09-09; the WARP adapter answers with the OS build). Neither SetupAPI nor the registry is walked: both need a device-instance enumeration nothing else here has a reason to carry. Feeds the hardware snapshot and the trend-chart change markers (`06_DATA_MODEL`). This is the four-part form the vendor's own tooling shows, not the marketing number (`561.09`), which only L3 knows.
 - **Optional probe, P0 evaluation only:** `D3DKMTQueryAdapterInfo` with `KMTQAITYPE_ADAPTERPERFDATA` reportedly exposes temperature, power and fan for any vendor. The D3DKMT structures are **not fully documented and have changed across Windows builds**. Treat as an experiment: if it proves stable on both Win 10 22H2 and Win 11 during P0, keep it as an L1 extra behind a capability flag; if it looks fragile, drop it and let L2 handle temperatures. Never let it be load-bearing.
 
   > **🅓 The two-OS requirement is deferred to Win 11 only — owner decision, 2026-08-05.**
@@ -244,10 +270,10 @@ as the same thing.
 
 | Field | NVIDIA | AMD | Intel |
 |---|---|---|---|
-| GPU utilisation | ? | untested | untested |
-| Adapter VRAM | ? | untested | untested |
-| Per-process VRAM | ? (also from Overlay) | untested | untested |
-| Driver version | ? | untested | untested |
+| GPU utilisation | **deferred by decision** (§M10, 2026-09-09) — L2's vendor-reported load is what `LoadPct` carries, labelled as such; the engine counters are not read | untested | untested |
+| Adapter VRAM | ✓ **measured 2026-09-09** — PDH `GPU Adapter Memory … Dedicated Usage`, 1301 MB at an idle desktop, RTX 5080 (`QueryVideoMemoryInfo` measured **not** adapter-wide: 0 bytes from the Agent) | untested | untested |
+| Per-process VRAM | `arch` for L1 — the Overlay's in-process `QueryVideoMemoryInfo` is the figure stored; `GPU Process Memory` is not read | `arch` | `arch` |
+| Driver version | ✓ **measured 2026-09-09** — `CheckInterfaceSupport(IDXGIDevice)` → `32.0.16.1664` | untested | untested |
 | Core temp | ? (D3DKMT probe, Win 11 only — see below) | untested | untested |
 | Power | ? (D3DKMT probe) | untested | untested |
 | Fan | ? (D3DKMT probe) | untested | untested |
@@ -350,6 +376,8 @@ alone could never catch.
 > The NVIDIA half is **not** deferred and ~~none of it exists in code yet — no PDH, no
 > DXGI telemetry, no LibreHardwareMonitor, no NVAPI~~ — **L2 exists as of 2026-09-03**
 > (`LhmTelemetrySource`, `SensorMap`, the port in `FrameLedger.Application.Telemetry`);
-> L1 and L3 are still unwritten. §M5 in particular (do LHM GPU
+> ~~L1 and L3 are still unwritten~~ **L1 and the composite exist as of 2026-09-09**
+> (`BaselineTelemetrySource`, `DxgiAdapters`, `PdhAdapterMemoryCounter`,
+> `CompositeTelemetrySource`, `TelemetryPoller`); L3 is P2's PR-E2. §M5 in particular (do LHM GPU
 > sensors work unelevated, without PawnIO?) decided whether the default unelevated
 > Agent has temperatures at all — **it does, on NVIDIA; row R1 above.**

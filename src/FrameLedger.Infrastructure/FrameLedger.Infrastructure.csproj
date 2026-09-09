@@ -9,6 +9,15 @@
     CsWin32 or DllImport declarations.
   -->
 
+  <!--
+    CsWin32 with marshaling off (NativeMethods.json) generates raw vtable structs for the DXGI
+    interfaces Telemetry/DxgiAdapters.cs walks; that is pointer code by construction.
+    Nothing else in this assembly is unsafe, and nothing in the tree outside it may be.
+  -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\FrameLedger.Application\FrameLedger.Application.csproj" />
     <ProjectReference Include="..\FrameLedger.Shared\FrameLedger.Shared.csproj" />

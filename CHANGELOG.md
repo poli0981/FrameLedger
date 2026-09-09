@@ -19,6 +19,28 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P2 PR-E1 — telemetry L1, the composite and the 1 Hz thread (2026-09-09).** `IGpuTelemetrySource`
+  had one adapter; it now has the ladder `18_GPU_VENDOR_APIS` §Abstraction describes.
+  `BaselineTelemetrySource` (L1) reads the adapter's identity from DXGI once — name, LUID, ids, memory
+  sizes, the user-mode driver version via `CheckInterfaceSupport(IDXGIDevice)` — as `GpuAdapterIdentity`,
+  selects the first hardware adapter until the Overlay's handshake LUID names another, and carries one
+  live field: adapter-wide dedicated memory in use from the PDH `GPU Adapter Memory … Dedicated Usage`
+  counter bound by LUID (never a wildcard summed). **Measured on the way:** `IDXGIAdapter3::
+  QueryVideoMemoryInfo`, which the doc listed as L1's adapter-wide usage, reports the *calling process's*
+  usage — 0 bytes from the Agent beside a 16 GB adapter — which is exactly why the Overlay reads it
+  in-process; the doc is corrected, not the number. The engine-utilisation counters are deliberately not
+  read (`20_OPEN_QUESTIONS` §M10 decided: `LoadPct` is L2's vendor-reported load, labelled). `DxgiAdapters`
+  and `PdhAdapterMemoryCounter` are the tree's first CsWin32 consumers (marshaling off: raw vtables, no
+  apartment). `CompositeTelemetrySource` merges L3 > L2 > L1 per field, records which layer supplied
+  each (`LayerOf`), applies the two-fault rule one level up to a layer whose `TryRead` throws, and
+  produces the `l1+lhm+nvapi` descriptor from the layers still standing — the port gained `IsDisabled`
+  so "nothing yet" and "never again" stop reading alike. `TelemetryPoller` is the `fl-telemetry` thread:
+  one read per interval (≥ 500 ms), stamped with QPC (`TelemetrySample`), queued for the session loop,
+  oldest dropped and counted when nobody drains. `QpcClock` names the counter the ring is in, and
+  `QpcClockTests` pins `Stopwatch` / `TimeProvider.GetTimestamp` to it rather than trusting the
+  documentation. §M7 and §M8 closed by the code taking the shape they asked for. Hook-path overhead:
+  none (managed only, nothing in the game). `18_GPU_VENDOR_APIS` §Abstraction/§L1/matrix, `CLAUDE.md`
+  pinned-stack row corrected in place.
 - **P2 PR-B — the SQLite ledger: `0001_init.sql`, migrations, the consent adapter, the repositories, the
   blob codecs (2026-09-09).** `Microsoft.Data.Sqlite` and `Dapper` were referenced by zero lines; they now
   back `Infrastructure.Persistence`: `LedgerDatabase` (WAL, `synchronous=NORMAL`, `foreign_keys=ON`,
