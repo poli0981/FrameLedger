@@ -63,13 +63,12 @@ src/
     FrameLedger.VkLayer/       # C++20 Vulkan implicit layer DLL + manifest JSON
     FrameLedger.Shm/           # header-only: ring buffer + record layout, shared by native & C# (mirrored)
   FrameLedger.Domain/          # entities, metric calculators — zero dependencies
-                               #   (calculators UNWRITTEN: Domain holds AntiCheat/,
-                               #    Consent/ and Detection/ only. Nothing in Domain
-                               #    computes a frame time or an FPS low. measuredMask ->
-                               #    rule 7's tri-state and Displayed FPS now exist, in the
-                               #    UNSHIPPED FrameLedger.CaptureHost as a throwaway that
-                               #    P2's recorder replaces — deliberately not in
-                               #    Domain.Metrics.*, which carries a 95% coverage floor)
+                               #   (Metrics/ WRITTEN 2026-09-09, P2 PR-A: frame times,
+                               #    percentiles, lows, stutter, the FG window and its
+                               #    refusals, extent, segments, RT/HDR tri-states,
+                               #    aggregates — over Domain's own FrameSample, under the
+                               #    95% per-class floor. The CaptureHost's consumer now
+                               #    calls it; the FG ladder's prose is still there, PR-D's)
   FrameLedger.Application/     # use cases, ports
   FrameLedger.Infrastructure/  # SQLite, shm reader, vendor APIs, injector interop, parsers
   FrameLedger.Shared/          # IPC contracts (System.Text.Json source-gen) + ShmRecord struct mirror
@@ -100,7 +99,7 @@ rules/detection-rules.json     # engine/platform/capability + anticheat blocklis
 docs/  legal/  legal/licenses/
 ```
 
-Dependency direction unchanged: `App/Agent → Application → Domain`; `Infrastructure` implements `Application` ports; Domain references nothing. **The native layer is reachable only through `Infrastructure`** — no P/Invoke anywhere else.
+Dependency direction: `App/Agent → Application → Domain`; **`Application → Shared` since 2026-09-09** (P2 PR-A, decision D1 — `Application.Metrics.FrameSampleMapper` is where `FlFrameRecord` becomes Domain's `FrameSample`, and the capture loop it will host is written over the record); `Infrastructure` implements `Application` ports; Domain references nothing. **The native layer is reachable only through `Infrastructure`** — no P/Invoke anywhere else.
 
 ## Coding conventions
 

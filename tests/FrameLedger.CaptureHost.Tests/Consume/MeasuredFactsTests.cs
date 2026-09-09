@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using FluentAssertions;
+using FrameLedger.Application.Metrics;
 using FrameLedger.CaptureHost.Consume;
+using FrameLedger.Domain.Metrics;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Tests.Consume;
@@ -133,7 +135,7 @@ public sealed partial class MeasuredFactsTests
                                         | FlHookFamily.FgEvaluations),
         };
         string text = SessionReport.Render(MeasuredFacts.From(
-            stream, writer, Stopwatch.Frequency, 0, 0, FgWindow.From(stream, Stopwatch.Frequency)));
+            stream, writer, Stopwatch.Frequency, 0, 0, FgWindow.From(FrameSampleMapper.Map(stream), Stopwatch.Frequency)));
 
         text.Should().Contain("Native FPS").And.Contain("Displayed FPS").And.Contain("x4 FG");
         text.Should().Contain("tokens/batch").And.Contain("histogram");
@@ -166,7 +168,7 @@ public sealed partial class MeasuredFactsTests
             HooksInstalledMask = (uint)(FlHookFamily.Present | FlHookFamily.UpscalerIdentity | FlHookFamily.FgEvaluations),
             RuntimeCensus = (uint)(FlRuntimeCensus.Ran | FlRuntimeCensus.SlInterposer | FlRuntimeCensus.NvngxDlssG),
         };
-        MeasuredFacts facts = MeasuredFacts.From(stream, writer, Stopwatch.Frequency, 0, 0, FgWindow.From(stream, Stopwatch.Frequency));
+        MeasuredFacts facts = MeasuredFacts.From(stream, writer, Stopwatch.Frequency, 0, 0, FgWindow.From(FrameSampleMapper.Map(stream), Stopwatch.Frequency));
         string text = SessionReport.Render(facts);
 
         facts.FgMode.Should().Be(MeasuredFacts.FgNone);
@@ -209,7 +211,7 @@ public sealed partial class MeasuredFactsTests
     };
 
     private static string RenderOf(List<FlFrameRecord> stream) => SessionReport.Render(MeasuredFacts.From(
-        stream, _streamlineWriter, Stopwatch.Frequency, 0, 0, FgWindow.From(stream, Stopwatch.Frequency)));
+        stream, _streamlineWriter, Stopwatch.Frequency, 0, 0, FgWindow.From(FrameSampleMapper.Map(stream), Stopwatch.Frequency)));
 
     [Fact]
     public void ThePROXYIsNeverPrintedWithoutItsVerdictOrItsSpan()

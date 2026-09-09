@@ -13,12 +13,14 @@ using System.Diagnostics;
 using System.Globalization;
 using FrameLedger.Application.AntiCheat;
 using FrameLedger.Application.Consent;
+using FrameLedger.Application.Metrics;
 using FrameLedger.Application.Rules;
 using FrameLedger.CaptureHost.Capture;
 using FrameLedger.CaptureHost.Consent;
 using FrameLedger.CaptureHost.Consume;
 using FrameLedger.CaptureHost.Telemetry;
 using FrameLedger.Domain.Consent;
+using FrameLedger.Domain.Metrics;
 using FrameLedger.Infrastructure.AntiCheat;
 using FrameLedger.Infrastructure.Io;
 using FrameLedger.Infrastructure.Ipc;
@@ -215,15 +217,16 @@ internal static class Program
 
     private static void Report(CaptureResult result, ExecutableMarkers markers)
     {
-        IReadOnlyList<FlFrameRecord> dominant = StreamSegmenter.DominantStream(result.Records);
-        IReadOnlyList<Segment> segments = StreamSegmenter.Segment(result.Records);
+        IReadOnlyList<FlFrameRecord> dominant = SegmentBuilder.DominantStream(result.Records, static r => r.SwapchainId);
+        IReadOnlyList<FrameSample> samples = FrameSampleMapper.Map(result.Records);
+        IReadOnlyList<Segment> segments = SegmentBuilder.Build(samples);
         // OVER EVERY RECORD, not over the dominant stream, and that asymmetry is deliberate.
         // g_slSeen is one process-wide word drained by whichever present arrives first, so an
         // evaluation belonging to the game's frame can be consumed by a UI swapchain's
         // present. Summing the denominator over one stream while counting presents over all
         // of them overstates the factor with no diagnostic; FgWindow takes both from one set
         // and refuses outright when the span holds more than one stream.
-        FgWindow fg = FgWindow.From(result.Records, Stopwatch.Frequency);
+        FgWindow fg = FgWindow.From(samples, Stopwatch.Frequency);
         MeasuredFacts facts = MeasuredFacts.From(
             dominant, result.WriterState, Stopwatch.Frequency, result.TotalGaps, result.TotalDropped, fg,
             result.RuntimeModules, result.NgxDriver, markers);

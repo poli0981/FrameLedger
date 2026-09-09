@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using FrameLedger.Domain.Metrics;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Consume;
@@ -113,7 +114,7 @@ internal static class SessionReport
 
         if (facts.Fg?.Refusal is not null)
         {
-            sb.Append("    no FG factor: ").AppendLine(facts.Fg.Refusal);
+            sb.Append("    no FG factor: ").AppendLine(FgRefusalText.Describe(facts.Fg.Refusal));
         }
     }
 
@@ -349,7 +350,7 @@ internal static class SessionReport
                   + "NOT an application frame: ");
         sb.AppendLine(w.BatchRefusal is null
             ? "the window is uniform across every bucket, so the ratio describes one configuration"
-            : "NOT READABLE — " + w.BatchRefusal);
+            : "NOT READABLE — " + FgRefusalText.Describe(w.BatchRefusal));
     }
 
     /// <summary>The three things worth saying only when they happened.</summary>

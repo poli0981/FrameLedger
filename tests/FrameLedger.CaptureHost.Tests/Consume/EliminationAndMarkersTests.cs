@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using FluentAssertions;
+using FrameLedger.Application.Metrics;
 using FrameLedger.CaptureHost.Consume;
+using FrameLedger.Domain.Metrics;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Tests.Consume;
@@ -55,7 +57,7 @@ public sealed class EliminationAndMarkersTests
     {
         var writer = new FlWriterState { HooksInstalledMask = (uint)_hooks, RuntimeCensus = (uint)census, SlTagCensus = tagCensus };
         MeasuredFacts facts = MeasuredFacts.From(stream, writer, Stopwatch.Frequency, 0, 0,
-            FgWindow.From(stream, Stopwatch.Frequency), ngx: ngx, markers: markers);
+            FgWindow.From(FrameSampleMapper.Map(stream), Stopwatch.Frequency), ngx: ngx, markers: markers);
         return (facts, SessionReport.Render(facts));
     }
 

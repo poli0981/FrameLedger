@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using FluentAssertions;
+using FrameLedger.Application.Metrics;
 using FrameLedger.CaptureHost.Consume;
+using FrameLedger.Domain.Metrics;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Tests.Consume;
@@ -57,7 +59,7 @@ public sealed class DlssgIdentityFromTagsTests
             SlTagCensus = tagCensus,
         };
         MeasuredFacts facts = MeasuredFacts.From(stream, writer, Stopwatch.Frequency, 0, 0,
-            FgWindow.From(stream, Stopwatch.Frequency), modules);
+            FgWindow.From(FrameSampleMapper.Map(stream), Stopwatch.Frequency), modules);
         return (facts, SessionReport.Render(facts));
     }
 
