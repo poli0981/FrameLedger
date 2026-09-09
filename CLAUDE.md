@@ -77,10 +77,13 @@ src/
   FrameLedger.CaptureHost/     # UNSHIPPED. The first production driver of the guard loop:
                                #   HookedCaptureGate -> FlGuardedInject -> ShmRingReader ->
                                #   10 Hz drain + GuardSupervisor + PublishGuardResult, plus the
-                               #   file-backed consent store and a throwaway consumer.
+                               #   report consumer. Its consent store is SQLite since P2 PR-B
+                               #   (2026-09-09) — Infrastructure's adapter over its OWN
+                               #   ledger.db beside the binary, never the Agent's (D5).
                                #   12_BUILD publishes App and Agent ONLY, and neither references
                                #   this — tools/package-closure-check.ps1 is what keeps that true.
-                               #   §S27 is closed on exactly that basis.
+                               #   §S27 was closed on that basis and is RESTATED there: the
+                               #   consent adapter now ships, so packaging is not what holds rule 1.
 tests/
   FrameLedger.Domain.Tests/  FrameLedger.Application.Tests/  FrameLedger.Infrastructure.Tests/
   FrameLedger.CaptureHost.Tests/      # incl. the Category=Integration end-to-end case

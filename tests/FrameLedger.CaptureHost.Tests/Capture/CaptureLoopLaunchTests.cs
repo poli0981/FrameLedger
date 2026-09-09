@@ -6,6 +6,7 @@ using FrameLedger.CaptureHost.Consent;
 using FrameLedger.Domain.AntiCheat;
 using FrameLedger.Domain.Consent;
 using FrameLedger.Infrastructure.Ipc;
+using FrameLedger.Infrastructure.Persistence;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Tests.Capture;
@@ -14,9 +15,11 @@ namespace FrameLedger.CaptureHost.Tests.Capture;
 /// Launch mode's ordering (P1 item 2): the host starts what it was asked to start, consent is the gate's
 /// and only the gate's, and the guard is reached through the WAITING entry with the budget, never the plain one.
 /// </summary>
-public sealed class CaptureLoopLaunchTests : IDisposable
+public sealed class CaptureLoopLaunchTests : IAsyncDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "fl-launch-" + Guid.NewGuid().ToString("N"));
+
+    private LedgerDatabase? _db;
 
     private const string _exe = @"C:\Games\Title\game.exe";
     private const int _pid = 5151;
@@ -24,8 +27,13 @@ public sealed class CaptureLoopLaunchTests : IDisposable
     private static ExecutableFingerprint Fingerprint =>
         new() { ExePath = _exe, SizeBytes = 90_000, MtimeUnixMs = 1_700_000_000_000 };
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        if (_db is not null)
+        {
+            await _db.DisposeAsync().ConfigureAwait(false);
+        }
+
         try
         {
             Directory.Delete(_dir, recursive: true);
@@ -87,9 +95,12 @@ public sealed class CaptureLoopLaunchTests : IDisposable
         }
     }
 
-    private async Task<FileGameConsentStore> StoreAsync(bool consented)
+    private async Task<IGameConsentStore> StoreAsync(bool consented)
     {
-        var store = new FileGameConsentStore(Path.Combine(_dir, "games.json"));
+        // The same SQLite adapter the host and the Agent use, on a scratch ledger under this test's directory.
+        _db ??= await LedgerDatabase.OpenAsync(Path.Combine(_dir, LedgerPaths.DatabaseFileName), ct: TestContext.Current.CancellationToken)
+            .ConfigureAwait(false);
+        var store = new SqliteGameConsentStore(_db);
         if (consented)
         {
             await store.RecordOperatorAcknowledgementAsync(new OperatorAcknowledgement

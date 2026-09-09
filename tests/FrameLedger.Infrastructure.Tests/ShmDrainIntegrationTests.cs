@@ -165,6 +165,26 @@ public sealed class ShmDrainIntegrationTests
     }
 
     /// <summary>
+    /// Polls until the writer's status has left <see cref="FlStatus.Init"/>, bounded at 5 s.
+    /// </summary>
+    /// <remarks>
+    /// The handshake <see cref="ShmRingReader.TryAttach"/> keys on is published before the present hooks go
+    /// in, and the present hook records frames before the init thread's last steps (loader hook, loader
+    /// words, opengl32) reach the READY store. A case that laps the ring in ~50 ms can therefore reach a
+    /// status assertion while the init thread is still between the two -- measured 2026-09-09 as INIT (0)
+    /// about one run in four, on an unmodified main and on a branch that touched no IPC code alike. An
+    /// Overlay that never leaves INIT still fails the caller's assertion: the budget is bounded and the
+    /// assertion is unchanged.
+    /// </remarks>
+    private static async Task WaitUntilInitFinishedAsync(ShmRingReader reader)
+    {
+        for (int i = 0; i < 100 && reader.WriterState.Status == (uint)FlStatus.Init; i++)
+        {
+            await Task.Delay(50, TestContext.Current.CancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
     /// The honesty invariants that hold for EVERY fixture, whatever the reader did.
     /// </summary>
     /// <remarks>
@@ -638,6 +658,7 @@ public sealed class ShmDrainIntegrationTests
             AssertWriterClaimsOnlyWhatItMeasured(records);
 
             // QPC order is deliberately NOT asserted here, in either direction. See the class remarks.
+            await WaitUntilInitFinishedAsync(reader);
             reader.WriterState.Status.Should().Be((uint)FlStatus.Ready, "dropping records is the READER falling behind");
             reader.WriterState.FaultCount.Should().Be(0u);
         }

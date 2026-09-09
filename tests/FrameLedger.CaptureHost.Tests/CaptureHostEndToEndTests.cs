@@ -5,6 +5,7 @@ using FrameLedger.Application.Consent;
 using FrameLedger.CaptureHost.Capture;
 using FrameLedger.CaptureHost.Consent;
 using FrameLedger.Domain.Consent;
+using FrameLedger.Infrastructure.Persistence;
 using FrameLedger.Shared;
 
 namespace FrameLedger.CaptureHost.Tests;
@@ -55,21 +56,56 @@ public sealed class CaptureHostEndToEndTests : IDisposable
     /// </remarks>
     private static string ConsentedExecutable => Harness;
 
-    private static string HostConsentFile =>
-        Path.Combine(Path.GetDirectoryName(Host)!, "consent", "games.json");
+    /// <summary>The host's own ledger, beside its binary (P2 PR-B): the same SQLite adapter the Agent will use.</summary>
+    private static string HostLedger => Path.Combine(Path.GetDirectoryName(Host)!, LedgerPaths.DatabaseFileName);
+
+    /// <summary>Writes the ONE consent record this suite may write, through the real store, and closes the ledger again.</summary>
+    private static async Task<ConsentWriteOutcome> GrantConsentAsync()
+    {
+        ExecutableFingerprint fingerprint = FrameLedger.Infrastructure.Io.ExecutableIdentity.Read(ConsentedExecutable)!.Value;
+        LedgerDatabase db = await LedgerDatabase.OpenAsync(HostLedger, ct: TestContext.Current.CancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            return await new SqliteGameConsentStore(db).RecordOperatorAcknowledgementAsync(new OperatorAcknowledgement
+            {
+                Fingerprint = fingerprint,
+                DisclosureVersion = OperatorDisclosure.Version,
+                AcknowledgedAt = DateTimeOffset.UtcNow,
+            }, TestContext.Current.CancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<GameConsentRecord> FindConsentAsync()
+    {
+        LedgerDatabase db = await LedgerDatabase.OpenAsync(HostLedger, ct: TestContext.Current.CancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            return await new SqliteGameConsentStore(db).FindAsync(
+                FrameLedger.Infrastructure.Io.ExecutableIdentity.Normalise(ConsentedExecutable), TestContext.Current.CancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The ledger and WAL's two sidecars; a guarded delete of each.</summary>
+    private static void DeleteHostLedger()
+    {
+        foreach (string suffix in new[] { "", "-wal", "-shm" })
+        {
+            try
+            {
+                File.Delete(HostLedger + suffix);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+    }
 
     public void Dispose()
     {
         // The host writes beside its own binary, which for a ProjectReference'd exe is this test's
         // output directory. Leaving a consent record there would make the NEXT run of the refusal case
         // pass for the wrong reason.
-        try
-        {
-            File.Delete(HostConsentFile);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
+        DeleteHostLedger();
     }
 
     [Fact]
@@ -156,16 +192,9 @@ public sealed class CaptureHostEndToEndTests : IDisposable
         // writes a record — so on a clean build output this line threw, and the case's verdict depended
         // on which sibling had run before it. In the very test whose comment says a test whose verdict
         // depends on what ran before it is one this repository does not accept.
-        Directory.CreateDirectory(Path.GetDirectoryName(HostConsentFile)!);
-        if (File.Exists(HostConsentFile))
-        {
-            File.Delete(HostConsentFile);
-        }
+        DeleteHostLedger();
 
-        (await new FileGameConsentStore(HostConsentFile)
-                .FindAsync(FrameLedger.Infrastructure.Io.ExecutableIdentity.Normalise(ConsentedExecutable),
-                    TestContext.Current.CancellationToken))
-            .IsFromStore.Should().BeFalse(
+        (await FindConsentAsync()).IsFromStore.Should().BeFalse(
                 "this case is about an ABSENT record; a leftover one from a sibling test would make the "
                 + "host refuse for a different reason and the assertions below would say nothing");
 
@@ -202,14 +231,7 @@ public sealed class CaptureHostEndToEndTests : IDisposable
         // The record is written through the real store rather than through `consent grant`, which
         // refuses redirected stdin by design. That is the suite standing in for a human, so the
         // self-constraint above pins WHICH executable it may stand in for.
-        var store = new FileGameConsentStore(HostConsentFile);
-        ExecutableFingerprint fingerprint = FrameLedger.Infrastructure.Io.ExecutableIdentity.Read(ConsentedExecutable)!.Value;
-        (await store.RecordOperatorAcknowledgementAsync(new OperatorAcknowledgement
-        {
-            Fingerprint = fingerprint,
-            DisclosureVersion = OperatorDisclosure.Version,
-            AcknowledgedAt = DateTimeOffset.UtcNow,
-        }, TestContext.Current.CancellationToken)).Should().Be(ConsentWriteOutcome.Written);
+        (await GrantConsentAsync()).Should().Be(ConsentWriteOutcome.Written);
 
         Process harness = StartHarness("--real --hold-presenting 40");
         Process? host = null;
@@ -254,14 +276,7 @@ public sealed class CaptureHostEndToEndTests : IDisposable
         // P1 item 2, from OUTSIDE the process: the host starts the consented harness, the guard waits
         // for dxgi to map and injects, and the report carries the two numbers 20_OPEN_QUESTIONS §S1
         // deferred on -- the wait, and DXGI's count of presents before the first hooked one.
-        var store = new FileGameConsentStore(HostConsentFile);
-        ExecutableFingerprint fingerprint = FrameLedger.Infrastructure.Io.ExecutableIdentity.Read(ConsentedExecutable)!.Value;
-        (await store.RecordOperatorAcknowledgementAsync(new OperatorAcknowledgement
-        {
-            Fingerprint = fingerprint,
-            DisclosureVersion = OperatorDisclosure.Version,
-            AcknowledgedAt = DateTimeOffset.UtcNow,
-        }, TestContext.Current.CancellationToken)).Should().Be(ConsentWriteOutcome.Written);
+        (await GrantConsentAsync()).Should().Be(ConsentWriteOutcome.Written);
 
         using Process host = StartHost("launch", "--exe", ConsentedExecutable, "--args", "--real --hold-presenting 6",
             "--seconds", "4");
@@ -287,14 +302,7 @@ public sealed class CaptureHostEndToEndTests : IDisposable
             Assert.Skip("no Vulkan loader on this machine");
         }
 
-        var store = new FileGameConsentStore(HostConsentFile);
-        ExecutableFingerprint fingerprint = FrameLedger.Infrastructure.Io.ExecutableIdentity.Read(ConsentedExecutable)!.Value;
-        (await store.RecordOperatorAcknowledgementAsync(new OperatorAcknowledgement
-        {
-            Fingerprint = fingerprint,
-            DisclosureVersion = OperatorDisclosure.Version,
-            AcknowledgedAt = DateTimeOffset.UtcNow,
-        }, TestContext.Current.CancellationToken)).Should().Be(ConsentWriteOutcome.Written);
+        (await GrantConsentAsync()).Should().Be(ConsentWriteOutcome.Written);
 
         using Process host = StartHost("launch", "--exe", ConsentedExecutable, "--args", "--vulkan --hold-presenting 8",
             "--seconds", "5");
@@ -325,14 +333,7 @@ public sealed class CaptureHostEndToEndTests : IDisposable
     {
         // §S29(e). The writer leaves status READY and writeIndex frozen on the way out — DllMain has no
         // DLL_PROCESS_DETACH teardown — so this can only come from the held process handle.
-        var store = new FileGameConsentStore(HostConsentFile);
-        ExecutableFingerprint fingerprint = FrameLedger.Infrastructure.Io.ExecutableIdentity.Read(ConsentedExecutable)!.Value;
-        await store.RecordOperatorAcknowledgementAsync(new OperatorAcknowledgement
-        {
-            Fingerprint = fingerprint,
-            DisclosureVersion = OperatorDisclosure.Version,
-            AcknowledgedAt = DateTimeOffset.UtcNow,
-        }, TestContext.Current.CancellationToken);
+        (await GrantConsentAsync()).Should().Be(ConsentWriteOutcome.Written);
 
         Process harness = StartHarness("--real --hold-presenting 6");
         Process? host = null;

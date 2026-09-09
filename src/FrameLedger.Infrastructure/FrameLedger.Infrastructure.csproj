@@ -27,6 +27,15 @@
     longer decides who ships it.
   -->
 
+  <!--
+    The migration scripts ship INSIDE the assembly (06_DATA_MODEL §Migrations: "sequential embedded
+    SQL"), so the schema a build applies is the schema that build was tested against, and a file
+    beside the binary cannot be edited into something else. MigrationRunner enumerates them by name.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Persistence\Migrations\*.sql" LogicalName="FrameLedger.Infrastructure.Persistence.Migrations.%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Dapper" />

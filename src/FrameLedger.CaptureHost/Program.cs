@@ -24,6 +24,7 @@ using FrameLedger.Domain.Metrics;
 using FrameLedger.Infrastructure.AntiCheat;
 using FrameLedger.Infrastructure.Io;
 using FrameLedger.Infrastructure.Ipc;
+using FrameLedger.Infrastructure.Persistence;
 using FrameLedger.Infrastructure.Rules;
 using FrameLedger.Infrastructure.Vulkan;
 using FrameLedger.Shared;
@@ -65,10 +66,25 @@ internal static class Program
             return _exitRulesFailed;
         }
 
-        var store = new FileGameConsentStore();
+        // THE HOST'S OWN ledger.db, BESIDE ITS BINARY (P2 PR-B, HANDOFF §P2 decision D5). The Agent stays
+        // the sole owner of %LOCALAPPDATA%\FrameLedger (§S18 blocker 3); this file lives in a build output
+        // that `git clean` removes, bounds a WIDENING input to the machine that built the host, and is NOT a
+        // migration source for the Agent's ledger. Same schema, same adapter, same gates — one process later.
+        LedgerDatabase db = await LedgerDatabase.OpenAsync(HostLedgerPath).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            return await RunVerbAsync(cmd, new SqliteGameConsentStore(db), db.Path).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Beside the binary, never under the Agent's directory.</summary>
+    internal static string HostLedgerPath => Path.Combine(AppContext.BaseDirectory, LedgerPaths.DatabaseFileName);
+
+    private static async Task<int> RunVerbAsync(CommandLine cmd, IGameConsentStore store, string ledgerPath)
+    {
         return cmd.Verb switch
         {
-            Verb.ConsentList => await ListAsync(store).ConfigureAwait(false),
+            Verb.ConsentList => await ListAsync(store, ledgerPath).ConfigureAwait(false),
             Verb.ConsentGrant => await GrantAsync(store, cmd.ExePath!).ConfigureAwait(false),
             Verb.ConsentRevoke => await RevokeAsync(store, cmd.ExePath!).ConfigureAwait(false),
             Verb.Capture => await CaptureAsync(store, cmd.ExePath!, cmd.Seconds).ConfigureAwait(false),
@@ -78,9 +94,9 @@ internal static class Program
         };
     }
 
-    private static async Task<int> ListAsync(FileGameConsentStore store)
+    private static async Task<int> ListAsync(IGameConsentStore store, string ledgerPath)
     {
-        HostConsole.Line($"consent store: {store.Destination}");
+        HostConsole.Line($"consent store: {ledgerPath}");
         IReadOnlyList<GameConsentRecord> enabled = await store.ListEnabledAsync().ConfigureAwait(false);
         if (enabled.Count == 0)
         {
@@ -98,7 +114,7 @@ internal static class Program
         return _exitOk;
     }
 
-    private static async Task<int> GrantAsync(FileGameConsentStore store, string exePath)
+    private static async Task<int> GrantAsync(IGameConsentStore store, string exePath)
     {
         ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
         if (observed is null)
@@ -126,7 +142,7 @@ internal static class Program
         return outcome == ConsentWriteOutcome.Written ? _exitOk : _exitRefused;
     }
 
-    private static async Task<int> RevokeAsync(FileGameConsentStore store, string exePath)
+    private static async Task<int> RevokeAsync(IGameConsentStore store, string exePath)
     {
         ConsentWriteOutcome outcome = await store
             .RevokeAsync(ExecutableIdentity.Normalise(exePath))
@@ -139,7 +155,7 @@ internal static class Program
     // compared by file id. There is no way to name a different one, which is the point.
     private static string Payload => Path.Combine(AppContext.BaseDirectory, "FrameLedger.Overlay.dll");
 
-    private static async Task<int> CaptureAsync(FileGameConsentStore store, string exePath, int seconds)
+    private static async Task<int> CaptureAsync(IGameConsentStore store, string exePath, int seconds)
     {
         string normalised = ExecutableIdentity.Normalise(exePath);
         ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
@@ -157,7 +173,7 @@ internal static class Program
     /// nothing machine-wide, removed when the session ends. A D3D title ignores all of it; a Vulkan title is
     /// observed by the layer and the guard injects nothing (<c>TargetIsVulkanLayered</c>).
     /// </remarks>
-    private static async Task<int> LaunchAsync(FileGameConsentStore store, string exePath, string arguments,
+    private static async Task<int> LaunchAsync(IGameConsentStore store, string exePath, string arguments,
         int seconds)
     {
         string normalised = ExecutableIdentity.Normalise(exePath);
@@ -176,7 +192,7 @@ internal static class Program
         return await ConcludeAsync(store, normalised, observed, result).ConfigureAwait(false);
     }
 
-    private static async Task<int> ConcludeAsync(FileGameConsentStore store, string normalised,
+    private static async Task<int> ConcludeAsync(IGameConsentStore store, string normalised,
         ExecutableFingerprint? observed, CaptureResult result)
     {
         HostConsole.Line($"session: {result.Reason}");
@@ -348,7 +364,7 @@ internal static class Program
     }
 
     /// <summary>The loop and its four collaborators, wired the only way this host allows.</summary>
-    private static CaptureLoop BuildLoop(FileGameConsentStore store, int seconds,
+    private static CaptureLoop BuildLoop(IGameConsentStore store, int seconds,
         Func<string, string, (int Pid, ITargetLiveness Alive)?>? launcher = null)
     {
         var guard = new NativeAntiCheatGuard();
@@ -407,7 +423,7 @@ internal static class Program
     /// </para>
     /// </remarks>
     private static async Task<string> WhyConsentMissingAsync(
-        FileGameConsentStore store, string normalisedExePath, ExecutableFingerprint? observed)
+        IGameConsentStore store, string normalisedExePath, ExecutableFingerprint? observed)
     {
         GameConsentRecord record = await store.FindAsync(normalisedExePath).ConfigureAwait(false);
         if (!record.IsFromStore)
