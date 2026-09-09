@@ -15,6 +15,7 @@ using FrameLedger.Application.AntiCheat;
 using FrameLedger.Application.Capture;
 using FrameLedger.Application.Consent;
 using FrameLedger.Application.Metrics;
+using FrameLedger.Application.Recording;
 using FrameLedger.Application.Rules;
 using FrameLedger.CaptureHost.Capture;
 using FrameLedger.CaptureHost.Consent;
@@ -22,7 +23,7 @@ using FrameLedger.CaptureHost.Consume;
 using FrameLedger.CaptureHost.Telemetry;
 using FrameLedger.Domain.Consent;
 using FrameLedger.Domain.Metrics;
-using FrameLedger.Infrastructure.AntiCheat;
+using FrameLedger.Domain.Sessions;
 using FrameLedger.Infrastructure.Capture;
 using FrameLedger.Infrastructure.Io;
 using FrameLedger.Infrastructure.Ipc;
@@ -75,25 +76,39 @@ internal static class Program
         LedgerDatabase db = await LedgerDatabase.OpenAsync(HostLedgerPath).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
         {
-            return await RunVerbAsync(cmd, new SqliteGameConsentStore(db), db.Path).ConfigureAwait(false);
+            return await RunVerbAsync(cmd, db, new SqliteGameConsentStore(db)).ConfigureAwait(false);
         }
     }
 
     /// <summary>Beside the binary, never under the Agent's directory.</summary>
     internal static string HostLedgerPath => Path.Combine(AppContext.BaseDirectory, LedgerPaths.DatabaseFileName);
 
-    private static async Task<int> RunVerbAsync(CommandLine cmd, IGameConsentStore store, string ledgerPath)
+    private static async Task<int> RunVerbAsync(CommandLine cmd, LedgerDatabase db, IGameConsentStore store)
     {
         return cmd.Verb switch
         {
-            Verb.ConsentList => await ListAsync(store, ledgerPath).ConfigureAwait(false),
+            Verb.ConsentList => await ListAsync(store, db.Path).ConfigureAwait(false),
             Verb.ConsentGrant => await GrantAsync(store, cmd.ExePath!).ConfigureAwait(false),
             Verb.ConsentRevoke => await RevokeAsync(store, cmd.ExePath!).ConfigureAwait(false),
-            Verb.Capture => await CaptureAsync(store, cmd.ExePath!, cmd.Seconds).ConfigureAwait(false),
-            Verb.Launch => await LaunchAsync(store, cmd.ExePath!, cmd.Arguments, cmd.Seconds).ConfigureAwait(false),
+            Verb.Capture => await CaptureAsync(db, store, cmd.ExePath!, cmd.Seconds).ConfigureAwait(false),
+            Verb.Launch => await LaunchAsync(db, store, cmd.ExePath!, cmd.Arguments, cmd.Seconds).ConfigureAwait(false),
+            Verb.Recover => await RecoverAsync(db).ConfigureAwait(false),
             Verb.ProbeLhm => LhmProbe.Run(cmd.Seconds == 0 ? LhmProbe.DefaultSeconds : cmd.Seconds),
             _ => _exitUsage,
         };
+    }
+
+    /// <summary>What the Agent does first at every start, run by hand: the pending <c>.partial</c> files, each to its fate.</summary>
+    private static async Task<int> RecoverAsync(LedgerDatabase db)
+    {
+        IReadOnlyList<RecoveryOutcome> outcomes = await HostRecorder.Recovery(db).RecoverAsync().ConfigureAwait(false);
+        HostConsole.Line($"recover: {outcomes.Count} pending .partial file(s) under {HostRecorder.PartialDirectory}");
+        foreach (RecoveryOutcome o in outcomes)
+        {
+            HostConsole.Line($"  {o.SessionGuid:N}: {o.Status}{(o.SessionId is { } id ? $" as session {id}" : "")} — {o.Detail}");
+        }
+
+        return _exitOk;
     }
 
     private static async Task<int> ListAsync(IGameConsentStore store, string ledgerPath)
@@ -157,15 +172,20 @@ internal static class Program
     // compared by file id. There is no way to name a different one, which is the point.
     private static string Payload => Path.Combine(AppContext.BaseDirectory, "FrameLedger.Overlay.dll");
 
-    private static async Task<int> CaptureAsync(IGameConsentStore store, string exePath, int seconds)
+    private static async Task<int> CaptureAsync(LedgerDatabase db, IGameConsentStore store, string exePath, int seconds)
     {
         string normalised = ExecutableIdentity.Normalise(exePath);
         ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
 
-        CaptureOutcome result = await BuildLoop(store, seconds)
-            .RunAsync(normalised, observed, Payload).ConfigureAwait(false);
+        RecordedSession recorded = await HostRecorder.Build(db, store, seconds).RecordAsync(new RecordRequest
+        {
+            NormalisedExePath = normalised,
+            Observed = observed,
+            PayloadPath = Payload,
+            Mode = CaptureMode.Attach,
+        }).ConfigureAwait(false);
 
-        return await ConcludeAsync(store, normalised, observed, result).ConfigureAwait(false);
+        return await ConcludeAsync(store, normalised, observed, recorded).ConfigureAwait(false);
     }
 
     /// <summary>Launch mode: the same loop, entered by starting the executable rather than finding it.</summary>
@@ -175,7 +195,7 @@ internal static class Program
     /// nothing machine-wide, removed when the session ends. A D3D title ignores all of it; a Vulkan title is
     /// observed by the layer and the guard injects nothing (<c>TargetIsVulkanLayered</c>).
     /// </remarks>
-    private static async Task<int> LaunchAsync(IGameConsentStore store, string exePath, string arguments,
+    private static async Task<int> LaunchAsync(LedgerDatabase db, IGameConsentStore store, string exePath, string arguments,
         int seconds)
     {
         string normalised = ExecutableIdentity.Normalise(exePath);
@@ -188,16 +208,24 @@ internal static class Program
             : $"vulkan layer: {vulkan.ManifestPath} (via {VkLayerLaunchEnvironment.ImplicitLayerPathVariable}; " +
               $"enable-list entry '{vulkan.ImageName}' for this session)");
 
-        CaptureOutcome result = await BuildLoop(store, seconds, new ProcessLauncher(vulkan.Variables))
-            .RunLaunchedAsync(normalised, observed, Payload, arguments).ConfigureAwait(false);
+        RecordedSession recorded = await HostRecorder.Build(db, store, seconds, new ProcessLauncher(vulkan.Variables)).RecordAsync(new RecordRequest
+        {
+            NormalisedExePath = normalised,
+            Observed = observed,
+            PayloadPath = Payload,
+            Mode = CaptureMode.Launch,
+            Arguments = arguments,
+        }).ConfigureAwait(false);
 
-        return await ConcludeAsync(store, normalised, observed, result).ConfigureAwait(false);
+        return await ConcludeAsync(store, normalised, observed, recorded).ConfigureAwait(false);
     }
 
     private static async Task<int> ConcludeAsync(IGameConsentStore store, string normalised,
-        ExecutableFingerprint? observed, CaptureOutcome result)
+        ExecutableFingerprint? observed, RecordedSession recorded)
     {
+        CaptureOutcome result = recorded.Outcome;
         HostConsole.Line($"session: {result.Reason}");
+        HostConsole.Line(RecordedNote(recorded));
         if (result.Verdict.Reason == Domain.AntiCheat.AntiCheatRefusalReason.TargetIsVulkanLayered)
         {
             HostConsole.Line("  capture side: the Vulkan implicit layer - the guard passed and nothing was injected " +
@@ -365,29 +393,19 @@ internal static class Program
         HostConsole.Line(FfxCensus.From(dominant).Describe());
     }
 
-    /// <summary>The session and its collaborators, wired the only way this host allows.</summary>
-    private static CaptureSession BuildLoop(IGameConsentStore store, int seconds, IProcessLauncher? launcher = null)
+    /// <summary>The one line about the ledger: what the recorder did with the session, with its identity.</summary>
+    private static string RecordedNote(RecordedSession r)
     {
-        var guard = new NativeAntiCheatGuard();
-        return new CaptureSession(
-            store,
-            new HookedCaptureGate(guard),
-            guard,
-            new TargetResolver(HostConsole.Line),
-            // Null means the pid could not be PINNED — already gone, protected, or another user's.
-            // The loop refuses rather than proceeding to inject into an identity it cannot hold.
-            new HeldProcessLivenessSource(),
-            new ShmRingAttacher(NativeAntiCheatGuard.BuildId()),
-            new CaptureOptions
-            {
-                // Zero keeps the product behaviour: run until the target exits. A positive
-                // --seconds is an operator taking a bounded measurement, and CaptureSession
-                // already honoured MaxDuration -- nothing could set it.
-                MaxDuration = seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero,
-            },
-            new RuntimeModuleSnapshot(CensusNames.ModuleFileNames),
-            new NgxDriverProbe(),
-            launcher ?? new ProcessLauncher());
+        string what = r.Finalize.Status switch
+        {
+            FinalizeStatus.Saved => $"SAVED as sessions.id={r.Finalize.SessionId} (tier {(int)r.Row.Tier}, exit={r.ExitStatus}, "
+                                    + $"frames={r.Row.FrameCount}, retention swept {r.Finalize.RetentionSwept})",
+            FinalizeStatus.Discarded => $"DISCARDED: {r.Row.DurationSeconds:0.#} s is under the host's {HostRecorder.HostMinimumSessionLength.TotalSeconds:0} s minimum "
+                                        + $"(tier {(int)r.Row.Tier}, exit={r.ExitStatus})",
+            _ => $"{r.Finalize.Status} (exit={r.ExitStatus})",
+        };
+        string crash = r.CrashPolicy == CrashPolicyOutcome.NotAnEarlyCrash ? "" : $"; crash policy: {r.CrashPolicy}";
+        return $"  ledger: session {r.SessionGuid:N} {what}{crash}";
     }
 
     /// <summary>

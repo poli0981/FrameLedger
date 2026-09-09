@@ -210,6 +210,7 @@ public sealed unsafe class ShmRingReader : IDisposable
             _readIndex = writeIndex - _capacity;
         }
 
+        ulong firstSlot = _readIndex;
         var ring = (FlFrameRecord*)(_base + ShmLayout.RingOffset);
 
         while (_readIndex < writeIndex && copied < into.Length)
@@ -245,7 +246,7 @@ public sealed unsafe class ShmRingReader : IDisposable
 
         TotalDropped += dropped;
         TotalGaps += gaps;
-        return new DrainResult(copied, gaps, dropped);
+        return new DrainResult(copied, gaps, dropped, firstSlot);
     }
 
     /// <summary>

@@ -19,6 +19,41 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P2 PR-D — the session recorder: `.partial`, five-step finalize, exit classification, crash auto-disable,
+  recovery; the first hooked session stored in SQLite (2026-09-10).** `Application.Recording`:
+  `SessionRecorder` owns a session end to end — identity and QPC time base, the `games` and
+  `hardware_snapshots` rows, one telemetry poller per session, the `.partial` from before the first record
+  to after the last, the loop, the classification, the finalize, the crash policy — on the loop's own task
+  through the new `ICaptureObserver` seam on `CaptureSession` (after every drain: the poller's queue drained,
+  the file flushed on its interval; the loop stays the ring's only reader). `SessionAggregator` fills every
+  measured column of `sessions` and `session_segments` over Domain's calculators; `FgLadder` is the identity
+  and withhold logic MOVED out of the capture host's report so the row and the report read ONE
+  implementation (the report's strings and fixtures unchanged); `Vocabulary` is the tokens the schema stores.
+  `SessionFinalizer`: the discard rule, then the FULL `frame_blobs` set through the new `ISeriesCodec` port —
+  every column any record claimed, `latency_us` included, pinned by a reflection sweep of the DTO —
+  per-stream frame times with the gap bit where an interval is not a frame time (torn slot, overwrite skip,
+  first of a stream), `swapchain_ids` only past one stream, sensor series aligned to `t_ms` with −1 where a
+  tick had no reading; then one transaction and the retention sweep. `ExitStatusMapper` is `04_CAPTURE`'s
+  table as one function (safety stop → `unhooked_safety`; the capture side stopping on its own →
+  `degraded`; non-zero exit code or an Application Error/WER event naming the exe in `[start, end+30 s]` →
+  `crashed`); `CrashAutoDisablePolicy` counts only crashes within 60 s of the attach and disables on the
+  second. The `.partial` (`06_DATA_MODEL` §The `.partial` file): CRC-framed append-only chunks, the valid
+  prefix wins, `PartialSessionFileTests` kills a fixture at every byte offset. `PartialRecovery` turns every
+  pending file into an `interrupted` row or drops it for a stated reason. `Infrastructure.Recording`:
+  `PartialSessionFile`/`Store`, `EventLogCrashSource` (Application log 1000/1001, read-only), `HardwareSnapshotSource`
+  (DXGI identity + registry CPU name + runtime memory + OS build; display fields null until P3);
+  `DrainResult` gained `FirstSlot` so a torn slot is recorded at the RECORD it preceded; `ITargetLiveness`
+  gained `ExitCode`; `TelemetryPoller` can own its source. **The unshipped host records through all of it**
+  (`capture`/`launch` print `ledger: session … SAVED as sessions.id=N`, a 5 s discard threshold for bounded
+  operator captures, a `recover` verb), and `CaptureHostEndToEndTests` now asserts the row, the blobs and the
+  deleted `.partial` after a real launch — the first hooked session in a `ledger.db`. **One native change,
+  measured on the way:** `fl_guard`'s launch-mode classification read the harness's `--vulkan` mode as
+  OpenGL once the warmer host reached the first poll 20 ms sooner (opengl32 is a static import of the
+  binary, vulkan-1 is mapped milliseconds later), injected the Overlay and left the layer's ring unowned;
+  the guard now polls once more before committing to the injecting branch, pinned in both directions in
+  `guard_test`. Hook-path overhead: none (the guard change is pre-injection; the Overlay is untouched).
+  `04_CAPTURE` §Session recorder/§Crash & exit/§Launch mode, `06_DATA_MODEL` §The `.partial` file/§Blob
+  encoding, `20_OPEN_QUESTIONS` §G "Session identity", `CLAUDE.md` §Solution layout.
 - **P2 PR-C — the capture path promoted into the shipped assemblies; the CaptureHost is a thin shell
   (2026-09-09).** A pure move: `CaptureLoop` — every hooked session's driver since 2026-08-06 — is now
   `Application.Capture.CaptureSession`, over ports instead of delegates so the Agent's composition root

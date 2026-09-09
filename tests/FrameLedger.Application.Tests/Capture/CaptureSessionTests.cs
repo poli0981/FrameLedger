@@ -168,6 +168,8 @@ public sealed class CaptureSessionTests : IAsyncDisposable
 
         public bool HasExited { get; set; }
 
+        public int? ExitCode { get; set; }
+
         /// <summary>How many samples answer true before focus is lost. Default: every one.</summary>
         public int ForegroundFor
         {

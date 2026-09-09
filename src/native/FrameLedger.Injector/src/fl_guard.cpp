@@ -772,7 +772,22 @@ Verdict GuardedInjectWhenReadyImpl(std::uint32_t targetPid, const wchar_t* dllPa
                        "the target exited before it mapped a presentation runtime; nothing was injected");
             break;
         }
-        const PresentationRuntime runtime = FindPresentationRuntime(sources, targetPid);
+        PresentationRuntime runtime = FindPresentationRuntime(sources, targetPid);
+        if (runtime == PresentationRuntime::kD3dOrOpenGl) {
+            // ONE MORE POLL before the injecting branch, and it is the Vulkan-wins rule above
+            // carried across a poll interval. A static D3D or OpenGL import is in the module
+            // list from the target's first instruction; a Vulkan title's loader arrives a few
+            // milliseconds later, so a poll that lands between the two reads a Vulkan title as
+            // OpenGL and injects the Overlay, which then owns the ring the layer needed.
+            // Measured 2026-09-10 on the harness's --vulkan mode (opengl32 a static import,
+            // vulkan-1 mapped ~1 ms later) the moment the host reached this poll 20 ms sooner.
+            // The price is one interval of late injection for a D3D title, on a path that
+            // already waits for the runtime to map.
+            Sleep(kPollMs);
+            if (FindPresentationRuntime(sources, targetPid) == PresentationRuntime::kVulkan) {
+                runtime = PresentationRuntime::kVulkan;
+            }
+        }
         if (runtime == PresentationRuntime::kD3dOrOpenGl) {
             v = GuardedInjectImpl(targetPid, dllPath, sources);
             break;

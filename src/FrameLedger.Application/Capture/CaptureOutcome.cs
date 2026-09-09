@@ -14,6 +14,13 @@ public sealed record CaptureOutcome
 
     public IReadOnlyList<FlFrameRecord> Records { get; init; } = [];
 
+    /// <summary>
+    /// Indices into <see cref="Records"/> whose record follows a torn slot or an overwrite skip — the
+    /// positions a gap is recorded at, so the interval into such a record is excluded from the
+    /// statistics rather than read as a stutter (<c>07_IPC</c>, <c>03_METRICS</c>).
+    /// </summary>
+    public IReadOnlyList<int> GapBefore { get; init; } = [];
+
     public FlWriterState WriterState { get; init; }
 
     public FlShmHandshake Handshake { get; init; }
@@ -73,4 +80,7 @@ public sealed record CaptureOutcome
 
     /// <summary>The captured process, for the report's look-ups (the native log is named after it).</summary>
     public int TargetPid { get; init; }
+
+    /// <summary>The target's exit code, when it had exited by the time the session let go; null otherwise.</summary>
+    public int? ExitCode { get; init; }
 }

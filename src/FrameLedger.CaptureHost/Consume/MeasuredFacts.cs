@@ -1,5 +1,6 @@
 using FrameLedger.Application.Capture;
 using FrameLedger.Application.Metrics;
+using FrameLedger.Application.Recording;
 using FrameLedger.Domain.Metrics;
 using FrameLedger.Shared;
 
@@ -99,7 +100,7 @@ internal sealed record MeasuredFacts
     /// The Streamline interposer version from which a counted 1.0 beside a loaded DLSS-G plugin is
     /// withheld from <c>none</c>: Dying Light: The Beast ships 2.8.0 and measured that shape five times.
     /// </summary>
-    public static readonly Version StreamlineNoneWithheldFrom = new(2, 8, 0);
+    public static readonly Version StreamlineNoneWithheldFrom = FgLadder.StreamlineNoneWithheldFrom;
 
     /// <summary>
     /// Why a counted <c>none</c> was not published, or null when it was. <c>20_OPEN_QUESTIONS</c> §H5 case 3.
@@ -470,7 +471,8 @@ internal sealed record MeasuredFacts
         WriterFacts facts = FrameSampleMapper.Map(writer);
 
         var census = (FlRuntimeCensus)writer.RuntimeCensus;
-        string? withheld = fg?.IsNone == true ? WithholdNone(census, modules, writer) : null;
+        string? withheld = fg?.IsNone == true ? FgLadder.WithholdNone(census, modules, writer) : null;
+        FlFgMode? fgIdentity = FgLadder.Identity(stream);
 
         return new MeasuredFacts
         {
@@ -478,21 +480,19 @@ internal sealed record MeasuredFacts
             SecondsObserved = seconds,
 
             Fg = fg,
-            FgMode = ResolveFgMode(FgModeOf(stream), fg, withheld),
+            FgMode = FgModeText(FgLadder.Resolve(fgIdentity, fg, withheld), fgIdentity, withheld),
             NoneWithheld = withheld,
-            NoneBesideDxgi = fg?.IsNone == true && withheld is null ? DxgiBesideNone(writer) : null,
-            InterposerVersion = modules?.VersionOf(_slInterposerFileName),
+            NoneBesideDxgi = fg?.IsNone == true && withheld is null ? FgLadder.DxgiBesideNone(writer) : null,
+            InterposerVersion = modules?.VersionOf(FgLadder.SlInterposerFileName),
             SlTagCensus = writer.SlTagCensus,
             DxgiPresentsUnseen = writer.DxgiPresentsUnseen,
             DxgiPresentSamples = writer.DxgiPresentSamples,
-            UpscalerHookRan = RecordWindow.ClaimedSuffixStart(
-                stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler)) < stream.Count,
-            FgHookRan = RecordWindow.ClaimedSuffixStart(
-                stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Fg)) < stream.Count,
+            UpscalerHookRan = FgLadder.UpscalerHookRan(stream),
+            FgHookRan = FgLadder.FgHookRan(stream),
             RuntimeCensus = census,
 
             Extent = UpscaleExtent.From(samples),
-            Upscaler = UpscalerOf(stream),
+            Upscaler = UpscalerText(FgLadder.UpscalerIdentity(stream)),
             NgxDriver = ngx ?? NgxDriverState.NotRun,
             Markers = markers ?? ExecutableMarkers.NotScanned,
             RayTracing = RtVerdict.RayTracing(samples, facts),
@@ -642,182 +642,31 @@ internal sealed record MeasuredFacts
         return mask.HasFlag(FlMeasured.Rt) || ((FlRtFlags)r.RtFlags == FlRtFlags.None && r.DispatchRaysVolume == 0);
     }
 
-    private const string _slInterposerFileName = "sl.interposer.dll";
-
     /// <summary>The string <see cref="FgMode"/> carries when the count said <c>none</c> while DLSS-G inputs were tagged.</summary>
     public const string FgNoneInputsTagged =
         "None (DLSS-G inputs were tagged through Streamline; the count says every present carried an application frame)";
 
-    /// <summary>
-    /// Identity and count, combined by one rule: <b>the count decides <c>none</c>, identity decides the name.</b>
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Until 2026-09-05 identity won outright, which was right for the identities the writer could produce:
-    /// <c>FsrFg</c> lands only on a present that drained a FRAMEGENERATION dispatch (a generated batch, a fact
-    /// about generation), and <c>DlssG</c> from a <c>kFeatureDLSS_G</c> evaluation never landed at all. Now
-    /// <c>DlssG</c> also lands on a present that drained a HUD-less or UI tag — the title FEEDING frame
-    /// generation, which a title may do with the feature switched off in its menu. So a counted 1.0 beside a
-    /// <c>DlssG</c> mark is <c>none</c> with the inputs noted, never <c>DlssG</c>; an active count beside it is
-    /// <c>DlssG</c>, named for the first time on the titles that never evaluate the feature; and a withheld
-    /// count (§H5) keeps its N/A, with the tags reported beside it in the census line.
-    /// </para>
-    /// <para><c>FsrFg</c> keeps precedence over the count: a generated batch drained is a generated batch.</para>
-    /// </remarks>
-    private static string? ResolveFgMode(string? identity, FgWindow? fg, string? withheld)
+    /// <summary>The report's spelling of the ladder's verdict (<see cref="FgLadder.Resolve"/>); the decision is made there.</summary>
+    private static string? FgModeText(FgVerdict verdict, FlFgMode? identity, string? withheld) => verdict switch
     {
-        bool dlssg = string.Equals(identity, nameof(FlFgMode.DlssG), StringComparison.Ordinal);
-        if (fg?.IsNone == true && withheld is null && (identity is null || dlssg))
-        {
-            return dlssg ? FgNoneInputsTagged : FgNone;
-        }
+        FgVerdict.None => FgNone,
+        FgVerdict.NoneInputsTagged => FgNoneInputsTagged,
+        FgVerdict.NoneWithheld => FgNoneWithheldPrefix + withheld + ")",
+        FgVerdict.Named => identity!.Value.ToString(),
+        FgVerdict.ActiveUnidentified => FgActiveUnidentified,
+        _ => null,
+    };
 
-        if (fg?.IsNone == true && withheld is not null && (identity is null || dlssg))
-        {
-            return FgNoneWithheldPrefix + withheld + ")";
-        }
-
-        return identity ?? (fg?.IsActive == true ? FgActiveUnidentified : null);
-    }
-
-    /// <summary>
-    /// The one shape on which a counted 1.0 may not be published as <c>none</c> — see
-    /// <see cref="NoneWithheld"/> for the measurement and the choice of key.
-    /// </summary>
-    private static string? WithholdNone(FlRuntimeCensus census, RuntimeModuleSet? modules, FlWriterState writer)
+    /// <summary>The report's spelling of the hooked identity (<see cref="FgLadder.UpscalerIdentity"/>).</summary>
+    private static string? UpscalerText(FlUpscaler? identity) => identity switch
     {
-        if (!census.HasFlag(FlRuntimeCensus.Ran) || !census.HasFlag(FlRuntimeCensus.SlDlssG))
-        {
-            return null;
-        }
-
-        // THE DISCRIMINATOR, since Leg 0 (2026-09-06): DXGI's own counter on the hooked chain. The
-        // 2.8.0 pacer's generated presents ARE DXGI presents there (§H5 row P1-DXGI), so a counter that
-        // was read and saw nothing unseen is DXGI saying what the count says. A counter that was read
-        // and DID see presents while the count still sits at 1.0 is a contradiction between two words
-        // of the same writer — the records should have carried them — and is refused as such.
-        if (writer.DxgiPresentSamples > 0)
-        {
-            return writer.DxgiPresentsUnseen == 0
-                ? null
-                : $"DXGI's present counter read {writer.DxgiPresentsUnseen} present(s) this hook never saw over "
-                  + $"{writer.DxgiPresentSamples} hooked present(s) while the records carry none of them — the writer "
-                  + "state and the records disagree, and neither may be read as `none`";
-        }
-
-        const string notRead = "DXGI's present counter was not read this session, and on Streamline 2.8.0 the DLSS-G "
-                               + "pacer's generated presents are DXGI presents this hook never sees (20_OPEN_QUESTIONS "
-                               + "§H5 row P1-DXGI), so a 1.0 cannot be told from generation";
-        Version? v = modules?.VersionOf(_slInterposerFileName);
-        if (v is null)
-        {
-            return "sl.dlss_g.dll (Streamline's DLSS Frame Generation plugin) is loaded, sl.interposer.dll's file "
-                   + "version could not be read, and " + notRead;
-        }
-
-        return v >= StreamlineNoneWithheldFrom
-            ? $"sl.dlss_g.dll (Streamline's DLSS Frame Generation plugin) is loaded on sl.interposer.dll {v}; " + notRead
-            : null;
-    }
-
-    /// <summary>DXGI's counter as a second witness beside a counted <c>none</c>; null when it was not read.</summary>
-    private static string? DxgiBesideNone(FlWriterState writer)
-    {
-        if (writer.DxgiPresentSamples == 0)
-        {
-            return null;
-        }
-
-        string samples = writer.DxgiPresentSamples.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        return writer.DxgiPresentsUnseen == 0
-            ? $"DXGI's own present counter agrees: 0 unseen over {samples} hooked present(s)"
-            : $"DXGI's own present counter read {writer.DxgiPresentsUnseen.ToString(System.Globalization.CultureInfo.InvariantCulture)} "
-              + $"unseen over {samples} hooked present(s), inside the `none` ceiling";
-    }
-
-    /// <summary>Which frame-generation technology ran, or null. NEVER the string "none".</summary>
-    /// <remarks>
-    /// <c>03_METRICS</c>'s ladder ends "otherwise <c>fg_mode = none</c>", and rung 0 — added
-    /// 2026-08-06 — puts <c>N/A</c> in front of it when <see cref="FlMeasured.Fg"/> is clear.
-    /// Both matter here: a Streamline-only writer cannot see XeFG or FSR3-FG, so it reports
-    /// <c>UNKNOWN</c> on a title generating frames through either, and a consumer that
-    /// collapsed UNKNOWN to "none" would turn "our coverage is short" into a measured
-    /// negative about the title.
-    /// </remarks>
-    private static string? FgModeOf(IReadOnlyList<FlFrameRecord> stream)
-    {
-        int start = RecordWindow.ClaimedSuffixStart(
-            stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Fg));
-        if (start == stream.Count)
-        {
-            return null;
-        }
-
-        // ANY record naming a technology wins over UNKNOWN, and that is not a preference —
-        // it is what the writer's own shape requires. fgMode is DLSS_G only on the presents
-        // that drained an evaluation; under frame generation the others are honestly
-        // UNKNOWN, so a modal or last-record reading would report UNKNOWN on a title running
-        // DLSS-G in three records out of four.
-        for (int i = start; i < stream.Count; i++)
-        {
-            var value = (FlFgMode)stream[i].FgMode;
-            if (value is not FlFgMode.NotReported and not FlFgMode.Unknown)
-            {
-                return value.ToString();
-            }
-        }
-
-        return null;
-    }
-
-    private static string? UpscalerOf(IReadOnlyList<FlFrameRecord> stream)
-    {
-        int start =
-            RecordWindow.ClaimedSuffixStart(stream, static r => ((FlMeasured)r.MeasuredMask).HasFlag(FlMeasured.Upscaler));
-        if (start == stream.Count)
-        {
-            return null;
-        }
-
-        // ANY RECORD NAMING A TECHNOLOGY WINS, exactly as FgModeOf does, and for the same
-        // reason: the writer publishes an identity only on the presents that DRAINED an
-        // evaluation. Under frame generation that is one present in N — measured, 2,569 of
-        // 10,276 at ×4 — so reading the LAST record reports UNKNOWN about a title whose every
-        // batch said DLSS, and it does so with probability (N−1)/N. It reported exactly that
-        // on Cyberpunk 2077 on 2026-08-15, three lines below its own raw block printing
-        // `upscaler=Dlss on 2561 record(s)`.
-        var value = FlUpscaler.NotReported;
-        for (int i = start; i < stream.Count; i++)
-        {
-            var candidate = (FlUpscaler)stream[i].Upscaler;
-            if (candidate is not FlUpscaler.NotReported and not FlUpscaler.Unknown)
-            {
-                value = candidate;
-                break;
-            }
-        }
-
-        return value switch
-        {
-            // A hook ran and could not identify what it saw. Still N/A, but a DIFFERENT N/A: it means
-            // our coverage is short, not that the question did not apply.
-            FlUpscaler.Unknown => null,
-
-            // Retired in v3 and reserved rather than reused, because it made Ray Reconstruction
-            // mutually exclusive with DLSS super-resolution. 03_METRICS §Upscaling listed `dlss_rr` as
-            // an upscaler value until the PR that added this file removed it; decoding 2 as anything
-            // would resurrect the conflation the record had already dropped.
-            FlUpscaler.RetiredRayReconstruction => null,
-
-            FlUpscaler.NotReported => null,
-
-            // FSR through the SDK 2.x upscaler DLL, which hosts FSR 3.1 and FSR 4 behind one dispatch
-            // type. The enum member's name is a token; the report gets the sentence, because a reader
-            // who sees "FsrUnversioned" will ask what it means and the answer is the whole point.
-            FlUpscaler.FsrUnversioned => UpscalerFsrUnversioned,
-            _ => value.ToString(),
-        };
-    }
+        null => null,
+        // FSR through the SDK 2.x upscaler DLL, which hosts FSR 3.1 and FSR 4 behind one dispatch
+        // type. The enum member's name is a token; the report gets the sentence, because a reader
+        // who sees "FsrUnversioned" will ask what it means and the answer is the whole point.
+        FlUpscaler.FsrUnversioned => UpscalerFsrUnversioned,
+        _ => identity.Value.ToString(),
+    };
 
     /// <summary>What <see cref="Upscaler"/> carries for <see cref="FlUpscaler.FsrUnversioned"/>.</summary>
     public const string UpscalerFsrUnversioned =

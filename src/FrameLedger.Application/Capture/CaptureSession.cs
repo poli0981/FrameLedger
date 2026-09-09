@@ -41,7 +41,8 @@ public sealed class CaptureSession(
     CaptureOptions options,
     IRuntimeModuleSnapshot? modules = null,
     INgxDriverProbe? ngx = null,
-    IProcessLauncher? launcher = null)
+    IProcessLauncher? launcher = null,
+    ICaptureObserver? observer = null)
 {
     /// <summary>Start one session, or say why not.</summary>
     /// <remarks>
@@ -191,8 +192,9 @@ public sealed class CaptureSession(
 
         using (sink)
         {
+            observer?.Attached(pid, sink.Handshake);
             CaptureOutcome result = await DrainAsync(pid, alive, sink, verdict, ct).ConfigureAwait(false);
-            return result with { LaunchWait = launchWait, TargetPid = pid };
+            return result with { LaunchWait = launchWait, TargetPid = pid, ExitCode = alive.ExitCode };
         }
     }
 
@@ -239,29 +241,26 @@ public sealed class CaptureSession(
         AntiCheatVerdict verdict, CancellationToken ct)
     {
         var supervisor = new GuardSupervisor(guard);
-        var records = new List<FlFrameRecord>();
-        var gaps = new List<ulong>();
-        var focus = new FocusTally();
-        var loaded = new ModuleTally(modules, ngx);
-        SessionEndReason end = await SuperviseAsync(pid, alive, sink, supervisor, records, gaps, focus, loaded, ct)
-            .ConfigureAwait(false);
+        var state = new DrainState(new ModuleTally(modules, ngx));
+        SessionEndReason end = await SuperviseAsync(pid, alive, sink, supervisor, state, ct).ConfigureAwait(false);
 
         return new CaptureOutcome
         {
-            RuntimeModules = loaded.Set,
-            NgxDriver = loaded.Ngx,
-            TouchQpc = loaded.TouchQpc,
+            RuntimeModules = state.Loaded.Set,
+            NgxDriver = state.Loaded.Ngx,
+            TouchQpc = state.Loaded.TouchQpc,
             Reason = end,
             Verdict = verdict,
             AttachRefusal = ShmAttachRefusal.Ok,
-            Records = records,
+            Records = state.Records,
+            GapBefore = state.GapBefore,
             WriterState = sink.WriterState,
             Handshake = sink.Handshake,
             GuardTicksPublished = supervisor.CompletedEvaluations,
             TotalDropped = sink.TotalDropped,
             TotalGaps = sink.TotalGaps,
-            DrainTicks = focus.Ticks,
-            ForegroundTicks = focus.Foreground,
+            DrainTicks = state.Focus.Ticks,
+            ForegroundTicks = state.Focus.Foreground,
         };
     }
 
@@ -298,14 +297,18 @@ public sealed class CaptureSession(
     /// no session to preserve yet, and a guard that cannot answer at all is not a
     /// session start.
     /// </para>
+    /// <para>
+    /// <b>The observer sees every tick, on this task, after the drain</b> (P2 PR-D): the
+    /// recorder's <c>.partial</c> flush and the telemetry drain ride here, so the loop stays the
+    /// only writer of the buffers it hands out.
+    /// </para>
     /// </remarks>
     private async Task<SessionEndReason> SuperviseAsync(int pid, ITargetLiveness alive, ICaptureSink sink,
-        GuardSupervisor supervisor, List<FlFrameRecord> records, IList<ulong> gaps, FocusTally focus,
-        ModuleTally loaded, CancellationToken ct)
+        GuardSupervisor supervisor, DrainState state, CancellationToken ct)
     {
         var buffer = new FlFrameRecord[512];
 
-        bool mayContinue = await ScanAsync(pid, sink, supervisor, loaded, ct).ConfigureAwait(false);
+        bool mayContinue = await ScanAsync(pid, sink, supervisor, state.Loaded, ct).ConfigureAwait(false);
 
         DateTimeOffset nextScan = DateTimeOffset.UtcNow + options.ScanInterval;
         DateTimeOffset attachSettledAt = DateTimeOffset.UtcNow + options.AttachBudget;
@@ -317,18 +320,14 @@ public sealed class CaptureSession(
         Exception? faulted = null;
         while (mayContinue)
         {
-            focus.Sample(alive.IsForeground);
-            DrainInto(sink, buffer, gaps, records);
+            state.Focus.Sample(alive.IsForeground);
+            DrainInto(sink, buffer, state);
+            observer?.Tick(state.Progress(sink, supervisor));
 
             end = SessionEndClassifier.Classify(
                 alive.HasExited, sink.WriterState.Status, supervisor.UnhookRequested,
                 DateTimeOffset.UtcNow > attachSettledAt);
-            if (end != SessionEndReason.Running)
-            {
-                break;
-            }
-
-            if (hardStop is not null && DateTimeOffset.UtcNow >= hardStop)
+            if (end != SessionEndReason.Running || (hardStop is not null && DateTimeOffset.UtcNow >= hardStop))
             {
                 break;
             }
@@ -337,7 +336,7 @@ public sealed class CaptureSession(
             {
                 try
                 {
-                    mayContinue = await ScanAsync(pid, sink, supervisor, loaded, ct).ConfigureAwait(false);
+                    mayContinue = await ScanAsync(pid, sink, supervisor, state.Loaded, ct).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -353,13 +352,14 @@ public sealed class CaptureSession(
 
         // ONE LAST SNAPSHOT before the last drain, so a module that loaded after the final scan is
         // still named; on TargetExited it reads nothing, which the tally counts rather than hides.
-        loaded.Take(pid);
+        state.Loaded.Take(pid);
 
         // ONE LAST DRAIN ON EVERY PATH, including the faulted one — that is the whole point of catching
         // the mid-loop throw rather than letting it leave the method. Then let go promptly: holding the
         // section keeps the named object alive, and a recycled pid's Overlay would hit
         // ERROR_ALREADY_EXISTS creating its ring and refuse to start at all.
-        DrainInto(sink, buffer, gaps, records);
+        DrainInto(sink, buffer, state);
+        observer?.Tick(state.Progress(sink, supervisor));
         await FlushNativeLogAsync(sink, alive, end, ct).ConfigureAwait(false);
         return Conclude(end, faulted, mayContinue);
     }
@@ -432,6 +432,39 @@ public sealed class CaptureSession(
         }
     }
 
+    /// <summary>Everything one session accumulates, owned by the loop; the observer reads it between ticks.</summary>
+    private sealed class DrainState(ModuleTally loaded)
+    {
+        public List<FlFrameRecord> Records { get; } = [];
+
+        public List<ulong> Gaps { get; } = [];
+
+        /// <summary>Indices into <see cref="Records"/> whose record follows a torn slot or a drop.</summary>
+        public List<int> GapBefore { get; } = [];
+
+        /// <summary>A gap seen at the end of a batch, waiting for the next record to attach to.</summary>
+        public bool PendingGap { get; set; }
+
+        public FocusTally Focus { get; } = new();
+
+        public ModuleTally Loaded { get; } = loaded;
+
+        public CaptureProgress Progress(ICaptureSink sink, GuardSupervisor supervisor) => new()
+        {
+            Records = Records,
+            GapBefore = GapBefore,
+            WriterState = sink.WriterState,
+            TotalDropped = sink.TotalDropped,
+            TotalGaps = sink.TotalGaps,
+            DrainTicks = Focus.Ticks,
+            ForegroundTicks = Focus.Foreground,
+            GuardTicksPublished = supervisor.CompletedEvaluations,
+            TouchQpc = Loaded.TouchQpc,
+            RuntimeModules = Loaded.Set,
+            NgxDriver = Loaded.Ngx,
+        };
+    }
+
     /// <summary>
     /// Turns the loop's exit condition into the reason a caller sees.
     /// </summary>
@@ -462,15 +495,63 @@ public sealed class CaptureSession(
     /// a torn record recorded at its index, or the two surrounding intervals merge
     /// into one fabricated stutter.
     /// </remarks>
-    private static void DrainInto(ICaptureSink sink, FlFrameRecord[] buffer, IList<ulong> gaps,
-        List<FlFrameRecord> records)
+    private static void DrainInto(ICaptureSink sink, FlFrameRecord[] buffer, DrainState state)
     {
         DrainResult r;
         do
         {
-            r = sink.Drain(buffer, gaps);
-            records.AddRange(buffer.AsSpan(0, r.Copied).ToArray());
+            int gapsBefore = state.Gaps.Count;
+            r = sink.Drain(buffer, state.Gaps);
+            MarkGaps(state, r, gapsBefore);
+            state.Records.AddRange(buffer.AsSpan(0, r.Copied).ToArray());
         }
         while (r.Copied == buffer.Length);
+    }
+
+    /// <summary>
+    /// Which copied record each torn slot (and an overwrite skip) preceded: walk the slots this call
+    /// examined in order, and the first record after a bad slot carries the gap
+    /// (<c>07_IPC</c>: a torn record is a gap at its index, never a merged interval).
+    /// </summary>
+    private static void MarkGaps(DrainState state, DrainResult r, int gapsBefore)
+    {
+        bool pending = state.PendingGap || r.Dropped > 0;
+        if (r.Gaps == 0)
+        {
+            if (pending && r.Copied > 0)
+            {
+                state.GapBefore.Add(state.Records.Count);
+                pending = false;
+            }
+
+            state.PendingGap = pending;
+            return;
+        }
+
+        var torn = new HashSet<ulong>(state.Gaps.Skip(gapsBefore));
+        int k = 0;
+        for (ulong slot = r.FirstSlot; k < r.Copied || torn.Count > 0; slot++)
+        {
+            if (torn.Remove(slot))
+            {
+                pending = true;
+                continue;
+            }
+
+            if (k >= r.Copied)
+            {
+                break;
+            }
+
+            if (pending)
+            {
+                state.GapBefore.Add(state.Records.Count + k);
+                pending = false;
+            }
+
+            k++;
+        }
+
+        state.PendingGap = pending;
     }
 }

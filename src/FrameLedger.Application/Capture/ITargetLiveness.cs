@@ -16,6 +16,12 @@ public interface ITargetLiveness : IDisposable
     bool HasExited { get; }
 
     /// <summary>
+    /// The process's exit code once <see cref="HasExited"/>; null while it runs or when the code cannot be
+    /// read. What <c>04_CAPTURE</c> §Crash &amp; exit classification reads first: non-zero is <c>crashed</c>.
+    /// </summary>
+    int? ExitCode { get; }
+
+    /// <summary>
     /// Does the target own the foreground window at this instant?
     /// </summary>
     /// <remarks>

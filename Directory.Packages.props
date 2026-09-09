@@ -62,6 +62,9 @@
          legal/THIRD_PARTY_NOTICES.md has a release-gate check that no
          depended-upon file carries MPL-2.0 Exhibit B. Consume UNMODIFIED. -->
     <PackageVersion Include="LibreHardwareMonitorLib" Version="0.9.6" />
+    <!-- The crash witness (04_CAPTURE §Crash & exit classification): Application log events 1000/1001. In-box
+         for WPF apps, a package for a class library on the Windows TFM. Microsoft, MIT. -->
+    <PackageVersion Include="System.Diagnostics.EventLog" Version="10.0.10" />
   </ItemGroup>
 
   <ItemGroup Label="Analyzers (build-time only)">
