@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.IO.MemoryMappedFiles;
 using FluentAssertions;
+using FrameLedger.Application.Capture;
 using FrameLedger.Application.Consent;
-using FrameLedger.CaptureHost.Capture;
 using FrameLedger.CaptureHost.Consent;
 using FrameLedger.Domain.Consent;
 using FrameLedger.Infrastructure.Persistence;
@@ -251,7 +251,7 @@ public sealed class CaptureHostEndToEndTests : IDisposable
             FlWriterState state = await PollWriterPastInitAsync(harness.Id, TimeSpan.FromSeconds(15));
 
             // INIT after the budget is not a slow start — it is MinHook or the dummy-device probe having
-            // failed, which means the ring will never move. That is CaptureLoop's
+            // failed, which means the ring will never move. That is CaptureSession's
             // WriterNeverInstalledHooks, and it must not read as a passing session here either.
             state.Status.Should().Be((uint)FlStatus.Ready,
                 "the Overlay hooked and is recording; INIT past the budget means InstallPresentHooks "

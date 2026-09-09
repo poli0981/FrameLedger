@@ -1,4 +1,5 @@
 using System.Globalization;
+using FrameLedger.Application.Capture;
 namespace FrameLedger.CaptureHost;
 
 /// <summary>
@@ -10,7 +11,7 @@ namespace FrameLedger.CaptureHost;
 /// <c>--yes</c>.</b> §S27's gap was a user-named pid on a binary with no consent
 /// record; removing the pid argument entirely costs nothing here, because the
 /// consent record is keyed on the executable path anyway and
-/// <see cref="Capture.TargetResolver"/> resolves the process from it. The payload is
+/// <c>TargetResolver</c> (Infrastructure, since P2 PR-C) resolves the process from it. The payload is
 /// always the Overlay beside this binary, because §S22 refuses anything else.
 /// </para>
 /// <para>

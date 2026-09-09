@@ -19,6 +19,29 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P2 PR-C — the capture path promoted into the shipped assemblies; the CaptureHost is a thin shell
+  (2026-09-09).** A pure move: `CaptureLoop` — every hooked session's driver since 2026-08-06 — is now
+  `Application.Capture.CaptureSession`, over ports instead of delegates so the Agent's composition root
+  can supply the adapters (`IRingAttacher`, `ITargetLivenessSource`, `ITargetResolver`, `IProcessLauncher`,
+  `IRuntimeModuleSnapshot`, `INgxDriverProbe`, `IExecutableMarkerScan`), with `ICaptureSink`,
+  `CaptureOptions`, `CaptureOutcome` (was `CaptureResult`), `SessionEndReason`, `SessionEndClassifier`,
+  `FocusTally`, `RuntimeModuleSet`/`Info`, `CensusNames`, `SlTagCensusNames`, `ExecutableMarkers`/`Marker`,
+  `NgxDriverState`/`NgxOverrideFlags`/`NgxProbeOutcome` beside it. `Infrastructure.Capture` holds the OS
+  adapters: `ShmRingAttacher` + `ShmCaptureSink` over `ShmRingReader` (which gains no interface and no
+  second consumer), `HeldProcessLivenessSource` + `ProcessTargetLiveness` (§S29(e)), `TargetResolver`
+  (path only, never a pid; its one report line goes through a callback now, not the host's console) +
+  `ChromiumGpuProcess`, `ProcessLauncher` (an instance over the Vulkan layer's environment, the
+  duplicated enable-variable constant gone), `RuntimeModuleSnapshot`, `ExecutableMarkerScan`.
+  `DrainResult` moved to `Shared` so Application can read it. The report's text for NGX state and
+  markers stays with the report (`NgxDriverStateText`, `ExecutableMarkersText`); `NgxDriverProbe`
+  (spawns `fl-probe-nvapi.exe`) stays in the host until PR-E2 puts it in-process. The loop's tests moved
+  with it — `CaptureSessionTests` / `CaptureSessionLaunchTests` in `Application.Tests`, driven through the
+  real SQLite consent adapter (a test project on Domain's `InternalsVisibleTo` would be a second mint) —
+  and the report fixtures are byte-identical. Two new pins: `HookRequestSoleProducerTests` (no public
+  constructor, no setter, exactly one factory) and `NoSecondRingReaderTests` (nothing but `ShmRingReader`
+  opens the ring). `04_CAPTURE` §Frame source abstraction now describes what exists (`IFrameSource` never
+  did) and gains §Threading model; §S27 restated a second time (the loop ships; the entry point is PR-F's);
+  `CLAUDE.md` §Solution layout. Hook-path overhead: none (managed only).
 - **P2 PR-E1 — telemetry L1, the composite and the 1 Hz thread (2026-09-09).** `IGpuTelemetrySource`
   had one adapter; it now has the ladder `18_GPU_VENDOR_APIS` §Abstraction describes.
   `BaselineTelemetrySource` (L1) reads the adapter's identity from DXGI once — name, LUID, ids, memory

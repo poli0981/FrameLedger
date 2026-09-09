@@ -1,7 +1,8 @@
 using System.Text;
 using FluentAssertions;
-using FrameLedger.CaptureHost.Capture;
+using FrameLedger.Application.Capture;
 using FrameLedger.CaptureHost.Consume;
+using FrameLedger.Infrastructure.Capture;
 
 namespace FrameLedger.CaptureHost.Tests.Capture;
 

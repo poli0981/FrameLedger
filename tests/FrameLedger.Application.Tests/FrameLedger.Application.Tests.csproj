@@ -7,6 +7,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\FrameLedger.Application\FrameLedger.Application.csproj" />
+    <!--
+      CaptureSessionTests drive the session through the REAL consent adapter (SQLite, a scratch
+      ledger per test) rather than a fake: GameConsentRecord.Stored is minted only by assemblies on
+      Domain's InternalsVisibleTo list, and widening that list to a test project would be a second
+      mint. Nothing else from Infrastructure is reached from here.
+    -->
+    <ProjectReference Include="..\..\src\FrameLedger.Infrastructure\FrameLedger.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -3,13 +3,15 @@
   <!--
     THE UNSHIPPED CAPTURE HOST.
 
-    It drives the loop docs/04_CAPTURE.md specifies and nothing else does yet:
+    It drove the loop docs/04_CAPTURE.md specifies before anything else did:
     HookedCaptureGate to FlGuardedInject to ShmRingReader.TryAttach to a ~10 Hz
     drain, with GuardSupervisor.ScanOnceAsync and PublishGuardResult beside it.
-    It is the FIRST PRODUCTION DRIVER of FlControlBlock.guardTicks, the sending
+    It was the FIRST PRODUCTION DRIVER of FlControlBlock.guardTicks, the sending
     half of the 30 s re-scan that docs/19_SAFETY_AND_ANTICHEAT.md calls the most
-    important runtime behaviour in the capture layer. Both ends of that field
-    existed and were tested; only the loop was missing.
+    important runtime behaviour in the capture layer. Since P2 PR-C (2026-09-09)
+    the loop is FrameLedger.Application.Capture.CaptureSession and the adapters
+    are FrameLedger.Infrastructure.Capture; this project is the thin shell that
+    composes them, shows the operator disclosure and prints the report.
 
     WHY IT IS A PROJECT OF ITS OWN AND NOT A FLAG ON FrameLedger.Agent.
 

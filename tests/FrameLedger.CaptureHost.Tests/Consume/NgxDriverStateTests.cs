@@ -1,4 +1,5 @@
 using FluentAssertions;
+using FrameLedger.Application.Capture;
 using FrameLedger.CaptureHost.Consume;
 
 namespace FrameLedger.CaptureHost.Tests.Consume;
@@ -31,10 +32,10 @@ public sealed class NgxDriverStateTests
         s.SrCreatedAndEvaluated.Should().BeTrue("CREATED and EVALUATE are both set on Hell Is Us without an override");
         s.Readings.Should().Be(1);
         s.Answered.Should().Be(1);
-        NgxOverrideFlags.Describe(s.Sr).Should().Be("INITIALIZED DLL_EXISTS CREATED EVALUATE ERR_NOT_FOUND");
-        NgxOverrideFlags.Describe(s.Fg).Should().Be("INITIALIZED DLL_EXISTS");
-        NgxOverrideFlags.Describe(0).Should().Be("-");
-        NgxOverrideFlags.Describe(1UL << 40).Should().Be("0x10000000000", "an unknown bit is printed, never dropped");
+        NgxDriverStateText.DescribeFlags(s.Sr).Should().Be("INITIALIZED DLL_EXISTS CREATED EVALUATE ERR_NOT_FOUND");
+        NgxDriverStateText.DescribeFlags(s.Fg).Should().Be("INITIALIZED DLL_EXISTS");
+        NgxDriverStateText.DescribeFlags(0).Should().Be("-");
+        NgxDriverStateText.DescribeFlags(1UL << 40).Should().Be("0x10000000000", "an unknown bit is printed, never dropped");
     }
 
     [Fact]

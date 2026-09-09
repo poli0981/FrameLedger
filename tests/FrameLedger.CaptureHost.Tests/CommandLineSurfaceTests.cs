@@ -1,4 +1,5 @@
 using FluentAssertions;
+using FrameLedger.Application.Capture;
 using FrameLedger.CaptureHost;
 using FrameLedger.CaptureHost.Consent;
 
@@ -22,7 +23,7 @@ public sealed class CommandLineSurfaceTests
         // made it one. `--seconds` bounds how long an already-consented, already-guarded
         // session runs; it cannot widen WHAT is injected or skip a check, which is the
         // property that separates it from the --pid / --payload / --force / --yes this host
-        // refuses. It exists because CaptureLoop honoured MaxDuration and nothing could set
+        // refuses. It exists because CaptureSession honoured MaxDuration and nothing could set
         // it, so a bounded real-title measurement was impossible to take.
         // THREE since P1 item 2: `--args` is the command line the launched GAME receives. It names
         // nothing about injection -- payload, target and evidence are exactly what they were -- so it

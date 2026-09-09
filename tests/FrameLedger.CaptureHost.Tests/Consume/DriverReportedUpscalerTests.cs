@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using FluentAssertions;
+using FrameLedger.Application.Capture;
 using FrameLedger.CaptureHost.Consume;
 using FrameLedger.Shared;
 

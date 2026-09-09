@@ -1,3 +1,4 @@
+using FrameLedger.Application.Capture;
 using FrameLedger.Application.Metrics;
 using FrameLedger.Domain.Metrics;
 using FrameLedger.Shared;

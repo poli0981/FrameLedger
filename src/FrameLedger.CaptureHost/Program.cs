@@ -12,6 +12,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using FrameLedger.Application.AntiCheat;
+using FrameLedger.Application.Capture;
 using FrameLedger.Application.Consent;
 using FrameLedger.Application.Metrics;
 using FrameLedger.Application.Rules;
@@ -22,6 +23,7 @@ using FrameLedger.CaptureHost.Telemetry;
 using FrameLedger.Domain.Consent;
 using FrameLedger.Domain.Metrics;
 using FrameLedger.Infrastructure.AntiCheat;
+using FrameLedger.Infrastructure.Capture;
 using FrameLedger.Infrastructure.Io;
 using FrameLedger.Infrastructure.Ipc;
 using FrameLedger.Infrastructure.Persistence;
@@ -160,7 +162,7 @@ internal static class Program
         string normalised = ExecutableIdentity.Normalise(exePath);
         ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
 
-        CaptureResult result = await BuildLoop(store, seconds)
+        CaptureOutcome result = await BuildLoop(store, seconds)
             .RunAsync(normalised, observed, Payload).ConfigureAwait(false);
 
         return await ConcludeAsync(store, normalised, observed, result).ConfigureAwait(false);
@@ -186,14 +188,14 @@ internal static class Program
             : $"vulkan layer: {vulkan.ManifestPath} (via {VkLayerLaunchEnvironment.ImplicitLayerPathVariable}; " +
               $"enable-list entry '{vulkan.ImageName}' for this session)");
 
-        CaptureResult result = await BuildLoop(store, seconds, (exe, args) => ProcessLauncher.Start(exe, args, vulkan.Variables))
+        CaptureOutcome result = await BuildLoop(store, seconds, new ProcessLauncher(vulkan.Variables))
             .RunLaunchedAsync(normalised, observed, Payload, arguments).ConfigureAwait(false);
 
         return await ConcludeAsync(store, normalised, observed, result).ConfigureAwait(false);
     }
 
     private static async Task<int> ConcludeAsync(IGameConsentStore store, string normalised,
-        ExecutableFingerprint? observed, CaptureResult result)
+        ExecutableFingerprint? observed, CaptureOutcome result)
     {
         HostConsole.Line($"session: {result.Reason}");
         if (result.Verdict.Reason == Domain.AntiCheat.AntiCheatRefusalReason.TargetIsVulkanLayered)
@@ -231,7 +233,7 @@ internal static class Program
         };
     }
 
-    private static void Report(CaptureResult result, ExecutableMarkers markers)
+    private static void Report(CaptureOutcome result, ExecutableMarkers markers)
     {
         IReadOnlyList<FlFrameRecord> dominant = SegmentBuilder.DominantStream(result.Records, static r => r.SwapchainId);
         IReadOnlyList<FrameSample> samples = FrameSampleMapper.Map(result.Records);
@@ -299,7 +301,7 @@ internal static class Program
     /// 2.7.1 from 2.8.0, and §H5 case 3 turns on exactly that. A path under the driver store rather
     /// than the game directory is how a DLSS override shows up here.
     /// </summary>
-    private static void PrintCensus(CaptureResult result, ExecutableMarkers markers)
+    private static void PrintCensus(CaptureOutcome result, ExecutableMarkers markers)
     {
         var census = (FlRuntimeCensus)result.WriterState.RuntimeCensus;
         HostConsole.Line($"  runtime census: 0x{result.WriterState.RuntimeCensus:X}  ran={census.HasFlag(FlRuntimeCensus.Ran)}  " +
@@ -363,39 +365,29 @@ internal static class Program
         HostConsole.Line(FfxCensus.From(dominant).Describe());
     }
 
-    /// <summary>The loop and its four collaborators, wired the only way this host allows.</summary>
-    private static CaptureLoop BuildLoop(IGameConsentStore store, int seconds,
-        Func<string, string, (int Pid, ITargetLiveness Alive)?>? launcher = null)
+    /// <summary>The session and its collaborators, wired the only way this host allows.</summary>
+    private static CaptureSession BuildLoop(IGameConsentStore store, int seconds, IProcessLauncher? launcher = null)
     {
         var guard = new NativeAntiCheatGuard();
-        return new CaptureLoop(
+        return new CaptureSession(
             store,
             new HookedCaptureGate(guard),
             guard,
-            new TargetResolver(),
-            pid =>
-            {
-                // Null means the pid could not be PINNED — already gone, protected, or another user's.
-                // The loop refuses rather than proceeding to inject into an identity it cannot hold.
-                HeldProcessHandle? handle = HeldProcessHandle.TryOpen(pid);
-                return handle is null ? null : new ProcessTargetLiveness(handle, pid);
-            },
-            pid =>
-            {
-                ShmRingReader? reader = ShmRingReader.TryAttach(pid, NativeAntiCheatGuard.BuildId(),
-                    out ShmAttachRefusal refusal);
-                return (reader is null ? null : new ShmCaptureSink(reader), refusal);
-            },
+            new TargetResolver(HostConsole.Line),
+            // Null means the pid could not be PINNED — already gone, protected, or another user's.
+            // The loop refuses rather than proceeding to inject into an identity it cannot hold.
+            new HeldProcessLivenessSource(),
+            new ShmRingAttacher(NativeAntiCheatGuard.BuildId()),
             new CaptureOptions
             {
                 // Zero keeps the product behaviour: run until the target exits. A positive
-                // --seconds is an operator taking a bounded measurement, and CaptureLoop
+                // --seconds is an operator taking a bounded measurement, and CaptureSession
                 // already honoured MaxDuration -- nothing could set it.
                 MaxDuration = seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero,
             },
-            pid => RuntimeModuleSnapshot.Take(pid, CensusNames.ModuleFileNames),
-            NgxDriverProbe.Run,
-            launcher ?? ((exe, args) => ProcessLauncher.Start(exe, args)));
+            new RuntimeModuleSnapshot(CensusNames.ModuleFileNames),
+            new NgxDriverProbe(),
+            launcher ?? new ProcessLauncher());
     }
 
     /// <summary>
@@ -449,7 +441,7 @@ internal static class Program
     }
 
     /// <summary>The writer's own line, then the LoadLibrary detour's (installed / woke / EARLY STOP).</summary>
-    private static void PrintWriterAndLoader(CaptureResult result)
+    private static void PrintWriterAndLoader(CaptureOutcome result)
     {
         HostConsole.Line(WriterNote(result));
         foreach (string line in EarlyStop.Describe(result.WriterState, EarlyStop.StagedRulesPath))
@@ -480,7 +472,7 @@ internal static class Program
     /// and a 40 s capture that returned ONE record is what made their absence a defect rather
     /// than an omission.
     /// </remarks>
-    private static string WriterNote(CaptureResult result) =>
+    private static string WriterNote(CaptureOutcome result) =>
         $"  writer: status={(FlStatus)result.WriterState.Status} faults={result.WriterState.FaultCount} " +
         $"layoutVersion={result.Handshake.LayoutVersion} attach={result.AttachRefusal}";
 
@@ -551,7 +543,7 @@ internal static class Program
     /// <c>rtTier</c> and <c>upscalerQuality</c>: could-not-look and looked-and-found-nothing are
     /// different states and must stay so.
     /// </remarks>
-    private static string FocusNote(CaptureResult result)
+    private static string FocusNote(CaptureOutcome result)
     {
         if (result.DrainTicks == 0)
         {
