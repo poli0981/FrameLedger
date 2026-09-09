@@ -34,7 +34,7 @@ Implementations compose rather than compete:
 
 - `BaselineTelemetrySource` (L1) — always constructed.
 - `LhmTelemetrySource` (L2) — constructed when LHM initialises.
-- `NvapiTelemetrySource` (L3) — constructed only on NVIDIA hardware.
+- `NvapiTelemetrySource` (L3) — ~~constructed only on NVIDIA hardware~~ **always constructed since 2026-09-10 (P2 PR-E2)** and disables itself when the bridge DLL or the NVIDIA driver is absent, so the composite's descriptor simply omits `nvapi` and no caller has to know the vendor before composing.
 - `CompositeTelemetrySource` merges them with a fixed precedence per field (**L3 > L2 > L1**) and records which layer supplied each value.
 
 `GpuSample`: `takenAt`, `layer`, `adapterName`, `tempCoreC`, `tempHotspotC`, `tempMemoryC`, `loadPct`, `vramAdapterMB`, `coreClockMhz`, `memClockMhz`, `powerW`, `fanRpm`, `throttleReasons`, `pcieGen/Width`. Every field nullable — `Capabilities` says what to trust, and the UI shows `N/A` rather than zero.
@@ -122,16 +122,41 @@ CPU and motherboard sensors remain LHM-only, elevated-only, PawnIO-dependent, an
 
 Still resolve **entry points defensively at runtime**: `nvapi64.dll` may be absent (no NVIDIA GPU) or older than our headers. `NvAPI_Initialize` failing is a normal condition that must disable L3 cleanly, not throw.
 
+> **Built 2026-09-10 (P2 PR-E2).** NVAPI is a C API behind a static import library, so the managed
+> side reaches it through a native DLL of our own: **`FrameLedger.NvapiBridge.dll`**
+> (`src/native/FrameLedger.NvapiBridge/`, C ABI in `include/fl_nvapi_bridge.h`) — the **only shipped
+> binary that links `nvapi64.lib`**, read-only by construction (every export is a query), loaded by the
+> Agent into **its own process** by absolute path and **never into a game**. Its name carries none of
+> the words the guard's §S18 heuristic scans a launcher's ancestors for. The ABI is a fixed struct with
+> a `present` bitmask per field (`FlNvReadSample`), a refcounted `FlNvInit` / `FlNvShutdown`, the driver
+> version, the per-pid NGX words (`FlNvNgxState`), and size / ABI-version / build-id queries so a mirror
+> that drifts is refused (`FL_NV_BAD_SIZE`) rather than read. On the managed side, all in
+> `Infrastructure.Telemetry`: `NativeNvapiBridge` (the second P/Invoke facade after the guard's — same
+> absolute-path rule, through the assembly's one `DllImport` resolver, `Infrastructure.Native.BesideThisAssembly`,
+> because the runtime allows exactly one per assembly and two static constructors setting one is an
+> exception in whichever runs second), `NvapiTelemetrySource` (a clear bit is `null`, never 0; an
+> `Init` that does not answer 0 disables the layer with **zero faults**, because a machine without the
+> driver is a normal condition; two throws disable it for the session), and `NvapiNgxStateProbe`
+> (`INgxDriverProbe` in-process — the capture host **no longer spawns `fl-probe-nvapi.exe`**, and the
+> probe target is no longer staged beside it). Verified by ctest `fl_nvapi_bridge`
+> (`src/native/tests/nvapi_bridge_test.cpp`, `BRANCH: AVAILABLE|DEGRADED` required the way
+> `fl_nvapi_probe` requires it) and by `NvapiBridgeMirrorTests`, which compares `Marshal.SizeOf` of both
+> mirrors against the DLL's own answers and **fails rather than skips** when the DLL is not staged.
+>
+> **Not in this build, stated so nobody infers it from the table below:** VRAM (`FlNvSample.vram` is
+> reserved and its bit is never set — see the Memory row), power, hotspot temperature, per-domain
+> utilisation beyond the GPU domain, and anything Reflex (§M8: a hook fact, not a poller field).
+
 | Purpose | Function |
 |---|---|
 | Init / enumerate | `NvAPI_Initialize`, `NvAPI_EnumPhysicalGPUs`, `NvAPI_GPU_GetFullName` |
-| Temperatures | `NvAPI_GPU_GetThermalSettings` (+ extended thermal query for hotspot/memory where available) |
-| Utilisation | `NvAPI_GPU_GetDynamicPstatesInfoEx` (GPU / FB / VID / BUS domains) |
-| Clocks | `NvAPI_GPU_GetAllClockFrequencies` |
-| Memory | `NvAPI_GPU_GetMemoryInfoEx` — **not `NvAPI_GPU_GetMemoryInfo`**, which this table named until 2026-08-05. The vendored headers mark it `__nvapi_deprecated_function` ("deprecated in release 520"), so under `/W4 /WX` a call to it fails the native build |
-| **Throttle reasons** | `NvAPI_GPU_GetPerfDecreaseInfo` — not available from L1 or L2 |
-| Driver version | `NvAPI_SYS_GetDriverAndBranchVersion` |
-| **NGX per-process state** | `NvAPI_NGX_GetNGXOverrideState` (R570+) — the driver's feedback word per DLSS feature for a PID, read OUT OF PROCESS by `fl-probe-nvapi --ngx-state` and, since 2026-09-06, by the capture host beside each module snapshot. Measured: the SR word's `CREATED \| EVALUATE` is set without an NVIDIA-app override; the FG word follows DLSS-G once created (`CREATED \| EVALUATE` at ×4, corrected the same day — the first reading was blind because it was early), the multiplier bits stay clear; `scalingRatio` is 0 even under an override. Identity only, SR and FG (`03_METRICS` §Upscaling) |
+| Temperatures | `NvAPI_GPU_GetThermalSettings` (+ extended thermal query for hotspot/memory where available). **Bridge (2026-09-10):** the public enumeration only — core is the `GPU` target; memory is the `MEMORY` target when the driver lists one, and on the RTX 5080 it does not (bit clear → `null`); hotspot is not read |
+| Utilisation | `NvAPI_GPU_GetDynamicPstatesInfoEx` (GPU / FB / VID / BUS domains). **Bridge (2026-09-10):** the GPU domain only, as `loadPct` |
+| Clocks | `NvAPI_GPU_GetAllClockFrequencies` — **bridge (2026-09-10):** current graphics and memory clocks |
+| Memory | `NvAPI_GPU_GetMemoryInfoEx` — **not `NvAPI_GPU_GetMemoryInfo`**, which this table named until 2026-08-05. The vendored headers mark it `__nvapi_deprecated_function` ("deprecated in release 520"), so under `/W4 /WX` a call to it fails the native build. **Neither is called (2026-09-10):** the vendored `nvapi.h` (`cd6918f6`) does not declare `GetMemoryInfoEx` at all — the deprecation message names a function the same header set does not ship — so the bridge's `vram` field is **reserved**, its bit is never set, and VRAM stays L1's PDH adapter counter. Taking a newer header set is the way to change that, not a call to the deprecated one |
+| **Throttle reasons** | `NvAPI_GPU_GetPerfDecreaseInfo` — not available from L1 or L2. **Bridge (2026-09-10):** the raw reason mask, and 0 is a measurement (no reason), not a clear bit |
+| Driver version | `NvAPI_SYS_GetDriverAndBranchVersion` — **bridge (2026-09-10):** `FlNvDriverVersion`, surfaced as `616.64 (r616_41)` |
+| **NGX per-process state** | `NvAPI_NGX_GetNGXOverrideState` (R570+) — the driver's feedback word per DLSS feature for a PID, read OUT OF PROCESS by `fl-probe-nvapi --ngx-state` and, since 2026-09-06, by the capture host beside each module snapshot — **in-process through the bridge since 2026-09-10** (`NvapiNgxStateProbe`; the spawn is retired and the words, the merge and the printed block are unchanged). Measured: the SR word's `CREATED \| EVALUATE` is set without an NVIDIA-app override; the FG word follows DLSS-G once created (`CREATED \| EVALUATE` at ×4, corrected the same day — the first reading was blind because it was early), the multiplier bits stay clear; `scalingRatio` is 0 even under an override. Identity only, SR and FG (`03_METRICS` §Upscaling) |
 | **Reflex / PC latency** | `NvAPI_D3D_GetLatency` → per-frame sim/render/present/driver/GPU timestamps; hooking `NvAPI_D3D_SetSleepMode` / `SetLatencyMarker` in the Overlay tells us the game enabled Reflex (`17_HOOK_ENGINE`) |
 
 Reflex latency is the single strongest reason L3 exists — it is genuinely unavailable anywhere else.
@@ -311,19 +336,24 @@ answer; the `untested` cells are exactly as untested as before.
 | Field | NVIDIA | AMD | Intel |
 |---|---|---|---|
 | **Initialises at all** | ✓ **measured 2026-08-05** | `arch` | `arch` |
-| **Driver version** | ✓ **measured** — `610.88`, branch `r610_85` | `arch` | `arch` |
+| **Driver version** | ✓ **measured** — `610.88`, branch `r610_85`; **through the bridge 2026-09-10:** `616.64`, `r616_41` | `arch` | `arch` |
 | **GPU enumeration + name** | ✓ **measured** — 1 GPU, "NVIDIA GeForce RTX 5080" | `arch` | `arch` |
 | **Degrades cleanly when absent** | ✓ **measured** — see below | `arch` | `arch` |
-| Core / hotspot / memory temp | ? | `arch` | `arch` |
-| Per-domain utilisation | ? | `arch` | `arch` |
-| Clocks, Power | ? | `arch` | `arch` |
-| Throttle reasons | ? | `arch` | `arch` |
-| Reflex / PC latency | ? | `arch` | `arch` |
+| Core / hotspot / memory temp | **core ✓ measured 2026-09-10** — 35 °C at an idle desktop; **memory: bit clear** on this GPU (no `MEMORY` thermal target enumerated → `null`, not 0); hotspot not read | `arch` | `arch` |
+| Per-domain utilisation | **GPU domain ✓ measured 2026-09-10** — 0 % at an idle desktop, present bit set (a measured zero); FB / VID / BUS not read | `arch` | `arch` |
+| Clocks, Power | **clocks ✓ measured 2026-09-10** — 2670 MHz graphics, 15001 MHz memory; power not read | `arch` | `arch` |
+| Throttle reasons | ✓ **measured 2026-09-10** — mask 0 at an idle desktop, present bit set | `arch` | `arch` |
+| Fan | **bit clear at an idle desktop 2026-09-10** — the tach reading is refused while the fans are stopped, and the bridge reports that as absent rather than 0 RPM; a reading under load is the owner's to take | `arch` | `arch` |
+| PCIe width | ✓ **measured 2026-09-10** — ×16; generation not read | `arch` | `arch` |
+| Reflex / PC latency | not a poller field (§M8) | `arch` | `arch` |
 
 The four measured rows come from `ctest fl_nvapi_probe` (`src/native/tools/fl-probe-nvapi`),
 which exists because vendoring added 2.4 MB of headers and an import library that **nothing
 else compiles against yet** — an unconsumed vendored dependency is one whose header closure
-could be short by a file with every gate still green.
+could be short by a file with every gate still green. **The 2026-09-10 rows** come from one
+`FlNvReadSample` through `FrameLedger.NvapiBridge.dll` on the dev box (RTX 5080, driver 616.64),
+read from the staged DLL by hand after `NvapiBridgeMirrorTests` had passed against it; the
+bridge is the second consumer of the vendored material and the first that ships.
 
 **"Degrades cleanly when absent" — what is observed, and what is inferred.** `nvapi64.lib`
 is a *static* library of stubs that reach `nvapi64.dll` through `nvapi_QueryInterface` at
@@ -378,6 +408,7 @@ alone could never catch.
 > (`LhmTelemetrySource`, `SensorMap`, the port in `FrameLedger.Application.Telemetry`);
 > ~~L1 and L3 are still unwritten~~ **L1 and the composite exist as of 2026-09-09**
 > (`BaselineTelemetrySource`, `DxgiAdapters`, `PdhAdapterMemoryCounter`,
-> `CompositeTelemetrySource`, `TelemetryPoller`); L3 is P2's PR-E2. §M5 in particular (do LHM GPU
+> `CompositeTelemetrySource`, `TelemetryPoller`); ~~L3 is P2's PR-E2~~ **L3 exists as of 2026-09-10**
+> (`NvapiTelemetrySource` over `FrameLedger.NvapiBridge.dll`, §L3). §M5 in particular (do LHM GPU
 > sensors work unelevated, without PawnIO?) decided whether the default unelevated
 > Agent has temperatures at all — **it does, on NVIDIA; row R1 above.**

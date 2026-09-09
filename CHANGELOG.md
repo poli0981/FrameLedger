@@ -19,6 +19,29 @@ GitHub release body, so a missing section will mean an empty release note.
 
 ### Added
 
+- **P2 PR-E2 — the NVAPI bridge: `FrameLedger.NvapiBridge.dll`, L3 `NvapiTelemetrySource`, and the NGX probe
+  in-process (2026-09-10).** A new native target, `src/native/FrameLedger.NvapiBridge/` — a C ABI
+  (`fl_nvapi_bridge.h`: refcounted `FlNvInit`/`FlNvShutdown`, `FlNvReadSample` into a fixed struct with a
+  `present` bit per field, `FlNvNgxState` for one pid, `FlNvDriverVersion`, and size / ABI-version / build-id
+  queries so a drifted mirror is refused rather than read) — is the **only shipped binary that links
+  `nvapi64.lib`**, read-only by construction, loaded by the Agent into its own process by absolute path
+  (`/FrameLedger.NvapiBridge.targets`, imported by the Agent, the capture host and `Infrastructure.Tests`)
+  and **never into a game**. `Infrastructure.Telemetry`: `NativeNvapiBridge` (the second P/Invoke facade after
+  the guard's, same absolute-path rule), `NvapiTelemetrySource` (L3 — a clear bit is `null`, never 0; an `Init`
+  that does not answer 0 disables the layer with zero faults, two throws disable it for the session; VRAM is
+  **not** read, because the vendored `nvapi.h` declares neither a non-deprecated memory-info call — L1's PDH
+  counter keeps it), and `NvapiNgxStateProbe`, the `INgxDriverProbe` in-process. The capture host composes
+  L1 + L2 + L3 under the composite (`telemetry_source` can now read `l1+lhm+nvapi`) and **no longer spawns
+  `fl-probe-nvapi.exe`**; the probe is no longer staged beside it. `Infrastructure.Native.BesideThisAssembly`
+  is the assembly's one `DllImport` resolver — the runtime allows one per assembly, and the guard's static
+  constructor already set it, which the first real-hardware test run found. ctest `fl_nvapi_bridge`
+  (`src/native/tests/nvapi_bridge_test.cpp`) exercises every export and requires the `BRANCH:` line;
+  `NvapiBridgeMirrorTests` checks both mirrors' sizes against the DLL's answers and **fails rather than skips**
+  when the DLL is not staged; `NvapiTelemetrySourceTests` and `NvapiNgxStateProbeTests` script the bridge.
+  `tools/versioninfo-check.ps1` requires the new DLL's version block. Measured on the dev box (RTX 5080,
+  driver 616.64 r616_41) and written into `18_GPU_VENDOR_APIS` §L3: core 35 °C, GPU domain 0 %, 2670 / 15001
+  MHz, throttle mask 0, PCIe ×16, memory-temperature and fan bits clear at an idle desktop.
+
 - **P2 PR-D — the session recorder: `.partial`, five-step finalize, exit classification, crash auto-disable,
   recovery; the first hooked session stored in SQLite (2026-09-10).** `Application.Recording`:
   `SessionRecorder` owns a session end to end — identity and QPC time base, the `games` and

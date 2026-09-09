@@ -4,12 +4,21 @@ using FrameLedger.Application.Consent;
 using FrameLedger.Application.Recording;
 using FrameLedger.Infrastructure.AntiCheat;
 using FrameLedger.Infrastructure.Capture;
+using FrameLedger.Infrastructure.Telemetry;
 
 namespace FrameLedger.CaptureHost.Capture;
 
-/// <summary>The session and its collaborators, wired the only way this host allows; the recorder supplies the observer.</summary>
-internal sealed class HostSessionFactory(IGameConsentStore store, int seconds, IProcessLauncher? launcher = null) : ICaptureSessionFactory
+/// <summary>
+/// The session and its collaborators, wired the only way this host allows; the recorder supplies the observer.
+/// Owns the one NGX probe (P2 PR-E2: in-process through the bridge, where <c>fl-probe-nvapi.exe</c> used to be
+/// spawned) for as long as the verb runs: one <c>NvAPI_Initialize</c> per host, not per session.
+/// </summary>
+internal sealed class HostSessionFactory(IGameConsentStore store, int seconds, IProcessLauncher? launcher = null) : ICaptureSessionFactory, IDisposable
 {
+    private readonly NvapiNgxStateProbe _ngx = new();
+
+    public void Dispose() => _ngx.Dispose();
+
     public CaptureSession Create(ICaptureObserver observer)
     {
         var guard = new NativeAntiCheatGuard();
@@ -30,7 +39,7 @@ internal sealed class HostSessionFactory(IGameConsentStore store, int seconds, I
                 MaxDuration = seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero,
             },
             new RuntimeModuleSnapshot(CensusNames.ModuleFileNames),
-            new NgxDriverProbe(),
+            _ngx,
             launcher ?? new ProcessLauncher(),
             observer);
     }

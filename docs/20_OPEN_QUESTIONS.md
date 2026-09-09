@@ -3589,6 +3589,12 @@ probe never showed a deadlock.
 > beside each module snapshot (out of process, no consent needed) or, if it goes in-process, through
 > `Infrastructure` only (CLAUDE.md: no P/Invoke elsewhere).
 >
+> **In-process since 2026-09-10 (P2 PR-E2):** the same words through `FrameLedger.NvapiBridge.dll`
+> (`Infrastructure.Telemetry.NvapiNgxStateProbe`, the `INgxDriverProbe` the Agent will take from DI);
+> the spawn below is retired and `fl-probe-nvapi.exe` is no longer staged beside the host. The readings,
+> the merge and the printed block are unchanged, and `NvapiNgxStateProbeTests` maps the bridge's three
+> answers to the three outcomes the machine line used to carry.
+>
 > **BUILT 2026-09-06, on the owner's decision ("nối probe để bắt đầu").** The capture host spawns
 > `fl-probe-nvapi --ngx-state <pid>` beside every module snapshot (the probe prints one machine line,
 > `NGXSTATE status=… sr=0x… …`, and is staged beside the host by the project file), merges the readings

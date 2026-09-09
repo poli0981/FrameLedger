@@ -1,0 +1,40 @@
+<Project>
+
+  <!--
+    Ships FrameLedger.NvapiBridge.dll beside the importing project's output (P2 PR-E2).
+
+    The second P/Invoke facade after the guard's (docs/18_GPU_VENDOR_APIS.md §L3):
+    NativeNvapiBridge loads it BY ABSOLUTE PATH from AppContext.BaseDirectory and
+    never falls back to a search, so it has to actually be there. Read-only, and
+    NEVER loaded into a game — the Agent (and the unshipped capture host) load it
+    into their own process for the 1 Hz telemetry read and the NGX per-process word.
+
+    Imported by exactly three projects, for the same reasons the guard's is:
+      - FrameLedger.Agent               — the host of the telemetry stack.
+      - FrameLedger.CaptureHost         — the unshipped driver, same stack, own ledger.
+      - FrameLedger.Infrastructure.Tests — NvapiBridgeLayoutTests and the real-hardware
+        case P/Invoke into the real DLL.
+
+    Warn rather than fail when absent: build.ps1 runs the native build first, so by
+    the time this evaluates the DLL exists; a hard error would fail `dotnet build`
+    on a fresh clone for a reason that has nothing to do with the managed code.
+    Unlike the guard, an absent bridge is NOT a safety hole — L3 disables cleanly
+    and the session records `telemetry_source` without `nvapi`.
+  -->
+  <PropertyGroup>
+    <FlNvapiBridgeOutDir>$(MSBuildThisFileDirectory)build\native\x64-release\FrameLedger.NvapiBridge\</FlNvapiBridgeOutDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(FlNvapiBridgeOutDir)FrameLedger.NvapiBridge.dll" Condition="Exists('$(FlNvapiBridgeOutDir)FrameLedger.NvapiBridge.dll')">
+      <Link>FrameLedger.NvapiBridge.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <Target Name="FlWarnOnMissingNvapiBridge" AfterTargets="Build"
+          Condition="!Exists('$(FlNvapiBridgeOutDir)FrameLedger.NvapiBridge.dll')">
+    <Warning Text="FrameLedger.NvapiBridge.dll was not found at $(FlNvapiBridgeOutDir). Run build.ps1 native first; L3 telemetry will report itself unavailable." />
+  </Target>
+
+</Project>

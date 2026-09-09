@@ -9,6 +9,19 @@ add_executable(fl_shm_layout_test layout_test.cpp)
 target_link_libraries(fl_shm_layout_test PRIVATE FrameLedger.Shm fl_native_flags)
 add_test(NAME fl_shm_layout COMMAND fl_shm_layout_test)
 
+# The NVAPI bridge's C ABI (P2 PR-E2). Links the SHIPPED DLL rather than compiling its source in,
+# because what the managed side loads is that DLL's export table; the DLL is copied beside the test
+# so the loader finds it the way the Agent's directory will. Green on both kinds of machine and it
+# says which (the same alternation fl_nvapi_probe pins, for the same reason).
+add_executable(fl_nvapi_bridge_test nvapi_bridge_test.cpp)
+target_link_libraries(fl_nvapi_bridge_test PRIVATE FrameLedger.NvapiBridge fl_native_flags Catch2::Catch2WithMain)
+target_compile_options(fl_nvapi_bridge_test PRIVATE /EHsc)
+add_custom_command(TARGET fl_nvapi_bridge_test POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:FrameLedger.NvapiBridge> $<TARGET_FILE_DIR:fl_nvapi_bridge_test>)
+add_test(NAME fl_nvapi_bridge COMMAND fl_nvapi_bridge_test)
+set_tests_properties(fl_nvapi_bridge PROPERTIES PASS_REGULAR_EXPRESSION "BRANCH: (AVAILABLE|DEGRADED)")
+
 # The safety-guard matrix. 20_OPEN_QUESTIONS §S13(a) put the guard in C++, which
 # made Catch2 a PREREQUISITE of the guard rather than a later nicety: 14_TESTING
 # requires forcing EnumProcessModulesEx failures, partial module lists and

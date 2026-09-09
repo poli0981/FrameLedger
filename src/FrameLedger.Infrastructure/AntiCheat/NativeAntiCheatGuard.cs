@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using FrameLedger.Application.AntiCheat;
 using FrameLedger.Domain.AntiCheat;
+using FrameLedger.Infrastructure.Native;
 
 namespace FrameLedger.Infrastructure.AntiCheat;
 
@@ -49,7 +50,9 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
     // THE ENTIRE ANTI-CHEAT GATE with whatever the attacker wants it to say.
     // That is a worse outcome than any other DLL-hijack in this application, so
     // the search path is not merely restricted — it is never consulted. The
-    // resolver below loads exactly one file, beside this assembly, by full path.
+    // assembly's one resolver (Native/BesideThisAssembly) loads exactly one file
+    // for this name, beside this assembly, by full path, and throws when it is
+    // absent: `required: true` below is that policy.
     //
     // The DefaultDllImportSearchPaths attributes are the belt to that braces:
     // System32 is the most restrictive value the analyzers accept, and if the
@@ -95,22 +98,11 @@ public sealed class NativeAntiCheatGuard : IAntiCheatGuard
 
     static NativeAntiCheatGuard()
     {
-        NativeLibrary.SetDllImportResolver(typeof(NativeAntiCheatGuard).Assembly, Resolve);
-    }
-
-    private static IntPtr Resolve(string libraryName, System.Reflection.Assembly assembly, DllImportSearchPath? path)
-    {
-        if (!string.Equals(libraryName, _guardDll, StringComparison.Ordinal))
-        {
-            return IntPtr.Zero;
-        }
-
         // AppContext.BaseDirectory, not the current directory and not the PATH.
         // If it is not there, FAIL — falling back to a search would reintroduce
         // exactly the hijack this exists to prevent, and a missing guard must
         // never degrade into "carry on without one".
-        string full = Path.Combine(AppContext.BaseDirectory, _guardDll);
-        return NativeLibrary.Load(full);
+        BesideThisAssembly.Claim(_guardDll, required: true);
     }
 
     /// <inheritdoc />

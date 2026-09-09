@@ -28,9 +28,9 @@ internal static class HostRecorder
 
     public static string PartialDirectory => Path.Combine(AppContext.BaseDirectory, "tmp");
 
-    public static SessionRecorder Build(LedgerDatabase db, IGameConsentStore store, int seconds, IProcessLauncher? launcher = null) =>
+    public static SessionRecorder Build(LedgerDatabase db, HostSessionFactory sessions) =>
         new(
-            new HostSessionFactory(store, seconds, launcher),
+            sessions,
             new SqliteGameRepository(db),
             new SqliteHardwareSnapshotRepository(db),
             new HardwareSnapshotSource(new DxgiAdapters()),
@@ -45,7 +45,7 @@ internal static class HostRecorder
 
     public static PartialRecovery Recovery(LedgerDatabase db) => new(new PartialSessionStore(PartialDirectory), Finalizer(db), HostMinimumSessionLength);
 
-    /// <summary>L1 + L2 under the composite, one poller per session; the poller owns and disposes the layers.</summary>
+    /// <summary>L1 + L2 + L3 under the composite, one poller per session; the poller owns and disposes the layers.</summary>
     private static TelemetryPoller Poller()
     {
         // Ownership walks up one step at a time and each local is nulled at its hand-off, so a throw
@@ -53,6 +53,7 @@ internal static class HostRecorder
         PdhAdapterMemoryCounter? pdh = null;
         BaselineTelemetrySource? l1 = null;
         LhmTelemetrySource? l2 = null;
+        NvapiTelemetrySource? l3 = null;
         CompositeTelemetrySource? composite = null;
         try
         {
@@ -60,11 +61,14 @@ internal static class HostRecorder
             l1 = new BaselineTelemetrySource(new DxgiAdapters(), pdh, TimeProvider.System);
             pdh = null;
             l2 = new LhmTelemetrySource(new LhmComputerAdapter(enableCpuAndMemory: false), new LhmTelemetryOptions(), TimeProvider.System);
+            l3 = new NvapiTelemetrySource(TimeProvider.System);
             l1.Start();
             l2.Start();
-            composite = new CompositeTelemetrySource([l1, l2]);
+            l3.Start();
+            composite = new CompositeTelemetrySource([l1, l2, l3]);
             l1 = null;
             l2 = null;
+            l3 = null;
             var poller = new TelemetryPoller(composite, new TelemetryPollerOptions(), TimeProvider.System, ownsSource: true);
             composite = null;
             return poller;
@@ -74,6 +78,7 @@ internal static class HostRecorder
             pdh?.Dispose();
             l1?.Dispose();
             l2?.Dispose();
+            l3?.Dispose();
             composite?.Dispose();
         }
     }

@@ -177,7 +177,8 @@ internal static class Program
         string normalised = ExecutableIdentity.Normalise(exePath);
         ExecutableFingerprint? observed = ExecutableIdentity.Read(exePath);
 
-        RecordedSession recorded = await HostRecorder.Build(db, store, seconds).RecordAsync(new RecordRequest
+        using var sessions = new HostSessionFactory(store, seconds);
+        RecordedSession recorded = await HostRecorder.Build(db, sessions).RecordAsync(new RecordRequest
         {
             NormalisedExePath = normalised,
             Observed = observed,
@@ -208,7 +209,8 @@ internal static class Program
             : $"vulkan layer: {vulkan.ManifestPath} (via {VkLayerLaunchEnvironment.ImplicitLayerPathVariable}; " +
               $"enable-list entry '{vulkan.ImageName}' for this session)");
 
-        RecordedSession recorded = await HostRecorder.Build(db, store, seconds, new ProcessLauncher(vulkan.Variables)).RecordAsync(new RecordRequest
+        using var sessions = new HostSessionFactory(store, seconds, new ProcessLauncher(vulkan.Variables));
+        RecordedSession recorded = await HostRecorder.Build(db, sessions).RecordAsync(new RecordRequest
         {
             NormalisedExePath = normalised,
             Observed = observed,

@@ -491,7 +491,8 @@ Tier 2 has none of this: `upscaler = unknown`, ratio `N/A`.
 > `18_GPU_VENDOR_APIS` L3) returns a feedback word per feature — and **measured 2026-09-06 (driver
 > 616.64) its `CREATED | EVALUATE` bits are set for a process with NO NVIDIA-app override** on both
 > no-override titles (`20_OPEN_QUESTIONS` §H5). So the capture host probes it out of process beside
-> each module snapshot (`fl-probe-nvapi --ngx-state <pid>`, no injection, no consent), and the
+> each module snapshot (in-process through `FrameLedger.NvapiBridge.dll` since 2026-09-10, P2 PR-E2;
+> `fl-probe-nvapi --ngx-state <pid>` spawned before that — no injection, no consent either way), and the
 > `upscaler:` line has a rung between the hooks and `N/A`:
 >
 > ```

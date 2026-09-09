@@ -34,6 +34,7 @@
     AppContext.BaseDirectory — so it has to sit beside the test binary.
   -->
   <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.Guard.targets" />
+  <Import Project="$(MSBuildThisFileDirectory)..\..\FrameLedger.NvapiBridge.targets" />
 
   <!--
     The packaged seed, so the seeder tests run against the artifact that ships

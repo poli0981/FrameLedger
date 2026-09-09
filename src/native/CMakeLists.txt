@@ -181,6 +181,7 @@ add_subdirectory(third_party)
 add_subdirectory(FrameLedger.Shm)
 add_subdirectory(FrameLedger.Overlay)
 add_subdirectory(FrameLedger.Injector)
+add_subdirectory(FrameLedger.NvapiBridge)
 add_subdirectory(FrameLedger.VkLayer)
 
 # enable_testing() must be called from the TOP-LEVEL CMakeLists, not from a
